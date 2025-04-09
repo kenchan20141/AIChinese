@@ -1233,7 +1233,7 @@ async function submitArgumentOutline() {
                     model: MODEL,
                     messages: [{ 
                         role: "user", 
-                        content: prompt + " 請直接給出最終答案，不要展示思考過程，也不要在回應中包含任何標籤或思考過程的內容，例如 <think></think>。" 
+                        content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。" 
                     }]
                 })
             });
@@ -1251,12 +1251,14 @@ async function submitArgumentOutline() {
             const data = await response.json();
             let content = data.choices[0].message.content.trim();
 
-            // 過濾 <think> 標籤及其內容
-            content = content.replace(/<think>.*?<\/think>/gs, '').trim();
+            // 強化過濾邏輯，移除所有可能的 <think> 標籤變體
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
 
+            // 驗證過濾後內容是否有效
             if (!content) {
-                throw new Error("API 回應無效或被過濾後無內容");
+                throw new Error("API 回應無效或過濾後無內容");
             }
+
             return content;
         } catch (error) {
             console.error(error);
