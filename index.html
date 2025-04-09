@@ -1218,50 +1218,50 @@ async function submitArgumentOutline() {
         }
 
         // 通用 API 調用函數
-        async function callAPI(prompt) {
-            let attempts = 0;
-            const maxAttempts = API_KEYS.length;
-            while (attempts < maxAttempts) {
-                try {
-                    const response = await fetch(API_URL, {
-                        method: "POST",
-                        headers: {
-                            "Authorization": `Bearer ${API_KEYS[currentApiKeyIndex]}`,
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            model: MODEL,
-                            messages: [{ role: "user", content: prompt }]
-                        })
-                    });
+       // 通用 API 調用函數
+async function callAPI(prompt) {
+    let attempts = 0;
+    const maxAttempts = API_KEYS.length;
+    while (attempts < maxAttempts) {
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: MODEL,
+                    messages: [{ role: "user", content: prompt + " 請直接給出最終答案，不要展示思考過程。" }]
+                })
+            });
 
-                    if (response.status === 429) {
-                        currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
-                        attempts++;
-                        continue;
-                    }
+            if (response.status === 429) {
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+                attempts++;
+                continue;
+            }
 
-                    if (!response.ok) {
-                        throw new Error(`API 調用失敗: ${response.statusText}`);
-                    }
+            if (!response.ok) {
+                throw new Error(`API 調用失敗: ${response.statusText}`);
+            }
 
-                    const data = await response.json();
-                    const content = data.choices[0].message.content.trim();
-                    if (!content || content.includes("<tool_response>")) {
-                        throw new Error("API 回應無效或包含異常標籤");
-                    }
-                    return content;
-                } catch (error) {
-                    console.error(error);
-                    currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
-                    attempts++;
-                    if (attempts >= maxAttempts) {
-                        throw new Error("所有 API 密鑰均無法使用");
-                    }
-                }
+            const data = await response.json();
+            const content = data.choices[0].message.content.trim();
+            if (!content || content.includes("<tool_response>")) {
+                throw new Error("API 回應無效或包含異常標籤");
+            }
+            return content;
+        } catch (error) {
+            console.error(error);
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+            attempts++;
+            if (attempts >= maxAttempts) {
+                throw new Error("所有 API 密鑰均無法使用");
             }
         }
-
+    }
+}
         // 生成寫作題目
         async function generateTopic() {
             const writingType = document.getElementById("writingType").value;
