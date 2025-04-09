@@ -1218,8 +1218,7 @@ async function submitArgumentOutline() {
         }
 
         // 通用 API 調用函數
-       // 通用 API 調用函數
-async function callAPI(prompt) {
+     async function callAPI(prompt) {
     let attempts = 0;
     const maxAttempts = API_KEYS.length;
     while (attempts < maxAttempts) {
@@ -1232,7 +1231,10 @@ async function callAPI(prompt) {
                 },
                 body: JSON.stringify({
                     model: MODEL,
-                    messages: [{ role: "user", content: prompt + " 請直接給出最終答案，不要展示思考過程。" }]
+                    messages: [{ 
+                        role: "user", 
+                        content: prompt + " 請直接給出最終答案，不要展示思考過程，也不要在回應中包含任何標籤或思考過程的內容，例如 <think></think>。" 
+                    }]
                 })
             });
 
@@ -1247,9 +1249,13 @@ async function callAPI(prompt) {
             }
 
             const data = await response.json();
-            const content = data.choices[0].message.content.trim();
-            if (!content || content.includes("<tool_response>")) {
-                throw new Error("API 回應無效或包含異常標籤");
+            let content = data.choices[0].message.content.trim();
+
+            // 過濾 <think> 標籤及其內容
+            content = content.replace(/<think>.*?<\/think>/gs, '').trim();
+
+            if (!content) {
+                throw new Error("API 回應無效或被過濾後無內容");
             }
             return content;
         } catch (error) {
