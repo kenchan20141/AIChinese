@@ -1567,25 +1567,25 @@ refreshBtn.addEventListener('click', fetchHitokoto);
     </div>
 
     <div id="expandContentContainer" style="display: none;">
-        <div id="expandTopicSelectionArea" style="display: none;">
-            <label for="expandTopicOption">選擇題目方式：</label>
-            <select id="expandTopicOption" onchange="toggleExpandTopicInput()">
-                <option value="generate">生成題目</option>
-                <option value="custom">自訂題目</option>
-            </select>
-            <div id="expandGenerateTopicArea">
-                <button onclick="generateExpandTopic()">生成題目</button>
-            </div>
-            <div id="expandCustomTopicArea" style="display: none;">
-                <table>
-                    <tr><th>題目</th><td><input type="text" id="expandCustomTitle" placeholder="請輸入題目"></td></tr>
-                    <tr><th>主題句</th><td><textarea id="expandCustomTheme" rows="2" placeholder="請輸入主題句"></textarea></td></tr>
-                    <tr><th>抄錄資料</th><td><textarea id="expandCustomData" rows="3" placeholder="請輸入抄錄資料"></textarea></td></tr>
-                </table>
-                <button onclick="setExpandCustomTopic()">確認題目</button>
-            </div>
-        </div>
+        
 
+
+<div id="expandTopicSelectionArea" style="display: none;">
+    <label>選擇題目方式：</label>
+    <div class="topic-buttons-container">
+        <!-- 套用新的 class: btn-generate -->
+        <button class="btn btn-generate" onclick="generateExpandTopic(this)">
+            <i class="fas fa-sync-alt"></i> 生成題目
+        </button>
+        <!-- 套用新的 class: btn-custom -->
+        <button class="btn btn-custom" onclick="showExpandCustomTopicInput(this)">
+            <i class="fas fa-edit"></i> 自訂題目
+        </button>
+    </div>
+    <!-- 這個 div 用來動態顯示自訂題目的輸入框 -->
+    <div id="expandCustomTopicInputArea" style="display: none; margin-top: 15px;">
+    </div>
+</div>
         <!-- 【核心修訂】將 topicResult 從 TopicSelectionArea 內部移到外部 -->
         <div id="expandTopicResult"></div>
 
@@ -2576,6 +2576,7 @@ function toggleReadingFunction() {
 
 
 // 請用這個新版本的函式，替換掉您原本的 toggleExpandFunction
+// 請用這個新版本的函式，替換掉您原本的 toggleExpandFunction
 function toggleExpandFunction() {
     clearAllTopicStates(); // 這行很好，保持不變
 
@@ -2594,19 +2595,23 @@ function toggleExpandFunction() {
     const expandTopicSelectionArea = document.getElementById("expandTopicSelectionArea");
     const expandToneLabel = document.getElementById("expandToneLabel");
     const expandTone = document.getElementById("expandTone");
+
+    // 根據選擇的功能，顯示或隱藏對應的區塊
     if (expandFunction === "comment") {
         expandWritingArea.style.display = "block";
         expandGuideArea.style.display = "none";
-        expandTopicSelectionArea.style.display = "block";
+        expandTopicSelectionArea.style.display = "block"; // 顯示我們新的按鈕區塊
         expandToneLabel.style.display = "block";
         expandTone.style.display = "block";
 
-        // 【核心修訂】在這裡補上指令，確保「生成題目」按鈕預設為顯示
-        document.getElementById("expandGenerateTopicArea").style.display = "block";
-        document.getElementById("expandCustomTopicArea").style.display = "none";
-        document.getElementById("expandTopicOption").value = "generate"; // 確保下拉選單也同步
+        // 確保自訂題目輸入區預設是隱藏的
+        const customInputArea = document.getElementById("expandCustomTopicInputArea");
+        if(customInputArea) {
+            customInputArea.style.display = 'none';
+            customInputArea.innerHTML = '';
+        }
 
-    } else {
+    } else { // "guide"
         expandWritingArea.style.display = "none";
         expandGuideArea.style.display = "block";
         expandTopicSelectionArea.style.display = "none";
@@ -2614,27 +2619,36 @@ function toggleExpandFunction() {
         expandTone.style.display = "none";
     }
 }
+// 新增此函式：用於顯示整合拓展的自訂題目介面
+function showExpandCustomTopicInput(buttonElement) {
+    if (buttonElement) {
+        updateButtonActiveState(buttonElement);
+    }
 
-// 切換題目輸入方式（整合拓展）
-function toggleExpandTopicInput() {
-const option = document.getElementById("expandTopicOption").value;
-const customTopicArea = document.getElementById("expandCustomTopicArea");
-if (option === "generate") {
-document.getElementById("expandGenerateTopicArea").style.display = "block";
-customTopicArea.style.display = "none";
-document.getElementById("expandTopicResult").innerHTML = "";
-localStorage.removeItem("expandCurrentTitle");
-localStorage.removeItem("expandCurrentTheme");
-localStorage.removeItem("expandCurrentData");
-} else {
-document.getElementById("expandGenerateTopicArea").style.display = "none";
-customTopicArea.style.display = "block";
-document.getElementById("expandTopicResult").innerHTML = "";
-localStorage.removeItem("expandCurrentTitle");
-localStorage.removeItem("expandCurrentTheme");
-localStorage.removeItem("expandCurrentData");
+    const customTopicArea = document.getElementById("expandCustomTopicInputArea");
+    const topicResult = document.getElementById("expandTopicResult");
+
+    topicResult.innerHTML = "";
+    topicResult.style.display = "none";
+    localStorage.removeItem("expandCurrentTitle");
+    localStorage.removeItem("expandCurrentTheme");
+    localStorage.removeItem("expandCurrentData");
+
+    // 動態生成自訂題目的輸入表格和確認按鈕
+    customTopicArea.innerHTML = `
+        <table>
+            <tr><th>題目</th><td><input type="text" id="expandCustomTitle" placeholder="請輸入題目"></td></tr>
+            <tr><th>主題句</th><td><textarea id="expandCustomTheme" rows="2" placeholder="請輸入主題句"></textarea></td></tr>
+            <tr><th>抄錄資料</th><td><textarea id="expandCustomData" rows="3" placeholder="請輸入抄錄資料"></textarea></td></tr>
+        </table>
+        <button class="btn-icon-confirm" onclick="setExpandCustomTopic()" title="確認題目">
+            <i class="fas fa-check"></i>
+        </button>
+    `;
+    customTopicArea.style.display = "block";
 }
-}
+
+
 
 // 切換議論功能
 function toggleArgumentType() {
@@ -3683,12 +3697,20 @@ addMessageToHistory("ai", newMessage);
 }
 }
 
-// 生成整合拓展題目
-async function generateExpandTopic() {
+// 替換舊的 generateExpandTopic 函式
+async function generateExpandTopic(buttonElement) {
+    if (buttonElement) {
+        updateButtonActiveState(buttonElement);
+    }
+
+    // 隱藏自訂題目輸入區，確保介面乾淨
+    const customTopicArea = document.getElementById("expandCustomTopicInputArea");
+    customTopicArea.style.display = "none";
+    customTopicArea.innerHTML = "";
+
     const topicResult = document.getElementById("expandTopicResult");
     const prompt = categories["整合拓展"].topicPrompt;
     
-    // 【核心修訂】先讓結果區塊顯示出來，才能看到載入訊息
     topicResult.innerHTML = "陳SIR正在出題...";
     topicResult.style.display = 'block';
 
@@ -3712,6 +3734,9 @@ async function generateExpandTopic() {
         `;
         localStorage.setItem("expandCurrentTheme", theme);
         localStorage.setItem("expandCurrentData", data);
+        // 清除可能存在的自訂題目 Title
+        localStorage.removeItem("expandCurrentTitle");
+
     } catch (error) {
         console.error("生成整合拓展題目時出錯:", error);
         if (error.message === "所有 API 密鑰均無法使用") {
@@ -3719,24 +3744,25 @@ async function generateExpandTopic() {
         } else {
             alert("生成題目時出錯，請重試");
         }
-        // 【核心修訂】如果出錯，清空內容並再次隱藏區塊
         topicResult.innerHTML = "";
         topicResult.style.display = 'none';
     }
 }
-// 設定自訂題目（整合拓展）
+
+
+// 替換舊的 setExpandCustomTopic 函式
 function setExpandCustomTopic() {
     const title = document.getElementById("expandCustomTitle").value.trim();
     const theme = document.getElementById("expandCustomTheme").value.trim();
     const data = document.getElementById("expandCustomData").value.trim();
     if (!title || !theme || !data) {
-        alert("請輸入所有內容");
+        alert("請輸入所有內容（題目、主題句、抄錄資料）");
         return;
     }
     
     const topicResult = document.getElementById("expandTopicResult");
     topicResult.innerHTML = `
-    題目：<strong>${title}</strong>
+    <strong>題目：${title}</strong>
     <div class="table-container">
         <table>
             <tr><th>主題句</th><th>抄錄資料</th></tr>
@@ -3745,16 +3771,18 @@ function setExpandCustomTopic() {
     </div>
     `;
     
-    // 【核心修訂】強制讓題目結果區塊顯示出來
     topicResult.style.display = 'block';
 
     localStorage.setItem("expandCurrentTitle", title);
     localStorage.setItem("expandCurrentTheme", theme);
     localStorage.setItem("expandCurrentData", data);
     
-    // 隱藏輸入區塊
-    document.getElementById("expandCustomTopicArea").style.display = 'none';
+    // 確認後，隱藏並清空輸入區域
+    const customTopicArea = document.getElementById("expandCustomTopicInputArea");
+    customTopicArea.style.display = 'none';
+    customTopicArea.innerHTML = '';
 }
+
 // 更新字數計數
 function updateCharCount() {
 const content = document.getElementById("expandContent").value;
