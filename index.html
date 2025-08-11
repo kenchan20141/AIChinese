@@ -4693,29 +4693,34 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let currentEditingElement = null;
 
-    function openModalEditor(element) {
-        currentEditingElement = element;
-        modalTextarea.value = currentEditingElement.value;
+   function openModalEditor(element) {
+    currentEditingElement = element;
+    modalTextarea.value = currentEditingElement.value;
 
-        // =================================================
-        // === 全新、更智慧的標題生成邏輯 ===
-        // =================================================
-        let titleText = '編輯內容'; // 預設標題
+    let titleText = '編輯內容'; // 先設定一個預設標題
+
+    // =================================================
+    // === 【核心修訂】針對特定輸入框，給予專屬標題 ===
+    // =================================================
+    if (element.id === 'writingContent' || element.id === 'argumentWritingContent') {
+        titleText = '輸入您的文章'; // 如果是敘事抒情或議論的寫作區，標題固定為「輸入您的文章」
+    }
+    // 如果不是上述的特殊情況，才執行原有的標題尋找邏輯
+    else {
         const parentTableCell = element.closest('td');
 
-        // 策略一：如果是在表格內 (大綱、整合拓展指引等)
+        // 策略一：如果是在表格內 (例如大綱)
         if (parentTableCell) {
             const parentRow = parentTableCell.closest('tr');
             if (parentRow) {
-                const headerCell = parentRow.cells[0]; // 通常第一格是行標題 (如：起, 承, 題目)
+                const headerCell = parentRow.cells[0];
                 const table = parentRow.closest('table');
                 if (table && table.rows.length > 0) {
-                    const columnHeaderCell = table.rows[0].cells[parentTableCell.cellIndex]; // 獲取對應的列表頭
+                    const columnHeaderCell = table.rows[0].cells[parentTableCell.cellIndex];
                     
                     const rowTitle = headerCell ? headerCell.textContent.trim().replace(/[:：]/g, '') : '';
                     const colTitle = columnHeaderCell ? columnHeaderCell.textContent.trim().replace(/[:：]/g, '') : '';
                     
-                    // 組合標題
                     if (rowTitle && colTitle && rowTitle !== colTitle) {
                         titleText = `編輯「${rowTitle}」的「${colTitle}」`;
                     } else if (rowTitle) {
@@ -4733,7 +4738,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 associatedLabel = document.querySelector(`label[for="${element.id}"]`);
             }
             
-            // 如果找不到 for 屬性關聯的 label，就往上找最近的一個 label
             if (!associatedLabel) {
                 const parentContainer = element.closest('div');
                 if (parentContainer) {
@@ -4745,13 +4749,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 titleText = `編輯「${associatedLabel.textContent.trim().replace(/[:：]/g, '')}」`;
             }
         }
-        
-        modalTitle.textContent = titleText;
-        // =================================================
-        
-        modal.style.display = 'flex';
-        modalTextarea.focus();
     }
+    
+    // 將最終決定的標題設定到懸浮視窗上
+    modalTitle.textContent = titleText;
+    
+    // 顯示懸浮視窗
+    modal.style.display = 'flex';
+    modalTextarea.focus();
+}
 
     function closeModalEditor() {
         modal.style.display = 'none';
