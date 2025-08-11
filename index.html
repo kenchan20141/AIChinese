@@ -1584,6 +1584,72 @@ color: #0056b3;
     filter: brightness(110%);
 }
 
+/* --- 大綱編輯懸浮視窗 (修正版) --- */
+.outline-modal-overlay {
+    display: none; /* 預設隱藏 */
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.65); /* 背景加深一點 */
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.outline-modal-content {
+    background-color: #fdfdfd;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    width: 90%;
+    max-width: 700px;
+    position: relative;
+    animation: fadeIn 0.3s;
+    display: flex;
+    flex-direction: column;
+}
+
+.outline-modal-content h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.4em;
+}
+
+#modal-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 1.1em;
+    line-height: 1.6;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 10px;
+    flex-grow: 1; /* 讓輸入框填滿剩餘空間 */
+    min-height: 250px; /* 最小高度 */
+}
+
+.outline-modal-content .modal-buttons {
+    text-align: right;
+    margin-top: 15px;
+}
+
+.outline-modal-content .preview-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+}
+
+/* 讓表格中的 textarea 在視覺上提示可以點擊 */
+#outlineTableArea textarea,
+#argumentOutlineTableArea textarea {
+    cursor: pointer;
+    background-color: #f0f8ff; /* 淡藍色背景 */
+}
+
 </style>
 </head>
 <body>
@@ -4563,13 +4629,105 @@ document.addEventListener("DOMContentLoaded", function() {
         showContainer('writingContainer', defaultButton);
     }
 });
+
+// =======================================================
+// === 大綱編輯懸浮視窗邏輯 (完整修正版) ===
+// =======================================================
+document.addEventListener('DOMContentLoaded', function() {
+
+    // 1. 獲取所有需要的 HTML 元素
+    const outlineModal = document.getElementById('outline-editor-modal');
+    const modalTextarea = document.getElementById('modal-textarea');
+    const modalTitle = document.getElementById('modal-title');
+    const modalSaveBtn = document.getElementById('modal-save-btn');
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+
+    // 檢查懸浮視窗元素是否存在，若不存在則不執行後續程式碼
+    if (!outlineModal || !modalTextarea || !modalSaveBtn || !modalCloseBtn) {
+        console.error("懸浮視窗的 HTML 結構不完整或未找到！");
+        return;
+    }
+
+    // 2. 用於儲存當前正在編輯的那個小 textarea
+    let currentEditingTextarea = null;
+
+    // 3. 開啟懸浮視窗的函式
+    function openOutlineEditor(textareaElement) {
+        currentEditingTextarea = textareaElement;
+        modalTextarea.value = currentEditingTextarea.value;
+
+        // 嘗試獲取該行的標題 (例如：起, 承, 轉, 合, 論點, 論據及論證)
+        const row = textareaElement.closest('tr');
+        if (row) {
+            const headerCell = row.cells[0];
+            const columnHeader = textareaElement.closest('table').rows[0].cells[textareaElement.closest('td').cellIndex];
+            if (headerCell && columnHeader) {
+                modalTitle.textContent = `編輯「${headerCell.textContent}」的「${columnHeader.textContent}」`;
+            }
+        }
+
+        outlineModal.style.display = 'flex';
+        modalTextarea.focus();
+    }
+
+    // 4. 關閉懸浮視窗的函式
+    function closeOutlineEditor() {
+        outlineModal.style.display = 'none';
+        modalTitle.textContent = '編輯內容'; // 還原標題
+        currentEditingTextarea = null;
+    }
+
+    // 5. 儲存內容並關閉的函式
+    function saveAndCloseEditor() {
+        if (currentEditingTextarea) {
+            currentEditingTextarea.value = modalTextarea.value;
+        }
+        closeOutlineEditor();
+    }
+    
+    // 6. 使用事件委派 (Event Delegation) 來監聽點擊事件
+    document.body.addEventListener('click', function(event) {
+        const target = event.target;
+        
+        // 檢查點擊的是否是大綱表格內的 textarea
+        if (target.tagName === 'TEXTAREA') {
+            const tableContainer = target.closest('#outlineTableArea, #argumentOutlineTableArea');
+            if (tableContainer) {
+                // 是我們要的目標，阻止預設行為並開啟編輯器
+                event.preventDefault();
+                openOutlineEditor(target);
+            }
+        }
+    });
+
+    // 7. 為懸浮視窗的按鈕和外部區域綁定事件
+    modalSaveBtn.addEventListener('click', saveAndCloseEditor);
+    modalCloseBtn.addEventListener('click', closeOutlineEditor);
+    outlineModal.addEventListener('click', function(event) {
+        // 如果點擊的是半透明背景本身，而不是內容區域，就關閉
+        if (event.target === outlineModal) {
+            closeOutlineEditor();
+        }
+    });
+});
+
 </script>
 
 <footer class="copyright-footer">
 <p>Copyright © 2025 陳冠健. All rights reserved.</p>
 </footer>
 
-
+<!-- === 大綱編輯懸浮視窗 (修正版) === -->
+<div id="outline-editor-modal" class="outline-modal-overlay">
+    <div class="outline-modal-content">
+        <h3 id="modal-title">編輯內容</h3>
+        <textarea id="modal-textarea" rows="15"></textarea>
+        <div class="modal-buttons">
+            <button id="modal-save-btn" class="btn-action">儲存並關閉</button>
+        </div>
+        <button id="modal-close-btn" class="preview-close-btn" title="關閉">&times;</button>
+    </div>
+</div>
 
 </body>
 </html>
