@@ -1,6 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
+
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'self'; 
+    script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; 
+    style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; 
+    font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
+    img-src 'self' https: data:;
+    connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network;
+    frame-src 'self' https://streamable.com;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+">
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>神思</title>
@@ -1705,11 +1719,9 @@ fetch('https://v1.hitokoto.cn/?c=d&c=i&c=k&encode=json')
 if (data.from.includes('魔道祖師')) {
 fetchHitokoto(); // 如果來源是「魔道祖師」，重新獲取名言
 } else {
-const convertedHitokoto = converter(data.hitokoto);
-const convertedFrom = converter(data.from);
-const convertedFromWho = data.from_who ? converter(data.from_who) : '佚名';
-hitokotoElement.innerHTML = `<p>${convertedHitokoto}</p>`;
-hitokotoFromElement.innerHTML = `—— ${convertedFromWho} 《${convertedFrom}》`;
+// 使用 textContent 可以自動處理特殊字元，是顯示純文字的最佳選擇
+hitokotoElement.textContent = converter(data.hitokoto);
+hitokotoFromElement.textContent = `—— ${converter(data.from_who || '佚名')} 《${converter(data.from)}》`;
 }
 })
 .catch(error => {
@@ -2270,6 +2282,14 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 </div>
 
 <script>
+
+// 【安全修訂】防止 XSS 攻擊的核心函式
+function sanitizeHTML(str) {
+  // 若傳入的不是字串，直接返回原值
+  if (typeof str !== 'string') return str;
+  // 將特殊字元轉換為 HTML 實體
+  return str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 // 【核心修訂】建立一個清除所有題目狀態的專用函式
 function clearAllTopicStates() {
@@ -3607,7 +3627,7 @@ const writingType = document.getElementById("writingType").value;
 const topicResult = document.getElementById("topicResult");
 
 if (writingType === "片段描寫") {
-const title = document.getElementById("customTitle").value.trim();
+sanitizeHTML(document.getElementById("customTitle").value.trim()); // <--- 消毒
 const focus = document.getElementById("customFocus").value.trim();
 const plot = document.getElementById("customPlot").value.trim();
 
@@ -4010,9 +4030,9 @@ async function startDiscussion() {
     startBtn.disabled = true;
 
     try {
-        bookTitle = document.getElementById("bookTitle").value.trim();
-        author = document.getElementById("author").value.trim();
-        discussionQuestion = document.getElementById("discussionQuestion").value.trim();
+        bookTitle = sanitizeHTML(document.getElementById("bookTitle").value.trim());
+author = sanitizeHTML(document.getElementById("author").value.trim());
+discussionQuestion = sanitizeHTML(document.getElementById("discussionQuestion").value.trim());
         booksTone = document.getElementById("booksTone").value;
 
         if (!bookTitle || !author || !discussionQuestion) {
@@ -4056,7 +4076,8 @@ async function sendInitialMessage() {
 async function continueDiscussion() {
     const continueBtn = document.getElementById('continueBtn');
     continueBtn.disabled = true;
-    const userInputText = document.getElementById("userInput").value.trim();
+    // 在將用戶輸入加入歷史紀錄前就進行消毒
+const userInputText = sanitizeHTML(document.getElementById("userInput").value.trim());
     if (!userInputText) {
         alert("請輸入您的回應");
         continueBtn.disabled = false;
@@ -4194,9 +4215,9 @@ topicResult.style.display = 'none';
 
 // 替換舊的 setExpandCustomTopic 函式
 function setExpandCustomTopic() {
-const title = document.getElementById("expandCustomTitle").value.trim();
-const theme = document.getElementById("expandCustomTheme").value.trim();
-const data = document.getElementById("expandCustomData").value.trim();
+const title = sanitizeHTML(document.getElementById("expandCustomTitle").value.trim());
+const theme = sanitizeHTML(document.getElementById("expandCustomTheme").value.trim());
+const data = sanitizeHTML(document.getElementById("expandCustomData").value.trim());
 if (!title || !theme || !data) {
 alert("請輸入所有內容（題目、主題句、抄錄資料）");
 return;
