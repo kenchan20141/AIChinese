@@ -2535,71 +2535,79 @@ clickedButton.classList.add('active');
 
 // API 配置信息
 const API_KEYS = [
-"sk-N2hJEV5h9dQl9K_bUrxLtw"
+    "sk-N2hJEV5h9dQl9K_bUrxLtw",
+    "sk-GruTbLTbtSeWof3rEBjtIg", // 新增的 API Key
+    "sk-ugZDzju3AbV2QeJS1Y415Q"  // 新增的 API Key
 ];
-let currentApiKeyIndex = 0;
+// let currentApiKeyIndex = 0; // 這個變數不再需要，可以刪除或註解掉
 const API_URL = "https://chatapi.akash.network/api/v1/chat/completions";
 const MODEL = "Qwen3-235B-A22B-Instruct-2507-FP8";
 
 // [新增] 閱讀專用 API 配置
 const READING_API_KEYS = [
-"sk-N2hJEV5h9dQl9K_bUrxLtw"
+    "sk-N2hJEV5h9dQl9K_bUrxLtw",
+    "sk-GruTbLTbtSeWof3rEBjtIg", // 新增的 API Key
+    "sk-ugZDzju3AbV2QeJS1Y415Q"  // 新增的 API Key
 ];
-let currentReadingApiKeyIndex = 0;
+// let currentReadingApiKeyIndex = 0; // 這個變數不再需要，可以刪除或註解掉
 const READING_API_URL = "https://chatapi.akash.network/api/v1/chat/completions";
 const READING_MODEL = "DeepSeek-R1-0528";
 
 
 // [新增] 閱讀專用 API 呼叫函式
 async function callReadingAPI(prompt) {
-let attempts = 0;
-const maxAttempts = READING_API_KEYS.length;
-while (attempts < maxAttempts) {
-try {
-const response = await fetch(READING_API_URL, {
-method: "POST",
-headers: {
-"Authorization": `Bearer ${READING_API_KEYS[currentReadingApiKeyIndex]}`,
-"Content-Type": "application/json"
-},
-body: JSON.stringify({
-model: READING_MODEL,
-messages: [{
-role: "user",
-content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-}],
-max_tokens: 64000
-})
-});
+    let attempts = 0;
+    const maxAttempts = READING_API_KEYS.length;
+    // 每次調用都從一個隨機的索引開始
+    let currentApiKeyIndex = Math.floor(Math.random() * READING_API_KEYS.length);
 
-if (response.status === 429) {
-currentReadingApiKeyIndex = (currentReadingApiKeyIndex + 1) % READING_API_KEYS.length;
-attempts++;
-continue;
-}
+    while (attempts < maxAttempts) {
+        try {
+            const response = await fetch(READING_API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${READING_API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: READING_MODEL,
+                    messages: [{
+                        role: "user",
+                        content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+                    }],
+                    max_tokens: 64000
+                })
+            });
 
-if (!response.ok) {
-throw new Error(`API 調用失敗: ${response.statusText}`);
-}
+            if (response.status === 429) {
+                console.warn(`閱讀 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+                attempts++;
+                continue;
+            }
 
-const data = await response.json();
-let content = data.choices[0].message.content.trim();
-content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+            if (!response.ok) {
+                throw new Error(`API 調用失敗: ${response.statusText}`);
+            }
 
-if (!content) {
-throw new Error("API 回應無效或過濾後無內容");
-}
+            const data = await response.json();
+            let content = data.choices[0].message.content.trim();
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
 
-return content;
-} catch (error) {
-console.error(error);
-currentReadingApiKeyIndex = (currentReadingApiKeyIndex + 1) % READING_API_KEYS.length;
-attempts++;
-if (attempts >= maxAttempts) {
-throw new Error("所有 API 密鑰均無法使用");
-}
-}
-}
+            if (!content) {
+                throw new Error("API 回應無效或過濾後無內容");
+            }
+
+            return content;
+        } catch (error) {
+            console.error(`使用閱讀 API Key ${currentApiKeyIndex} 時出錯:`, error);
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+            attempts++;
+            if (attempts >= maxAttempts) {
+                throw new Error("所有 API 密鑰均無法使用");
+            }
+        }
+    }
 }
 
 
@@ -3695,57 +3703,59 @@ submitBtn.disabled = false; // 重新啟用按鈕
 
 // 通用 API 調用函數
 async function callAPI(prompt) {
-let attempts = 0;
-const maxAttempts = API_KEYS.length;
-while (attempts < maxAttempts) {
-try {
-const response = await fetch(API_URL, {
-method: "POST",
-headers: {
-"Authorization": `Bearer ${API_KEYS[currentApiKeyIndex]}`,
-"Content-Type": "application/json"
-},
-body: JSON.stringify({
-model: MODEL,
-messages: [{
-role: "user",
-content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-}],
-max_tokens: 64000 
-})
-});
+    let attempts = 0;
+    const maxAttempts = API_KEYS.length;
+    // 每次調用都從一個隨機的索引開始
+    let currentApiKeyIndex = Math.floor(Math.random() * API_KEYS.length);
 
-if (response.status === 429) {
-currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
-attempts++;
-continue;
-}
+    while (attempts < maxAttempts) {
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: MODEL,
+                    messages: [{
+                        role: "user",
+                        content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+                    }],
+                    max_tokens: 64000
+                })
+            });
 
-if (!response.ok) {
-throw new Error(`API 調用失敗: ${response.statusText}`);
-}
+            if (response.status === 429) {
+                console.warn(`通用 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+                attempts++;
+                continue;
+            }
 
-const data = await response.json();
-let content = data.choices[0].message.content.trim();
+            if (!response.ok) {
+                throw new Error(`API 調用失敗: ${response.statusText}`);
+            }
 
-content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+            const data = await response.json();
+            let content = data.choices[0].message.content.trim();
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
 
-if (!content) {
-throw new Error("API 回應無效或過濾後無內容");
-}
+            if (!content) {
+                throw new Error("API 回應無效或過濾後無內容");
+            }
 
-return content;
-} catch (error) {
-console.error(error);
-currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
-attempts++;
-if (attempts >= maxAttempts) {
-throw new Error("所有 API 密鑰均無法使用");
+            return content;
+        } catch (error) {
+            console.error(`使用通用 API Key ${currentApiKeyIndex} 時出錯:`, error);
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+            attempts++;
+            if (attempts >= maxAttempts) {
+                throw new Error("所有 API 密鑰均無法使用");
+            }
+        }
+    }
 }
-}
-}
-}
-
 
 /**
  * Creates a beautiful bulleted list HTML from raw text content.
