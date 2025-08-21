@@ -4014,7 +4014,7 @@ async function submitArgumentWriting() {
         
         // 【核心修訂】改用閱讀專用的 API 函式
         const response = await callReadingAPI(prompt);
-        displayFullCommentWithGrading('argumentWritingResult', response, 'argument');
+        displayFullCommentWithGrading('argumentWritingResult', response, 'argument', content);
 
     } catch (error) {
         console.error("提交文章時出錯:", error);
@@ -4452,7 +4452,7 @@ async function submitWriting() {
 
         if (writingType === "片段描寫" || writingType === "全文寫作") {
              // 對於修改過的部分，調用評分顯示函式
-            displayFullCommentWithGrading('commentResult', response, 'narrative');
+            displayFullCommentWithGrading('commentResult', response, 'narrative', content);
         } else if (writingType === "大綱") {
             // 大綱的顯示邏輯保持不變
             const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
@@ -6205,7 +6205,7 @@ END IF
 }
 
 // 請將您原有的 displayFullCommentWithGrading() 函式替換為此版本
-function displayFullCommentWithGrading(containerId, apiResponse, uniqueIdPrefix) {
+function displayFullCommentWithGrading(containerId, apiResponse, uniqueIdPrefix, fullTextContent) {
     
     // 在更新innerHTML之前，先銷毀舊的圖表實例
     const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
@@ -6337,6 +6337,31 @@ scores.radar.文學性 = final.wenXueXing; // <--- 新增此處
                 scores.radar.扣題 = final.kouTi;
             }
             // === 【修訂結束】 ===
+
+
+const isFullTextWriting = (uniqueIdPrefix === 'narrative' || uniqueIdPrefix === 'argument');
+
+if (isFullTextWriting) {
+    // 獲取文章總字數 (中文字元計數)
+    const wordCount = fullTextContent.length;
+
+    // 如果字數不足 900 字
+    if (wordCount < 900) {
+        // 無論之前計算結果為何，強制將內容分和結構分的上限設為 6
+        scores.content = Math.min(scores.content, 6);
+        scores.structure = Math.min(scores.structure, 6);
+        
+        // 同時，也需要限制雷達圖中相關細項分數，確保數據一致性
+        if (scores.radar) {
+            scores.radar.立意 = Math.min(scores.radar.立意, 6);
+            scores.radar.取材 = Math.min(scores.radar.取材, 6);
+            scores.radar.詳略 = Math.min(scores.radar.詳略, 6);
+        }
+    }
+}
+// === 【修訂結束】 ===
+
+
 
             finalHTML += createGradingSystemHTML(uniqueIdPrefix);
             initialScores = scores;
