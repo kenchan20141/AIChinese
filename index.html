@@ -10,7 +10,7 @@ style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.goog
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data:;
 media-src 'self' https://youfulca.com;
-connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network https://router.huggingface.co;
+connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network;
 frame-src 'self' https://streamable.com;
 object-src 'none';
 base-uri 'self';
@@ -3121,92 +3121,69 @@ const READING_API_KEYS = [
 const READING_API_URL = "https://chatapi.akash.network/api/v1/chat/completions";
 const READING_MODEL = "DeepSeek-V3-1";
 
-// 備用API配置（Hugging Face）
-const BACKUP_API_URL = "https://router.huggingface.co/v1/chat/completions";
-const BACKUP_API_KEY = "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";
-const BACKUP_MODEL = "deepseek-ai/DeepSeek-V3.2-Exp:novita";  // 修正空格
-
 
 // [新增] 閱讀專用 API 呼叫函式
 async function callReadingAPI(prompt, temperature = null) {
-    let attempts = 0;
-    const maxAttempts = READING_API_KEYS.length + 1;  // +1 為備用API
-    let currentApiKeyIndex = Math.floor(Math.random() * READING_API_KEYS.length);
-    let useBackup = false;  // 標記是否切換到備用
+let attempts = 0;
+const maxAttempts = READING_API_KEYS.length;
+// 每次調用都從一個隨機的索引開始
+let currentApiKeyIndex = Math.floor(Math.random() * READING_API_KEYS.length);
 
-    while (attempts < maxAttempts) {
-        try {
-            let requestBody = {
-                model: useBackup ? BACKUP_MODEL : READING_MODEL,
-                messages: [{
-                    role: "user",
-                    content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-                }],
-                max_tokens: 64000
-            };
+while (attempts < maxAttempts) {
+try {
+const requestBody = {
+model: READING_MODEL,
+messages: [{
+role: "user",
+content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+}],
+max_tokens: 64000
+};
 
-            if (temperature !== null) {
-                requestBody.temperature = temperature;
-            }
-
-            const apiUrl = useBackup ? BACKUP_API_URL : READING_API_URL;
-            const apiKey = useBackup ? BACKUP_API_KEY : READING_API_KEYS[currentApiKeyIndex];
-            const headers = {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json"
-            };
-
-            // Hugging Face API 需要額外header
-            if (useBackup) {
-                headers["X-Hf-Token"] = BACKUP_API_KEY;
-            }
-
-            const response = await fetch(apiUrl, {
-                method: "POST",
-                headers: headers,
-                body: JSON.stringify(requestBody)
-            });
-
-            if (response.status === 429) {
-                console.warn(`${useBackup ? '備用' : '閱讀'} API Key 達到速率限制，嘗試下一個...`);
-                if (!useBackup) {
-                    currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
-                    attempts++;
-                    continue;
-                } else {
-                    attempts++;
-                }
-            }
-
-            if (!response.ok) {
-                throw new Error(`API 調用失敗: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            let content = data.choices[0].message.content.trim();
-            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
-            if (!content) {
-                throw new Error("API 回應無效或過濾後無內容");
-            }
-
-            console.log(`${useBackup ? '備用API' : '閱讀API'} 成功回應`);
-            return content;
-        } catch (error) {
-            console.error(`使用 ${useBackup ? '備用' : '閱讀'} API Key 時出錯:`, error);
-            attempts++;
-            if (attempts < READING_API_KEYS.length) {
-                currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
-            } else if (attempts === READING_API_KEYS.length && !useBackup) {
-                useBackup = true;
-                attempts = 0;
-            }
-            if (attempts >= maxAttempts) {
-                throw new Error("所有 API 密鑰均無法使用");
-            }
-        }
-    }
+if (temperature !== null) {
+requestBody.temperature = temperature;
 }
+
+const response = await fetch(READING_API_URL, {
+method: "POST",
+headers: {
+"Authorization": `Bearer ${READING_API_KEYS[currentApiKeyIndex]}`,
+"Content-Type": "application/json"
+},
+body: JSON.stringify(requestBody)
+});
+
+if (response.status === 429) {
+console.warn(`閱讀 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+attempts++;
+continue;
+}
+
+if (!response.ok) {
+throw new Error(`API 調用失敗: ${response.statusText}`);
+}
+
+const data = await response.json();
+let content = data.choices[0].message.content.trim();
+content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+
+if (!content) {
+throw new Error("API 回應無效或過濾後無內容");
+}
+
+return content;
+} catch (error) {
+console.error(`使用閱讀 API Key ${currentApiKeyIndex} 時出錯:`, error);
+currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+attempts++;
+if (attempts >= maxAttempts) {
+throw new Error("所有 API 密鑰均無法使用");
+}
+}
+}
+}
+
 
 
 
@@ -4342,85 +4319,64 @@ submitBtn.disabled = false; // 重新啟用按鈕
 
 // 通用 API 調用函數
 async function callAPI(prompt, temperature = null) {
-    let attempts = 0;
-    const maxAttempts = API_KEYS.length + 1;  // +1 為備用API
-    let currentApiKeyIndex = Math.floor(Math.random() * API_KEYS.length);
-    let useBackup = false;  // 標記是否切換到備用
+let attempts = 0;
+const maxAttempts = API_KEYS.length;
+// 每次調用都從一個隨機的索引開始
+let currentApiKeyIndex = Math.floor(Math.random() * API_KEYS.length);
 
-    while (attempts < maxAttempts) {
-        try {
-            let requestBody = {
-                model: useBackup ? BACKUP_MODEL : MODEL,
-                messages: [{
-                    role: "user",
-                    content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-                }],
-                max_tokens: 64000
-            };
+while (attempts < maxAttempts) {
+try {
+const requestBody = {
+model: MODEL,
+messages: [{
+role: "user",
+content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+}],
+max_tokens: 64000
+};
 
-            if (temperature !== null) {
-                requestBody.temperature = temperature;
-            }
+if (temperature !== null) {
+requestBody.temperature = temperature;
+}
 
-            const apiUrl = useBackup ? BACKUP_API_URL : API_URL;
-            const apiKey = useBackup ? BACKUP_API_KEY : API_KEYS[currentApiKeyIndex];
-            const headers = {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json"
-            };
+const response = await fetch(API_URL, {
+method: "POST",
+headers: {
+"Authorization": `Bearer ${API_KEYS[currentApiKeyIndex]}`,
+"Content-Type": "application/json"
+},
+body: JSON.stringify(requestBody)
+});
 
-            // Hugging Face API 需要額外header
-            if (useBackup) {
-                headers["X-Hf-Token"] = BACKUP_API_KEY;  // Hugging Face的額外驗證
-            }
+if (response.status === 429) {
+console.warn(`通用 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+attempts++;
+continue;
+}
 
-            const response = await fetch(apiUrl, {
-                method: "POST",
-                headers: headers,
-                body: JSON.stringify(requestBody)
-            });
+if (!response.ok) {
+throw new Error(`API 調用失敗: ${response.statusText}`);
+}
 
-            if (response.status === 429) {
-                console.warn(`${useBackup ? '備用' : '通用'} API Key 達到速率限制，嘗試下一個...`);
-                if (!useBackup) {
-                    currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
-                    attempts++;
-                    continue;
-                } else {
-                    attempts++;  // 備用也失敗，結束
-                }
-            }
+const data = await response.json();
+let content = data.choices[0].message.content.trim();
+content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
 
-            if (!response.ok) {
-                throw new Error(`API 調用失敗: ${response.statusText}`);
-            }
+if (!content) {
+throw new Error("API 回應無效或過濾後無內容");
+}
 
-            const data = await response.json();
-            let content = data.choices[0].message.content.trim();
-            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
-            if (!content) {
-                throw new Error("API 回應無效或過濾後無內容");
-            }
-
-            console.log(`${useBackup ? '備用API' : '通用API'} 成功回應`);
-            return content;
-        } catch (error) {
-            console.error(`使用 ${useBackup ? '備用' : '通用'} API Key 時出錯:`, error);
-            attempts++;
-            if (attempts < API_KEYS.length) {
-                // 繼續嘗試現有Keys
-                currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
-            } else if (attempts === API_KEYS.length && !useBackup) {
-                // 所有現有Keys失敗，切換到備用API
-                useBackup = true;
-                attempts = 0;  // 重置嘗試計數，只嘗試備用一次
-            }
-            if (attempts >= maxAttempts) {
-                throw new Error("所有 API 密鑰均無法使用");
-            }
-        }
-    }
+return content;
+} catch (error) {
+console.error(`使用通用 API Key ${currentApiKeyIndex} 時出錯:`, error);
+currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+attempts++;
+if (attempts >= maxAttempts) {
+throw new Error("所有 API 密鑰均無法使用");
+}
+}
+}
 }
 
 
