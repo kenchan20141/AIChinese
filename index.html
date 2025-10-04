@@ -1,5 +1,6 @@
 
 
+
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -4183,7 +4184,7 @@ async function submitArgumentWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
-    try {
+   try {
         const topic = localStorage.getItem("argumentCurrentTopic");
         if (!topic) {
             alert("請先設定題目");
@@ -4195,11 +4196,44 @@ async function submitArgumentWriting() {
             return;
         }
         const tone = document.getElementById("argumentWritingTone").value;
-        let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
-
         const note = categories["議論"].writingCommentNote;
+        let prompt = "";
 
-        const prompt = `你是一位嚴格的中文科閱卷員，請根據以下文章進行點評。
+        // 【核心修訂】根據選擇的語氣，動態生成完全不同的AI角色和指令
+        if (tone === "chen") {
+            // 這是全新的「陳SIR」專屬指令
+            prompt = `你將扮演「陳SIR」，一位風格幽默、喜歡用生活化比喻和網絡用語的中文老師。你的任務是點評學生的議論文。
+---
+### 你的任務與輸出格式 (必須嚴格遵守)
+你的輸出必須包含以下四個XML標籤，不得包含任何其他文字。
+
+<critique>
+[你必須嚴格遵循「陳SIR」的語氣指示：輕鬆隨意、多用EMOJI、偶爾使用網絡用語。如果學生寫得好，要大力讚賞；如果寫得不好，可以善意地揶揄一下。必須以數字編號列點方式呈現2-3點核心評論。]
+</critique>
+
+<suggestions>
+[在建議部分，同樣要保持「陳SIR」的輕鬆語氣，給出具體、生活化的改善建議。]
+</suggestions>
+
+<rewrite_example>
+[然而，在改寫範例中，請切換回專業、嚴肅的語氣，提供一段約150-200字的高質素改寫範例，展示你的專業能力。]
+</rewrite_example>
+
+<grading_json>
+[請客觀、理性地根據文章質量，填寫以下JSON格式的評分。]
+{
+"content": [0-10的整數], "expression": [0-10的整數], "structure": [0-10的整數],
+"radar": { "立意": [0-10], "取材": [0-10], "扣題": [0-10], "詳略": [0-10], "詞彙": [0-10], "文學性": [0-10] }
+}
+</grading_json>
+---
+### 待點評的資料
+題目：${topic}
+文章：${content}
+教學筆記：${note}`;
+        } else {
+            // 這是原始的「嚴肅正經」指令
+            prompt = `你是一位嚴格的中文科閱卷員，請根據以下文章進行點評。
 ---
 ### 待點評的資料
 題目：${topic}
@@ -4207,7 +4241,7 @@ async function submitArgumentWriting() {
 ---
 ### 教學筆記及語氣
 教學筆記：${note}
-點評語氣：${toneNote}
+點評語氣：請使用嚴肅正經的語氣，不使用EMOJI或網絡用語。
 建議及改寫範例語氣：請使用嚴肅正經的語氣，不使用EMOJI或網絡用語。
 ---
 ### 你的任務與輸出格式 (必須嚴格遵守)
@@ -4227,21 +4261,14 @@ async function submitArgumentWriting() {
 
 <grading_json>
 {
-"content": [0-10的整數],
-"expression": [0-10的整數],
-"structure": [0-10的整數],
-"radar": {
-"立意": [0-10的整數],
-"取材": [0-10的整數],
-"扣題": [0-10的整數],
-"詳略": [0-10的整數],
-"詞彙": [0-10的整數],
-"文學性": [0-10的整數]
-}
+"content": [0-10的整數], "expression": [0-10的整數], "structure": [0-10的整數],
+"radar": { "立意": [0-10], "取材": [0-10], "扣題": [0-10], "詳略": [0-10], "詞彙": [0-10], "文學性": [0-10] }
 }
 </grading_json>`;
+        }
 
-        document.getElementById("argumentWritingResult").innerHTML = "陳SIR正在點評...";
+
+       document.getElementById("argumentWritingResult").innerHTML = "陳SIR正在點評...";
 
         const response = await callReadingAPI(prompt);
         
@@ -4756,7 +4783,7 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
             document.getElementById("commentResult").innerHTML = elementsHTML;
             document.getElementById('save-writing-html-btn').style.display = 'flex';
 
-        } else { // 片段描寫 (這是核心修改處)
+       } else { // 片段描寫 (這是核心修改處)
             content = document.getElementById("writingContent").value.trim();
             if (!content) {
                 alert("請先輸入寫作內容");
@@ -4765,9 +4792,45 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
             const focus = localStorage.getItem("currentFocus");
             const plot = localStorage.getItem("currentPlot");
             const note = categories["片段描寫"].commentNote;
+            const tone = document.getElementById("writingTone").value;
 
-            // 為兩個模型建構完全相同的 Prompt
-            prompt = `你是一位嚴格的中文科閱卷員，請根據以下資料進行點評。
+            // 【核心修訂】根據選擇的語氣，動態生成完全不同的AI角色和指令
+            if (tone === "chen") {
+                // 這是全新的「陳SIR」專屬指令
+                prompt = `你將扮演「陳SIR」，一位風格幽默、喜歡用生活化比喻和網絡用語的中文老師。你的任務是點評學生的文章。
+---
+### 你的任務與輸出格式 (必須嚴格遵守)
+你的輸出必須包含以下四個XML標籤，不得包含任何其他文字。
+
+<critique>
+[你必須嚴格遵循「陳SIR」的語氣指示：輕鬆隨意、多用EMOJI、偶爾使用網絡用語。如果學生寫得好，要大力讚賞；如果寫得不好，可以善意地揶揄一下。必須以數字編號列點方式呈現2-3點核心評論。]
+</critique>
+
+<suggestions>
+[在建議部分，同樣要保持「陳SIR」的輕鬆語氣，給出具體、生活化的改善建議。]
+</suggestions>
+
+<rewrite_example>
+[然而，在改寫範例中，請切換回專業、嚴肅的語氣，提供一段約150-200字的高質素改寫範例，展示你的專業能力。]
+</rewrite_example>
+
+<grading_json>
+[請客觀、理性地根據文章質量，填寫以下JSON格式的評分。]
+{
+"content": [0-10的整數], "expression": [0-10的整數], "structure": [0-10的整數],
+"radar": { "立意": [0-10], "取材": [0-10], "扣題": [0-10], "詳略": [0-10], "詞彙": [0-10], "文學性": [0-10] }
+}
+</grading_json>
+---
+### 待點評的資料
+題目：${topic}
+結構段重點：${focus}
+情節大要：${plot}
+寫作內容：${content}
+教學筆記：${note}`;
+            } else {
+                // 這是原始的「嚴肅正經」指令
+                prompt = `你是一位嚴格的中文科閱卷員，請根據以下資料進行點評。
 ---
 ### 待點評的資料
 題目：${topic}
@@ -4777,7 +4840,7 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
 ---
 ### 教學筆記及語氣
 教學筆記：${note}
-點評語氣：${toneNote}
+點評語氣：請用嚴肅正經的語氣進行點評和建議。
 改寫範例語氣：請使用嚴肅正經的語氣。
 ---
 ### 你的任務與輸出格式 (必須嚴格遵守)
@@ -4797,19 +4860,11 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
 
 <grading_json>
 {
-"content": [0-10的整數],
-"expression": [0-10的整數],
-"structure": [0-10的整數],
-"radar": {
-"立意": [0-10的整數],
-"取材": [0-10的整數],
-"扣題": [0-10的整數],
-"詳略": [0-10的整數],
-"詞彙": [0-10的整數],
-"文學性": [0-10的整數]
-}
+"content": [0-10的整數], "expression": [0-10的整數], "structure": [0-10的整數],
+"radar": { "立意": [0-10], "取材": [0-10], "扣題": [0-10], "詳略": [0-10], "詞彙": [0-10], "文學性": [0-10] }
 }
 </grading_json>`;
+            }
             
             document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
             
