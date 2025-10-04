@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -4085,7 +4086,7 @@ document.getElementById("argumentOutlineResult").innerHTML = "陳SIR正在點評
 
 // 【核心修訂】改用閱讀專用的 API 函式
 
-const response = await callReadingAPI(prompt, 0); 
+const response = await callAPI(prompt, 0); 
 const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
 const commentIndex = sections.indexOf("點評及建議");
 const rewriteIndex = sections.indexOf("改寫後的大綱");
@@ -4178,29 +4179,27 @@ submitBtn.disabled = false;
 
 // 請將您原有的 submitArgumentWriting() 函式替換為此版本
 async function submitArgumentWriting() {
-const submitBtn = document.getElementById('submitArgumentWritingBtn');
-submitBtn.disabled = true;
-	hideAllSaveHtmlButtons();
+    const submitBtn = document.getElementById('submitArgumentWritingBtn');
+    submitBtn.disabled = true;
+    hideAllSaveHtmlButtons();
 
-try {
-const topic = localStorage.getItem("argumentCurrentTopic");
-if (!topic) {
-alert("請先設定題目");
-return;
-}
-const content = document.getElementById("argumentWritingContent").value.trim();
-if (!content) {
-alert("請輸入您的文章");
-return;
-}
-const tone = document.getElementById("argumentWritingTone").value;
-let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
+    try {
+        const topic = localStorage.getItem("argumentCurrentTopic");
+        if (!topic) {
+            alert("請先設定題目");
+            return;
+        }
+        const content = document.getElementById("argumentWritingContent").value.trim();
+        if (!content) {
+            alert("請輸入您的文章");
+            return;
+        }
+        const tone = document.getElementById("argumentWritingTone").value;
+        let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
 
-const note = categories["議論"].writingCommentNote;
+        const note = categories["議論"].writingCommentNote;
 
-// ===【核心修訂】===
-// 同樣地，我們直接構建一個融合了兩種指令的新 Prompt。
-const prompt = `你是一位嚴格的中文科閱卷員，請根據以下文章進行點評。
+        const prompt = `你是一位嚴格的中文科閱卷員，請根據以下文章進行點評。
 ---
 ### 待點評的資料
 題目：${topic}
@@ -4236,32 +4235,36 @@ const prompt = `你是一位嚴格的中文科閱卷員，請根據以下文章�
 "取材": [0-10的整數],
 "扣題": [0-10的整數],
 "詳略": [0-10的整數],
-"詞彙": [0-10的整數], // <--- 修改此處
-"文學性": [0-10的整數] // <--- 新增此處
-}
+"詞彙": [0-10的整數],
+"文學性": [0-10的整數]
 }
 }
 </grading_json>`;
 
-document.getElementById("argumentWritingResult").innerHTML = "陳SIR正在點評...";
+        document.getElementById("argumentWritingResult").innerHTML = "陳SIR正在點評...";
 
-// 【核心修訂】改用閱讀專用的 API 函式
-const response = await callReadingAPI(prompt);
-displayFullCommentWithGrading('argumentWritingResult', response, 'argument', content);
-document.getElementById('save-argument-writing-html-btn').style.display = 'flex'; // 顯示按鈕
-} catch (error) {
-console.error("提交文章時出錯:", error);
-if (error.message === "所有 API 密鑰均無法使用") {
-alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-} else {
-alert("點評生成失敗，請重試");
+        const response = await callReadingAPI(prompt);
+        
+        // =======================================================
+        // === 【核心修正】修正了此處函式呼叫的參數順序 ===
+        // =======================================================
+        // 舊的錯誤呼叫：displayFullCommentWithGrading('argumentWritingResult', response, 'argument', content);
+        // 新的正確呼叫如下：
+        displayFullCommentWithGrading('argumentWritingResult', response, null, 'argument', content);
+        
+        document.getElementById('save-argument-writing-html-btn').style.display = 'flex'; // 顯示按鈕
+    } catch (error) {
+        console.error("提交文章時出錯:", error);
+        if (error.message === "所有 API 密鑰均無法使用") {
+            alert("今日 API 調用次數已用完或API無法連接，請明天再試");
+        } else {
+            alert("點評生成失敗，請重試");
+        }
+        document.getElementById("argumentWritingResult").innerHTML = "";
+    } finally {
+        submitBtn.disabled = false;
+    }
 }
-document.getElementById("argumentWritingResult").innerHTML = "";
-} finally {
-submitBtn.disabled = false;
-}
-}
-
 
 // 提交議論指引
 // 提交議論指引
@@ -4378,6 +4381,116 @@ throw new Error("所有 API 密鑰均無法使用");
 }
 }
 }
+
+
+// =======================================================
+// === 【全新增設】Llama-3 驗證模型專用 API 呼叫函式 ===
+// =======================================================
+const LLAMA3_API_KEYS = [
+    "sk-N2hJEV5h9dQl9K_bUrxLtw",
+    "sk-GruTbLTbtSeWof3rEBjtIg",
+    "sk-ugZDzju3AbV2QeJS1Y415Q"
+];
+const LLAMA3_API_URL = "https://chatapi.akash.network/api/v1/chat/completions";
+const LLAMA3_MODEL = "Meta-Llama-3-3-70B-Instruct"; // 指定新的驗證模型
+
+async function callLlama3API(prompt, temperature = null) {
+    let attempts = 0;
+    const maxAttempts = LLAMA3_API_KEYS.length;
+    let currentApiKeyIndex = Math.floor(Math.random() * LLAMA3_API_KEYS.length);
+
+    while (attempts < maxAttempts) {
+        try {
+            const requestBody = {
+                model: LLAMA3_MODEL,
+                messages: [{
+                    role: "user",
+                    content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+                }],
+                max_tokens: 64000
+            };
+
+            if (temperature !== null) {
+                requestBody.temperature = temperature;
+            }
+
+            const response = await fetch(LLAMA3_API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${LLAMA3_API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (response.status === 429) {
+                console.warn(`Llama3 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % LLAMA3_API_KEYS.length;
+                attempts++;
+                continue;
+            }
+
+            if (!response.ok) {
+                throw new Error(`Llama3 API 調用失敗: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.trim();
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+
+            if (!content) {
+                throw new Error("Llama3 API 回應無效或過濾後無內容");
+            }
+
+            return content;
+        } catch (error) {
+            console.error(`使用 Llama3 API Key ${currentApiKeyIndex} 時出錯:`, error);
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % LLAMA3_API_KEYS.length;
+            attempts++;
+            if (attempts >= maxAttempts) {
+                throw new Error("所有 Llama3 API 密鑰均無法使用");
+            }
+        }
+    }
+}
+
+
+/**
+ * 【全新函式】應用 Llama-3 驗證模型的內容與結構分數差距規則。
+ * 規則：內容分和結構分的分差值不能高於1分。
+ * 執行方式：如果分差大於1，則將較高的分數下調至「較低分+1」。
+ * @param {object} scores - 從 Llama-3 模型解析出的原始評分物件。
+ * @returns {object} - 經過規則調整後的評分物件。
+ */
+const applyContentStructureRule = (scores) => {
+    // 建立一個分數物件的深層複本，避免影響原始數據
+    let s = JSON.parse(JSON.stringify(scores));
+
+    // 檢查 content 和 structure 分數是否存在
+    if (s.content !== undefined && s.structure !== undefined) {
+        const contentScore = s.content;
+        const structureScore = s.structure;
+        const difference = Math.abs(contentScore - structureScore);
+
+        // 如果分數差距大於 1，則觸發調整機制
+        if (difference > 1) {
+            console.log(`觸發 Llama-3 內容/結構分差值規則：內容=${contentScore}, 結構=${structureScore}, 差值=${difference}`);
+            
+            // 判斷哪個分數較高，並將其下調
+            if (contentScore > structureScore) {
+                s.content = structureScore + 1; // 將內容分下調至「結構分+1」
+                console.log(`調整後內容分數: ${s.content}`);
+            } else { // structureScore > contentScore
+                s.structure = contentScore + 1; // 將結構分下調至「內容分+1」
+                console.log(`調整後結構分數: ${s.structure}`);
+            }
+        }
+    }
+    // 返回調整後（或無需調整）的分數物件
+    return s;
+};
+
+
 
 
 /**
@@ -4564,43 +4677,43 @@ document.getElementById("outlineTableArea").innerHTML = tableHTML;
 
 // 請將您原有的 submitWriting() 函式替換為此版本
 async function submitWriting() {
-const submitBtn = document.getElementById('submitWritingBtn');
-submitBtn.disabled = true;
-	 hideAllSaveHtmlButtons(); // <--- 在這裡加上這一行
+    const submitBtn = document.getElementById('submitWritingBtn');
+    submitBtn.disabled = true;
+    hideAllSaveHtmlButtons(); // <--- 在這裡加上這一行
 
-try {
-const writingType = document.getElementById("writingType").value;
-const topic = localStorage.getItem("currentTopic");
-if (!topic) {
-alert("請先設定題目");
-return;
-}
+    try {
+        const writingType = document.getElementById("writingType").value;
+        const topic = localStorage.getItem("currentTopic");
+        if (!topic) {
+            alert("請先設定題目");
+            return;
+        }
 
-let content = "";
-let structure = "";
-let prompt = "";
+        let content = "";
+        let structure = "";
+        let prompt = "";
 
-const tone = document.getElementById("writingTone").value;
-let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
+        const tone = document.getElementById("writingTone").value;
+        let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
 
-if (writingType === "大綱") {
-// 大綱功能的邏輯保持不變
-structure = document.getElementById("structure").value;
-const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
-content = parts.map((part, index) => {
-const focusId = structure + "Focus" + (index + 1);
-const plotId = structure + "Plot" + (index + 1);
-const focus = document.getElementById(focusId)?.value.trim() || "";
-const plot = document.getElementById(plotId)?.value.trim() || "";
-if (!focus || !plot) {
-alert("請填寫所有大綱表格");
-throw new Error("Incomplete outline");
-}
-return { part, focus, plot };
-});
+        if (writingType === "大綱") {
+            // 大綱功能的邏輯保持不變
+            structure = document.getElementById("structure").value;
+            const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
+            content = parts.map((part, index) => {
+                const focusId = structure + "Focus" + (index + 1);
+                const plotId = structure + "Plot" + (index + 1);
+                const focus = document.getElementById(focusId)?.value.trim() || "";
+                const plot = document.getElementById(plotId)?.value.trim() || "";
+                if (!focus || !plot) {
+                    alert("請填寫所有大綱表格");
+                    throw new Error("Incomplete outline");
+                }
+                return { part, focus, plot };
+            });
 
-const note = categories["大綱"].commentNote;
-prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。要求：
+            const note = categories["大綱"].commentNote;
+            prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。要求：
 1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
 2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「結構段重點」和「情節大要」。使用「[part]」標記每個結構段的開始，然後在下一行「結構段重點：」後跟內容，再下一行「情節大要：」後跟內容。
 3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
@@ -4613,12 +4726,18 @@ prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後�
 ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\n")}
 教學筆記：${note}
 點評及建議語氣：${toneNote}`;
+            
+            document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
+            const response = await callAPI(prompt, 0);
+            // 大綱部分直接顯示結果，不走雙模型驗證
+            displayOutlineComment(response, content);
+            document.getElementById('save-writing-html-btn').style.display = 'flex';
 
-} else if (writingType === "敘事物象") {
-// 敘事物象功能的邏輯保持不變
-content = document.getElementById("narrativeElements").value.trim();
-const note = categories["敘事物象"].commentNote;
-prompt = `請根據以下題目和取材/故事背景生成五十個不重複且相關的物象。要求：
+        } else if (writingType === "敘事物象") {
+            // 敘事物象功能的邏輯保持不變
+            content = document.getElementById("narrativeElements").value.trim();
+            const note = categories["敘事物象"].commentNote;
+            prompt = `請根據以下題目和取材/故事背景生成五十個不重複且相關的物象。要求：
 1. 物象必須與題目和取材/故事背景緊密相關。
 2. 物象應多樣化且生動，能夠增強故事的真實感和情感表達。
 3. 請以列表形式呈現，每個物象佔一行。
@@ -4626,19 +4745,29 @@ prompt = `請根據以下題目和取材/故事背景生成五十個不重複且
 題目：${topic}
 取材/故事背景：${content || "無具體背景，根據題目生成"}
 教學筆記：${note}`;
-} else { // 片段描寫/全文寫作 (這是核心修改處)
-content = document.getElementById("writingContent").value.trim();
-if (!content) {
-alert("請先輸入寫作內容");
-return;
-}
-const focus = localStorage.getItem("currentFocus");
-const plot = localStorage.getItem("currentPlot");
-const note = categories["片段描寫"].commentNote;
+            
+            document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
+            const response = await callAPI(prompt, 0);
+            // 敘事物象直接顯示結果
+            const elements = response.split("\n").map(item => item.trim()).filter(item => item);
+            let elementsHTML = "<h3>生成的物象（50項）：</h3><ul>";
+            elements.forEach(element => elementsHTML += `<li>${element}</li>`);
+            elementsHTML += "</ul>";
+            document.getElementById("commentResult").innerHTML = elementsHTML;
+            document.getElementById('save-writing-html-btn').style.display = 'flex';
 
-// ===【核心修訂】===
-// 我們不再調用 buildGradingPrompt()，而是直接構建一個融合了兩種指令的新 Prompt。
-prompt = `你是一位嚴格的中文科閱卷員，請根據以下資料進行點評。
+        } else { // 片段描寫 (這是核心修改處)
+            content = document.getElementById("writingContent").value.trim();
+            if (!content) {
+                alert("請先輸入寫作內容");
+                return;
+            }
+            const focus = localStorage.getItem("currentFocus");
+            const plot = localStorage.getItem("currentPlot");
+            const note = categories["片段描寫"].commentNote;
+
+            // 為兩個模型建構完全相同的 Prompt
+            prompt = `你是一位嚴格的中文科閱卷員，請根據以下資料進行點評。
 ---
 ### 待點評的資料
 題目：${topic}
@@ -4648,7 +4777,7 @@ prompt = `你是一位嚴格的中文科閱卷員，請根據以下資料進行�
 ---
 ### 教學筆記及語氣
 教學筆記：${note}
-點評及建議語氣：${toneNote}
+點評語氣：${toneNote}
 改寫範例語氣：請使用嚴肅正經的語氣。
 ---
 ### 你的任務與輸出格式 (必須嚴格遵守)
@@ -4676,118 +4805,113 @@ prompt = `你是一位嚴格的中文科閱卷員，請根據以下資料進行�
 "取材": [0-10的整數],
 "扣題": [0-10的整數],
 "詳略": [0-10的整數],
-"詞彙": [0-10的整數], // <--- 修改此處
-"文學性": [0-10的整數] // <--- 新增此處
+"詞彙": [0-10的整數],
+"文學性": [0-10的整數]
 }
 }
 </grading_json>`;
+            
+            document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
+            
+            // 使用 Promise.all 同時發送兩個 API 請求
+            const [originalApiResponse, llama3ApiResponse] = await Promise.all([
+                callAPI(prompt, 0),         // 呼叫現有模型
+                callLlama3API(prompt, 0)    // 呼叫新的 Llama-3 模型
+            ]);
+
+            // 將兩個模型的結果都傳遞給 displayFullCommentWithGrading 函式
+            displayFullCommentWithGrading('commentResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
+            document.getElementById('save-writing-html-btn').style.display = 'flex'; // 顯示按鈕
+        }
+    } catch (error) {
+        console.error("提交寫作時出錯:", error);
+        if (error.message.includes("API 密鑰均無法使用")) {
+            alert("今日 API 調用次數已用完或API無法連接，請明天再試");
+        } else if (error.message !== "Incomplete outline") {
+            alert("點評生成失敗，請重試");
+        }
+        document.getElementById("commentResult").innerHTML = "";
+    } finally {
+        submitBtn.disabled = false;
+    }
 }
 
-document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
-const response = await callAPI(prompt, 0); 
+// 輔助函式，用於顯示大綱的評論 (從 submitWriting 中提取出來)
+function displayOutlineComment(response, content) {
+    const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
+    const commentIndex = sections.indexOf("點評及建議");
+    const rewriteIndex = sections.indexOf("改寫後的大綱");
+    const explanationIndex = sections.indexOf("改寫說明");
+    const commentPart = commentIndex !== -1 ? sections[commentIndex + 1] : "";
+    const rewritePart = rewriteIndex !== -1 ? sections[rewriteIndex + 1] : "";
+    const explanationPart = explanationIndex !== -1 ? sections[explanationIndex + 1].trim() : "";
 
-if (writingType === "片段描寫" || writingType === "全文寫作") {
-// 對於修改過的部分，調用評分顯示函式
-displayFullCommentWithGrading('commentResult', response, 'narrative', content);
-document.getElementById('save-writing-html-btn').style.display = 'flex'; // 顯示按鈕
-} else if (writingType === "大綱") {
-// 大綱的顯示邏輯保持不變
-const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
-const commentIndex = sections.indexOf("點評及建議");
-const rewriteIndex = sections.indexOf("改寫後的大綱");
-const explanationIndex = sections.indexOf("改寫說明");
-const commentPart = commentIndex !== -1 ? sections[commentIndex + 1] : "";
-const rewritePart = rewriteIndex !== -1 ? sections[rewriteIndex + 1] : "";
-const explanationPart = explanationIndex !== -1 ? sections[explanationIndex + 1].trim() : "";
+    function parseCommentPart(commentPart) {
+        const comments = {};
+        const regex = /\[(.+?)\]\s*點評：\s*(.+?)(?=\s*建議：|\s*\[|$)/gs;
+        const suggestionRegex = /\[(.+?)\]\s*點評：.+?\s*建議：\s*(.+?)(?=\s*\[|$)/gs;
+        let match;
+        while ((match = regex.exec(commentPart)) !== null) {
+            const part = match[1];
+            comments[part] = comments[part] || {};
+            comments[part].comment = match[2].trim();
+        }
+        while ((match = suggestionRegex.exec(commentPart)) !== null) {
+            const part = match[1];
+            comments[part] = comments[part] || {};
+            comments[part].suggestion = match[2].trim();
+        }
+        return comments;
+    }
 
-function parseCommentPart(commentPart) {
-const comments = {};
-const regex = /\[(.+?)\]\s*點評：\s*(.+?)(?=\s*建議：|\s*\[|$)/gs;
-const suggestionRegex = /\[(.+?)\]\s*點評：.+?\s*建議：\s*(.+?)(?=\s*\[|$)/gs;
-let match;
-while ((match = regex.exec(commentPart)) !== null) {
-const part = match[1];
-comments[part] = comments[part] || {};
-comments[part].comment = match[2].trim();
+    function parseRewritePart(rewritePart) {
+        const rewrites = {};
+        const regex = /\[(.+?)\]\s*結構段重點：\s*(.+?)(?=\s*情節大要：|\s*\[|$)/gs;
+        const plotRegex = /\[(.+?)\]\s*結構段重點：.+?\s*情節大要：\s*(.+?)(?=\s*\[|$)/gs;
+        let match;
+        while ((match = regex.exec(rewritePart)) !== null) {
+            const part = match[1];
+            rewrites[part] = rewrites[part] || {};
+            rewrites[part].focus = match[2].trim();
+        }
+        while ((match = plotRegex.exec(rewritePart)) !== null) {
+            const part = match[1];
+            rewrites[part] = rewrites[part] || {};
+            rewrites[part].plot = match[2].trim();
+        }
+        return rewrites;
+    }
+    const comments = parseCommentPart(commentPart);
+    const rewrites = parseRewritePart(rewritePart);
+    let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th>部份</th><th>結構段重點</th><th>情節大要</th><th>點評</th><th>建議</th></tr>`;
+    content.forEach(item => {
+        const comment = comments[item.part]?.comment || "未生成點評";
+        const suggestion = comments[item.part]?.suggestion || "未生成建議";
+        commentTableHTML += `<tr><td>${item.part}</td><td>${item.focus}</td><td>${item.plot}</td><td>${comment}</td><td>${suggestion}</td></tr>`;
+    });
+    commentTableHTML += "</table></div>";
+    let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th>部份</th><th>結構段重點</th><th>情節大要</th></tr>`;
+    content.forEach(item => {
+        const rewrite = rewrites[item.part] || { focus: "未生成結構段重點", plot: "未生成情節大要" };
+        rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.focus || "未生成結構段重點"}</td><td>${rewrite.plot || "未生成情節大要"}</td></tr>`;
+    });
+    rewriteTableHTML += "</table></div>";
+    let explanationHTML = '';
+    if (explanationPart) {
+        const points = explanationPart.split(/\s*(?=\d\.\s*)/).filter(p => p.trim());
+        explanationHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫說明</h3>`;
+        points.forEach(point => {
+            const match = point.match(/^(\d)\.\s*(.*)$/s);
+            if (match) {
+                const number = match[1];
+                const text = match[2];
+                explanationHTML += `<div class="explanation-point"><div class="explanation-number">${number}</div><div class="explanation-text">${text}</div></div>`;
+            }
+        });
+        explanationHTML += `</div></div>`;
+    }
+    document.getElementById("commentResult").innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
 }
-while ((match = suggestionRegex.exec(commentPart)) !== null) {
-const part = match[1];
-comments[part] = comments[part] || {};
-comments[part].suggestion = match[2].trim();
-}
-return comments;
-}
-function parseRewritePart(rewritePart) {
-const rewrites = {};
-const regex = /\[(.+?)\]\s*結構段重點：\s*(.+?)(?=\s*情節大要：|\s*\[|$)/gs;
-const plotRegex = /\[(.+?)\]\s*結構段重點：.+?\s*情節大要：\s*(.+?)(?=\s*\[|$)/gs;
-let match;
-while ((match = regex.exec(rewritePart)) !== null) {
-const part = match[1];
-rewrites[part] = rewrites[part] || {};
-rewrites[part].focus = match[2].trim();
-}
-while ((match = plotRegex.exec(rewritePart)) !== null) {
-const part = match[1];
-rewrites[part] = rewrites[part] || {};
-rewrites[part].plot = match[2].trim();
-}
-return rewrites;
-}
-const comments = parseCommentPart(commentPart);
-const rewrites = parseRewritePart(rewritePart);
-let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th>部份</th><th>結構段重點</th><th>情節大要</th><th>點評</th><th>建議</th></tr>`;
-content.forEach(item => {
-const comment = comments[item.part]?.comment || "未生成點評";
-const suggestion = comments[item.part]?.suggestion || "未生成建議";
-commentTableHTML += `<tr><td>${item.part}</td><td>${item.focus}</td><td>${item.plot}</td><td>${comment}</td><td>${suggestion}</td></tr>`;
-});
-commentTableHTML += "</table></div>";
-let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th>部份</th><th>結構段重點</th><th>情節大要</th></tr>`;
-content.forEach(item => {
-const rewrite = rewrites[item.part] || { focus: "未生成結構段重點", plot: "未生成情節大要" };
-rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.focus || "未生成結構段重點"}</td><td>${rewrite.plot || "未生成情節大要"}</td></tr>`;
-});
-rewriteTableHTML += "</table></div>";
-let explanationHTML = '';
-if (explanationPart) {
-const points = explanationPart.split(/\s*(?=\d\.\s*)/).filter(p => p.trim());
-explanationHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫說明</h3>`;
-points.forEach(point => {
-const match = point.match(/^(\d)\.\s*(.*)$/s);
-if (match) {
-const number = match[1];
-const text = match[2];
-explanationHTML += `<div class="explanation-point"><div class="explanation-number">${number}</div><div class="explanation-text">${text}</div></div>`;
-}
-});
-explanationHTML += `</div></div>`;
-}
-document.getElementById("commentResult").innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
-document.getElementById('save-writing-html-btn').style.display = 'flex'; // 顯示按鈕
-
-} else if (writingType === "敘事物象") {
-// 敘事物象的顯示邏輯保持不變
-const elements = response.split("\n").map(item => item.trim()).filter(item => item);
-let elementsHTML = "<h3>生成的物象（50項）：</h3><ul>";
-elements.forEach(element => elementsHTML += `<li>${element}</li>`);
-elementsHTML += "</ul>";
-document.getElementById("commentResult").innerHTML = elementsHTML;
-document.getElementById('save-writing-html-btn').style.display = 'flex'; // 顯示按鈕
-}
-} catch (error) {
-console.error("提交寫作時出錯:", error);
-if (error.message === "所有 API 密鑰均無法使用") {
-alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-} else if (error.message !== "Incomplete outline") {
-alert("點評生成失敗，請重試");
-}
-document.getElementById("commentResult").innerHTML = "";
-} finally {
-submitBtn.disabled = false;
-}
-}
-
 
 // 替換舊的 submitReading 函式
 async function submitReading() {
@@ -5828,23 +5952,32 @@ return `
 /**
 * 初始化評等系統，包括設定分數和繪製初始圖表
 * @param {string} uniqueIdPrefix - 用於區分不同功能區塊的唯一前綴
-* @param {object} initialScores - 包含初始分數的物件 (可選)
+* @param {object} initialScores - 包含初始分數的物件
+* @param {string} finalGrade - 【新】直接傳入最終計算好的等級
 */
-function initializeGradingSystem(uniqueIdPrefix, initialScores = {}) {
-// 將從 AI 獲取的初始分數設定到隱藏的 input 中
-if (initialScores.content !== undefined) document.getElementById(`${uniqueIdPrefix}ContentScore`).value = initialScores.content;
-if (initialScores.expression !== undefined) document.getElementById(`${uniqueIdPrefix}ExpressionScore`).value = initialScores.expression;
-if (initialScores.structure !== undefined) document.getElementById(`${uniqueIdPrefix}StructureScore`).value = initialScores.structure;
-// 假設標點和錯別字分數需要預設或由AI提供
-if (initialScores.punctuation !== undefined) document.getElementById(`${uniqueIdPrefix}PunctuationScore`).value = initialScores.punctuation;
-else document.getElementById(`${uniqueIdPrefix}PunctuationScore`).value = 5; // 預設值
+function initializeGradingSystem(uniqueIdPrefix, initialScores = {}, finalGrade) {
+    // 確保 initialScores 和 initialScores.radar 存在
+    if (!initialScores || !initialScores.radar) {
+        console.error("初始化評分系統時缺少必要的分數數據。");
+        return;
+    }
 
-if (initialScores.typo !== undefined) document.getElementById(`${uniqueIdPrefix}TypoScore`).value = initialScores.typo;
-else document.getElementById(`${uniqueIdPrefix}TypoScore`).value = 1; // 預設值
+    // 將最終計算出的分數設定到隱藏的 input 中，這些 input 是後續計算的基礎
+    document.getElementById(`${uniqueIdPrefix}ContentScore`).value = initialScores.content;
+    document.getElementById(`${uniqueIdPrefix}ExpressionScore`).value = initialScores.expression;
+    document.getElementById(`${uniqueIdPrefix}StructureScore`).value = initialScores.structure;
+    
+    // 標點和錯別字分數使用固定的預設值
+    document.getElementById(`${uniqueIdPrefix}PunctuationScore`).value = 5;
+    document.getElementById(`${uniqueIdPrefix}TypoScore`).value = 1;
 
-// 首次加載時更新一次所有分數顯示、進度條和圖表
-updateScoresAndGrade(uniqueIdPrefix, initialScores.radar);
+    // 呼叫更新函式，它會處理所有介面元素的更新，包括顯示分數、進度條和雷達圖
+    updateScoresAndGrade(uniqueIdPrefix, finalGrade, initialScores.radar);
 }
+
+
+
+
 /**
 * 根據分數計算總分，上限為 100
 * @param {string} uniqueIdPrefix - 功能區塊的唯一前綴
@@ -5882,59 +6015,60 @@ return "1";
 /**
 * 更新所有分數顯示、總分、等級、進度條和雷達圖
 * @param {string} uniqueIdPrefix - 功能區塊的唯一前綴
+* @param {string} finalGrade - 【新】直接傳入最終計算好的等級
 * @param {object} radarData - 雷達圖的數據 (可選)
 */
-function updateScoresAndGrade(uniqueIdPrefix, radarData = null) {
-// 從隱藏的 input 獲取原始分數 (0-10 或 0-3)
-const contentVal = parseInt(document.getElementById(`${uniqueIdPrefix}ContentScore`).value);
-const expressionVal = parseInt(document.getElementById(`${uniqueIdPrefix}ExpressionScore`).value);
-const structureVal = parseInt(document.getElementById(`${uniqueIdPrefix}StructureScore`).value);
-const punctuationVal = parseInt(document.getElementById(`${uniqueIdPrefix}PunctuationScore`).value);
-const typoVal = parseInt(document.getElementById(`${uniqueIdPrefix}TypoScore`).value);
+function updateScoresAndGrade(uniqueIdPrefix, finalGrade, radarData = null) {
+    // 從隱藏的 input 獲取原始分數 (0-10 或 0-3)
+    const contentVal = parseInt(document.getElementById(`${uniqueIdPrefix}ContentScore`).value);
+    const expressionVal = parseInt(document.getElementById(`${uniqueIdPrefix}ExpressionScore`).value);
+    const structureVal = parseInt(document.getElementById(`${uniqueIdPrefix}StructureScore`).value);
+    const punctuationVal = parseInt(document.getElementById(`${uniqueIdPrefix}PunctuationScore`).value);
+    const typoVal = parseInt(document.getElementById(`${uniqueIdPrefix}TypoScore`).value);
 
-// 更新各分項顯示（乘以權重後的分數）
-document.getElementById(`${uniqueIdPrefix}ContentScoreDisplay`).textContent = contentVal * 4;
-document.getElementById(`${uniqueIdPrefix}ExpressionScoreDisplay`).textContent = expressionVal * 3;
-document.getElementById(`${uniqueIdPrefix}StructureScoreDisplay`).textContent = structureVal * 2;
-document.getElementById(`${uniqueIdPrefix}PunctuationScoreDisplay`).textContent = punctuationVal * 1;
-document.getElementById(`${uniqueIdPrefix}TypoScoreDisplay`).textContent = typoVal;
+    // 更新各分項顯示（乘以權重後的分數）
+    document.getElementById(`${uniqueIdPrefix}ContentScoreDisplay`).textContent = contentVal * 4;
+    document.getElementById(`${uniqueIdPrefix}ExpressionScoreDisplay`).textContent = expressionVal * 3;
+    document.getElementById(`${uniqueIdPrefix}StructureScoreDisplay`).textContent = structureVal * 2;
+    document.getElementById(`${uniqueIdPrefix}PunctuationScoreDisplay`).textContent = punctuationVal * 1;
+    document.getElementById(`${uniqueIdPrefix}TypoScoreDisplay`).textContent = typoVal;
 
-// 【修訂一】更新進度條寬度
-document.getElementById(`${uniqueIdPrefix}ContentScoreFill`).style.width = `${contentVal * 10}%`;
-document.getElementById(`${uniqueIdPrefix}ExpressionScoreFill`).style.width = `${expressionVal * 10}%`;
-document.getElementById(`${uniqueIdPrefix}StructureScoreFill`).style.width = `${structureVal * 10}%`;
-document.getElementById(`${uniqueIdPrefix}PunctuationScoreFill`).style.width = `${punctuationVal * 10}%`;
-document.getElementById(`${uniqueIdPrefix}TypoScoreFill`).style.width = `${(typoVal / 3) * 100}%`;
+    // 更新進度條寬度
+    document.getElementById(`${uniqueIdPrefix}ContentScoreFill`).style.width = `${contentVal * 10}%`;
+    document.getElementById(`${uniqueIdPrefix}ExpressionScoreFill`).style.width = `${expressionVal * 10}%`;
+    document.getElementById(`${uniqueIdPrefix}StructureScoreFill`).style.width = `${structureVal * 10}%`;
+    document.getElementById(`${uniqueIdPrefix}PunctuationScoreFill`).style.width = `${punctuationVal * 10}%`;
+    document.getElementById(`${uniqueIdPrefix}TypoScoreFill`).style.width = `${(typoVal / 3) * 100}%`;
 
-// 【修訂二】計算並更新總分（上限100）和等級
-const totalScore = calculateTotalScore(uniqueIdPrefix);
-document.getElementById(`${uniqueIdPrefix}TotalScoreDisplay`).textContent = `總分: ${totalScore} / 100`;
-document.getElementById(`${uniqueIdPrefix}FinalGrade`).textContent = `等級: ${determineGrade(totalScore)}`;
+    // 計算並更新總分
+    const totalScore = calculateTotalScore(uniqueIdPrefix);
+    document.getElementById(`${uniqueIdPrefix}TotalScoreDisplay`).textContent = `總分: ${totalScore} / 100`;
+    // 【修訂】直接使用傳入的 finalGrade
+    document.getElementById(`${uniqueIdPrefix}FinalGrade`).textContent = `等級: ${finalGrade}`;
 
-// 準備雷達圖數據
-let currentRadarData;
-if (radarData) {
-currentRadarData = [
-radarData.立意 || 5,
-radarData.取材 || 5,
-radarData.扣題 || 5,
-radarData.詳略 || 5,
-radarData.詞彙 || 5, // <--- 修改此處
-radarData.文學性 || 5 // <--- 新增此處
-];
-} else {
-// 若 AI 未提供雷達圖數據，則根據分數估算
-currentRadarData = [
-Math.round((contentVal * 0.6 + structureVal * 0.4)), // 立意
-Math.round((contentVal * 0.8 + expressionVal * 0.2)), // 取材
-Math.round((contentVal * 0.7 + structureVal * 0.3)), // 扣題
-Math.round((structureVal * 0.7 + contentVal * 0.3)), // 詳略
-vocabScore, // <--- 修改此處
-literaryScore // <--- 新增此處
-];
-}
-// 【修訂四】更新雷達圖
-createOrUpdateRadarChart(uniqueIdPrefix, currentRadarData);
+    // 準備並更新雷達圖數據
+    let currentRadarData;
+    if (radarData) {
+        currentRadarData = [
+            radarData.立意 || 5,
+            radarData.取材 || 5,
+            radarData.扣題 || 5,
+            radarData.詳略 || 5,
+            radarData.詞彙 || 5,
+            radarData.文學性 || 5
+        ];
+    } else {
+        // 若 AI 未提供雷達圖數據，則根據分數估算 (此為備用邏輯)
+        currentRadarData = [
+            Math.round((contentVal * 0.6 + structureVal * 0.4)), 
+            Math.round((contentVal * 0.8 + expressionVal * 0.2)),
+            Math.round((contentVal * 0.7 + structureVal * 0.3)),
+            Math.round((structureVal * 0.7 + contentVal * 0.3)),
+            expressionVal,
+            expressionVal
+        ];
+    }
+    createOrUpdateRadarChart(uniqueIdPrefix, currentRadarData);
 }
 
 
@@ -6470,202 +6604,180 @@ ${basePrompt}
 }
 }
 
-// 請將您原有的 displayFullCommentWithGrading() 函式替換為此版本
-function displayFullCommentWithGrading(containerId, apiResponse, uniqueIdPrefix, fullTextContent) {
+// 請將您原有的 displayFullCommentWithGrading() 函式替換為此最終修訂版
+function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
 
-// 在更新innerHTML之前，先銷毀舊的圖表實例
-const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
-if (window[instanceName]) {
-window[instanceName].destroy();
-window[instanceName] = null; // 清除變數引用
+    // 步驟 A: 在進行任何操作前，先銷毀舊的圖表實例
+    const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
+    if (window[instanceName]) {
+        window[instanceName].destroy();
+        window[instanceName] = null;
+    }
+
+    const resultContainer = document.getElementById(containerId);
+    let finalHTML = "<h3>陳SIR點評：</h3>";
+    
+    // 步驟 B: 預先定義變數，用於儲存所有計算的最終結果
+    let scoresForDisplay = null;
+    let finalGradeForDisplay = "評級中"; 
+
+    // 步驟 C: 解析來自 API 的回應
+    const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/);
+    const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+    const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
+    const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/);
+    
+    // 【邏輯一】如果文章是「敘事抒情文」，執行雙模型驗證 (此部分保持不變)
+    if (uniqueIdPrefix === 'narrative') {
+        const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/) : null;
+        
+        if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
+            try {
+                const originalScores = JSON.parse(originalGradingMatch[1].trim());
+                const llama3Scores = JSON.parse(llama3GradingMatch[1].trim());
+                console.log("--- 雙模型評分驗證 (敘事抒情文) ---");
+                console.log("現有模型 (Qwen) 原始評分:", JSON.parse(JSON.stringify(originalScores)));
+                console.log("驗證模型 (Llama-3) 原始評分:", JSON.parse(JSON.stringify(llama3Scores)));
+                
+                const applyV8Rules = (scores) => {
+                    let s = JSON.parse(JSON.stringify(scores)); 
+                    s.radar = s.radar || {};
+                    if (s.radar && s.radar.扣題 !== undefined) {
+                        let final = { kouTi: s.radar.扣題, xiangLue: s.radar.詳略, structure: s.structure, liYi: s.radar.立意, quCai: s.radar.取材, ciHui: s.radar.詞彙, wenXueXing: s.radar.文學性, expression: s.expression, content: s.content };
+                        if (final.kouTi >= 5) { final.liYi = Math.max(final.liYi, 5); final.quCai = Math.max(final.quCai, 5); }
+                        if (final.kouTi <= 6) { final.liYi = Math.min(final.liYi, 5); final.quCai = Math.min(final.quCai, 5); }
+                        if (final.kouTi <= 5) { final.xiangLue = Math.min(final.xiangLue, 4); final.structure = Math.min(final.structure, 4); }
+                        if (final.ciHui <= 6 && final.wenXueXing <= 6) { final.liYi = Math.min(final.liYi, 6); final.quCai = Math.min(final.quCai, 6); }
+                        if (!(final.liYi >= 7 && final.quCai >= 7)) { final.ciHui = Math.min(final.ciHui, 8); final.wenXueXing = Math.min(final.wenXueXing, 8); }
+                        final.quCai = Math.min(final.quCai, final.liYi);
+                        if (final.kouTi <= 4) { let t = final.kouTi; t = Math.min(t, 4); t = Math.max(t, 2); final.content = t; }
+                        else { if (final.liYi === 10 && final.quCai === 10) final.content = 9; else if (final.liYi === 9 && final.quCai === 9) final.content = 8; else if (final.liYi === 8 && final.quCai === 8) final.content = 7; else final.content = Math.round((final.liYi + final.quCai) / 2); }
+                        if (final.ciHui < 8 || final.wenXueXing < 8) { final.content = Math.min(final.content, 7); }
+                        if (final.ciHui === final.wenXueXing) { final.expression = final.ciHui - 1; } else { final.expression = Math.min(final.ciHui, final.wenXueXing); }
+                        const structureLowerBound = final.content - 1;
+                        final.structure = Math.min(final.structure, final.content);
+                        final.structure = Math.max(final.structure, structureLowerBound);
+                        s.content = final.content; s.expression = final.expression; s.structure = final.structure;
+                        s.radar.立意 = final.liYi; s.radar.取材 = final.quCai; s.radar.詳略 = final.xiangLue;
+                        s.radar.詞彙 = final.ciHui; s.radar.文學性 = final.wenXueXing; s.radar.扣題 = final.kouTi;
+                    }
+                    return s;
+                };
+                
+                const applyWordCountRule = (scores, textContent) => {
+                     let s = JSON.parse(JSON.stringify(scores));
+                     const wordCount = textContent.length;
+                     if (wordCount < 900) {
+                        s.content = Math.min(s.content, 5); s.structure = Math.min(s.structure, 5);
+                        if (s.radar) { s.radar.立意 = Math.min(s.radar.立意, 5); s.radar.取材 = Math.min(s.radar.取材, 5); s.radar.詳略 = Math.min(s.radar.詳略, 5); }
+                     }
+                     return s;
+                };
+
+                let finalQwenScores = applyV8Rules(originalScores);
+                finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
+                
+                // --- 【核心修訂處】 ---
+                // 1. 先應用原有的字數懲罰規則
+                let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
+                // 2. 接著應用我們新增的「內容」與「結構」分數差距規則
+                finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
+                // --- 修訂結束 ---
+
+                console.log("Qwen V8規則後分數:", JSON.parse(JSON.stringify(finalQwenScores)));
+                console.log("Llama-3 (應用所有規則後)分數:", JSON.parse(JSON.stringify(finalLlama3Scores)));
+
+                const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
+                const gradeQwen = determineGrade(Math.min(totalQwen, 100));
+
+                const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
+                const gradeLlama3 = determineGrade(Math.min(totalLlama3, 100));
+
+                if (totalLlama3 < totalQwen) {
+                    scoresForDisplay = finalLlama3Scores;
+                    finalGradeForDisplay = gradeLlama3;
+                    console.log("決策: Llama-3 最終總分較低，採用其結果。");
+                } else {
+                    scoresForDisplay = finalQwenScores;
+                    finalGradeForDisplay = gradeQwen;
+                    console.log("決策: Qwen 最終總分較低或相等，採用其結果。");
+                }
+                
+                if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5**") {
+                    const isQwenHigh = (gradeQwen === "5*" || gradeQwen === "5**");
+                    const isLlama3High = (gradeLlama3 === "5*" || gradeLlama3 === "5**");
+                    if (!(isQwenHigh && isLlama3High)) {
+                        finalGradeForDisplay = "5";
+                        console.log(`等級驗證：因其中一個模型最終評級 (${gradeQwen} / ${gradeLlama3}) 低於5*，最終顯示等級降為 5。`);
+                    }
+                }
+                
+                console.log("最終採用分數:", JSON.parse(JSON.stringify(scoresForDisplay)));
+                console.log("最終顯示等級:", finalGradeForDisplay);
+
+            } catch (e) {
+                console.error("解析、比對或應用評分規則時出錯:", e);
+                scoresForDisplay = null;
+            }
+        } else {
+            console.warn("敘事抒情文缺少雙模型評分資料，無法進行驗證。");
+            scoresForDisplay = null;
+        }
+
+    } else if (uniqueIdPrefix === 'argument') {
+        if (originalGradingMatch && originalGradingMatch[1]) {
+             try {
+                const originalScores = JSON.parse(originalGradingMatch[1].trim());
+                console.log("--- 單模型原始評分 (議論文) ---");
+                console.log("模型原始評分 (未經處理):", JSON.parse(JSON.stringify(originalScores)));
+
+                scoresForDisplay = originalScores;
+
+                const totalScore = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
+                const finalGrade = determineGrade(Math.min(totalScore, 100));
+
+                finalGradeForDisplay = finalGrade;
+                
+                console.log("決策: 採用模型原始評分，不進行後續聯動調整。");
+                console.log("最終採用分數:", JSON.parse(JSON.stringify(scoresForDisplay)));
+                console.log("最終顯示等級:", finalGradeForDisplay);
+
+             } catch(e) {
+                console.error("解析議論文原始評分時出錯:", e);
+                scoresForDisplay = null;
+             }
+        } else {
+             console.warn("議論文缺少評分資料，無法進行處理。");
+             scoresForDisplay = null;
+        }
+    } else {
+        console.warn("未知的文章類型或評分資料缺失。");
+        scoresForDisplay = null;
+    }
+
+    if (scoresForDisplay) {
+        finalHTML += createGradingSystemHTML(uniqueIdPrefix);
+    } else {
+        finalHTML += "<p>評等資料不完整，無法顯示分數。</p>";
+    }
+    if (critiqueMatch && critiqueMatch[1]) {
+        finalHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
+    }
+    if (suggestionsMatch && suggestionsMatch[1]) {
+        finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
+    }
+    if (rewriteMatch && rewriteMatch[1]) {
+        const rewriteContent = rewriteMatch[1].trim().replace(/\n/g, '<br>');
+        finalHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteContent}</p></div></div>`;
+    }
+
+    resultContainer.innerHTML = finalHTML;
+
+    if (scoresForDisplay) {
+        initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
+    }
 }
 
-const resultContainer = document.getElementById(containerId);
-
-const gradingMatch = apiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/);
-const critiqueMatch = apiResponse.match(/<critique>([\s\S]*?)<\/critique>/);
-const suggestionsMatch = apiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-const rewriteMatch = apiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
-
-let finalHTML = "<h3>陳SIR點評：</h3>";
-let initialScores = {};
-
-if (gradingMatch && gradingMatch[1]) {
-const gradingJSON = gradingMatch[1].trim();
-try {
-const scores = JSON.parse(gradingJSON);
-
-// === 【核心修訂：V8 版評分聯動邏輯】 ===
-if (scores.radar && scores.radar.扣題 !== undefined) {
-
-// 步驟一：獲取所有從 AI 回傳的原始分數
-let final = {
-kouTi: scores.radar.扣題,
-xiangLue: scores.radar.詳略,
-structure: scores.structure,
-liYi: scores.radar.立意,
-quCai: scores.radar.取材,
-
-ciHui: scores.radar.詞彙, // <--- 修改此處
-wenXueXing: scores.radar.文學性, // <--- 新增此處
-expression: scores.expression,
-content: scores.content
-};
-
-// --- 步驟二：按嚴格順序應用所有細項分數的調整規則 ---
-
-// 規則 1: 為合格的「扣題」文章設定內容分數的底線
-if (final.kouTi >= 5) {
-final.liYi = Math.max(final.liYi, 5);
-final.quCai = Math.max(final.quCai, 5);
-}
-
-if (final.kouTi <= 6) {
-final.liYi = Math.min(final.liYi, 5);
-final.quCai = Math.min(final.quCai, 5);
-}
-
-// 規則 2: 「扣題」分數的絕對限制 (影響詳略和結構的初始上限)
-if (final.kouTi <= 5) {
-final.xiangLue = Math.min(final.xiangLue, 4);
-final.structure = Math.min(final.structure, 4);
-}
-
-// 規則 3: 「文筆」制約「立意」與「取材」
-if (final.ciHui <= 6 && final.wenXueXing <= 6) { // <--- 修改此處的條件
-final.liYi = Math.min(final.liYi, 6);
-final.quCai = Math.min(final.quCai, 6);
-}
-
-// 規則 4: 「內容」制約「文筆」
-if (!(final.liYi >= 7 && final.quCai >= 7)) {
-final.ciHui = Math.min(final.ciHui, 8); // <--- 修改此處
-final.wenXueXing = Math.min(final.wenXueXing, 8); // <--- 新增此處
-}
-
-// 規則 5: 「立意」制約「取材」
-final.quCai = Math.min(final.quCai, final.liYi);
-
-// --- 步驟三：根據調整後的細項分數，重新計算三大主項的最終分數 ---
-
-// 3.1 重新計算「內容」分數
-if (final.kouTi <= 4) {
-// 【核心修订】
-// 当扣题为 5 分或以下时，内容分在 [2, 4] 区间内跟随扣题分
-let tempContentScore = final.kouTi; // 先让内容分等于扣题分
-tempContentScore = Math.min(tempContentScore, 4); // 设置上限为 4
-tempContentScore = Math.max(tempContentScore, 2); // 设置下限为 2
-final.content = tempContentScore; // 赋最终值
-} else {
-if (final.liYi === 10 && final.quCai === 10) {
-final.content = 9;
-} else if (final.liYi === 9 && final.quCai === 9) {
-final.content = 8;
-} else if (final.liYi === 8 && final.quCai === 8) {
-final.content = 7;
-} else {
-final.content = Math.round((final.liYi + final.quCai) / 2);
-}
-}
-
-// 【⭐ 全新核心修訂：規則 6 - 表達能力制約內容分數上限 ⭐】
-// 如果「詞彙」或「文學性」任何一項低於8分，則「內容」分數的上限將被強制設定為6分。
-if (final.ciHui < 8 || final.wenXueXing < 8) {
-final.content = Math.min(final.content, 7);
-}
-
-
-
-
-// 3.2 重新計算「表達」分數
-if (final.ciHui === final.wenXueXing) {
-// 規則二：若「詞彙」和「文學性」同分，則在「表達」減1分
-final.expression = final.ciHui - 1;
-} else {
-// 規則一：「詞彙」和「文學性」若分數不一樣，則取低分者
-final.expression = Math.min(final.ciHui, final.wenXueXing);
-}
-
-// 3.3 【新增規則】：「結構」分數與「內容」分數的最終校準
-// 結構分不僅不能高於內容分，且分差不能超過1分
-const structureLowerBound = final.content - 1; // 設定結構分的下限
-
-// 首先，確保結構分不超過內容分 (設定上限)
-final.structure = Math.min(final.structure, final.content);
-// 其次，確保結果不低於下限
-final.structure = Math.max(final.structure, structureLowerBound);
-
-
-// --- 步驟四：將所有計算出的最終分數，更新回 scores 物件 ---
-scores.content = final.content;
-scores.expression = final.expression;
-scores.structure = final.structure;
-scores.radar.立意 = final.liYi;
-scores.radar.取材 = final.quCai;
-scores.radar.詳略 = final.xiangLue;
-scores.radar.詞彙 = final.ciHui; // <--- 修改此處
-scores.radar.文學性 = final.wenXueXing; // <--- 新增此處
-scores.radar.扣題 = final.kouTi;
-}
-// === 【修訂結束】 ===
-
-
-const isFullTextWriting = (uniqueIdPrefix === 'narrative' || uniqueIdPrefix === 'argument');
-
-if (isFullTextWriting) {
-// 獲取文章總字數 (中文字元計數)
-const wordCount = fullTextContent.length;
-
-// 如果字數不足 900 字
-if (wordCount < 900) {
-// 【已修訂】無論之前計算結果為何，強制將內容分和結構分的上限設為 5
-scores.content = Math.min(scores.content, 5);
-scores.structure = Math.min(scores.structure, 5);
-
-// 【已修訂】同時，也需要限制雷達圖中相關細項分數，確保數據一致性
-if (scores.radar) {
-scores.radar.立意 = Math.min(scores.radar.立意, 5);
-scores.radar.取材 = Math.min(scores.radar.取材, 5);
-scores.radar.詳略 = Math.min(scores.radar.詳略, 5);
-}
-}
-}
-// === 【修訂結束】 ===
-
-
-
-finalHTML += createGradingSystemHTML(uniqueIdPrefix);
-initialScores = scores;
-} catch (e) {
-console.error("解析評等 JSON 失敗:", e, "收到的內容:", gradingJSON);
-finalHTML += "<p>評等生成失敗，請檢查 API 回應。</p>";
-}
-} else {
-console.warn("在 API 回應中未找到 <grading_json> 標籤。");
-}
-
-if (critiqueMatch && critiqueMatch[1]) {
-finalHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
-}
-if (suggestionsMatch && suggestionsMatch[1]) {
-finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-}
-if (rewriteMatch && rewriteMatch[1]) {
-const rewriteContent = rewriteMatch[1].trim().replace(/\n/g, '<br>');
-finalHTML += `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>改寫範例</h3>
-<p>${rewriteContent}</p>
-</div>
-</div>`;
-}
-
-resultContainer.innerHTML = finalHTML;
-
-if (Object.keys(initialScores).length > 0) {
-initializeGradingSystem(uniqueIdPrefix, initialScores);
-}
-}
 
 // =======================================================
 // === 評等系統邏輯結束 ===
