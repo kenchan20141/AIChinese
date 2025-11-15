@@ -5,6 +5,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -6679,7 +6680,10 @@ ${basePrompt}
 }
 }
 
-// 請將您原有的 displayFullCommentWithGrading() 函式替換為此最終修訂版
+/**
+ * 【最終修訂版】顯示完整的點評、建議、改寫範例及評分圖表
+ * 此版本已加入您要求的硬性字數規定。
+ */
 function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
 
     // 步驟 A: 在進行任何操作前，先銷毀舊的圖表實例
@@ -6702,7 +6706,7 @@ function displayFullCommentWithGrading(containerId, originalApiResponse, llama3A
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
     const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/);
     
-    // 【邏輯一】如果文章是「敘事抒情文」，執行雙模型驗證 (此部分保持不變)
+    // 【邏輯一】如果文章是「敘事抒情文」，執行雙模型驗證
     if (uniqueIdPrefix === 'narrative') {
         const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/) : null;
         
@@ -6710,9 +6714,6 @@ function displayFullCommentWithGrading(containerId, originalApiResponse, llama3A
             try {
                 const originalScores = JSON.parse(originalGradingMatch[1].trim());
                 const llama3Scores = JSON.parse(llama3GradingMatch[1].trim());
-                console.log("--- 雙模型評分驗證 (敘事抒情文) ---");
-                console.log("現有模型 (Qwen) 原始評分:", JSON.parse(JSON.stringify(originalScores)));
-                console.log("驗證模型 (Llama-3) 原始評分:", JSON.parse(JSON.stringify(llama3Scores)));
                 
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
@@ -6751,42 +6752,23 @@ function displayFullCommentWithGrading(containerId, originalApiResponse, llama3A
 
                 let finalQwenScores = applyV8Rules(originalScores);
                 finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
-                
-                // --- 【核心修訂處】 ---
-                // 1. 先應用原有的字數懲罰規則
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
-                // 2. 接著應用我們新增的「內容」與「結構」分數差距規則
                 finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
-                // --- 修訂結束 ---
-
-                console.log("Qwen V8規則後分數:", JSON.parse(JSON.stringify(finalQwenScores)));
-                console.log("Llama-3 (應用所有規則後)分數:", JSON.parse(JSON.stringify(finalLlama3Scores)));
 
                 const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
                 const gradeQwen = determineGrade(Math.min(totalQwen, 100));
-
                 const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
                 const gradeLlama3 = determineGrade(Math.min(totalLlama3, 100));
 
-if (totalLlama3 > totalQwen) { // <--- 核心修改處：從 < 改為 >
-    scoresForDisplay = finalLlama3Scores;
-    finalGradeForDisplay = gradeLlama3;
-    console.log("決策: Llama-3 最終總分較高，採用其結果。"); // <--- 同步修改提示訊息
-} else {
-    scoresForDisplay = finalQwenScores;
-    finalGradeForDisplay = gradeQwen;
-    console.log("決策: Qwen 最終總分較高或相等，採用其結果。"); // <--- 同步修改提示訊息
-}
+                if (totalLlama3 > totalQwen) {
+                    scoresForDisplay = finalLlama3Scores;
+                    finalGradeForDisplay = gradeLlama3;
+                } else {
+                    scoresForDisplay = finalQwenScores;
+                    finalGradeForDisplay = gradeQwen;
+                }
                 
-              // 【已移除等級驗證邏輯】最終等級純粹基於較高分數計算
-console.log("最終等級純粹基於分數決定:", finalGradeForDisplay);
-
-// --- 【新增】最終扣題一致性把關 ---
-scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
-                
-                console.log("最終採用分數:", JSON.parse(JSON.stringify(scoresForDisplay)));
-                console.log("最終顯示等級:", finalGradeForDisplay);
-
+                scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
             } catch (e) {
                 console.error("解析、比對或應用評分規則時出錯:", e);
                 scoresForDisplay = null;
@@ -6795,27 +6777,17 @@ scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
             console.warn("敘事抒情文缺少雙模型評分資料，無法進行驗證。");
             scoresForDisplay = null;
         }
-
-    } else if (uniqueIdPrefix === 'argument') {
+    } 
+    // 【邏輯二】如果文章是「議論文」，則執行單模型邏輯
+    else if (uniqueIdPrefix === 'argument') {
         if (originalGradingMatch && originalGradingMatch[1]) {
              try {
                 const originalScores = JSON.parse(originalGradingMatch[1].trim());
-                console.log("--- 單模型原始評分 (議論文) ---");
-                console.log("模型原始評分 (未經處理):", JSON.parse(JSON.stringify(originalScores)));
-
                 scoresForDisplay = originalScores;
-
                 const totalScore = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
                 const finalGrade = determineGrade(Math.min(totalScore, 100));
-
                 finalGradeForDisplay = finalGrade;
-                
-                console.log("決策: 採用模型原始評分，不進行後續聯動調整。");
-// --- 【新增】最終扣題一致性把關 ---
-scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
-                console.log("最終採用分數:", JSON.parse(JSON.stringify(scoresForDisplay)));
-                console.log("最終顯示等級:", finalGradeForDisplay);
-
+                scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
              } catch(e) {
                 console.error("解析議論文原始評分時出錯:", e);
                 scoresForDisplay = null;
@@ -6828,7 +6800,45 @@ scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         console.warn("未知的文章類型或評分資料缺失。");
         scoresForDisplay = null;
     }
+    
+    // =======================================================
+    // === 【全新修訂】硬性規定字數與等級的關聯 ===
+    // =======================================================
+    // 只有在 AI 成功回傳分數後，才執行字數檢查
+    if (scoresForDisplay) {
+        const wordCount = fullTextContent.length;
 
+        // 規則一：字數不足 500 字，一概評為等級 1
+        if (wordCount < 500) {
+            console.log(`字數嚴重不足 (${wordCount}字)，強制評為等級1。`);
+            
+            // 強制覆寫分數和等級
+            scoresForDisplay = {
+                content: 1, 
+                expression: 1, 
+                structure: 1, 
+                radar: { "立意": 1, "取材": 1, "扣題": 1, "詳略": 1, "詞彙": 1, "文學性": 1 }
+            };
+            finalGradeForDisplay = "1";
+        }
+        // 規則二：字數介於 500 至 799 字，最高只能評為等級 3
+        else if (wordCount < 800) {
+            const gradeHierarchy = ["1", "2", "3", "4", "5", "5*", "5**"];
+            const originalGradeIndex = gradeHierarchy.indexOf(finalGradeForDisplay);
+            const maxGradeIndex = gradeHierarchy.indexOf("3");
+
+            // 如果原來的等級高於3，就強制降級
+            if (originalGradeIndex > maxGradeIndex) {
+                console.log(`字數不足800字 (${wordCount}字)，原等級 ${finalGradeForDisplay} 被強制降為最高等級3。`);
+                finalGradeForDisplay = "3";
+            }
+        }
+    }
+    // =======================================================
+    // === 字數規則修訂結束 ===
+    // =======================================================
+
+    // 根據最終的分數和等級來產生 HTML 內容
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix);
     } else {
@@ -6845,13 +6855,14 @@ scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         finalHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteContent}</p></div></div>`;
     }
 
+    // 將最終產生的 HTML 內容渲染到頁面上
     resultContainer.innerHTML = finalHTML;
 
+    // 如果有分數，則初始化評分圖表
     if (scoresForDisplay) {
         initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }
 }
-
 
 // =======================================================
 // === 評等系統邏輯結束 ===
