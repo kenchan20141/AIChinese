@@ -1999,6 +1999,46 @@ max-width: 100%; /* 讓進度條容器佔滿可用寬度 */
     background-color: rgba(74, 144, 226, 0.8); /* 質感藍色 */
 }
 
+/* ====================================================================== */
+/* === 請將以下所有程式碼，貼到您 <style> 標籤的最底部 === */
+/* ====================================================================== */
+
+/* --- 修訂一：讓議論文的聊天歷史容器與其他容器樣式同步 --- */
+#argumentChatHistory {
+    background-color: #f0f4f8;
+    border: 1px solid #dde3ea;
+    border-radius: 12px;
+    padding: 20px 15px;
+    margin-top: 15px; /* 與上方評分系統的間距 */
+    margin-bottom: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+    display: flex; /* 預設由 JS 控制顯示 */
+    flex-direction: column;
+}
+
+/* --- 修訂二：將議論文的聊天輸入框加入樣式規則，修正發送鍵位置 --- */
+#argumentChatInputContainer {
+    display: flex; /* 使用 flex 佈局來排列輸入框和按鈕 */
+    align-items: center; /* 垂直置中對齊 */
+    gap: 10px; /* 在輸入框和按鈕之間增加間距 */
+    margin-top: 15px;
+}
+#argumentChatInputContainer textarea {
+    flex-grow: 1; /* 讓文字輸入框佔據大部分可用空間 */
+    margin: 0; /* 移除預設的 margin */
+}
+
+/* --- 修訂三：強制指定主容器內的佈局，確保點評和聊天框垂直堆疊 --- */
+/* 這個規則是解決「內容跑到右邊」的關鍵 */
+#writingReviewResultContainer,
+#argumentReviewResultContainer {
+    display: flex; /* 使用 flex 佈局 */
+    flex-direction: column; /* 強制所有子項目（點評、聊天歷史、輸入框）垂直排列 */
+    gap: 15px; /* 在這些主要區塊之間增加舒適的垂直間距 */
+    width: 100%; /* 確保容器佔滿寬度 */
+}
+
 
 </style>
 </head>
@@ -2789,35 +2829,33 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 </div>
 <!-- ======= 加入結束 ======= -->
 
-    <button id="submitArgumentWritingBtn" class="btn-action" onclick="submitArgumentWriting()">提交</button>
+  <button id="submitArgumentWritingBtn" class="btn-action" onclick="submitArgumentWriting()">提交</button>
 
+    <!-- 正確的結構：用 result-wrapper 包裹住所有結果和聊天介面 -->
+    <div class="result-wrapper">
+        
+        <!-- 評分卡、文字點評和聊天介面都將被動態放入這個容器中 -->
+        <div id="argumentReviewResultContainer">
+            <!-- 評分系統或聚焦式點評將會被動態插入到這裡 -->
+            <div id="argumentGradingResult"></div>
 
-<!-- ======= 請在這裡加入【議論文評分與聊天介面容器】HTML 程式碼 ======= -->
-<div id="argumentReviewResultContainer">
-    <!-- 評分系統或聚焦式點評將會被動態插入到這裡 -->
-    <div id="argumentGradingResult"></div>
+            <!-- 聊天歷史紀錄 -->
+            <div id="argumentChatHistory" style="display: none;"></div>
 
-    <!-- 聊天歷史紀錄 -->
-    <div id="argumentChatHistory" style="display: none;"></div>
+            <!-- 聊天輸入介面 -->
+            <div id="argumentChatInputContainer" style="display: none;">
+                <textarea id="argumentUserInput" class="no-modal-editor" rows="2" placeholder="可就以上點評追問..."></textarea>
+                <button id="continueArgumentBtn" class="btn-icon-action" onclick="continueArgumentDiscussion()" title="繼續討論" style="background-color: #2d9966;">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
 
-    <!-- 聊天輸入介面 -->
-    <div id="argumentChatInputContainer" style="display: none;">
-        <textarea id="argumentUserInput" class="no-modal-editor" rows="2" placeholder="可就以上點評追問..."></textarea>
-        <button id="continueArgumentBtn" class="btn-icon-action" onclick="continueArgumentDiscussion()" title="繼續討論" style="background-color: #2d9966;">
-            <i class="fas fa-paper-plane"></i>
+        <!-- 儲存按鈕現在位於正確的包裹層內 -->
+        <button id="save-argument-writing-html-btn" class="btn-save-html" title="儲存為HTML檔案" onclick="savePageAsHTML('神思-議論-文章點評.html')">
+            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
         </button>
     </div>
-</div>
-<!-- ======= 加入結束 ======= -->
-
-
-
-<div class="result-wrapper" style="position: relative;">
-	<div id="argumentWritingResult"></div>
-	<button id="save-argument-writing-html-btn" class="btn-save-html" title="儲存為HTML檔案" onclick="savePageAsHTML('神思-議論-文章點評.html')">
-		<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-	</button>
-</div>
 </div>
 <div id="argumentGuideArea" style="display: none;">
 <label for="argumentGuideTopic">題目：</label>
@@ -5497,6 +5535,86 @@ updateLastAIMessage("抱歉，陳SIR暫時無法回應，請稍後再試。");
 }
 
 
+// =================================================================================
+// === 請複製此處開始的完整函數 ===
+// =================================================================================
+async function continueArgumentDiscussion() {
+    const continueBtn = document.getElementById('continueArgumentBtn');
+    continueBtn.disabled = true;
+
+    const userInputText = sanitizeHTML(document.getElementById("argumentUserInput").value.trim());
+    if (!userInputText) {
+        alert("請輸入您的回應");
+        continueBtn.disabled = false;
+        return;
+    }
+    
+    const chatHistoryDiv = document.getElementById('argumentChatHistory');
+    
+    // 1. 顯示使用者訊息
+    const userMessageBubble = document.createElement('div');
+    userMessageBubble.className = 'message-bubble user-message';
+    userMessageBubble.textContent = userInputText;
+    chatHistoryDiv.appendChild(userMessageBubble);
+    
+    // 2. 將使用者訊息存入歷史紀錄
+    argumentChatHistoryData.push({ sender: 'user', message: userInputText });
+    document.getElementById("argumentUserInput").value = "";
+    chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+
+    // 3. 顯示「正在回應」
+    const aiLoadingBubble = document.createElement('div');
+    aiLoadingBubble.className = 'message-bubble ai-message';
+    aiLoadingBubble.textContent = `${currentReviewerName}正在回應...`;
+    chatHistoryDiv.appendChild(aiLoadingBubble);
+    chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+
+    // 4. 準備完整的對話歷史給 AI
+    const conversationHistoryForPrompt = argumentChatHistoryData.map(item => {
+        const speaker = item.sender === 'user' ? '我的追問' : '你的上一輪回應';
+        // 清理 message 中的 HTML 標籤，讓 prompt 更乾淨
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = item.message;
+        const cleanMessage = tempDiv.textContent || tempDiv.innerText || "";
+        return `${speaker}: ${cleanMessage}`;
+    }).join('\n---\n');
+
+
+    const tone = document.getElementById("argumentWritingTone").value;
+    let toneNote = tone === "chen" ? categories["課外書籍"].chatNote : categories["課外書籍"].seriousChatNote;
+    
+    // 5. 建立包含完整上下文的 Prompt
+    const prompt = `我是一位高中生，你正在點評我的議論文。
+    ---
+    我的原文：
+    ${currentArgumentArticle}
+    ---
+    這是我們到目前為止的完整對話紀錄：
+    ${conversationHistoryForPrompt}
+    ---
+    請針對我最新的追問，用日常的語言簡潔地回應我，不要過於理論化，必須詳細分析並給出例子。請不要使用括號解釋你的目的。回應字數不要超過180字。
+    教學筆記：${toneNote}`;
+    
+    try {
+        const aiResponse = await callReadingAPI(prompt);
+        
+        // 6. 更新 AI 回應並存入歷史紀錄
+        aiLoadingBubble.innerHTML = aiResponse.replace(/\n/g, '<br>');
+        argumentChatHistoryData.push({ sender: 'ai', message: aiResponse });
+
+    } catch (error) {
+        console.error("繼續議論文討論時出錯:", error);
+        aiLoadingBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，${currentReviewerName}無法回應。😅`;
+    } finally {
+        chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        continueBtn.disabled = false;
+    }
+}
+// =================================================================================
+// === 請複製到此處結束 ===
+// =================================================================================
+
+
 // 【新增】處理文章點評後續討論的函數
 async function continueWritingDiscussion() {
     const continueBtn = document.getElementById('continueWritingBtn');
@@ -7430,7 +7548,6 @@ function applyFinalConsistencyRule(scores) {
     // 返回經過嚴格調整後的分數物件
     return s;
 }
-
 
 
 // 頁面加載時初始化
