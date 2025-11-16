@@ -4375,11 +4375,11 @@ ${argumentScoreFirstPrompt}
         } else {
             // (聚焦式點評的邏輯不變)
             const scopeDefinitions = `
-- **謀篇**: 評估文章的整體結構佈局、段落之間的邏輯關係（如起承轉合、駁論立論）是否清晰，以及論點的推進層次是否分明。
-- **論點**: 評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻、不落俗套。
-- **論據**: 檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實，並且能否有力地支持相應的論點。
-- **論證**: 分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密，是否存在概念不清、推論不當等問題。
-- **文筆**: 評論文章的語言運用是否精準、流暢，遣詞造句是否得體，句式是否有變化，以及是否有效地運用修辭來增強表達效果。
+- **謀篇**: 先嚴謹地對比題目及文章內容，點評是否扣題，繼而再評估文章的整體結構佈局、段落之間的邏輯關係（如起承轉合、駁論立論）是否清晰，以及論點的推進層次是否分明。
+- **論點**: 先嚴謹地對比題目及文章內容，點評是否扣題，繼而再評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻、不落俗套。
+- **論據**: 先嚴謹地對比題目及文章內容，點評是否扣題，繼而再檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實，並且能否有力地支持相應的論點。
+- **論證**: 先嚴謹地對比題目及文章內容，點評是否扣題，繼而再分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密，是否存在概念不清、推論不當等問題。
+- **文筆**: 先嚴謹地對比題目及文章內容，點評是否扣題，繼而再評論文章的語言運用是否精準、流暢，遣詞造句是否得體，句式是否有變化，以及是否有效地運用修辭來增強表達效果。
 `;
 
             let scopeInstruction = `
@@ -4695,52 +4695,55 @@ const applyContentStructureRule = (scores) => {
 * @returns {string} - The formatted HTML string.
 */
 function createBulletedListHTML(title, rawContent) {
-// Attempt to split by numbered points first, e.g., "1. ...", "2. ..."
-let points = rawContent.split(/\s*(?=\d+\.\s*)/).map(p => p.trim()).filter(p => p);
+    // 【核心修訂】在處理文字前，先移除所有星號(*) Markdown 符號
+    rawContent = rawContent.replace(/\*/g, '');
 
-// If the primary split method results in 0 or 1 point, and the content has newlines,
-// it's likely not a numbered list. Fall back to splitting by newline.
-if (points.length <= 1 && rawContent.includes('\n')) {
-const newlinePoints = rawContent.split('\n').map(p => p.trim()).filter(p => p);
-// Only use the newline split if it gives us more than one point.
-if (newlinePoints.length > 1) {
-points = newlinePoints;
-}
-}
+    // Attempt to split by numbered points first, e.g., "1. ...", "2. ..."
+    let points = rawContent.split(/\s*(?=\d+\.\s*)/).map(p => p.trim()).filter(p => p);
 
-// If there are no points to list, just show the content as a paragraph inside the card.
-if (points.length === 0) {
-return `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>${title}</h3>
-<div class="explanation-text">${rawContent.replace(/\n/g, '<br>')}</div>
-</div>
-</div>`;
-}
+    // If the primary split method results in 0 or 1 point, and the content has newlines,
+    // it's likely not a numbered list. Fall back to splitting by newline.
+    if (points.length <= 1 && rawContent.includes('\n')) {
+        const newlinePoints = rawContent.split('\n').map(p => p.trim()).filter(p => p);
+        // Only use the newline split if it gives us more than one point.
+        if (newlinePoints.length > 1) {
+            points = newlinePoints;
+        }
+    }
 
-let explanationHTML = `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>${title}</h3>`;
+    // If there are no points to list, just show the content as a paragraph inside the card.
+    if (points.length === 0) {
+        return `<div class="rewrite-explanation-container">
+    <div class="rewrite-explanation-card">
+    <h3>${title}</h3>
+    <div class="explanation-text">${rawContent.replace(/\n/g, '<br>')}</div>
+    </div>
+    </div>`;
+    }
 
-points.forEach((point, index) => {
-let number = index + 1;
-let text = point;
+    let explanationHTML = `<div class="rewrite-explanation-container">
+    <div class="rewrite-explanation-card">
+    <h3>${title}</h3>`;
 
-// Check if the point already starts with a number and a dot.
-const match = point.match(/^(\d+)\.?\s*(.*)$/s);
-if (match) {
-number = match[1]; // Use the number from the text.
-text = match[2]; // Use the text after the number.
-}
+    points.forEach((point, index) => {
+        let number = index + 1;
+        let text = point;
 
-explanationHTML += `<div class="explanation-point">
-<div class="explanation-number">${number}</div>
-<div class="explanation-text">${text.replace(/\n/g, '<br>')}</div>
-</div>`;
-});
+        // Check if the point already starts with a number and a dot.
+        const match = point.match(/^(\d+)\.?\s*(.*)$/s);
+        if (match) {
+            number = match[1]; // Use the number from the text.
+            text = match[2]; // Use the text after the number.
+        }
 
-explanationHTML += `</div></div>`;
-return explanationHTML;
+        explanationHTML += `<div class="explanation-point">
+    <div class="explanation-number">${number}</div>
+    <div class="explanation-text">${text.replace(/\n/g, '<br>')}</div>
+    </div>`;
+    });
+
+    explanationHTML += `</div></div>`;
+    return explanationHTML;
 }
 
 
@@ -7106,22 +7109,14 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         scoresForDisplay = null;
     }
     
-    // --- 【修訂開始】---
     if (scoresForDisplay) {
-        // 步驟一：應用最終的把關規則，這可能會修改 scoresForDisplay 的內容
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
-        
-        // 步驟二：使用被修改後的最新的 scoresForDisplay 來計算總分
         const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
-        
-        // 步驟三：使用這個最終的總分來決定等級
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
-
         console.log("最終把關規則後的分數:", JSON.parse(JSON.stringify(scoresForDisplay)));
         console.log("基於最終分數重新計算的總分:", finalTotalScoreAfterRules);
         console.log("基於最終分數重新計算的等級:", finalGradeForDisplay);
     }
-    // --- 【修訂結束】---
 
     if (scoresForDisplay) {
         const wordCount = fullTextContent.length;
@@ -7199,7 +7194,8 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     if (rewriteMatch && rewriteMatch[1]) {
-        const rewriteContent = rewriteMatch[1].trim().replace(/\n/g, '<br>');
+        // 【核心修訂】在這裡移除「改寫範例」中的星號
+        const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '').replace(/\n/g, '<br>');
         finalHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteContent}</p></div></div>`;
     }
 
@@ -7209,6 +7205,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }
 }
+
 
 // =======================================================
 // === 評等系統邏輯結束 ===
