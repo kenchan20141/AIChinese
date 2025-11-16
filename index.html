@@ -4284,6 +4284,142 @@ localStorage.removeItem("argumentOutlineData");
 }
 }
 
+	// 替換舊的 submitArgumentOutline 函式
+async function submitArgumentOutline() {
+const submitBtn = document.getElementById('submitArgumentOutlineBtn');
+submitBtn.disabled = true;
+	hideAllSaveHtmlButtons();
+
+try {
+const topic = localStorage.getItem("argumentCurrentTopic");
+if (!topic) {
+alert("請先設定題目");
+return;
+}
+const table = document.getElementById("argumentOutlineTable");
+const rows = table.rows;
+let outlineContent = [];
+for (let i = 1; i < rows.length; i++) {
+const part = rows[i].cells[0].innerText;
+const pointTextarea = rows[i].cells[1].querySelector("textarea");
+const evidenceTextarea = rows[i].cells[2].querySelector("textarea");
+const point = pointTextarea ? pointTextarea.value.trim() : "";
+const evidence = evidenceTextarea ? evidenceTextarea.value.trim() : "";
+if (!point || !evidence) {
+alert("請填寫所有大綱表格");
+return;
+}
+outlineContent.push({ part, point, evidence });
+}
+
+const tone = document.getElementById("argumentOutlineTone").value;
+let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
+
+const note = categories["議論"].outlineCommentNote;
+const prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。要求：
+1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
+2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「論點」和「論據及論證」。使用「[part]」標記每個結構段的開始，然後在下一行「論點：」後跟內容，再下一行「論據及論證：」後跟內容。
+3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
+4. 請確保內容簡潔明了，不可以顯示「--- ###」。
+題目：${topic}
+用戶輸入的大綱：
+| 部份 | 論點 | 論據及論證 |
+|------|------|------------|
+${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} |`).join("\n")}
+教學筆記：${note}
+點評及建議語氣：${toneNote}`;
+
+document.getElementById("argumentOutlineResult").innerHTML = "陳SIR正在點評...";
+
+// 【核心修訂】改用閱讀專用的 API 函式
+
+const response = await callAPI(prompt, 0); 
+const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
+const commentIndex = sections.indexOf("點評及建議");
+const rewriteIndex = sections.indexOf("改寫後的大綱");
+const explanationIndex = sections.indexOf("改寫說明");
+const commentPart = commentIndex !== -1 ? sections[commentIndex + 1] : "";
+const rewritePart = rewriteIndex !== -1 ? sections[rewriteIndex + 1] : "";
+const explanationPart = explanationIndex !== -1 ? sections[explanationIndex + 1].trim() : "";
+
+function parseCommentPart(commentPart) {
+const comments = {};
+const regex = /\[(.+?)\]\s*點評：\s*(.+?)(?=\s*建議：|\s*\[|$)/gs;
+const suggestionRegex = /\[(.+?)\]\s*點評：.+?\s*建議：\s*(.+?)(?=\s*\[|$)/gs;
+let match;
+while ((match = regex.exec(commentPart)) !== null) {
+const part = match[1];
+comments[part] = comments[part] || {};
+comments[part].comment = match[2].trim();
+}
+while ((match = suggestionRegex.exec(commentPart)) !== null) {
+const part = match[1];
+comments[part] = comments[part] || {};
+comments[part].suggestion = match[2].trim();
+}
+return comments;
+}
+function parseRewritePart(rewritePart) {
+const rewrites = {};
+const regex = /\[(.+?)\]\s*論點：\s*(.+?)(?=\s*論據及論證：|\s*\[|$)/gs;
+const evidenceRegex = /\[(.+?)\]\s*論點：.+?\s*論據及論證：\s*(.+?)(?=\s*\[|$)/gs;
+let match;
+while ((match = regex.exec(rewritePart)) !== null) {
+const part = match[1];
+rewrites[part] = rewrites[part] || {};
+rewrites[part].point = match[2].trim();
+}
+while ((match = evidenceRegex.exec(rewritePart)) !== null) {
+const part = match[1];
+rewrites[part] = rewrites[part] || {};
+rewrites[part].evidence = match[2].trim();
+}
+return rewrites;
+}
+const comments = parseCommentPart(commentPart);
+const rewrites = parseRewritePart(rewritePart);
+let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th>部份</th><th>論點</th><th>論據及論證</th><th>點評</th><th>建議</th></tr>`;
+outlineContent.forEach(item => {
+const comment = comments[item.part]?.comment || "未生成點評";
+const suggestion = comments[item.part]?.suggestion || "未生成建議";
+commentTableHTML += `<tr><td>${item.part}</td><td>${item.point}</td><td>${item.evidence}</td><td>${comment}</td><td>${suggestion}</td></tr>`;
+});
+commentTableHTML += "</table></div>";
+let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th>部份</th><th>論點</th><th>論據及論證</th></tr>`;
+outlineContent.forEach(item => {
+const rewrite = rewrites[item.part] || { point: "未生成論點", evidence: "未生成論據及論證" };
+rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.point || "未生成論點"}</td><td>${rewrite.evidence || "未生成論據及論證"}</td></tr>`;
+});
+rewriteTableHTML += "</table></div>";
+let explanationHTML = '';
+if (explanationPart) {
+const points = explanationPart.split(/\s*(?=\d\.\s*)/).filter(p => p.trim());
+explanationHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫說明</h3>`;
+points.forEach(point => {
+const match = point.match(/^(\d)\.\s*(.*)$/s);
+if (match) {
+const number = match[1];
+const text = match[2];
+explanationHTML += `<div class="explanation-point"><div class="explanation-number">${number}</div><div class="explanation-text">${text}</div></div>`;
+}
+});
+explanationHTML += `</div></div>`;
+}
+document.getElementById("argumentOutlineResult").innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
+document.getElementById('save-argument-outline-html-btn').style.display = 'flex'; // 顯示按鈕
+} catch (error) {
+console.error("提交議論大綱時出錯:", error);
+if (error.message === "所有 API 密鑰均無法使用") {
+alert("今日 API 調用次數已用完或API無法連接，請明天再試");
+} else {
+alert("點評生成失敗，請重試");
+}
+document.getElementById("argumentOutlineResult").innerHTML = "";
+} finally {
+submitBtn.disabled = false;
+}
+}
+
 async function submitArgumentWriting() {
     const submitBtn = document.getElementById('submitArgumentWritingBtn');
     submitBtn.disabled = true;
@@ -4549,7 +4685,58 @@ function handleAllScopeChange(checkbox) {
     }
 }
 
+// 提交議論指引
+async function submitArgumentGuide() {
+const submitBtn = document.getElementById('submitArgumentGuideBtn');
+submitBtn.disabled = true; // 禁用按鈕
+	hideAllSaveHtmlButtons();
 
+try {
+const topic = document.getElementById("argumentGuideTopic").value.trim();
+const point = document.getElementById("argumentGuidePoint").value.trim();
+const evidence = document.getElementById("argumentGuideEvidence").value.trim();
+const argument = document.getElementById("argumentGuideArgument").value.trim();
+if (!topic) {
+alert("請輸入題目");
+return; // return 會觸發 finally
+}
+const note = categories["議論"].guideNote;
+let prompt = `請根據以下輸入提供參考建議。要求：
+1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
+2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
+3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
+4. 輸出分為相應的部分：### 參考論點、### 參考論據、### 參考論證
+5. 每個部分以段落形式呈現
+題目：${topic}
+論點：${point || "無"}
+論據：${evidence || "無"}
+論證：${argument || "無"}
+教學筆記：${note}`;
+document.getElementById("argumentGuideResult").innerHTML = "陳SIR正在思考...";
+
+// 【核心修訂】改用閱讀專用的 API 函式
+const guide = await callReadingAPI(prompt);
+const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
+let guideHTML = "<h3>陳SIR指引：</h3><table>";
+guideParts.forEach(part => {
+const [title, ...content] = part.split("\n").filter(line => line.trim());
+guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
+});
+guideHTML += "</table>";
+document.getElementById("argumentGuideResult").innerHTML = guideHTML;
+document.getElementById('save-argument-guide-html-btn').style.display = 'flex';
+} catch (error) {
+console.error("提交指引時出錯:", error);
+if (error.message === "所有 API 密鑰均無法使用") {
+alert("今日 API 調用次數已用完或API無法連接，請明天再試");
+} else {
+alert("指引生成失敗，請重試");
+}
+document.getElementById("argumentGuideResult").innerHTML = "";
+} finally {
+submitBtn.disabled = false; // 重新啟用按鈕
+}
+}
 
 // 通用 API 調用函數
 async function callAPI(prompt, temperature = null) {
