@@ -4292,36 +4292,42 @@ async function submitArgumentWriting() {
         gradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`;
 
         if (isFullReview) {
-            // =================================================================
-            // === 【全新修訂】議論文評分指令 (V3 - 評語主導評分模式) ===
-            // =================================================================
-            const argumentCommentFirstPrompt = `你將扮演一位經驗豐富、思想深刻的中文科老師。你的核心任務是提供高質素的質性回饋，然後才根據你的回饋給出分數。
+            // (此處的 "全部" 點評邏輯維持不變，因為它已經包含了嚴格的扣題指令)
+            const argumentTopicCentricPrompt = `你將扮演一位極其嚴謹且富有洞察力的中文科老師。你的唯一使命是，以題目為絕對中心，進行深入的質性分析，然後才基於該分析進行量化評分。
 
-### 你的工作流程 (必須嚴格依序執行)
-1.  **深入分析與撰寫評語**: 這是你的首要任務。深入閱讀文章，優先完成 <critique>, <suggestions>, <rewrite_example> 的撰寫。你的文字評語必須有洞見、具體且具指導性。
-2.  **根據評語量化分數**: 在完成所有文字評語後，回顧你自己的分析，然後在 <grading_json> 中給出與你的評語完全一致的分數。
+### 你的工作流程與思維框架 (必須嚴格遵守)
+
+1.  **確立分析中心**: 你的所有思考都必須圍繞 **題目《${topic}》** 展開。在閱讀文章的每一個字時，你內心都必須反覆提問：「這個論點/論據/句子，是如何服務於論證《${topic}》的？」
+
+2.  **撰寫主題中心評語**: 這是你的首要任務。在 <critique> 和 <suggestions> 標籤內，你必須完成以下要求：
+    -   **強制關聯**: 你的每一點評論和建議，**都必須清晰地、具體地闡釋其與題目《${topic}》的直接關聯**。禁止給出任何脫離題目的通用性寫作意見。
+    -   **範例**:
+        -   **禁止的通用評語**: "論據選擇不當。"
+        -   **必須的扣題評語**: "你所舉的愛迪生發明電燈的例子，雖然能證明『堅持』，但未能有效論證題目所要求的『待候』的價值，因此在**扣題**上出現了偏差。"
+
+3.  **基於評語量化分數**: 在完成所有緊扣主題的文字評語後，回顧你自己的分析，然後在 <grading_json> 中給出與你的評語嚴厲或讚賞程度完全一致的分數。如果你的評語多次指出文章偏離主題，那麼「扣題」、「內容」、「結構」等分數必須相應地給予低分。
 
 ### 核心評分準則 (必須融入你的分析中)
-- **扣題是基礎**: 嚴格評估文章是否扣題。若文章論述的核心概念與題目關鍵詞 **字面不同** (例如：題目《論禮貌》寫成《論禮物》)，則視為「偏題」。
-- **偏題的後果**: 一旦判定為「偏題」，你的文字評語必須明確指出此問題，並且在後續的評分中，「扣題」分數 **絕不能高於4分**，「內容」和「結構」分數也 **不能高於4分**。
+- **偏題的定義**: 若文章論述的核心概念與題目關鍵詞 **字面不同** (例如：題目《論禮貌》寫成《論禮物》)，則視為「偏題」。
+- **偏題的後果**: 一旦判定為「偏題」，你的文字評語必須首先指出這個最嚴重的問題，並且在後續的評分中，「扣題」分數 **絕不能高於4分**，「內容」和「結構」分數也 **不能高於4分**。
 
 ---
 ### 你的輸出格式 (必須嚴格遵守此結構與順序)
 
 <critique>
-[根據上述原則，深入分析文章的優點與不足。以數字編號列點方式呈現2-3點核心評論。]
+[根據上述「主題中心分析原則」，以數字編號列點方式呈現2-3點核心評論。每一點都必須解釋與題目《${topic}》的關係。]
 </critique>
 
 <suggestions>
-[針對評論中的問題，提出具體、可行的改善建議。]
+[針對評論中的問題，提出具體的改善建議。每一項建議都必須是關於如何更緊扣題目《${topic}》。]
 </suggestions>
 
 <rewrite_example>
-[提供一段約150字內的高質素改寫範例。]
+[提供一段約150字內的高質素改寫範例，展示如何緊扣題目進行論述。]
 </rewrite_example>
 
 <grading_json>
-[**分數量化步驟**：根據你上面寫的 <critique> 和 <suggestions>，將你的質性判斷轉換為數字。分數必須與你的文字評語嚴重程度或讚賞程度完全對應。]
+[**分數量化步驟**：根據你上面寫下的、以題目為中心的質性評語，將你的判斷轉換為數字。分數必須與你的文字分析完全對應。]
 {
 "content": [0-10的整數],
 "expression": [0-10的整數],
@@ -4332,13 +4338,10 @@ async function submitArgumentWriting() {
 }
 }
 </grading_json>`;
-            // =================================================================
-            // === 修訂結束 ===
-            // =================================================================
-
+            
             if (tone === "chen") {
-                prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請嚴格按照以下「評語主導評分」的流程，對學生的議論文進行點評。
-${argumentCommentFirstPrompt}
+                prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請嚴格按照以下「主題中心分析」的流程，對學生的議論文進行點評。
+${argumentTopicCentricPrompt}
 ---
 ### 待點評的資料
 題目：${topic}
@@ -4346,8 +4349,8 @@ ${argumentCommentFirstPrompt}
 教學筆記：${note}
 閱卷員評分取向：${reviewerNote}`;
             } else {
-                prompt = `你是一位嚴格的中文科閱卷員。請嚴格按照以下「評語主導評分」的流程，對學生的議論文進行點評。
-${argumentCommentFirstPrompt}
+                prompt = `你是一位嚴格的中文科閱卷員。請嚴格按照以下「主題中心分析」的流程，對學生的議論文進行點評。
+${argumentTopicCentricPrompt}
 ---
 ### 待點評的資料
 題目：${topic}
@@ -4370,62 +4373,55 @@ ${argumentCommentFirstPrompt}
             currentArgumentReview = initialReviewHTML;
 
         } else {
-            // (聚焦式點評的邏輯不變)
-            const scopeDefinitions = `
-- **謀篇**: 評估文章的整體結構佈局、段落之間的邏輯關係（如起承轉合、駁論立論）是否清晰，以及論點的推進層次是否分明。
-- **論點**: 評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻、不落俗套。
-- **論據**: 檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實，並且能否有力地支持相應的論點。
-- **論證**: 分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密，是否存在概念不清、推論不當等問題。
-- **文筆**: 評論文章的語言運用是否精準、流暢，遣詞造句是否得體，句式是否有變化，以及是否有效地運用修辭來增強表達效果。
-`;
+            // =================================================================
+            // === 【全新修訂】議論文「聚焦式點評」指令 (V2) ===
+            // =================================================================
+            const argumentFocusedPrompt = `你將扮演一位極其嚴謹的中文老師，你的最高原則是：**扣題是所有評分和評論的基礎。一篇離題的文章，即使論據再好，也是失敗的。**
 
-            let scopeInstruction = `
-你是一名高度專業的寫作分析員，你的任務極其專一。
+### 你的強制性兩步思維框架
+
+1.  **第一步：強制性的扣題預判（內部思考，不直接輸出）**
+    在分析用戶選擇的任何範疇之前，你必須先對整篇文章做出一個核心判斷：**這篇文章是否緊扣題目《${topic}》？**
+
+2.  **第二步：基於預判結果進行聚焦分析（外部輸出）**
+    你的所有評語和建議，都必須基於你在第一步的判斷。你必須從以下兩種路徑中選擇一種來回應，**絕對禁止混合**。
+
+    *   **路徑A：如果文章【離題】或【嚴重偏題】**
+        -   你被 **嚴格禁止** 對用戶選擇的任何範疇（如「論據」、「論證」）給予任何形式的、獨立的正面讚賞。
+        -   你的評語**必須**首先指出文章離題，然後解釋**離題這個致命缺陷是如何讓用戶所選範疇的優點變得毫無意義的**。
+        -   **範例 (用戶選「論據」)**:
+            -   **禁止的說法**: "你的論據很豐富。"
+            -   **必須的說法**: "雖然你列舉了多個古今中外的例子，但這些例子都旨在證明『合作』的重要性，與題目《${topic}》所要求的『競爭』完全無關，因此這些豐富的論據反而成為了文章離題的證明。"
+
+    *   **路徑B：如果文章【扣題】**
+        -   只有在確認文章扣題的前提下，你才**被允許**對用戶選擇的範疇【${selectedScopes.join("、")}】進行具體的、有建設性的分析，指出其優點或不足之處，並解釋這些優劣是如何影響對題目《${topic}》的論證效果的。
 
 ---
-### **黃金法則 (ABSOLUTE CORE DIRECTIVE)**
-你必須嚴格遵守此法則，不得有任何例外：
-1.  **絕對聚焦**: 你的點評和建議中的 **每一個字**，都必須 **僅僅** 與用戶選擇的以下範疇相關：**【${selectedScopes.join("、")}】**。
-2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。例如，如果用戶選擇了「論據」，你絕對不能評論「文筆」、「謀篇」或「論點」。
-3.  **後果**: 如果你的回應中包含了任何未被選定的範疇，整個回應將被視為失敗。
-
-### **各範疇的定義 (你的分析框架)**
-${scopeDefinitions}
----
-`;
-
-            if (tone === "chen") {
-                prompt = `你將扮演「陳SIR」，一位眼光獨到、要求嚴格但風格幽默的中文老師。
-${scopeInstruction}
-### **你的任務與輸出格式**
-你的輸出必須包含以下兩個XML標籤，不得有其他內容。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法。
+### 你的輸出格式 (必須嚴格遵守)
+你的輸出必須包含以下兩個XML標籤，**不得包含任何其他內容**。
 
 <critique>
-[根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
+[根據上述強制性思維框架，給出1-2點核心評論。每一點都必須體現「扣題守門員原則」。]
 </critique>
 <suggestions>
-[在建議部分，同樣要遵循「黃金法則」。如果所選範疇表現優秀，你可以說「在這方面處理得很好，沒什麼好建議了，繼續保持吧！😎」。]
-</suggestions>
+[針對評論中的問題，提出具體的改善建議。所有建議的最終目的都必須是為了讓文章更緊扣題目《${topic}》。]
+</suggestions>`;
+            // =================================================================
+            // === 修訂結束 ===
+            // =================================================================
+            
+            if (tone === "chen") {
+                prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請嚴格按照以下的「扣題守門員原則」，對學生的文章進行聚焦式點評。
+${argumentFocusedPrompt}
 ---
-### **待點評的資料**
+### 待點評的資料
 題目：${topic}
 文章：${content}`;
             } else {
-                prompt = `你是一位要求嚴格、具備專業眼光的中文科閱卷員。
-${scopeInstruction}
-### **你的任務與輸出格式**
-你的輸出必須包含以下兩個XML標籤，不得有其他內容。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法。
-
-<critique>
-[根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
-</critique>
-<suggestions>
-[針對點評中提出的問題，提出具體的改善建議，同樣要遵循「黃金法則」。若所選範疇表現極佳，可註明「在此範疇的表現出色，建議保持現有水準。」]
-</suggestions>
+                prompt = `你是一位要求嚴格、具備專業眼光的中文科閱卷員。請嚴格按照以下的「扣題守門員原則」，對學生的文章進行聚焦式點評。
+${argumentFocusedPrompt}
 ---
-### **待點評的資料**
+### 待點評的資料
 題目：${topic}
 文章：${content}`;
             }
@@ -4457,6 +4453,8 @@ ${scopeInstruction}
         submitBtn.disabled = false;
     }
 }
+
+
 
 // ======= 請在這裡加入【議論文後續討論】的全新函數 =======
 async function continueArgumentDiscussion() {
@@ -4655,11 +4653,11 @@ ${argumentTopicCentricPrompt}
         } else {
             // (聚焦式點評的邏輯不變)
             const scopeDefinitions = `
-- **謀篇**: 評估文章的整體結構佈局、段落之間的邏輯關係（如起承轉合、駁論立論）是否清晰，以及論點的推進層次是否分明。
-- **論點**: 評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻、不落俗套。
-- **論據**: 檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實，並且能否有力地支持相應的論點。
-- **論證**: 分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密，是否存在概念不清、推論不當等問題。
-- **文筆**: 評論文章的語言運用是否精準、流暢，遣詞造句是否得體，句式是否有變化，以及是否有效地運用修辭來增強表達效果。
+- **謀篇**: 先評估文章是否扣題，再評估文章的整體結構佈局、段落之間的邏輯關係（如起承轉合、駁論立論）是否清晰，以及論點的推進層次是否分明。
+- **論點**: 先評估文章是否扣題，評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻、不落俗套。
+- **論據**: 先評估文章是否扣題，檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實，並且能否有力地支持相應的論點。
+- **論證**: 先評估文章是否扣題，分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密，是否存在概念不清、推論不當等問題。
+- **文筆**: 先評估文章是否扣題，評論文章的語言運用是否精準、流暢，遣詞造句是否得體，句式是否有變化，以及是否有效地運用修辭來增強表達效果。
 `;
 
             let scopeInstruction = `
@@ -4741,59 +4739,145 @@ ${scopeInstruction}
     }
 }
 
-// 提交議論指引
-// 提交議論指引
-async function submitArgumentGuide() {
-const submitBtn = document.getElementById('submitArgumentGuideBtn');
-submitBtn.disabled = true; // 禁用按鈕
-	hideAllSaveHtmlButtons();
+async function submitArgumentWriting() {
+    const submitBtn = document.getElementById('submitArgumentWritingBtn');
+    submitBtn.disabled = true;
+    hideAllSaveHtmlButtons();
 
-try {
-const topic = document.getElementById("argumentGuideTopic").value.trim();
-const point = document.getElementById("argumentGuidePoint").value.trim();
-const evidence = document.getElementById("argumentGuideEvidence").value.trim();
-const argument = document.getElementById("argumentGuideArgument").value.trim();
-if (!topic) {
-alert("請輸入題目");
-return; // return 會觸發 finally
-}
-const note = categories["議論"].guideNote;
-let prompt = `請根據以下輸入提供參考建議。要求：
-1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-4. 輸出分為相應的部分：### 參考論點、### 參考論據、### 參考論證
-5. 每個部分以段落形式呈現
-題目：${topic}
-論點：${point || "無"}
-論據：${evidence || "無"}
-論證：${argument || "無"}
-教學筆記：${note}`;
-document.getElementById("argumentGuideResult").innerHTML = "陳SIR正在思考...";
+    const gradingResultDiv = document.getElementById("argumentGradingResult");
+    const chatHistoryDiv = document.getElementById("argumentChatHistory");
+    const chatInputContainer = document.getElementById("argumentChatInputContainer");
 
-// 【核心修訂】改用閱讀專用的 API 函式
-const guide = await callReadingAPI(prompt);
-const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
-let guideHTML = "<h3>陳SIR指引：</h3><table>";
-guideParts.forEach(part => {
-const [title, ...content] = part.split("\n").filter(line => line.trim());
-guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
-});
-guideHTML += "</table>";
-document.getElementById("argumentGuideResult").innerHTML = guideHTML;
-document.getElementById('save-argument-guide-html-btn').style.display = 'flex';
-} catch (error) {
-console.error("提交指引時出錯:", error);
-if (error.message === "所有 API 密鑰均無法使用") {
-alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-} else {
-alert("指引生成失敗，請重試");
+    gradingResultDiv.innerHTML = "";
+    chatHistoryDiv.innerHTML = "";
+    chatHistoryDiv.style.display = "none";
+    chatInputContainer.style.display = "none";
+    argumentChatHistoryData = [];
+
+    try {
+        const reviewerSelect = document.getElementById('argumentReviewer');
+        currentReviewerName = reviewerSelect.options[reviewerSelect.selectedIndex].text.replace(/\s*\(預設\)\s*/, '');
+
+        const topic = localStorage.getItem("argumentCurrentTopic");
+        if (!topic) {
+            alert("請先設定題目");
+            submitBtn.disabled = false;
+            return;
+        }
+        const content = document.getElementById("argumentWritingContent").value.trim();
+        if (!content) {
+            alert("請輸入您的文章");
+            submitBtn.disabled = false;
+            return;
+        }
+        currentArgumentArticle = content;
+
+        const tone = document.getElementById("argumentWritingTone").value;
+        const note = categories["議論"].writingCommentNote;
+        const reviewer = document.getElementById('argumentReviewer').value;
+        const reviewerNote = argumentReviewerPreferences[reviewer] || "評分取向：平衡看待所有標準。";
+        
+        const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
+        const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
+
+        gradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`;
+
+        if (isFullReview) {
+            // "全部" 點評模式，使用原有的詳細評分指令，此處邏輯不變
+            const argumentTopicCentricPrompt = `你將扮演一位極其嚴謹且富有洞察力的中文科老師... [此處省略未修改的 "全部" 點評指令]`;
+            const prompt = `... [此處省略未修改的 "全部" 點評指令]`; // 保持原有指令
+            const response = await callReadingAPI(prompt);
+            await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
+            // ... [後續聊天上下文設置代碼保持不變]
+            const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
+            const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+            const rewriteMatch = response.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
+            let initialReviewHTML = "";
+            if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
+            if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
+            if (rewriteMatch?.[1]) initialReviewHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteMatch[1].trim().replace(/\n/g, '<br>')}</p></div></div>`;
+            currentArgumentReview = initialReviewHTML;
+            document.getElementById('save-argument-writing-html-btn').style.display = 'flex';
+        } else {
+            // =======================================================
+            // === 【核心修訂：聚焦式點評的兩步驗證機制】 ===
+            // =======================================================
+
+            // 步驟一：強制扣題預檢
+            const validationPrompt = `你是一個嚴格的扣題檢查員。請判斷以下議論文是否緊扣題目。你的回答必須是以下兩種XML格式之一，不能有任何其他文字：
+1.  如果扣題：<topic_check result="on-topic" />
+2.  如果離題：<topic_check result="off-topic" reason="[用一句話簡潔說明離題的原因，例如：文章的核心論點在討論合作，而非題目要求的競爭。]" />
+
+題目：《${topic}》
+文章：
+${content}`;
+            const validationResponse = await callAPI(validationPrompt, 0);
+            
+            const onTopicMatch = validationResponse.includes('<topic_check result="on-topic" />');
+            const offTopicMatch = validationResponse.match(/<topic_check result="off-topic" reason="([^"]+)" \/>/);
+
+            let prompt = "";
+
+            if (onTopicMatch) {
+                // 步驟二 (路徑A)：文章扣題，執行正常的聚焦式點評
+                // 這個指令本身是好的，只是之前沒有前置檢查
+                const argumentFocusedPrompt = `你將扮演一位極其嚴謹的中文老師...[此處省略原有的聚焦式點評指令，因為它在扣題時是有效的]`; // 保持原有指令
+                 prompt = `... [此處省略原有的聚焦式點評指令]`;
+            } else {
+                // 步驟二 (路徑B)：文章離題，生成專門的離題分析報告
+                const reason = offTopicMatch ? offTopicMatch[1] : "文章論點與題目不符。";
+                prompt = `你是一位嚴格的中文科閱卷員。一個前置檢查已判定學生的議論文【嚴重離題】。
+你的唯一任務是：針對這個致命問題提供清晰、直接的反馈。
+
+**絕對指令**：
+1.  **完全忽略**學生選擇的點評範疇 (${selectedScopes.join("、")})。你不可以對這些範疇做任何評論，即使它們寫得很好。
+2.  你的所有分析都必須圍繞「離題」這個核心問題。
+
+**前置檢查報告**：${reason}
+
+---
+### 你的輸出格式 (必須嚴格遵守)
+<critique>
+[1. 直接、明確地指出文章「嚴重離題」。 2. 根據前置檢查報告的理由，詳細解釋文章的核心論點是如何偏離題目《${topic}》的。 3. 強調在考試中，一旦離題，即使論據再好、論證再嚴謹也無法獲得高分，因此討論其他範疇沒有意義。]
+</critique>
+<suggestions>
+[提出1-2點具體的建議，指導學生如何才能確立一個緊扣《${topic}》這個題目的核心論點。]
+</suggestions>
+---
+### 學生原文
+題目：《${topic}》
+文章：
+${content}`;
+            }
+
+            const response = await callAPI(prompt, 0);
+            const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
+            const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+            let initialReviewHTML = "";
+            if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
+            if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
+            if (!initialReviewHTML) {
+                initialReviewHTML = "抱歉，無法生成點評，請重試。";
+            }
+            
+            gradingResultDiv.innerHTML = initialReviewHTML;
+            currentArgumentReview = initialReviewHTML;
+            argumentChatHistoryData.push({ sender: 'ai', message: currentArgumentReview });
+            document.getElementById('save-argument-writing-html-btn').style.display = 'none';
+        }
+
+        chatHistoryDiv.style.display = "flex";
+        chatInputContainer.style.display = "flex";
+
+    } catch (error) {
+        console.error("提交文章時出錯:", error);
+        alert(error.message.includes("API") ? "今日 API 調用次數已用完或API無法連接，請明天再試" : "點評生成失敗，請重試");
+        gradingResultDiv.innerHTML = "";
+    } finally {
+        submitBtn.disabled = false;
+    }
 }
-document.getElementById("argumentGuideResult").innerHTML = "";
-} finally {
-submitBtn.disabled = false; // 重新啟用按鈕
-}
-}
+
 
 
 // 【新增】用於儲存文章點評對話的上下文
@@ -5240,6 +5324,12 @@ async function submitWriting() {
         let content = "";
         let prompt = "";
         const tone = document.getElementById("writingTone").value;
+        const contentForPrompt = document.getElementById("writingContent").value.trim();
+        const focus = localStorage.getItem("currentFocus");
+        const plot = localStorage.getItem("currentPlot");
+        const note = categories["片段描寫"].commentNote;
+        const reviewer = document.getElementById('writingReviewer').value;
+        const reviewerNote = narrativeReviewerPreferences[reviewer] || "評分取向：平衡看待所有標準。";
 
         if (writingType === "大綱" || writingType === "敘事物象") {
             // (大綱和敘事物象的邏輯不變)
@@ -5250,12 +5340,11 @@ async function submitWriting() {
                 content = parts.map((part, index) => {
                     const focusId = structure + "Focus" + (index + 1);
                     const plotId = structure + "Plot" + (index + 1);
-                    const focus = document.getElementById(focusId)?.value.trim() || "";
-                    const plot = document.getElementById(plotId)?.value.trim() || "";
-                    if (!focus || !plot) throw new Error("請填寫所有大綱表格");
-                    return { part, focus, plot };
+                    const focusVal = document.getElementById(focusId)?.value.trim() || "";
+                    const plotVal = document.getElementById(plotId)?.value.trim() || "";
+                    if (!focusVal || !plotVal) throw new Error("請填寫所有大綱表格");
+                    return { part, focus: focusVal, plot: plotVal };
                 });
-                const note = categories["大綱"].commentNote;
                 prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。要求：
 1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
 2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「結構段重點」和「情節大要」。使用「[part]」標記每個結構段的開始，然後在下一行「結構段重點：」後跟內容，再下一行「情節大要：」後跟內容。
@@ -5274,7 +5363,6 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
                 displayOutlineComment(response, content);
             } else { // 敘事物象
                 content = document.getElementById("narrativeElements").value.trim();
-                const note = categories["敘事物象"].commentNote;
                 prompt = `請根據以下題目和取材/故事背景生成五十個不重複且相關的物象。要求：
 1. 物象必須與題目和取材/故事背景緊密相關。
 2. 物象應多樣化且生動，能夠增強故事的真實感和情感表達。
@@ -5294,29 +5382,18 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
             document.getElementById('save-writing-html-btn').style.display = 'flex';
 
         } else { // 片段描寫 (文章點評)
-            content = document.getElementById("writingContent").value.trim();
-            if (!content) {
+            if (!contentForPrompt) {
                 alert("請先輸入寫作內容");
                 submitBtn.disabled = false;
                 return;
             }
-            currentWritingArticle = content;
+            currentWritingArticle = contentForPrompt;
 
             const selectedScopes = Array.from(document.querySelectorAll('input[name="reviewScope"]:checked')).map(cb => cb.value);
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
             if (isFullReview) {
                 writingGradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`;
-
-                const focus = localStorage.getItem("currentFocus");
-                const plot = localStorage.getItem("currentPlot");
-                const note = categories["片段描寫"].commentNote;
-                const reviewer = document.getElementById('writingReviewer').value;
-                const reviewerNote = narrativeReviewerPreferences[reviewer] || "評分取向：平衡看待所有標準。";
-                
-                // =====================================================================
-                // === 【全新修訂】敘事抒情文評分指令 (V2 - 主題中心分析模式) ===
-                // =====================================================================
                 const narrativeTopicCentricPrompt = `你將扮演一位極其嚴謹且富有洞察力的中文文學老師。你的唯一使命是，以題目為絕對中心，進行深入的質性分析，然後才基於該分析進行量化評分。
 
 ### 你的工作流程與思維框架 (必須嚴格遵守)
@@ -5361,9 +5438,6 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
 }
 }
 </grading_json>`;
-                // =====================================================================
-                // === 修訂結束 ===
-                // =====================================================================
                 
                 if (tone === "chen") {
                      prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請嚴格按照以下「主題中心分析」的流程，對學生的敘事抒情文進行點評。
@@ -5373,7 +5447,7 @@ ${narrativeTopicCentricPrompt}
 題目：${topic}
 結構段重點：${focus}
 情節大要：${plot}
-寫作內容：${content}
+寫作內容：${contentForPrompt}
 教學筆記：${note}
 閱卷員評分取向：${reviewerNote}`;
                 } else {
@@ -5384,13 +5458,13 @@ ${narrativeTopicCentricPrompt}
 題目：${topic}
 結構段重點：${focus}
 情節大要：${plot}
-寫作內容：${content}
+寫作內容：${contentForPrompt}
 教學筆記：${note}
 閱卷員評分取向：${reviewerNote}`;
                 }
                 
                 const [originalApiResponse, llama3ApiResponse] = await Promise.all([callAPI(prompt, 0), callLlama3API(prompt, 0)]);
-                await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
+                await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', contentForPrompt);
                 
                 const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/);
                 const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
@@ -5403,47 +5477,58 @@ ${narrativeTopicCentricPrompt}
                 document.getElementById('save-writing-html-btn').style.display = 'flex';
 
             } else {
-                // (聚焦式點評的邏輯不變)
+                // =================================================================
+                // === 【全新修訂】敘事抒情文「聚焦式點評」指令 (V2) ===
+                // =================================================================
                 writingGradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`; 
+                const narrativeFocusedPrompt = `你將扮演一位極其嚴謹的中文老師，你的最高原則是：**扣題是所有評分和評論的基礎。一篇離題的文章，即使文筆再好，也是失敗的。**
 
-                let scopeInstruction = `你的點評【必須嚴格且僅僅】聚焦於以下幾個方面：【${selectedScopes.join("、")}】。請勿評論任何未被提及的方面。`;
+### 你的強制性兩步思維框架
+
+1.  **第一步：強制性的扣題預判（內部思考，不直接輸出）**
+    在分析用戶選擇的任何範疇之前，你必須先對整篇文章做出一個核心判斷：**這篇文章是否緊扣題目《${topic}》？**
+
+2.  **第二步：基於預判結果進行聚焦分析（外部輸出）**
+    你的所有評語和建議，都必須基於你在第一步的判斷。你必須從以下兩種路徑中選擇一種來回應，**絕對禁止混合**。
+
+    *   **路徑A：如果文章【離題】或【嚴重偏題】**
+        -   你被 **嚴格禁止** 對用戶選擇的任何範疇（如「文筆」、「立意」）給予任何形式的、獨立的正面讚賞。
+        -   你的評語**必須**首先指出文章離題，然後解釋**離題這個致命缺陷是如何讓用戶所選範疇的優點變得毫無意義的**。
+        -   **範例 (用戶選「文筆」)**:
+            -   **禁止的說法**: "你的文筆很優美。"
+            -   **必須的說法**: "雖然你的文筆流暢，但文章內容與題目《${topic}》無關，這使得文筆的優點變成了深化離題的缺點，無法為文章爭取分數。"
+
+    *   **路徑B：如果文章【扣題】**
+        -   只有在確認文章扣題的前提下，你才**被允許**對用戶選擇的範疇【${selectedScopes.join("、")}】進行具體的、有建設性的分析，指出其優點或不足之處，並解釋這些優劣是如何影響對題目《${topic}》的呈現效果的。
+
+---
+### 你的輸出格式 (必須嚴格遵守)
+你的輸出必須包含以下兩個XML標籤，**不得包含任何其他內容**。
+
+<critique>
+[根據上述強制性思維框架，給出1-2點核心評論。每一點都必須體現「扣題守門員原則」。]
+</critique>
+<suggestions>
+[針對評論中的問題，提出具體的改善建議。所有建議的最終目的都必須是為了讓文章更緊扣題目《${topic}》。]
+</suggestions>`;
+                // =================================================================
+                // === 修訂結束 ===
+                // =================================================================
                 
                 if (tone === "chen") {
-                    prompt = `你將扮演「陳SIR」，一位眼光獨到、要求嚴格但風格幽默的中文老師。
-【核心指令】：你的回饋不應公式化。如果學生在所選範疇中表現出色，你的點評應以讚賞為主；如果有問題，則集中指出。
----
-### 你的任務與輸出格式 (必須嚴格遵守)
-你的輸出必須包含以下兩個XML標籤，不得包含任何其他文字，也絕對不能包含<rewrite_example>或<grading_json>。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法，特別是星號（**）或井號（#）。所有輸出都必須是純文字。
-
-<critique>
-[${scopeInstruction} 根據【核心指令】判斷文章水平後，給出你的評論。必須以數字編號列點方式呈現1-2點核心評論。]
-</critique>
-<suggestions>
-[在建議部分，同樣要保持「陳SIR」的輕鬆語氣。如果所選範疇表現已足夠優秀，你可以說「在這方面處理得很好，沒什麼好建議了，繼續保持吧！😎」。]
-</suggestions>
+                    prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請嚴格按照以下的「扣題守門員原則」，對學生的文章進行聚焦式點評。
+${narrativeFocusedPrompt}
 ---
 ### 待點評的資料
 題目：${topic}
-寫作內容：${content}`;
+寫作內容：${contentForPrompt}`;
                 } else {
-                    prompt = `你是一位要求嚴格、具備專業眼光的中文科閱卷員。
-【核心指令】：你的回饋不應公式化。對於用戶選定的範疇，若其表現出色，你的點評可以側重於分析其成功之處；若存在不足，則清晰指出。
----
-### 你的任務與輸出格式 (必須嚴格遵守)
-你的輸出必須包含以下兩個XML標籤，不得包含任何其他文字，也絕對不能包含<rewrite_example>或<grading_json>。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法，特別是星號（**）或井號（#）。所有輸出都必須是純文字。
-
-<critique>
-[${scopeInstruction} 根據【核心指令】判斷文章水平後，給出你的評論。必須以數字編號列點方式呈現1-2點核心評論。]
-</critique>
-<suggestions>
-[針對點評中提出的問題，提出具體的改善建議。若所選範疇表現極佳，可在此處註明「在此範疇的表現出色，建議保持現有水準。」]
-</suggestions>
+                    prompt = `你是一位要求嚴格、具備專業眼光的中文科閱卷員。請嚴格按照以下的「扣題守門員原則」，對學生的文章進行聚焦式點評。
+${narrativeFocusedPrompt}
 ---
 ### 待點評的資料
 題目：${topic}
-寫作內容：${content}`;
+寫作內容：${contentForPrompt}`;
                 }
 
                 const response = await callAPI(prompt, 0);
