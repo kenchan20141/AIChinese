@@ -5381,7 +5381,7 @@ async function submitWritingGuide() {
 
 【輸出格式 (請嚴格遵守分隔符，不要改動標籤)】
 請按順序輸出，並使用以下標籤將內容分隔開，以便程式解析：
-**注意：情境和矛盾（即張力）的內容請直接寫在標籤後，不要加括號。**
+**注意：情境和張力的內容請直接寫在標籤後，不要加括號。**
 
 [INTRO]
 (這裡寫開頭比喻及詞語關係分析，約150字)
@@ -5437,7 +5437,7 @@ async function submitWritingGuide() {
             emotionsDiv.innerHTML = emotionsHTML;
         }
 
-        // 3. 渲染 Seeds (3個) - 【核心修復：改用正則表達式解析】
+        // 3. 渲染 Seeds (3個) - 【核心修復：修正正則表達式解析邏輯】
         if (seedParts.length > 0) {
             let seedsHTML = "";
             seedParts.forEach(part => {
@@ -5453,17 +5453,17 @@ async function submitWritingGuide() {
                 // 先移除 Markdown 粗體符號 (**)，避免影響解析
                 const cleanContent = contentText.replace(/\*\*/g, '');
 
+                // 【修正重點 1】
                 // 正則表達式解釋：
                 // 1. (?:情境|情景) 匹配 "情境" 或 "情景"
-                // 2. (?:[:：]|\s)+ 匹配冒號(全形或半形)或空白
+                // 2. (?:[:：]|\s)+ 匹配冒號或空白
                 // 3. ([\s\S]*?) 捕獲內容 (非貪婪模式)
-                // 4. (?=矛盾|$) 向前查找 "矛盾" 或 字串結尾
-                const sitRegex = /(?:情境|情景)(?:[:：]|\s)+([\s\S]*?)(?=(?:張力)(?:[:：]|\s)+|$)/i;
+                // 4. (?=張力|矛盾|$) 向前查找 "張力" 或 "矛盾" 或 字串結尾，確保抓取到此為止
+                const sitRegex = /(?:情境|情景)(?:[:：]|\s)+([\s\S]*?)(?=(?:張力|矛盾)(?:[:：]|\s)+|$)/i;
                 
-                // 1. 矛盾 匹配 "矛盾"
-                // 2. (?:[:：]|\s)+ 匹配冒號
-                // 3. ([\s\S]*) 捕獲剩餘所有內容
-                const conRegex = /張力(?:[:：]|\s)+([\s\S]*)/i;
+                // 【修正重點 2】
+                // 匹配 "張力" 或 "矛盾"，然後捕獲剩餘內容
+                const conRegex = /(?:張力|矛盾)(?:[:：]|\s)+([\s\S]*)/i;
 
                 const sitMatch = cleanContent.match(sitRegex);
                 const conMatch = cleanContent.match(conRegex);
@@ -5472,10 +5472,16 @@ async function submitWritingGuide() {
                     situation = sitMatch[1].trim();
                 } else {
                     // 如果正則失敗，回退到簡單分割 (防止完全空白)
-                    if (cleanContent.includes("張力")) {
-                        situation = cleanContent.split("張力")[0].replace(/情境[:：]?/g, "").trim();
+                    // 同時檢查 "張力" 和 "矛盾"
+                    let splitKey = "張力";
+                    if (cleanContent.includes("矛盾") && !cleanContent.includes("張力")) {
+                        splitKey = "矛盾";
+                    }
+
+                    if (cleanContent.includes(splitKey)) {
+                        situation = cleanContent.split(splitKey)[0].replace(/(?:情境|情景)[:：]?/g, "").trim();
                     } else {
-                        situation = cleanContent;
+                        situation = cleanContent.replace(/(?:情境|情景)[:：]?/g, "").trim();
                     }
                 }
 
