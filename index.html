@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -2349,6 +2347,8 @@ transform: scale(1.15);
 
 
 <script>
+
+
 document.addEventListener('DOMContentLoaded', function() {
 const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
 const hitokotoElement = document.getElementById('hitokoto');
@@ -2655,6 +2655,18 @@ refreshBtn.addEventListener('click', fetchHitokoto);
                 <!-- 三個故事種子 (三欄佈局) -->
                 <div id="guideSeeds" class="guide-grid-3"></div>
 
+
+<!-- 新增：解題指引的聊天室介面 -->
+                <div id="writingGuideChatHistory" style="display: none; background-color: #f0f4f8; border: 1px solid #dde3ea; border-radius: 12px; padding: 20px 15px; margin-top: 15px; margin-bottom: 15px; max-height: 400px; overflow-y: auto; flex-direction: column;"></div>
+                
+                <div id="writingGuideChatInputContainer" style="display: none; align-items: center; gap: 10px; margin-top: 15px;">
+                    <textarea id="writingGuideUserInput" class="no-modal-editor" rows="2" placeholder="可就以上指引追問..." style="flex-grow: 1; margin: 0;"></textarea>
+                    <button id="continueWritingGuideBtn" class="btn-icon-action" onclick="continueWritingGuideDiscussion()" title="繼續討論" style="background-color: #2d9966;">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+				</div>
+
+				
                 <!-- 儲存按鈕 -->
                 <div class="result-wrapper">
                     <button id="save-guide-html-btn" class="btn-save-html" title="儲存為HTML檔案" onclick="savePageAsHTML('神思-敘事抒情-解題指引.html')" style="display: flex;">
@@ -4867,6 +4879,12 @@ ${scopeInstruction}
 }
 
 
+
+// 【新增】用於儲存解題指引對話的上下文
+let currentGuideTopic = '';
+let currentGuideAnalysis = '';
+let writingGuideChatHistoryData = [];
+	
 // 【新增】用於儲存文章點評對話的上下文
 
 // 【新增】用於儲存文章點評對話的上下文
@@ -4879,6 +4897,10 @@ let writingChatHistoryData = [];
 let currentArgumentArticle = '';
 let currentArgumentReview = '';
 let argumentChatHistoryData = [];
+
+
+
+
 
 // 【新增】處理議論文「點評範疇」中「全部」複選框的邏輯
 function handleArgumentAllScopeChange(checkbox) {
@@ -5333,7 +5355,7 @@ document.getElementById("outlineTableArea").innerHTML = tableHTML;
 
 
 // ==========================================
-// === 新增：解題指引提交函數 ===
+// === 修訂：解題指引提交函數 (確保儲存上下文) ===
 // ==========================================
 async function submitWritingGuide() {
     const submitBtn = document.getElementById('submitWritingGuideBtn');
@@ -5343,6 +5365,10 @@ async function submitWritingGuide() {
     const emotionsDiv = document.getElementById('guideEmotions');
     const seedsDiv = document.getElementById('guideSeeds');
     const saveBtn = document.getElementById('save-guide-html-btn');
+
+    // 聊天室相關元素
+    const chatHistoryDiv = document.getElementById('writingGuideChatHistory');
+    const chatInputContainer = document.getElementById('writingGuideChatInputContainer');
 
     if (!inputTopic) {
         alert("請輸入題目！");
@@ -5359,7 +5385,13 @@ async function submitWritingGuide() {
     resultContainer.style.display = "block";
     saveBtn.style.display = 'none';
 
-    // 構建 Prompt (微調了格式要求，使其更穩定)
+    // 重置聊天室狀態
+    chatHistoryDiv.innerHTML = "";
+    chatHistoryDiv.style.display = "none";
+    chatInputContainer.style.display = "none";
+    writingGuideChatHistoryData = [];
+    currentGuideTopic = inputTopic; // 儲存題目上下文
+
     const prompt = `你是一位深諳中國文學的寫作顧問。使用者輸入題目：「${inputTopic}」。
 
 請模仿以下【示例】的風格、深度和語氣，為這個題目撰寫「題眼分析」及「寫作方向」。
@@ -5411,7 +5443,10 @@ async function submitWritingGuide() {
     try {
         const response = await callAPI(prompt);
         
-        // 解析回應 (根據標籤切割)
+        // 【關鍵修訂】這裡必須儲存完整的 AI 回應到全域變數，供聊天室使用
+        currentGuideAnalysis = response;
+
+        // 解析回應
         const introMatch = response.split('[INTRO]')[1]?.split('[EMOTION]')[0].trim();
         const emotionParts = response.split('[EMOTION]').slice(1).map(p => p.split('[SEED]')[0].trim());
         const seedParts = response.split('[SEED]').slice(1).map(p => p.trim());
@@ -5421,7 +5456,7 @@ async function submitWritingGuide() {
             introDiv.innerHTML = `<p>${introMatch.replace(/\n/g, '<br>')}</p>`;
         }
 
-        // 2. 渲染 Emotions (3個)
+        // 2. 渲染 Emotions
         if (emotionParts.length > 0) {
             let emotionsHTML = "";
             emotionParts.forEach(part => {
@@ -5437,32 +5472,19 @@ async function submitWritingGuide() {
             emotionsDiv.innerHTML = emotionsHTML;
         }
 
-        // 3. 渲染 Seeds (3個) - 【核心修復：修正正則表達式解析邏輯】
+        // 3. 渲染 Seeds
         if (seedParts.length > 0) {
             let seedsHTML = "";
             seedParts.forEach(part => {
                 const lines = part.split('\n').filter(l => l.trim());
                 const title = lines[0] || "故事種子";
-                
-                // 移除標題，將剩下的行合併為全文，準備進行正則解析
                 const contentText = lines.slice(1).join('\n');
-                
                 let situation = "";
                 let contradiction = "";
-
-                // 先移除 Markdown 粗體符號 (**)，避免影響解析
-                const cleanContent = contentText.replace(/\*\*/g, '');
-
-                // 【修正重點 1】
-                // 正則表達式解釋：
-                // 1. (?:情境|情景) 匹配 "情境" 或 "情景"
-                // 2. (?:[:：]|\s)+ 匹配冒號或空白
-                // 3. ([\s\S]*?) 捕獲內容 (非貪婪模式)
-                // 4. (?=張力|矛盾|$) 向前查找 "張力" 或 "矛盾" 或 字串結尾，確保抓取到此為止
-                const sitRegex = /(?:情境|情景)(?:[:：]|\s)+([\s\S]*?)(?=(?:張力|矛盾)(?:[:：]|\s)+|$)/i;
                 
-                // 【修正重點 2】
-                // 匹配 "張力" 或 "矛盾"，然後捕獲剩餘內容
+                // 移除 Markdown 符號
+                const cleanContent = contentText.replace(/\*\*/g, '');
+                const sitRegex = /(?:情境|情景)(?:[:：]|\s)+([\s\S]*?)(?=(?:張力|矛盾)(?:[:：]|\s)+|$)/i;
                 const conRegex = /(?:張力|矛盾)(?:[:：]|\s)+([\s\S]*)/i;
 
                 const sitMatch = cleanContent.match(sitRegex);
@@ -5471,13 +5493,10 @@ async function submitWritingGuide() {
                 if (sitMatch && sitMatch[1]) {
                     situation = sitMatch[1].trim();
                 } else {
-                    // 如果正則失敗，回退到簡單分割 (防止完全空白)
-                    // 同時檢查 "張力" 和 "矛盾"
                     let splitKey = "張力";
                     if (cleanContent.includes("矛盾") && !cleanContent.includes("張力")) {
                         splitKey = "矛盾";
                     }
-
                     if (cleanContent.includes(splitKey)) {
                         situation = cleanContent.split(splitKey)[0].replace(/(?:情境|情景)[:：]?/g, "").trim();
                     } else {
@@ -5502,6 +5521,10 @@ async function submitWritingGuide() {
         }
         
         saveBtn.style.display = 'flex';
+        
+        // 分析完成後，顯示聊天介面
+        chatHistoryDiv.style.display = "flex";
+        chatInputContainer.style.display = "flex";
 
     } catch (error) {
         console.error("解題指引生成失敗:", error);
@@ -5512,6 +5535,96 @@ async function submitWritingGuide() {
     }
 }
 
+// ==========================================
+// === 修訂：解題指引聊天室互動函數 (修復失憶問題) ===
+// ==========================================
+async function continueWritingGuideDiscussion() {
+    const continueBtn = document.getElementById('continueWritingGuideBtn');
+    continueBtn.disabled = true;
+
+    const userInputText = sanitizeHTML(document.getElementById("writingGuideUserInput").value.trim());
+    if (!userInputText) {
+        alert("請輸入您的回應");
+        continueBtn.disabled = false;
+        return;
+    }
+    
+    const chatHistoryDiv = document.getElementById('writingGuideChatHistory');
+    
+    // 1. 顯示使用者訊息
+    const userMessageBubble = document.createElement('div');
+    userMessageBubble.className = 'message-bubble user-message';
+    userMessageBubble.textContent = userInputText;
+    chatHistoryDiv.appendChild(userMessageBubble);
+    
+    // 2. 將使用者訊息存入歷史紀錄
+    writingGuideChatHistoryData.push({ sender: 'user', message: userInputText });
+    document.getElementById("writingGuideUserInput").value = "";
+    chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+
+    // 3. 顯示 AI 正在回應
+    const aiMessageBubble = document.createElement('div');
+    aiMessageBubble.className = 'message-bubble ai-message';
+    aiMessageBubble.textContent = `陳SIR正在回應...`;
+    chatHistoryDiv.appendChild(aiMessageBubble);
+    chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+
+    // 4. 準備對話歷史文字 (去除 HTML 標籤，讓 AI 讀得更清楚)
+    // 這裡我們把之前的對話整理成純文字格式
+    const conversationHistoryForPrompt = writingGuideChatHistoryData.map(item => {
+        const role = item.sender === 'user' ? '學生' : '陳SIR';
+        // 簡單去除 HTML 標籤以防干擾 Prompt
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = item.message;
+        const cleanMessage = tempDiv.textContent || tempDiv.innerText || "";
+        return `${role}: ${cleanMessage}`;
+    }).join('\n');
+
+    // 5. 準備 Prompt (核心修正：加入指引上下文)
+    const prompt = `
+    【角色設定】
+    你是一位高中中文科老師「陳SIR」，你剛剛為學生分析了作文題目：「${currentGuideTopic}」。
+    你的語氣親切、有見地，善於用具體的例子或生活化的比喻來引導學生深入思考，而不是只給空泛的理論。
+
+    【背景資料：你剛才生成的解題指引內容】
+    (請基於此內容回答學生的問題，不要忘記你剛剛提出的觀點)
+    ---
+    ${currentGuideAnalysis}
+    ---
+
+    【我們剛才的對話紀錄】
+    ${conversationHistoryForPrompt}
+
+    【學生的最新追問】
+    ${userInputText}
+
+    【你的任務】
+    請針對學生的最新追問進行回應。
+    1. 必須緊扣你剛才生成的「解題指引」內容（例如你提到的情感特質或故事種子）。
+    2. 不要使用括號解釋你的目的。
+    3. 請用完整句子回應，字數控制在 200 字以內。
+    `;
+
+    try {
+        const aiResponse = await callReadingAPI(prompt);
+        
+        // 6. 更新 UI (將 Markdown 粗體轉為 HTML)
+        let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formattedResponse = formattedResponse.replace(/\n/g, '<br>');
+
+        aiMessageBubble.innerHTML = formattedResponse;
+        
+        // 存入歷史
+        writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
+
+    } catch (error) {
+        console.error("繼續指引討論時出錯:", error);
+        aiMessageBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，陳SIR無法回應。😅`;
+    } finally {
+        chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        continueBtn.disabled = false;
+    }
+}
 async function submitWriting() {
     const submitBtn = document.getElementById('submitWritingBtn');
     submitBtn.disabled = true;
