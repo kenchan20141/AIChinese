@@ -5604,25 +5604,27 @@ async function continueWritingGuideDiscussion() {
     3. 請用完整句子回應，字數控制在 200 字以內。
     `;
 
-    try {
-        const aiResponse = await callReadingAPI(prompt);
-        
-        // 6. 更新 UI (將 Markdown 粗體轉為 HTML)
-        let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        formattedResponse = formattedResponse.replace(/\n/g, '<br>');
-
-        aiMessageBubble.innerHTML = formattedResponse;
-        
-        // 存入歷史
-        writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
-
-    } catch (error) {
-        console.error("繼續指引討論時出錯:", error);
-        aiMessageBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，陳SIR無法回應。😅`;
-    } finally {
-        chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
-        continueBtn.disabled = false;
+   try {
+    const aiResponse = await callAPI(prompt);
+    // 添加這段檢查代碼
+    if (!aiResponse || typeof aiResponse !== 'string') {
+        throw new Error('API 傳回無效回應');
     }
+    
+    // 6. 更新 UI (將 Markdown 粗體轉為 HTML)
+    let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    formattedResponse = formattedResponse.replace(/\n/g, '<br>');
+    aiMessageBubble.innerHTML = formattedResponse;
+    
+    // 存入歷史
+    writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
+} catch (error) {
+    console.error("繼續指引討論時出錯:", error);
+    aiMessageBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，陳SIR無法回應。😅`;
+} finally {
+    chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+    continueBtn.disabled = false;
+}
 }
 async function submitWriting() {
     const submitBtn = document.getElementById('submitWritingBtn');
