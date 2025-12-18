@@ -2242,7 +2242,11 @@ white-space: nowrap !important; /* 核心指令：強制文字不換行 */
 
 
 
-
+/* === 永遠隱藏主頁的「工具一覽」container（但保留代碼）=== */
+#mainMenuBox ~ #toolsBox,
+#toolsBox {
+    display: none !important;
+}
 
 
 
@@ -4051,36 +4055,52 @@ function showContainer(containerId, clickedButton) {
 }
 
 
-// === 更新版：返回主頁函式 ===
+// === 更新版：返回主頁函式（強制隱藏工具一覽容器）===
 function returnToHome() {
-    // 原有返回主頁邏輯
+    // 恢復主頁背景
     document.body.style.backgroundImage = `url('${scenes['home']}')`;
+    
+    // 隱藏所有功能容器
     const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer'];
-    containers.forEach(id => document.getElementById(id).style.display = "none");
+    containers.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";
+    });
+    
+    // 顯示主頁元素
     document.querySelector('.title-container').style.display = 'block';
     document.getElementById('hitokoto-container').style.display = 'block';
     document.getElementById('mainMenuBox').style.display = 'block';
     document.getElementById('toolsBox').style.display = 'block';
+    
+    // 隱藏返回按鈕（左上角圓形與側邊選單內的）
     document.getElementById('sideMenuHomeBtn').style.display = 'none';
     document.getElementById('homeBtn').style.display = 'none';
+    
+    // 移除所有卡片 active 狀態
     document.querySelectorAll('.anime-card').forEach(card => card.classList.remove('active'));
-    hideAllSaveHtmlButtons();
-
-    // 【新增】強制關閉工具一覽頁面（語薈）
+    
+    // === 【關鍵修正】強制隱藏「工具一覽」（語薈）容器 ===
     const toolsContainer2 = document.getElementById('toolsContainer2');
-    if (toolsContainer2 && toolsContainer2.style.display === 'flex') {
+    if (toolsContainer2) {
         toolsContainer2.style.display = 'none';
-        document.body.style.overflow = 'auto'; // 恢復滾動
+        // 恢復頁面滾動（因為打開語薈時會禁用滾動）
+        document.body.style.overflow = 'auto';
     }
-
-    // 【新增】如果側邊選單是開啟狀態，也收起它
+    
+    // === 【額外保險】如果側邊選單開著，也收起來 ===
     const sideMenu = document.getElementById('sideMenu');
-    if (sideMenu.classList.contains('active')) {
+    if (sideMenu && sideMenu.classList.contains('active')) {
         sideMenu.classList.remove('active');
         document.getElementById('sideMenuToggle').classList.remove('active');
     }
+    
+    // 隱藏所有儲存按鈕
+    hideAllSaveHtmlButtons();
+    
+    // 強制滾動到頂部
+    window.scrollTo({ top: 0, behavior: 'instant' });
 }
-
 
 // 新增此函式：用於顯示議論的自訂題目介面
 function showArgumentCustomTopicInput(buttonElement) { 
@@ -8577,7 +8597,15 @@ function toggleMusicPlayer() {
     document.getElementById('sideMenu').classList.remove('active');
 }
 
-
+// === 強制在返回主頁時永遠隱藏「工具一覽」container（保險做法）===
+const originalReturnToHome = window.returnToHome;
+window.returnToHome = function() {
+    originalReturnToHome();                 // 執行原本的所有返回主頁邏輯
+    const toolsBox = document.getElementById('toolsBox');
+    if (toolsBox) {
+        toolsBox.style.display = 'none';    // 強制隱藏
+    }
+};
 
 
 </script>
