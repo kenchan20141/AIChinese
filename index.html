@@ -2352,6 +2352,37 @@ observer.observe(document.body, { childList: true, subtree: true });
 </div>
 </div>
 
+	<!-- DSE 倒數日曆容器 -->
+<div class="box" id="dse-countdown-box">
+    <div class="dse-header">DSE中文：分手倒數</div>
+
+    <div class="countdown-container">
+        <!-- 百位 -->
+        <div class="flip-unit" id="unit-1">
+            <div class="card-part top" id="t1-next">0</div>
+            <div class="card-part bottom" id="b1-old">0</div>
+            <div class="flap" id="f1" data-old="0" data-new="0"></div>
+        </div>
+        <!-- 十位 -->
+        <div class="flip-unit" id="unit-2">
+            <div class="card-part top" id="t2-next">0</div>
+            <div class="card-part bottom" id="b2-old">0</div>
+            <div class="flap" id="f2" data-old="0" data-new="0"></div>
+        </div>
+        <!-- 個位 -->
+        <div class="flip-unit" id="unit-3">
+            <div class="card-part top" id="t3-next">0</div>
+            <div class="card-part bottom" id="b3-old">0</div>
+            <div class="flap" id="f3" data-old="0" data-new="0"></div>
+        </div>
+    </div>
+
+    <div class="dse-footer">DAYS TO BREAKUP</div>
+    
+    <!-- 翻頁音效 -->
+    <audio id="flip-sound" src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3" preload="auto"></audio>
+</div>
+
 
 
 <style>
@@ -2446,7 +2477,162 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 transform: scale(1.15);
 }
 
+/* === DSE 倒數日曆專用樣式 (修訂版：修復中間線條重疊問題) === */
+#dse-countdown-box {
+    --dse-card-bg: #ffffff;
+    
+    /* === 修改這裡：選擇你喜歡的顏色 === */
+    /* 選項 1 (枯茶色 - 暖灰褐)：像舊墨水，最文藝 */
+    --dse-text-color: #1A7595;
+    
+    /* 選項 2 (鐵御納戶 - 藍灰)：像鋼筆字，最知性 */
+    /* --dse-text-color: #5f6c7b; */
 
+    /* 選項 3 (海松色 - 灰綠)：像植物，最自然 */
+    /* --dse-text-color: #6e7c70; */
+
+    /* 同時建議將線條顏色也稍微調淡一點，配合淡雅的文字 */
+    --dse-line-color: #e0e0e0; 
+    
+    --dse-flip-duration: 0.6s;
+    
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden; /* 防止動畫溢出 */
+    padding: 30px 20px; /* 增加內部呼吸空間 */
+}
+
+.dse-header {
+    font-size: 1rem;
+    letter-spacing: 0.5rem;
+    margin-bottom: 2rem;
+    color: #a0a0a0;
+    font-weight: 300;
+    text-indent: 0.5rem;
+    text-align: center;
+}
+
+.countdown-container {
+    display: flex;
+    gap: 12px;
+    perspective: 1200px;
+    justify-content: center; /* 確保卡片居中 */
+}
+
+.flip-unit {
+    position: relative;
+    width: 110px;
+    height: 160px;
+    font-size: 100px;
+    /* 修改這裡：使用思源宋體，配合襯線字體，更有文藝氣息 */
+    font-family: 'Noto Serif TC', "Songti TC", serif;
+    font-weight: bold; /* 宋體較細，建議加粗 */
+    text-align: center;
+    border-radius: 6px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.03);
+    color: var(--dse-text-color);
+    /* 微調數字垂直位置，因為宋體數字重心通常稍高 */
+    line-height: 160px; 
+}
+
+.card-part {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 50%;
+    overflow: hidden;
+    background: var(--dse-card-bg);
+    backface-visibility: hidden;
+}
+
+/* 上半部：保留底線 */
+.top {
+    top: 0;
+    border-radius: 6px 6px 0 0;
+    line-height: 160px;
+    border-bottom: 0.5px solid var(--dse-line-color);
+}
+
+/* 下半部：【核心修改】移除頂線，避免與上半部的線重疊 */
+.bottom {
+    bottom: 0;
+    border-radius: 0 0 6px 6px;
+    line-height: 0px;
+    border-top: none; 
+}
+
+/* 翻動片（正面）：保留底線 */
+.flap {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 50%;
+    background: var(--dse-card-bg);
+    border-radius: 6px 6px 0 0;
+    transform-origin: bottom;
+    z-index: 3;
+    transition: transform var(--dse-flip-duration) cubic-bezier(0.4, 0, 0.2, 1);
+    transform-style: preserve-3d;
+    border-bottom: 0.5px solid var(--dse-line-color);
+    color: var(--dse-text-color);
+}
+
+.flap::before {
+    content: attr(data-old);
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--dse-card-bg);
+    border-radius: 6px 6px 0 0;
+    backface-visibility: hidden;
+    line-height: 160px;
+}
+
+/* 翻動片（背面）：【核心修改】移除頂線 */
+.flap::after {
+    content: attr(data-new);
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--dse-card-bg);
+    border-radius: 0 0 6px 6px;
+    transform: rotateX(-180deg);
+    backface-visibility: hidden;
+    line-height: 0;
+    display: flex; justify-content: center;
+    border-top: none;
+}
+
+.flipping .flap {
+    transform: rotateX(-180deg);
+}
+
+.dse-footer {
+    margin-top: 2rem;
+    letter-spacing: 0.3rem;
+    font-size: 0.8rem;
+    color: #c0c0c0;
+    font-weight: 300;
+    text-align: center;
+}
+
+/* === 響應式調整 === */
+@media (max-width: 600px) {
+    .countdown-container {
+        /* 使用縮放來保持 3D 效果比例，同時適應手機屏幕 */
+        transform: scale(0.65); 
+        margin: -20px 0; /* 修正縮放後留下的空白 */
+    }
+    
+    #dse-countdown-box {
+        padding: 20px 10px;
+    }
+}
+
+@media (max-width: 380px) {
+    .countdown-container {
+        transform: scale(0.55);
+        margin: -30px 0;
+    }
+}
 
 </style>
 
@@ -2462,6 +2648,101 @@ const hitokotoElement = document.getElementById('hitokoto');
 const hitokotoFromElement = document.getElementById('hitokoto-from');
 const refreshBtn = document.getElementById('refresh-btn');
 
+
+function initDSECalendar() {
+    // 1. 設定目標日期
+    const targetDateStr = '2026-04-09'; 
+    
+    // 檢查 HTML 元素是否存在
+    if (!document.getElementById('unit-1')) return;
+
+    // 計算剩餘天數
+    function getDiffDays() {
+        const target = new Date(targetDateStr);
+        const now = new Date();
+        
+        // 時間歸零，只比較日期
+        target.setHours(0,0,0,0);
+        now.setHours(0,0,0,0);
+        
+        const diff = target.getTime() - now.getTime();
+        const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        
+        // 如果天數小於等於 0 (已過期或當天)，直接回傳 0
+        return days > 0 ? days : 0; 
+    }
+
+    const realDays = getDiffDays();
+
+    // 動畫邏輯：
+    // 設定起始數字為「真實天數 + 1」，這樣載入時會有往下翻一頁的進場效果
+    // 如果是 0 天，就會呈現 001 -> 000 的效果
+    const prevDays = realDays + 1; 
+
+    const oldVal = prevDays.toString().padStart(3, '0');
+    const newVal = realDays.toString().padStart(3, '0');
+    
+    // 2. 更新 DOM 數字
+    for (let i = 1; i <= 3; i++) {
+        const o = oldVal[i-1];
+        const n = newVal[i-1];
+
+        const topNext = document.getElementById(`t${i}-next`);
+        const bottomOld = document.getElementById(`b${i}-old`);
+        const flap = document.getElementById(`f${i}`);
+
+        if (topNext && bottomOld && flap) {
+            // 設定文字
+            topNext.innerText = n;
+            bottomOld.innerText = o;
+            
+            // 設定翻頁屬性
+            flap.setAttribute('data-old', o);
+            flap.setAttribute('data-new', n);
+        }
+    }
+
+    // 3. 執行翻頁動畫 (延遲 500ms 讓畫面載入後才動)
+    setTimeout(() => {
+        const sound = document.getElementById('flip-sound');
+        let played = false;
+
+        for (let i = 1; i <= 3; i++) {
+            // 只有數字不同才翻頁
+            if (oldVal[i-1] !== newVal[i-1]) {
+                const unit = document.getElementById(`unit-${i}`);
+                if (unit) {
+                    unit.classList.add('flipping');
+
+                    // 嘗試播放音效 (瀏覽器可能會阻擋自動播放，加 catch 忽略錯誤)
+                    if (!played && sound) {
+                        sound.volume = 0.5; 
+                        sound.play().catch(() => {});
+                        played = true;
+                    }
+                }
+            }
+        }
+    }, 500); 
+}
+
+// 確保腳本執行 (無論放在 head 或 body 都能運作)
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initDSECalendar();
+} else {
+    document.addEventListener('DOMContentLoaded', initDSECalendar);
+}
+
+// === 確保腳本執行的雙重保險 ===
+// 1. 如果 DOM 已經載入完成 (例如腳本放在 body 底部)，直接執行
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initDSECalendar();
+} else {
+    // 2. 否則等待載入完成
+    document.addEventListener('DOMContentLoaded', initDSECalendar);
+}
+
+	
 function fetchHitokoto() {
 fetch('https://v1.hitokoto.cn/?c=d&c=i&c=k&encode=json')
 .then(response => response.json())
