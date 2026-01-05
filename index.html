@@ -3042,74 +3042,123 @@ function initDSECalendar() {
     });
 
     // === 5. 倒數更新 ===
-    function updateCountdown(animate = true) {
-        let targetDate;
-        const isApprox = ['s1', 's2', 's3', 's4'].includes(currentGrade);
+function updateCountdown(animate = true) {
+    let targetDate;
+    const isApprox = ['s1', 's2', 's3', 's4'].includes(currentGrade);
+    if (approxLabel) approxLabel.classList.toggle('hidden', !isApprox);
+    if (currentGrade === 's6' || currentGrade === 's5') {
+        targetDate = new Date(config[currentGrade]);
+    } else {
+        const baseDate = new Date(config.s5);
+        const yearsToAdd = config.offsets[currentGrade];
+        targetDate = new Date(baseDate.getTime() + (yearsToAdd * 365 * 24 * 60 * 60 * 1000));
+    }
+    const now = new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
+    const diff = targetDate.getTime() - now.getTime();
+    let days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    
+    // 獲取「日」字標籤元素 - 修改為更精確的選擇器
+    const daysLabel = document.querySelector('.countdown-container .days-label, .days-label, .day-label, [data-label="day"]');
+    
+    // === 修改開始：處理負數天數，顯示「已分手」===
+    if (days < 0) {
+        forceStopFireworks();
         
-        if (approxLabel) approxLabel.classList.toggle('hidden', !isApprox);
-
-        if (currentGrade === 's6' || currentGrade === 's5') {
-            targetDate = new Date(config[currentGrade]);
-        } else {
-            const baseDate = new Date(config.s5);
-            const yearsToAdd = config.offsets[currentGrade];
-            targetDate = new Date(baseDate.getTime() + (yearsToAdd * 365 * 24 * 60 * 60 * 1000));
-        }
-
-        const now = new Date();
-        targetDate.setHours(0, 0, 0, 0);
-        now.setHours(0, 0, 0, 0);
+        if (unit0) unit0.classList.remove('hidden');
+        const fullStr = "已分手"; // 使用「已分手」代替負數
         
-        const diff = targetDate.getTime() - now.getTime();
-        let days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-        
-        // --- 觸發條件 ---
-        if (days <= 0) {
-            days = 0;
-            if (!fireworksActive) {
-                startFireworks();
-            }
-        } else {
-            forceStopFireworks();
-        }
-
-        if (unit0) unit0.classList.toggle('hidden', days < 1000);
-
-        const fullStr = days.toString().padStart(4, '0'); 
-        const prevDays = animate ? days + 1 : days;
-        const oldFullStr = prevDays.toString().padStart(4, '0');
-
-        for (let i = 0; i <= 3; i++) {
+        for (let i = 0; i < 3; i++) { // 只處理前三個位置（千、百、十位）
             const unit = document.getElementById(`unit-${i}`);
             if (unit) {
-                const newVal = fullStr[i];
-                const oldVal = animate ? oldFullStr[i] : newVal;
-                
+                const newVal = fullStr[i] || '';
                 document.getElementById(`t${i}-next`).innerText = newVal;
-                document.getElementById(`b${i}-old`).innerText = oldVal;
-                
+                document.getElementById(`b${i}-old`).innerText = newVal; // 確保舊值也更新
                 const flap = document.getElementById(`f${i}`);
-                flap.setAttribute('data-old', oldVal);
+                flap.setAttribute('data-old', newVal);
                 flap.setAttribute('data-new', newVal);
-                
                 unit.classList.remove('flipping');
-                if (animate && oldVal !== newVal) {
-                    setTimeout(() => unit.classList.add('flipping'), 50);
+            }
+        }
+        
+        // 隱藏個位數字、「日」字標籤和「約」標籤
+        const unit3 = document.getElementById('unit-3');
+        if (unit3) unit3.classList.add('hidden');
+        if (approxLabel) approxLabel.classList.add('hidden');
+        
+        // 確保隱藏「日」字 - 使用多種方法確保隱藏
+        if (daysLabel) {
+            daysLabel.classList.add('hidden');
+            daysLabel.style.display = 'none'; // 直接設置樣式確保隱藏
+        } else {
+            // 備用方案：查找包含"日"字的元素
+            const allElements = document.querySelectorAll('*');
+            for (let el of allElements) {
+                if (el.textContent.trim() === '日' && el.parentElement.classList.contains('countdown-container')) {
+                    el.style.display = 'none';
+                    break;
                 }
             }
         }
         
-        if (animate) {
-            setTimeout(() => {
-                const sound = document.getElementById('flip-sound');
-                if (sound) {
-                    sound.currentTime = 0;
-                    sound.play().catch(() => {});
-                }
-            }, 300);
+        // 更新 DAYS TO BREAKUP 文字
+        const footer = document.querySelector('.dse-footer');
+        if (footer) footer.textContent = "WE ARE FREE";
+        
+        // 停止動畫，避免數字切換效果
+        return;
+    }
+    // === 修改結束 ===
+    
+    // 確保「日」字標籤在非負數情況下顯示
+    if (daysLabel) {
+        daysLabel.classList.remove('hidden');
+        daysLabel.style.display = ''; // 重置顯示
+    }
+    
+    if (unit0) unit0.classList.toggle('hidden', days < 1000);
+    const fullStr = days.toString().padStart(4, '0');
+    const prevDays = animate ? days + 1 : days;
+    const oldFullStr = prevDays.toString().padStart(4, '0');
+    
+    // --- 觸發條件 ---
+    if (days <= 0) {
+        days = 0;
+        if (!fireworksActive) {
+            startFireworks();
+        }
+    } else {
+        forceStopFireworks();
+    }
+    
+    for (let i = 0; i <= 3; i++) {
+        const unit = document.getElementById(`unit-${i}`);
+        if (unit) {
+            const newVal = fullStr[i];
+            const oldVal = animate ? oldFullStr[i] : newVal;
+            document.getElementById(`t${i}-next`).innerText = newVal;
+            document.getElementById(`b${i}-old`).innerText = oldVal;
+            const flap = document.getElementById(`f${i}`);
+            flap.setAttribute('data-old', oldVal);
+            flap.setAttribute('data-new', newVal);
+            unit.classList.remove('flipping');
+            if (animate && oldVal !== newVal) {
+                setTimeout(() => unit.classList.add('flipping'), 50);
+            }
         }
     }
-
+    
+    if (animate) {
+        setTimeout(() => {
+            const sound = document.getElementById('flip-sound');
+            if (sound) {
+                sound.currentTime = 0;
+                sound.play().catch(() => {});
+            }
+        }, 300);
+    }
+}
      // ▼▼▼ 修改這裡 ▼▼▼
     setTimeout(() => {
         updateCountdown(true);
