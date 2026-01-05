@@ -2477,31 +2477,23 @@ box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 transform: scale(1.15);
 }
 
-/* === DSE 倒數日曆專用樣式 (修訂版：修復中間線條重疊問題) === */
+/* === DSE 倒數日曆專用樣式 (漸變色修訂版) === */
 #dse-countdown-box {
     --dse-card-bg: #ffffff;
     
-    /* === 修改這裡：選擇你喜歡的顏色 === */
-    /* 選項 1 (枯茶色 - 暖灰褐)：像舊墨水，最文藝 */
-    --dse-text-color: #1A7595;
+    /* 【關鍵修改】為了實現漸變，這裡必須設為純黑色 */
+    /* 原理：我們稍後會用「濾色」模式，黑色會顯示出漸變色，白色會保持白色 */
+    --dse-text-color: #000000;
     
-    /* 選項 2 (鐵御納戶 - 藍灰)：像鋼筆字，最知性 */
-    /* --dse-text-color: #5f6c7b; */
-
-    /* 選項 3 (海松色 - 灰綠)：像植物，最自然 */
-    /* --dse-text-color: #6e7c70; */
-
-    /* 同時建議將線條顏色也稍微調淡一點，配合淡雅的文字 */
     --dse-line-color: #e0e0e0; 
-    
     --dse-flip-duration: 0.6s;
     
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    overflow: hidden; /* 防止動畫溢出 */
-    padding: 30px 20px; /* 增加內部呼吸空間 */
+    overflow: hidden;
+    padding: 30px 20px;
 }
 
 .dse-header {
@@ -2518,23 +2510,52 @@ transform: scale(1.15);
     display: flex;
     gap: 12px;
     perspective: 1200px;
-    justify-content: center; /* 確保卡片居中 */
+    justify-content: center;
 }
 
+/* 翻頁單元容器 */
 .flip-unit {
     position: relative;
     width: 110px;
     height: 160px;
     font-size: 100px;
-    /* 修改這裡：使用思源宋體，配合襯線字體，更有文藝氣息 */
     font-family: 'Noto Serif TC', "Songti TC", serif;
-    font-weight: bold; /* 宋體較細，建議加粗 */
+    font-weight: bold;
     text-align: center;
     border-radius: 6px;
     box-shadow: 0 5px 15px rgba(0,0,0,0.03);
     color: var(--dse-text-color);
-    /* 微調數字垂直位置，因為宋體數字重心通常稍高 */
-    line-height: 160px; 
+    line-height: 160px;
+    
+    /* 確保容器在層級下方，讓偽元素覆蓋 */
+    z-index: 1;
+}
+
+/* === 【核心新增】漸變色濾鏡層 === */
+/* 這層「有顏色的玻璃紙」蓋在黑色的數字上，製造出漸變字體效果 */
+.flip-unit::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; 
+    width: 100%; height: 100%;
+    border-radius: 6px;
+    pointer-events: none; /* 讓點擊穿透 */
+    z-index: 10; /* 確保在最上層 */
+
+    /* 設定漸變色：深藍 -> 鐵藍 -> 青綠 */
+    background: linear-gradient(
+        180deg, 
+        #46ECD5 0%, 
+        #3BB8DB 40%, 
+        #36BBA7 100%
+    );
+
+    /* 混合模式：Screen (濾色) */
+    /* 黑色文字會變成漸變色，白色背景保持白色 */
+    mix-blend-mode: screen;
+    
+    /* 增加一點內發光質感 */
+    box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.2);
 }
 
 .card-part {
@@ -2547,7 +2568,7 @@ transform: scale(1.15);
     backface-visibility: hidden;
 }
 
-/* 上半部：保留底線 */
+/* 上半部 */
 .top {
     top: 0;
     border-radius: 6px 6px 0 0;
@@ -2555,7 +2576,7 @@ transform: scale(1.15);
     border-bottom: 0.5px solid var(--dse-line-color);
 }
 
-/* 下半部：【核心修改】移除頂線，避免與上半部的線重疊 */
+/* 下半部 */
 .bottom {
     bottom: 0;
     border-radius: 0 0 6px 6px;
@@ -2563,7 +2584,7 @@ transform: scale(1.15);
     border-top: none; 
 }
 
-/* 翻動片（正面）：保留底線 */
+/* 翻動片 */
 .flap {
     position: absolute;
     top: 0; left: 0; width: 100%; height: 50%;
@@ -2587,7 +2608,6 @@ transform: scale(1.15);
     line-height: 160px;
 }
 
-/* 翻動片（背面）：【核心修改】移除頂線 */
 .flap::after {
     content: attr(data-new);
     position: absolute;
@@ -2599,6 +2619,11 @@ transform: scale(1.15);
     line-height: 0;
     display: flex; justify-content: center;
     border-top: none;
+}
+
+/* 增加文字陰影，讓漸變字更有立體感 */
+.card-part, .flap::before, .flap::after {
+    text-shadow: 0 2px 3px rgba(0, 0, 0, 0.2);
 }
 
 .flipping .flap {
@@ -2617,9 +2642,8 @@ transform: scale(1.15);
 /* === 響應式調整 === */
 @media (max-width: 600px) {
     .countdown-container {
-        /* 使用縮放來保持 3D 效果比例，同時適應手機屏幕 */
         transform: scale(0.65); 
-        margin: -20px 0; /* 修正縮放後留下的空白 */
+        margin: -20px 0;
     }
     
     #dse-countdown-box {
@@ -2633,7 +2657,6 @@ transform: scale(1.15);
         margin: -30px 0;
     }
 }
-
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
