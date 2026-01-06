@@ -2868,11 +2868,7 @@ const refreshBtn = document.getElementById('refresh-btn');
 
 
 function initDSECalendar() {
-    // === 1. 設定日期 (測試模式：目前設為今天) ===
-    // ★★★ 測試完畢後，請記得將 s6 改回 '2026-04-09' ★★★
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-
+    // === 1. 設定日期 ===
     const config = {
         s6: '2026-04-09', 
         s5: '2027-04-02',
@@ -2901,7 +2897,7 @@ function initDSECalendar() {
     
     let currentGrade = localStorage.getItem('dse_grade') || 's6';
 
-    // === 3. 「文藝風」煙花特效邏輯 ===
+    // === 3. 煙花特效邏輯 (保持不變) ===
     let fireworksInterval;
     let autoStopTimer; 
     let cleanupTimer;  
@@ -2917,45 +2913,32 @@ function initDSECalendar() {
     resizeCanvas();
 
     function createParticle(x, y) {
-        const particleCount = 35; // 粒子數量不需太多，保持清爽
+        const particleCount = 35; 
         for (let i = 0; i < particleCount; i++) {
             particles.push({
                 x: x,
                 y: y,
-                // ▼▼▼ 文藝莫蘭迪配色 ▼▼▼
-                colors: [
-                    '#1A7595', // 主題藍 (呼應網站)
-                    '#D87C7C', // 褪紅 (像乾燥花)
-                    '#E6D0A6', // 絹黃 (像舊書頁)
-                    '#8FB2C9', // 天青 (淡雅藍灰)
-                    '#A8D8B9'  // 竹青 (低飽和綠)
-                ],
+                colors: ['#1A7595', '#D87C7C', '#E6D0A6', '#8FB2C9', '#A8D8B9'],
                 color: '',
-                // 粒子大小：細緻一點
                 radius: Math.random() * 2 + 0.8, 
                 velocity: {
-                    x: (Math.random() - 0.5) * 6, // 擴散速度放慢，更優雅
+                    x: (Math.random() - 0.5) * 6,
                     y: (Math.random() - 0.5) * 6
                 },
-                alpha: 0.9, // 初始透明度稍微降低，不那麼刺眼
-                decay: Math.random() * 0.01 + 0.005 // 消失得慢一點，像墨水暈染
+                alpha: 0.9,
+                decay: Math.random() * 0.01 + 0.005
             });
-            // 隨機選色
             particles[particles.length - 1].color = particles[particles.length - 1].colors[Math.floor(Math.random() * 5)];
         }
     }
 
     function animateFireworks() {
         if (particles.length === 0 && !fireworksActive) return;
-
         requestAnimationFrame(animateFireworks);
-        
-        // 拖尾效果：加強殘影，製造流動感
         ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; // 值越小，拖尾越長
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
         ctx.fillRect(0, 0, fireworksCanvas.width, fireworksCanvas.height);
         ctx.globalCompositeOperation = 'lighter';
-
         for (let i = particles.length - 1; i >= 0; i--) {
             let p = particles[i];
             ctx.beginPath();
@@ -2963,52 +2946,35 @@ function initDSECalendar() {
             ctx.fillStyle = p.color;
             ctx.globalAlpha = p.alpha;
             ctx.fill();
-            
             p.x += p.velocity.x;
             p.y += p.velocity.y;
-            p.velocity.y += 0.03; // 重力很輕，像花瓣飄落
-            p.velocity.x *= 0.98; // 空氣阻力
+            p.velocity.y += 0.03;
+            p.velocity.x *= 0.98;
             p.velocity.y *= 0.98;
             p.alpha -= p.decay;
-            
-            if (p.alpha <= 0) {
-                particles.splice(i, 1);
-            }
+            if (p.alpha <= 0) particles.splice(i, 1);
         }
     }
 
     function startFireworks() {
         if (fireworksActive) return;
-        
         fireworksActive = true;
         fireworksCanvas.style.display = 'block';
         animateFireworks();
-        
-        // 初始第一發
         createParticle(window.innerWidth / 2, window.innerHeight / 3);
-
-        // 持續發射
         fireworksInterval = setInterval(() => {
-            // 隨機位置，但集中在畫面中上部
             const x = Math.random() * (fireworksCanvas.width * 0.6) + (fireworksCanvas.width * 0.2);
             const y = Math.random() * (fireworksCanvas.height / 2); 
             createParticle(x, y);
-        }, 700); // 發射頻率慢一點，不要太吵雜
-
-        // ▼▼▼ 3秒後停止發射 ▼▼▼
+        }, 700);
         clearTimeout(autoStopTimer);
         clearTimeout(cleanupTimer);
-        
-        autoStopTimer = setTimeout(() => {
-            stopLaunching(); 
-        }, 3000);
+        autoStopTimer = setTimeout(() => stopLaunching(), 3000);
     }
 
     function stopLaunching() {
         clearInterval(fireworksInterval);
         fireworksActive = false;
-        
-        // 給予足夠時間讓殘留粒子飄落消失
         cleanupTimer = setTimeout(() => {
             fireworksCanvas.style.display = 'none';
             ctx.clearRect(0, 0, fireworksCanvas.width, fireworksCanvas.height);
@@ -3026,7 +2992,7 @@ function initDSECalendar() {
         particles = [];
     }
 
-    // === 4. 按鈕監聽 ===
+    // === 4. 按鈕監聽 (修改處：傳入較短延遲) ===
     gradeButtons.forEach(btn => {
         if (btn.dataset.val === currentGrade) btn.classList.add('active');
 
@@ -3037,133 +3003,145 @@ function initDSECalendar() {
             currentGrade = this.dataset.val;
             localStorage.setItem('dse_grade', currentGrade);
             
-            updateCountdown(true);
+            // ★★★ 這裡改成 250ms (0.25秒)，切換時更快速 ★★★
+            updateCountdown(true, 250); 
         });
     });
 
-    // === 5. 倒數更新 ===
-function updateCountdown(animate = true) {
-    let targetDate;
-    const isApprox = ['s1', 's2', 's3', 's4'].includes(currentGrade);
-    if (approxLabel) approxLabel.classList.toggle('hidden', !isApprox);
-    if (currentGrade === 's6' || currentGrade === 's5') {
-        targetDate = new Date(config[currentGrade]);
-    } else {
-        const baseDate = new Date(config.s5);
-        const yearsToAdd = config.offsets[currentGrade];
-        targetDate = new Date(baseDate.getTime() + (yearsToAdd * 365 * 24 * 60 * 60 * 1000));
-    }
-    const now = new Date();
-    targetDate.setHours(0, 0, 0, 0);
-    now.setHours(0, 0, 0, 0);
-    const diff = targetDate.getTime() - now.getTime();
-    let days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    
-    // 獲取「日」字標籤元素 - 修改為更精確的選擇器
-    const daysLabel = document.querySelector('.countdown-container .days-label, .days-label, .day-label, [data-label="day"]');
-    
-    // === 修改開始：處理負數天數，顯示「已分手」===
-    if (days < 0) {
-        forceStopFireworks();
+    // === 5. 倒數更新 (修改處：接收 delay 參數) ===
+    function updateCountdown(animate = true, delay = 800) {
+        // 使用傳入的 delay 參數，預設為 800ms
+        const flipDelay = delay; 
+
+        let targetDate;
+        const isApprox = ['s1', 's2', 's3', 's4'].includes(currentGrade);
+        if (approxLabel) approxLabel.classList.toggle('hidden', !isApprox);
         
-        if (unit0) unit0.classList.remove('hidden');
-        const fullStr = "已分手"; // 使用「已分手」代替負數
-        
-        for (let i = 0; i < 3; i++) { // 只處理前三個位置（千、百、十位）
-            const unit = document.getElementById(`unit-${i}`);
-            if (unit) {
-                const newVal = fullStr[i] || '';
-                document.getElementById(`t${i}-next`).innerText = newVal;
-                document.getElementById(`b${i}-old`).innerText = newVal; // 確保舊值也更新
-                const flap = document.getElementById(`f${i}`);
-                flap.setAttribute('data-old', newVal);
-                flap.setAttribute('data-new', newVal);
-                unit.classList.remove('flipping');
-            }
+        if (currentGrade === 's6' || currentGrade === 's5') {
+            targetDate = new Date(config[currentGrade]);
+        } else {
+            const baseDate = new Date(config.s5);
+            const yearsToAdd = config.offsets[currentGrade];
+            targetDate = new Date(baseDate.getTime() + (yearsToAdd * 365 * 24 * 60 * 60 * 1000));
         }
         
-        // 隱藏個位數字、「日」字標籤和「約」標籤
-        const unit3 = document.getElementById('unit-3');
-        if (unit3) unit3.classList.add('hidden');
-        if (approxLabel) approxLabel.classList.add('hidden');
+        const now = new Date();
+        targetDate.setHours(0, 0, 0, 0);
+        now.setHours(0, 0, 0, 0);
+        const diff = targetDate.getTime() - now.getTime();
+        let days = Math.ceil(diff / (1000 * 60 * 60 * 24));
         
-        // 確保隱藏「日」字 - 使用多種方法確保隱藏
-        if (daysLabel) {
-            daysLabel.classList.add('hidden');
-            daysLabel.style.display = 'none'; // 直接設置樣式確保隱藏
+        const daysLabel = document.querySelector('.countdown-container .days-label, .days-label');
+        
+        // 處理負數天數
+        if (days < 0) {
+            forceStopFireworks();
+            if (unit0) unit0.classList.remove('hidden');
+            const fullStr = "已分手";
+            for (let i = 0; i < 3; i++) {
+                const unit = document.getElementById(`unit-${i}`);
+                if (unit) {
+                    unit.classList.remove('flipping');
+                    document.getElementById(`t${i}-next`).innerText = fullStr[i] || '';
+                    document.getElementById(`b${i}-old`).innerText = fullStr[i] || '';
+                    const flap = document.getElementById(`f${i}`);
+                    flap.setAttribute('data-old', fullStr[i] || '');
+                    flap.setAttribute('data-new', fullStr[i] || '');
+                }
+            }
+            const unit3 = document.getElementById('unit-3');
+            if (unit3) unit3.classList.add('hidden');
+            if (approxLabel) approxLabel.classList.add('hidden');
+            if (daysLabel) daysLabel.style.display = 'none';
+            const footer = document.querySelector('.dse-footer');
+            if (footer) footer.textContent = "WE ARE FREE";
+            return;
+        }
+
+        // 正常顯示
+        if (daysLabel) daysLabel.style.display = '';
+        if (unit0) unit0.classList.toggle('hidden', days < 1000);
+        
+        const fullStr = days.toString().padStart(4, '0');      // 新數字
+        const prevDays = days + 1;                             // 舊數字
+        const oldFullStr = prevDays.toString().padStart(4, '0'); 
+        
+        // 煙花邏輯
+        if (days <= 0) {
+            days = 0;
+            if (!fireworksActive) startFireworks();
         } else {
-            // 備用方案：查找包含"日"字的元素
-            const allElements = document.querySelectorAll('*');
-            for (let el of allElements) {
-                if (el.textContent.trim() === '日' && el.parentElement.classList.contains('countdown-container')) {
-                    el.style.display = 'none';
-                    break;
+            forceStopFireworks();
+        }
+        
+        // ★★★ 第一階段：無動畫、瞬間重置為「舊數字」 (防閃爍邏輯) ★★★
+        for (let i = 0; i <= 3; i++) {
+            const unit = document.getElementById(`unit-${i}`);
+            if (unit) {
+                const oldVal = oldFullStr[i];
+                const flap = document.getElementById(`f${i}`);
+
+                // 關閉過渡，防閃爍
+                flap.style.transition = 'none';
+                unit.classList.remove('flipping');
+                
+                // 設為舊數字
+                document.getElementById(`t${i}-next`).innerText = oldVal;
+                document.getElementById(`b${i}-old`).innerText = oldVal;
+                flap.setAttribute('data-old', oldVal);
+                flap.setAttribute('data-new', oldVal);
+
+                // 強制重繪
+                void unit.offsetWidth; 
+
+                // 恢復過渡
+                flap.style.transition = ''; 
+            }
+        }
+
+        // ★★★ 第二階段：根據 delay 時間翻頁 ★★★
+        if (animate) {
+            setTimeout(() => {
+                const sound = document.getElementById('flip-sound');
+                if (sound) {
+                    sound.currentTime = 0;
+                    sound.play().catch(() => {});
+                }
+
+                for (let i = 0; i <= 3; i++) {
+                    const unit = document.getElementById(`unit-${i}`);
+                    if (unit) {
+                        const newVal = fullStr[i];
+                        const oldVal = oldFullStr[i];
+                        
+                        if (oldVal !== newVal) {
+                            const flap = document.getElementById(`f${i}`);
+                            document.getElementById(`t${i}-next`).innerText = newVal;
+                            flap.setAttribute('data-new', newVal);
+                            unit.classList.add('flipping');
+                        }
+                    }
+                }
+            }, flipDelay); // 使用動態傳入的 delay
+        } else {
+             for (let i = 0; i <= 3; i++) {
+                const unit = document.getElementById(`unit-${i}`);
+                if (unit) {
+                    const newVal = fullStr[i];
+                    document.getElementById(`t${i}-next`).innerText = newVal;
+                    document.getElementById(`b${i}-old`).innerText = newVal;
+                    const flap = document.getElementById(`f${i}`);
+                    flap.setAttribute('data-old', newVal);
+                    flap.setAttribute('data-new', newVal);
                 }
             }
         }
-        
-        // 更新 DAYS TO BREAKUP 文字
-        const footer = document.querySelector('.dse-footer');
-        if (footer) footer.textContent = "WE ARE FREE";
-        
-        // 停止動畫，避免數字切換效果
-        return;
-    }
-    // === 修改結束 ===
-    
-    // 確保「日」字標籤在非負數情況下顯示
-    if (daysLabel) {
-        daysLabel.classList.remove('hidden');
-        daysLabel.style.display = ''; // 重置顯示
     }
     
-    if (unit0) unit0.classList.toggle('hidden', days < 1000);
-    const fullStr = days.toString().padStart(4, '0');
-    const prevDays = animate ? days + 1 : days;
-    const oldFullStr = prevDays.toString().padStart(4, '0');
-    
-    // --- 觸發條件 ---
-    if (days <= 0) {
-        days = 0;
-        if (!fireworksActive) {
-            startFireworks();
-        }
-    } else {
-        forceStopFireworks();
-    }
-    
-    for (let i = 0; i <= 3; i++) {
-        const unit = document.getElementById(`unit-${i}`);
-        if (unit) {
-            const newVal = fullStr[i];
-            const oldVal = animate ? oldFullStr[i] : newVal;
-            document.getElementById(`t${i}-next`).innerText = newVal;
-            document.getElementById(`b${i}-old`).innerText = oldVal;
-            const flap = document.getElementById(`f${i}`);
-            flap.setAttribute('data-old', oldVal);
-            flap.setAttribute('data-new', newVal);
-            unit.classList.remove('flipping');
-            if (animate && oldVal !== newVal) {
-                setTimeout(() => unit.classList.add('flipping'), 50);
-            }
-        }
-    }
-    
-    if (animate) {
-        setTimeout(() => {
-            const sound = document.getElementById('flip-sound');
-            if (sound) {
-                sound.currentTime = 0;
-                sound.play().catch(() => {});
-            }
-        }, 300);
-    }
-}
-     // ▼▼▼ 修改這裡 ▼▼▼
+    // 首次執行 (保持較長延遲，這裡設為 800ms)
     setTimeout(() => {
-        updateCountdown(true);
-    }, 900); 
-    // ▲▲▲ 修改結束 ▲▲▲
+        updateCountdown(true, 800);
+    }, 100); 
 }
 
 // 確保腳本執行
