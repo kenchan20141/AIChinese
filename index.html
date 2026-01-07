@@ -6479,69 +6479,41 @@ function createBulletedListHTML(title, rawContent) {
 
 
 // 原 generateTopic() 函式
-async function generateTopic(buttonElement) { 
-if (buttonElement) {
-updateButtonActiveState(buttonElement);
+// 原 generateTopic() 函式 (已修訂：只生成題目，不調用 LLM)
+function generateTopic(buttonElement) { 
+    if (buttonElement) {
+        updateButtonActiveState(buttonElement);
+    }
+
+    // 隱藏自訂題目輸入區，確保介面乾淨
+    const customTopicArea = document.getElementById("customTopicArea");
+    customTopicArea.style.display = "none";
+    customTopicArea.innerHTML = "";
+
+    const topicResult = document.getElementById("topicResult");
+    topicResult.style.display = 'block';
+
+    // 隨機抽選題目
+    let selectedTopic;
+    do {
+        selectedTopic = topics[Math.floor(Math.random() * topics.length)];
+    } while (selectedTopic === lastTopic && topics.length > 1);
+    
+    lastTopic = selectedTopic;
+    localStorage.setItem("lastTopic", lastTopic);
+
+    // 直接顯示題目 (不區分寫作類型，統一處理)
+    topicResult.innerHTML = "<strong>" + selectedTopic + "</strong>";
+    
+    // 儲存狀態
+    localStorage.setItem("currentTopic", selectedTopic);
+    
+    // 關鍵：清空之前的重點和情節設定，以免影響這次的評分
+    localStorage.setItem("currentFocus", "");
+    localStorage.setItem("currentPlot", "");
 }
 
-// 隱藏自訂題目輸入區，確保介面乾淨
-const customTopicArea = document.getElementById("customTopicArea");
-customTopicArea.style.display = "none";
-customTopicArea.innerHTML = "";
-
-const topicResult = document.getElementById("topicResult");
-topicResult.style.display = 'block';
-
-const writingType = document.getElementById("writingType").value;
-let selectedTopic;
-
-do {
-selectedTopic = topics[Math.floor(Math.random() * topics.length)];
-} while (selectedTopic === lastTopic && topics.length > 1);
-lastTopic = selectedTopic;
-localStorage.setItem("lastTopic", lastTopic);
-
-if (writingType === "片段描寫") {
-topicResult.innerHTML = "陳SIR正在出題...";
-try {
-const prompt = `請根據以下題目生成扣題方向和全文情節大要。要求：
-1. 扣題方向解釋片段與題目的邏輯關係、如何扣連，突顯描寫重點，不超過50字。
-2. 情節大要提供圍繞結扣題方向的全文情節概要，不超過100字，應簡潔、準確，避免過多細節，文筆不宜過於華麗，只需概述應寫的情節，留給學生發揮空間。
-3. 輸出格式為：扣題方向：...\n情節大要：...\n
-4. 內容簡潔明瞭，避免冗長。題材要生活化，但不要太貼近學生生活經驗。
-5. 必須嚴格控制在150字以內（120-150字），聚焦1-2個核心情節
-題目：${selectedTopic}`;
-const response = await callAPI(prompt); 
-const focusMatch = response.match(/扣題方向：\s*(.+?)(?=\n情節大要：|$)/s);
-const plotMatch = response.match(/情節大要：\s*(.+)/s);
-if (!focusMatch || !plotMatch) throw new Error("API 回應格式不正確");
-const focus = focusMatch[1].trim();
-const plot = plotMatch[1].trim();
-if (!focus || !plot) throw new Error("生成內容不完整");
-topicResult.innerHTML = `
-<strong>${selectedTopic}</strong>
-<table>
-<tr><th>扣題方向</th><th>情節大要</th></tr>
-<tr><td>${focus}</td><td>${plot}</td></tr>
-</table>
-`;
-localStorage.setItem("currentTopic", selectedTopic);
-localStorage.setItem("currentFocus", focus);
-localStorage.setItem("currentPlot", plot);
-} catch (error) {
-console.error("生成題目時出錯:", error);
-if (error.message === "所有 API 密鑰均無法使用") {
-alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-} else {
-alert("生成題目時出錯，請重試");
-}
-topicResult.innerHTML = "";
-}
-} else {
-topicResult.innerHTML = "<strong>" + selectedTopic + "</strong>";
-localStorage.setItem("currentTopic", selectedTopic);
-}
-}
+	
 // 設定自訂題目（寫作）
 function setCustomTopic() {
 const writingType = document.getElementById("writingType").value;
