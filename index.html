@@ -8216,14 +8216,13 @@ const textLibrary = {
 
 	
 /* === 修改後的 openModalEditor (手機版不自動彈出鍵盤) === */
-/* === 修正版 openModalEditor === */
 function openModalEditor(element) {
     currentEditingElement = element;
     modalTextarea.value = currentEditingElement.value;
 
     let titleText = '編輯內容'; 
 
-    // === 標題生成邏輯 ===
+    // === 標題生成邏輯 (保持不變) ===
     if (element.id === 'writingContent' || element.id === 'argumentWritingContent') {
         titleText = '輸入您的文章';
     } else {
@@ -8265,44 +8264,46 @@ function openModalEditor(element) {
 
     modalTitle.textContent = titleText;
 
-    // === 新增：範文選擇器邏輯 ===
+    // === 範文選擇器邏輯 (保持不變) ===
     const templateSelect = document.getElementById('modal-template-select');
     if (element.id === 'readingPassage') {
-        // 如果是「閱讀篇章」輸入框，顯示並填充選單
         templateSelect.style.display = 'block';
-        
-        // 檢查選單是否已填充，若無則填充
         if (templateSelect.options.length <= 1) { 
             textLibrary.texts.forEach(text => {
                 const option = document.createElement('option');
-                option.value = text.content; // 直接將內容存在 value
+                option.value = text.content;
                 option.textContent = text.title;
                 templateSelect.appendChild(option);
             });
-            
-            // 綁定選單事件 (使用 onchange)
             templateSelect.onchange = function() {
                 if (this.value) {
                     modalTextarea.value = this.value;
                 }
             };
         }
-        // 重置選單為預設值
         templateSelect.value = ""; 
     } else {
-        // 其他輸入框隱藏選單
         templateSelect.style.display = 'none';
-        templateSelect.onchange = null; // 解除綁定防止誤觸
+        templateSelect.onchange = null;
     }
-    // =============================
 
+    // 顯示視窗
     modal.style.display = 'flex';
 
-    // === 鍵盤修復邏輯 ===
-    // 只有在電腦版才自動聚焦，手機版完全不聚焦
-    if (window.innerWidth > 600) {
-        modalTextarea.focus();
-    }
+    // === 【關鍵修改】鍵盤控制邏輯 ===
+    // 1. 無論如何，先強制讓懸浮視窗內的輸入框「失焦」，確保鍵盤不會因為彈出而自動觸發
+    modalTextarea.blur();
+
+    // 2. 判斷螢幕寬度
+    // 將閾值提高到 1024px，確保平板和橫向手機也不會自動彈出鍵盤
+    // 只有純電腦環境 (滑鼠操作) 才會自動聚焦方便輸入
+    if (window.innerWidth > 1024) {
+        setTimeout(() => {
+            modalTextarea.focus();
+        }, 50);
+    } 
+    // 對於手機/平板 (<= 1024px)，這裡什麼都不做，
+    // 這樣使用者必須「手動點擊」輸入框，鍵盤才會彈出。
 }
 
 function closeModalEditor() {
@@ -8324,16 +8325,16 @@ closeModalEditor();
 
 
 // 主事件監聽器 (保持不變)
-/* === 修改後的事件監聽器 (加入 target.blur()) === */
 document.body.addEventListener('click', function(event) {
     const target = event.target;
 
     const isTextInput = target.tagName === 'INPUT' && target.type === 'text';
     const isTextarea = target.tagName === 'TEXTAREA';
 
+    // 檢查是否為需要觸發懸浮視窗的輸入框
     if ((isTextInput || isTextarea) && !target.classList.contains('no-modal-editor') && target.id !== 'modal-textarea') {
-        event.preventDefault(); // 阻止預設行為
-        target.blur();          // ★ 關鍵：強制失焦，防止手機鍵盤彈出
+        event.preventDefault(); // 阻止瀏覽器預設的聚焦行為
+        target.blur();          // ★ 關鍵：讓原本點擊的框立刻失焦，防止手機鍵盤閃現
         openModalEditor(target);
     }
 });
