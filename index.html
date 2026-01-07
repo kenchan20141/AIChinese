@@ -8188,70 +8188,74 @@ return;
 
 let currentEditingElement = null;
 
+/* === 修改後的 openModalEditor (手機版不自動彈出鍵盤) === */
 function openModalEditor(element) {
-currentEditingElement = element;
-modalTextarea.value = currentEditingElement.value;
+    currentEditingElement = element;
+    modalTextarea.value = currentEditingElement.value;
 
-let titleText = '編輯內容'; // 先設定一個預設標題
+    let titleText = '編輯內容'; // 先設定一個預設標題
 
-// =================================================
-// === 【核心修訂】針對特定輸入框，給予專屬標題 ===
-// =================================================
-if (element.id === 'writingContent' || element.id === 'argumentWritingContent') {
-titleText = '輸入您的文章'; // 如果是敘事抒情或議論的寫作區，標題固定為「輸入您的文章」
-}
-// 如果不是上述的特殊情況，才執行原有的標題尋找邏輯
-else {
-const parentTableCell = element.closest('td');
+    // =================================================
+    // === 標題生成邏輯 (保持不變) ===
+    // =================================================
+    if (element.id === 'writingContent' || element.id === 'argumentWritingContent') {
+        titleText = '輸入您的文章';
+    } else {
+        const parentTableCell = element.closest('td');
 
-// 策略一：如果是在表格內 (例如大綱)
-if (parentTableCell) {
-const parentRow = parentTableCell.closest('tr');
-if (parentRow) {
-const headerCell = parentRow.cells[0];
-const table = parentRow.closest('table');
-if (table && table.rows.length > 0) {
-const columnHeaderCell = table.rows[0].cells[parentTableCell.cellIndex];
+        // 策略一：如果是在表格內 (例如大綱)
+        if (parentTableCell) {
+            const parentRow = parentTableCell.closest('tr');
+            if (parentRow) {
+                const headerCell = parentRow.cells[0];
+                const table = parentRow.closest('table');
+                if (table && table.rows.length > 0) {
+                    const columnHeaderCell = table.rows[0].cells[parentTableCell.cellIndex];
 
-const rowTitle = headerCell ? headerCell.textContent.trim().replace(/[:：]/g, '') : '';
-const colTitle = columnHeaderCell ? columnHeaderCell.textContent.trim().replace(/[:：]/g, '') : '';
+                    const rowTitle = headerCell ? headerCell.textContent.trim().replace(/[:：]/g, '') : '';
+                    const colTitle = columnHeaderCell ? columnHeaderCell.textContent.trim().replace(/[:：]/g, '') : '';
 
-if (rowTitle && colTitle && rowTitle !== colTitle) {
-titleText = `編輯「${rowTitle}」的「${colTitle}」`;
-} else if (rowTitle) {
-titleText = `編輯「${rowTitle}」`;
-} else if (colTitle) {
-titleText = `編輯「${colTitle}」`;
-}
-}
-}
-} 
-// 策略二：如果不是在表格內，則尋找與它關聯的 <label> 標籤
-else {
-let associatedLabel = null;
-if (element.id) {
-associatedLabel = document.querySelector(`label[for="${element.id}"]`);
-}
+                    if (rowTitle && colTitle && rowTitle !== colTitle) {
+                        titleText = `編輯「${rowTitle}」的「${colTitle}」`;
+                    } else if (rowTitle) {
+                        titleText = `編輯「${rowTitle}」`;
+                    } else if (colTitle) {
+                        titleText = `編輯「${colTitle}」`;
+                    }
+                }
+            }
+        } 
+        // 策略二：如果不是在表格內，則尋找與它關聯的 label 標籤
+        else {
+            let associatedLabel = null;
+            if (element.id) {
+                associatedLabel = document.querySelector(`label[for="${element.id}"]`);
+            }
 
-if (!associatedLabel) {
-const parentContainer = element.closest('div');
-if (parentContainer) {
-associatedLabel = parentContainer.querySelector('label');
-}
-}
+            if (!associatedLabel) {
+                const parentContainer = element.closest('div');
+                if (parentContainer) {
+                    associatedLabel = parentContainer.querySelector('label');
+                }
+            }
 
-if (associatedLabel) {
-titleText = `編輯「${associatedLabel.textContent.trim().replace(/[:：]/g, '')}」`;
-}
-}
-}
+            if (associatedLabel) {
+                titleText = `編輯「${associatedLabel.textContent.trim().replace(/[:：]/g, '')}」`;
+            }
+        }
+    }
 
-// 將最終決定的標題設定到懸浮視窗上
-modalTitle.textContent = titleText;
+    // 將最終決定的標題設定到懸浮視窗上
+    modalTitle.textContent = titleText;
 
-// 顯示懸浮視窗
-modal.style.display = 'flex';
-modalTextarea.focus();
+    // 顯示懸浮視窗
+    modal.style.display = 'flex';
+
+    // === 關鍵修改：只有在電腦版 (寬度 > 600px) 才自動聚焦 ===
+    // 手機版不聚焦，這樣就不會自動彈出鍵盤，用戶可以先看到全貌，想打字再點擊輸入框
+    if (window.innerWidth > 600) {
+        modalTextarea.focus();
+    }
 }
 
 function closeModalEditor() {
