@@ -9098,10 +9098,13 @@ function openModalEditor(element) {
 
     modalTitle.textContent = titleText;
 
-    // === 範文選擇器邏輯 (保持不變) ===
+    // === 範文選擇器邏輯 (修正版) ===
     const templateSelect = document.getElementById('modal-template-select');
+    
     if (element.id === 'readingPassage') {
         templateSelect.style.display = 'block';
+        
+        // 1. 如果選項還沒建立，先建立選項 (只執行一次)
         if (templateSelect.options.length <= 1) { 
             textLibrary.texts.forEach(text => {
                 const option = document.createElement('option');
@@ -9109,35 +9112,34 @@ function openModalEditor(element) {
                 option.textContent = text.title;
                 templateSelect.appendChild(option);
             });
-            templateSelect.onchange = function() {
-                if (this.value) {
-                    modalTextarea.value = this.value;
-                }
-            };
         }
+
+        // 2. ★★★ 關鍵修正：將 onchange 監聽器移到 if 外面 ★★★
+        // 這樣每次打開視窗時，都會確保監聽器是運作中的
+        templateSelect.onchange = function() {
+            if (this.value) {
+                modalTextarea.value = this.value;
+            }
+        };
+
+        // 3. 重置選單回到「指定範文」預設選項
         templateSelect.value = ""; 
+
     } else {
         templateSelect.style.display = 'none';
-        templateSelect.onchange = null;
+        templateSelect.onchange = null; // 其他輸入框不需要此功能
     }
 
     // 顯示視窗
     modal.style.display = 'flex';
 
-    // === 【關鍵修改】鍵盤控制邏輯 ===
-    // 1. 無論如何，先強制讓懸浮視窗內的輸入框「失焦」，確保鍵盤不會因為彈出而自動觸發
+    // === 鍵盤控制邏輯 (保持不變) ===
     modalTextarea.blur();
-
-    // 2. 判斷螢幕寬度
-    // 將閾值提高到 1024px，確保平板和橫向手機也不會自動彈出鍵盤
-    // 只有純電腦環境 (滑鼠操作) 才會自動聚焦方便輸入
     if (window.innerWidth > 1024) {
         setTimeout(() => {
             modalTextarea.focus();
         }, 50);
     } 
-    // 對於手機/平板 (<= 1024px)，這裡什麼都不做，
-    // 這樣使用者必須「手動點擊」輸入框，鍵盤才會彈出。
 }
 
 function closeModalEditor() {
