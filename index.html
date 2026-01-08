@@ -3380,6 +3380,35 @@ select:focus, select:hover {
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+	/* === 歷史紀錄：標題原地編輯樣式 === */
+.history-title {
+    cursor: text; /* 提示用戶這是文字 */
+    transition: background-color 0.2s;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px; /* 抵消 padding，保持位置不變 */
+}
+
+.history-title:hover {
+    background-color: rgba(0, 0, 0, 0.05); /* 懸停時給一點提示 */
+}
+
+/* 編輯模式下的輸入框樣式 */
+.history-title-input {
+    font-family: 'Noto Serif TC', serif; /* 保持原有字體 */
+    font-size: 1em; /* 保持原有大小 */
+    font-weight: bold;
+    color: #333;
+    width: 100%;
+    border: 1px solid #2A9689; /* 編輯時顯示綠色邊框 */
+    border-radius: 4px;
+    padding: 2px 4px;
+    background-color: #fff;
+    outline: none;
+    box-shadow: 0 0 5px rgba(42, 150, 137, 0.3);
+    margin: 0;
+}
 	
 </style>
 
@@ -10943,8 +10972,7 @@ function renderFilteredRecords(records) {
         listContainer.style.display = 'grid';
     }
 
-    records.forEach((record) => {
-        // ★★★ 核心修改：移除原本的隨機顏色計算，改用統一的 currentThemeIndex ★★★
+     records.forEach((record) => {
         const accentClass = `history-theme-${currentThemeIndex}`;
 
         const dateObj = new Date(record.timestamp);
@@ -10955,17 +10983,27 @@ function renderFilteredRecords(records) {
         }).replace(/\//g, '-');
 
         const card = document.createElement('div');
-        // 套用統一的顏色 class
         card.className = `history-card ${accentClass}`;
         card.setAttribute('data-timestamp', record.timestamp);
         
+        // ★★★ 修改區域：標題綁定新的處理函數 ★★★
         card.innerHTML = `
             <div onclick="viewHistoryDetail(${record.id})" style="cursor: pointer; flex-grow: 1;">
                 <div class="history-meta">
                     <span class="history-tag">${record.subFunction}</span>
                     <span class="history-date">${dateStr}</span>
                 </div>
-                <h4 class="history-title">${record.title}</h4>
+                
+                <!-- 
+                    onclick: 負責攔截單擊，延遲打開視窗
+                    ondblclick: 負責攔截雙擊，取消單擊並進入編輯
+                -->
+                <h4 class="history-title" 
+                    onclick="handleTitleClick(event, ${record.id})"
+                    ondblclick="handleTitleDblClick(this, ${record.id})"
+                    title="單擊查看詳情，雙擊直接修改標題">
+                    ${record.title}
+                </h4>
             </div>
             
             <div class="history-actions">
@@ -10974,8 +11012,11 @@ function renderFilteredRecords(records) {
                 </button>
             </div>
         `;
+        // ★★★ 修改區域結束 ★★★
+
         listContainer.appendChild(card);
     });
+
 }
 
 	
@@ -11180,6 +11221,127 @@ function scrollToHistoryDate(inputElement) {
     } else {
         alert("找不到該日期或更早之前的紀錄。");
     }
+}
+
+	// === 歷史紀錄：標題原地編輯邏輯 ===
+
+/**
+ * 啟用標題編輯模式
+ * @param {HTMLElement} titleEl - 被雙擊的 h4 元素
+ * @param {number} id - 紀錄的 ID
+ */
+function enableTitleEditing(titleEl, id) {
+    // 防止重複觸發 (如果已經是 input 就不動作)
+    if (titleEl.querySelector('input')) return;
+
+    const currentText = titleEl.innerText;
+    
+    // 創建 input 元素
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentText;
+    input.className = 'history-title-input';
+    
+    // 點擊 input 時也要防止冒泡，以免觸發查看詳情
+    input.onclick = (e) => e.stopPropagation();
+    input.ondblclick = (e) => e.stopPropagation();
+
+    // 清空原本的標題文字，放入 input
+    titleEl.innerHTML = '';
+    titleEl.appendChild(input);
+    input.focus();
+
+    // 定義儲存並還原的邏輯
+    const saveAndRevert = async () => {
+        const newTitle = input.value.trim() || currentText; // 如果是空的，還原舊標題
+        
+        if (newTitle !== currentText) {
+            // 如果標題有變更，儲存到 DB
+            await updateHistoryTitleInDB(id, newTitle);
+        }
+        
+        // 還原為文字顯示
+        titleEl.innerText = newTitle;
+    };
+
+    // 事件監聽：失去焦點 (Blur) 或 按下 Enter 鍵時儲存
+    input.addEventListener('blur', saveAndRevert);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            this.blur(); // 觸發 blur 來儲存
+        } else if (e.key === 'Escape') {
+            // 按 Esc 取消編輯，還原舊文字
+            titleEl.innerText = currentText; 
+        }
+    });
+}
+
+/**
+ * 更新 IndexedDB 中的標題
+ */
+async function updateHistoryTitleInDB(id, newTitle) {
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        // 1. 獲取舊紀錄
+        const getRequest = store.get(id);
+        
+        getRequest.onsuccess = function(event) {
+            const data = event.target.result;
+            if (data) {
+                // 2. 修改標題
+                data.title = newTitle;
+                
+                // 3. 寫回 DB
+                const putRequest = store.put(data);
+                putRequest.onsuccess = function() {
+                    console.log(`紀錄 ID ${id} 標題已更新為: ${newTitle}`);
+                };
+            }
+        };
+    } catch (e) {
+        console.error("更新標題失敗:", e);
+        alert("標題更新失敗，請重試。");
+    }
+}
+
+// === 雙擊/單擊 衝突解決方案 ===
+let titleClickTimer = null;
+
+/**
+ * 處理標題的單擊事件 (延遲觸發查看)
+ */
+function handleTitleClick(event, id) {
+    // 1. 阻止事件冒泡，防止觸發父層的立即查看
+    event.stopPropagation();
+
+    // 2. 如果已經有計時器，表示這可能是雙擊過程中的第二次點擊，不做處理
+    if (titleClickTimer) return;
+
+    // 3. 設定延遲，如果 250ms 內沒有發生雙擊，才打開視窗
+    titleClickTimer = setTimeout(() => {
+        viewHistoryDetail(id);
+        titleClickTimer = null;
+    }, 250); 
+}
+
+/**
+ * 處理標題的雙擊事件 (取消查看，進入編輯)
+ */
+function handleTitleDblClick(element, id) {
+    // 1. 阻止事件冒泡
+    event.stopPropagation();
+
+    // 2. 關鍵：清除單擊產生的計時器！這樣就不會彈出視窗了
+    if (titleClickTimer) {
+        clearTimeout(titleClickTimer);
+        titleClickTimer = null;
+    }
+
+    // 3. 進入編輯模式
+    enableTitleEditing(element, id);
 }
 	
 	
