@@ -78,7 +78,14 @@ form-action 'self';
                 <i class="fas fa-toolbox"></i>
                 <span>工具一覽</span>
             </button>
-            
+
+<!-- === 新增：歷史紀錄按鈕 (放在音樂播放器上面) === -->
+            <button class="side-menu-item" onclick="openHistoryContainer()">
+                <i class="fas fa-history"></i>
+                <span>歷史紀錄</span>
+            </button>
+
+			
             <!-- 音樂播放器按鈕 -->
             <button class="side-menu-item" onclick="toggleMusicPlayer()">
                 <i class="fas fa-music"></i>
@@ -2649,6 +2656,581 @@ select:focus, select:hover {
             2px 2px 0px rgba(144, 164, 174, 0.3) !important;
     }
 }
+
+/* ==========================================
+   === 文藝風歷史紀錄卡片 (莫蘭迪色系) ===
+   ========================================== */
+
+/* 定義莫蘭迪色變數 */
+:root {
+    --morandi-bg: #fdfcf8;          /* 米白紙張底色 */
+    --morandi-text: #5e5e5e;        /* 深灰文字 */
+    --morandi-green: #8fa398;       /* 閱讀 - 灰綠 */
+    --morandi-blue: #94a7b5;        /* 敘事 - 霧霾藍 */
+    --morandi-purple: #b6a6ca;      /* 議論 - 香芋紫 */
+    --morandi-red: #d69a92;         /* 拓展 - 豆沙紅 */
+    --morandi-border: #e0ddd7;      /* 淺卡其邊框 */
+    --morandi-shadow: rgba(149, 157, 165, 0.1);
+}
+
+/* 列表容器調整 */
+.history-list-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); /* 改為網格排列 */
+    gap: 20px;
+    padding: 10px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* ==========================================
+   === 歷史紀錄卡片：Note Card 打洞風格 ===
+   ========================================== */
+
+.history-card {
+    /* 1. 基礎卡片設定 */
+    background-color: var(--morandi-bg);
+    border: 1px solid var(--morandi-border); /* 統一使用細邊框 */
+    border-radius: 8px; 
+    padding: 20px;
+    position: relative;
+    box-shadow: 4px 4px 0px rgba(0,0,0,0.03);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+
+    /* 2. Note Card 關鍵樣式：打洞與分隔線 */
+    padding-left: 55px !important; /* 左側留白給打洞區 */
+    
+    background-image: 
+        /* A. 垂直分隔線 (模擬紅線或灰線，這裡用莫蘭迪灰 #e0ddd7) */
+        linear-gradient(to right, transparent 39px, #e0ddd7 40px, transparent 41px),
+        /* B. 打洞效果 (模擬孔洞，使用深灰色圓形 #d1cdc5) */
+        radial-gradient(circle at 20px 50%, #d1cdc5 6px, transparent 7px);
+    
+    /* 設定背景圖層大小 */
+    background-size: 
+        100% 100%, /* 分隔線：撐滿整張卡片 */
+        100% 35px; /* 打洞：每 35px 重複一顆 */
+    
+    /* 設定背景重複方式 */
+    background-repeat: 
+        no-repeat, /* 分隔線不重複 */
+        repeat-y;  /* 打洞在垂直方向重複 */
+        
+    /* 設定起始位置 */
+    background-position: 
+        0 0,       /* 分隔線位置 */
+        0 12px;    /* 打洞起始位置向下微調，避免切到頂部色條 */
+}
+
+/* 3. 頂部裝飾條 (保留您要求的頂部色條) */
+.history-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 6px; /* 頂部色條高度 */
+    background-color: #ccc; /* 預設顏色，會被下方 Theme 覆蓋 */
+    opacity: 0.8;
+    z-index: 1;
+}
+
+/* 4. 懸停效果 */
+.history-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 6px 6px 0px rgba(0,0,0,0.05);
+    border-color: #d1cdc5;
+    /* 確保 Hover 時不會出現左側粗色條，保持打洞風格 */
+    border-left-width: 1px;
+    border-left-style: solid;
+}
+
+/* 5. 顏色主題設定 (只改變頂部色條與標籤顏色) */
+
+/* Theme 1 (灰綠) */
+.history-card.history-theme-1::before { background-color: var(--m-color-1); }
+.history-card.history-theme-1 .history-tag { background-color: var(--m-color-1); }
+.history-card.history-theme-1:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 2 (霧霾藍) */
+.history-card.history-theme-2::before { background-color: var(--m-color-2); }
+.history-card.history-theme-2 .history-tag { background-color: var(--m-color-2); }
+.history-card.history-theme-2:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 3 (香芋紫) */
+.history-card.history-theme-3::before { background-color: var(--m-color-3); }
+.history-card.history-theme-3 .history-tag { background-color: var(--m-color-3); }
+.history-card.history-theme-3:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 4 (豆沙紅) */
+.history-card.history-theme-4::before { background-color: var(--m-color-4); }
+.history-card.history-theme-4 .history-tag { background-color: var(--m-color-4); }
+.history-card.history-theme-4:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 5 (奶茶棕) */
+.history-card.history-theme-5::before { background-color: var(--m-color-5); }
+.history-card.history-theme-5 .history-tag { background-color: var(--m-color-5); }
+.history-card.history-theme-5:hover { border-left-color: var(--morandi-border); }
+/* 不同範疇的顏色標記 */
+.history-card.type-reading { border-left-color: #28a745; }   /* 閱讀-綠 */
+.history-card.type-narrative { border-left-color: #007bff; } /* 敘事-藍 */
+.history-card.type-argument { border-left-color: #800080; }  /* 議論-紫 */
+.history-card.type-expand { border-left-color: #dc3545; }    /* 拓展-紅 */
+
+
+
+.history-meta {
+    font-size: 0.85em;
+    color: #888;
+    margin-bottom: 5px;
+}
+
+.history-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: #eee;
+    color: #555;
+    font-size: 0.8em;
+    margin-right: 8px;
+    font-weight: bold;
+}
+
+.history-title {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #333;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* 操作區 (刪除按鈕) */
+.history-actions {
+    margin-top: 15px;
+    display: flex;
+    justify-content: flex-end;
+    opacity: 0.6;
+    transition: opacity 0.3s;
+}
+
+.history-card:hover .history-actions {
+    opacity: 1;
+}
+
+
+.btn-delete-history {
+    background-color: transparent;
+    border: 1px solid #dc3545;
+    color: #dc3545;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-delete-history:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
+/* 3. 模態視窗內容美化 */
+#historyModalContent {
+    line-height: 1.6;
+    font-size: 1.1em;
+}
+
+#historyModalContent h3 {
+    border-bottom: 2px solid #eee;
+    padding-bottom: 10px;
+    margin-top: 20px;
+    color: #0056b3;
+}
+
+/* 4. 新增：層級選單 (Grid Menu) 樣式 (Level 1 & 2) */
+.history-grid-menu {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); /* 自動適應寬度 */
+    gap: 15px;
+    padding: 10px 0;
+}
+
+.history-folder-btn {
+    background-color: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 20px 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    min-height: 100px; /* 確保按鈕有足夠高度 */
+}
+
+.history-folder-btn:hover {
+    background-color: #fff;
+    border-color: #007bff;
+    transform: translateY(-3px);
+    box-shadow: 0 4px 10px rgba(0, 123, 255, 0.15);
+    color: #007bff;
+}
+
+.history-folder-btn i {
+    font-size: 2em;
+    margin-bottom: 10px;
+    color: #6c757d;
+    transition: color 0.3s ease;
+}
+
+.history-folder-btn:hover i {
+    color: #007bff;
+}
+
+.history-folder-btn span {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+/* 5. 新增：麵包屑導航樣式 */
+.history-breadcrumb span:hover {
+    text-decoration: underline;
+}
+
+/* 6. 新增：雷達圖圖片化樣式 (確保 Canvas 轉圖後在歷史紀錄中正確顯示) */
+.radar-chart-history-img {
+    width: 100% !important;
+    max-width: 500px;
+    height: auto !important;
+    margin: 0 auto;
+    display: block;
+    border: 1px solid #eee; /* 選用：增加邊框讓圖表更清晰 */
+    border-radius: 8px;
+    padding: 10px;
+    background-color: #fff;
+}
+
+	/* 確保歷史紀錄內的卡片容器不會有過多的上下留白 */
+#historyContainer .category-cards-wrapper {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* 讓麵包屑導航更明顯 */
+.history-breadcrumb {
+    transition: all 0.3s ease;
+}
+.history-breadcrumb span:hover {
+    opacity: 0.8;
+}
+
+/* === 新增：標頭的低調清空按鈕 === */
+.history-clear-btn {
+    background: transparent;
+    border: 1px solid transparent; /* 預設無邊框 */
+    color: #aaa; /* 淺灰色，非常低調 */
+    font-size: 1.2rem;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+
+.history-clear-btn:hover {
+    color: #d9534f; /* 懸停時才變紅 */
+    background-color: rgba(217, 83, 79, 0.1); /* 淡淡的紅色背景 */
+    transform: rotate(15deg); /* 增加一點點互動趣味 */
+}
+
+
+/* 內容佈局 */
+.history-info {
+    flex-grow: 1;
+}
+
+/* 標題樣式：襯線字體，文藝感 */
+.history-title {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.15em;
+    font-weight: 600;
+    color: #4a4a4a;
+    margin: 10px 0;
+    line-height: 1.5;
+    
+    /* 多行省略 */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* 日期與標籤區域 */
+.history-meta {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--morandi-border); /* 虛線分隔 */
+}
+
+.history-date {
+    font-family: 'Courier New', monospace; /* 打字機字體 */
+    font-size: 0.85em;
+    color: #999;
+    letter-spacing: 1px;
+}
+
+/* 範疇標籤 (像貼紙) */
+.history-tag {
+    font-size: 0.75em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-right: auto; /* 將日期推到右邊 */
+    color: #fff;
+    font-weight: normal;
+    letter-spacing: 1px;
+}
+
+
+
+	
+/* 刪除按鈕美化 */
+.btn-delete-history {
+    background: transparent;
+    border: none;
+    color: #bfaea8; /* 淺紅棕色 */
+    font-size: 1.1em;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 5px;
+    border-radius: 50%;
+}
+
+.btn-delete-history:hover {
+    color: #d69a92;
+    background-color: rgba(214, 154, 146, 0.1);
+    transform: scale(1.1);
+}
+
+/* ==========================================
+   === 歷史紀錄樣式修訂 (多色卡片 & 導航美化) ===
+   ========================================== */
+
+/* 1. 定義 5 種莫蘭迪輪替色 (用於同一列表中的不同卡片) */
+/* 讓同一個列表中的卡片擁有不同顏色，以作區分 */
+.history-card.accent-1::before { background-color: #8fa398; } /* 灰綠 */
+.history-card.accent-1 .history-tag { background-color: #8fa398; }
+.history-card.accent-1:hover { border-color: #8fa398; }
+
+.history-card.accent-2::before { background-color: #94a7b5; } /* 霧霾藍 */
+.history-card.accent-2 .history-tag { background-color: #94a7b5; }
+.history-card.accent-2:hover { border-color: #94a7b5; }
+
+.history-card.accent-3::before { background-color: #b6a6ca; } /* 香芋紫 */
+.history-card.accent-3 .history-tag { background-color: #b6a6ca; }
+.history-card.accent-3:hover { border-color: #b6a6ca; }
+
+.history-card.accent-4::before { background-color: #d69a92; } /* 豆沙紅 */
+.history-card.accent-4 .history-tag { background-color: #d69a92; }
+.history-card.accent-4:hover { border-color: #d69a92; }
+
+.history-card.accent-5::before { background-color: #c7b299; } /* 奶茶棕 */
+.history-card.accent-5 .history-tag { background-color: #c7b299; }
+.history-card.accent-5:hover { border-color: #c7b299; }
+
+/* 2. 麵包屑導航 (顏色區分修訂) */
+.history-breadcrumb {
+    background-color: transparent !important;
+    border: none !important;
+    border-bottom: 1px dashed #d1cdc5 !important;
+    padding: 10px 5px !important;
+    margin-bottom: 25px;
+    font-size: 1rem;
+    color: #999; /* 分隔符顏色 */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 第一層：主範疇 (藍色，可點擊) */
+.history-breadcrumb span[onclick*="renderHistoryCategories"] {
+    color: #007bff !important; 
+    font-weight: 900;
+    cursor: pointer;
+}
+
+/* 第二層：子功能分類 (深灰色，可點擊) */
+.history-breadcrumb span[onclick*="enterHistoryCategory"] {
+    color: #555 !important; 
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.3s;
+}
+.history-breadcrumb span[onclick*="enterHistoryCategory"]:hover {
+    color: #007bff !important;
+    text-decoration: underline;
+}
+
+/* 第三層：當前頁面 (霧霾藍，不可點擊) */
+.history-breadcrumb span#breadcrumb-sub {
+    color: #94a7b5 !important; 
+    font-weight: bold;
+    padding: 2px 4px;
+    background-color: rgba(148, 167, 181, 0.1);
+    border-radius: 4px;
+}
+
+/* 分隔符號 */
+.history-breadcrumb span[id^="breadcrumb-sep"] {
+    color: #ccc !important;
+    font-weight: normal;
+}
+
+/* 3. 卡片細節微調 (確保日期與標籤排版) */
+.history-meta {
+    border-bottom: 1px dashed #e0ddd7;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    display: flex; /* 確保左右對齊 */
+    justify-content: space-between; /* 標籤靠左，日期靠右 */
+    align-items: center;
+}
+
+.history-date {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    color: #aaa;
+    letter-spacing: 0px;
+    margin-left: auto; /* 強制靠右 */
+}
+
+.history-tag {
+    color: white;
+    font-size: 0.75em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: normal;
+    letter-spacing: 1px;
+}
+
+/* 手機版適配 */
+@media (max-width: 600px) {
+    .history-list-container {
+        grid-template-columns: 1fr; /* 手機單欄 */
+    }
+}
+
+	/* 搜尋到的卡片高亮動畫 */
+@keyframes highlight-card {
+    0% { transform: scale(1); box-shadow: 0 0 0 rgba(40, 167, 69, 0); }
+    50% { transform: scale(1.02); box-shadow: 0 0 20px rgba(40, 167, 69, 0.5); border-left-color: #28a745; }
+    100% { transform: scale(1); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+}
+
+.history-card.highlighted {
+    animation: highlight-card 1.5s ease-in-out;
+    background-color: #f0fff4; /* 淡淡的綠色背景 */
+}
+
+	/* === 定義莫蘭迪色系變數 === */
+:root {
+    --m-color-1: #8fa398; /* 灰綠 */
+    --m-color-2: #94a7b5; /* 霧霾藍 */
+    --m-color-3: #b6a6ca; /* 香芋紫 */
+    --m-color-4: #d69a92; /* 豆沙紅 */
+    --m-color-5: #c7b299; /* 奶茶棕 */
+}
+
+/* === 修改：歷史紀錄導航列 (麵包屑) === */
+/* 需求三：主範疇要莫迪蘭色，不要藍色 */
+.history-breadcrumb span[onclick*="renderHistoryCategories"] {
+    color: #6a7a7d !important; /* 莫蘭迪深灰藍 */
+    font-weight: 900;
+    cursor: pointer;
+    transition: color 0.3s;
+}
+.history-breadcrumb span[onclick*="renderHistoryCategories"]:hover {
+    color: #8c9ea1 !important;
+}
+
+/* === 修改：子功能按鈕 (Level 2) 的顏色邏輯 === */
+/* 需求一：子功能卡片要不同顏色 */
+.history-folder-btn.history-theme-1 { border-color: var(--m-color-1); color: var(--m-color-1); }
+.history-folder-btn.history-theme-1 i { color: var(--m-color-1); }
+.history-folder-btn.history-theme-1:hover { background-color: var(--m-color-1); color: white; }
+.history-folder-btn.history-theme-1:hover i { color: white; }
+
+.history-folder-btn.history-theme-2 { border-color: var(--m-color-2); color: var(--m-color-2); }
+.history-folder-btn.history-theme-2 i { color: var(--m-color-2); }
+.history-folder-btn.history-theme-2:hover { background-color: var(--m-color-2); color: white; }
+.history-folder-btn.history-theme-2:hover i { color: white; }
+
+.history-folder-btn.history-theme-3 { border-color: var(--m-color-3); color: var(--m-color-3); }
+.history-folder-btn.history-theme-3 i { color: var(--m-color-3); }
+.history-folder-btn.history-theme-3:hover { background-color: var(--m-color-3); color: white; }
+.history-folder-btn.history-theme-3:hover i { color: white; }
+
+.history-folder-btn.history-theme-4 { border-color: var(--m-color-4); color: var(--m-color-4); }
+.history-folder-btn.history-theme-4 i { color: var(--m-color-4); }
+.history-folder-btn.history-theme-4:hover { background-color: var(--m-color-4); color: white; }
+.history-folder-btn.history-theme-4:hover i { color: white; }
+
+.history-folder-btn.history-theme-5 { border-color: var(--m-color-5); color: var(--m-color-5); }
+.history-folder-btn.history-theme-5 i { color: var(--m-color-5); }
+.history-folder-btn.history-theme-5:hover { background-color: var(--m-color-5); color: white; }
+.history-folder-btn.history-theme-5:hover i { color: white; }
+
+/* === 修改：紀錄卡片 (Level 3) 的顏色邏輯 === */
+/* 需求：卡片左側不要有色條，保留頂部色條(::before)與標籤顏色 */
+
+/* 確保所有主題卡片的左邊框回歸預設樣式 (無粗色條) */
+.history-card {
+    border-left: 1px solid var(--morandi-border) !important;
+}
+
+/* Theme 1 (灰綠) */
+.history-card.history-theme-1::before { background-color: var(--m-color-1); }
+.history-card.history-theme-1 .history-tag { background-color: var(--m-color-1); }
+/* 確保 hover 時也不會出現左側色條，只加深陰影 */
+.history-card.history-theme-1:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 2 (霧霾藍) */
+.history-card.history-theme-2::before { background-color: var(--m-color-2); }
+.history-card.history-theme-2 .history-tag { background-color: var(--m-color-2); }
+.history-card.history-theme-2:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 3 (香芋紫) */
+.history-card.history-theme-3::before { background-color: var(--m-color-3); }
+.history-card.history-theme-3 .history-tag { background-color: var(--m-color-3); }
+.history-card.history-theme-3:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 4 (豆沙紅) */
+.history-card.history-theme-4::before { background-color: var(--m-color-4); }
+.history-card.history-theme-4 .history-tag { background-color: var(--m-color-4); }
+.history-card.history-theme-4:hover { border-left-color: var(--morandi-border); }
+
+/* Theme 5 (奶茶棕) */
+.history-card.history-theme-5::before { background-color: var(--m-color-5); }
+.history-card.history-theme-5 .history-tag { background-color: var(--m-color-5); }
+.history-card.history-theme-5:hover { border-left-color: var(--morandi-border); }
 	
 </style>
 
@@ -4270,6 +4852,75 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 <!-- 必須保留這個 audio 標籤，否則無法播放音樂 -->
 <audio id="audio" preload="auto"></audio>
 
+<!-- === 歷史紀錄容器 (最終版) === -->
+<div id="historyContainer" class="box" style="display: none;">
+    
+ <!-- 標題列 -->
+    <div class="history-header-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+        <h2 style="margin:0; color: #333; font-size: 1.5em;"><i class="fas fa-history"></i> 歷史紀錄</h2>
+        
+        <div style="display: flex; gap: 10px;">
+            <!-- 修正：日期搜尋按鈕與隱藏輸入框 -->
+            <div id="historyDateSearchContainer" style="display: none; position: relative;">
+                <!-- 按鈕現在可以被正常點擊，觸發 triggerDatePicker() -->
+                <button class="history-clear-btn" title="依日期搜尋" onclick="triggerDatePicker()">
+                    <i class="fas fa-calendar-alt"></i>
+                </button>
+                
+                <!-- 修正重點：將 width/height 設為 0，移除 z-index，避免遮擋按鈕 -->
+                <input type="date" id="historyDatePicker" onchange="scrollToHistoryDate(this)" 
+                       style="position: absolute; top: 0; left: 0; width: 0; height: 0; opacity: 0; border: none; padding: 0;">
+            </div>
+
+            <!-- 原有的：清空按鈕 -->
+            <button class="history-clear-btn" title="清空所有紀錄" onclick="clearAllHistory()">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 麵包屑導航 -->
+    <div id="historyBreadcrumb" class="history-breadcrumb" style="display: none; margin-bottom: 20px; padding: 10px 15px; background: rgba(0,0,0,0.05); border-radius: 8px; font-size: 1rem;">
+        <span onclick="renderHistoryCategories()" style="cursor: pointer; color: #007bff; font-weight: bold;"><i class="fas fa-home"></i> 主範疇</span> 
+        <span id="breadcrumb-sep-1" style="display:none; color: #666;"> &gt; </span>
+        <span id="breadcrumb-category" onclick="backToSubFunctions()" style="cursor: pointer; color: #007bff; display:none;"></span>
+        <span id="breadcrumb-sep-2" style="display:none; color: #666;"> &gt; </span>
+        <span id="breadcrumb-sub" style="font-weight: bold; color: #333; display:none;"></span>
+    </div>
+
+    <!-- 第一層：主範疇選擇 (卡片容器) -->
+    <div id="historyLevel1Wrapper" class="category-cards-wrapper" style="padding-top: 10px; padding-bottom: 20px;">
+        <div id="historyLevel1" class="category-cards-container">
+            <!-- JS 將在這裡生成動漫卡片 -->
+        </div>
+    </div>
+
+    <!-- 第二層：子功能選擇 (Grid 選單) -->
+    <div id="historyLevel2" class="history-grid-menu" style="display: none;">
+        <!-- JS 生成子功能按鈕 -->
+    </div>
+
+    <!-- 第三層：紀錄列表 -->
+    <div id="historyLevel3" class="history-list-container" style="display: none;">
+        <!-- JS 生成紀錄卡片 -->
+    </div>
+</div>
+
+<!-- === 歷史紀錄詳細檢視視窗 (保持不變) === -->
+<div id="historyModal" class="preview-modal-overlay">
+    <div class="preview-modal-content" style="max-width: 900px; height: 90%;">
+        <div class="history-modal-header" style="padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+            <h3 id="historyModalTitle" style="margin: 0; color: #2A9689;">紀錄詳情</h3>
+            <span id="historyModalDate" style="color: #888; font-size: 0.9em;"></span>
+        </div>
+        <div class="preview-modal-body" style="padding: 20px; overflow-y: auto; display: block;">
+            <div id="historyModalContent"></div>
+        </div>
+        <button class="preview-close-btn" onclick="closeHistoryModal()" style="top: 10px; right: 10px;">&times;</button>
+    </div>
+</div>
+
+	
 <!-- 展開工具二 (語薈) 容器 -->
 <div id="toolsContainer2">
 <button id="closeToolsBtn2">&times;</button>
@@ -5020,6 +5671,7 @@ const scenes = {
 };
 
 // === 更新版：進入功能容器 (含自動置頂) ===
+// === 更新版：進入功能容器 (含自動置頂 + 隱藏歷史紀錄) ===
 function showContainer(containerId, clickedButton) {
     hideAllSaveHtmlButtons(); 
     
@@ -5060,6 +5712,10 @@ function showContainer(containerId, clickedButton) {
     const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer'];
     containers.forEach(id => document.getElementById(id).style.display = "none");
 
+    // ★★★ 新增：確保歷史紀錄隱藏 ★★★
+    const historyContainer = document.getElementById('historyContainer');
+    if (historyContainer) historyContainer.style.display = 'none';
+
     // 5. 強制滾動到頁面最頂端
     window.scrollTo({ top: 0, behavior: 'instant' });
 
@@ -5089,72 +5745,85 @@ function showContainer(containerId, clickedButton) {
 
 // === 更新版：返回主頁函式 ===
 function returnToHome() {
-    // 恢復主頁背景
+    // 1. 恢復主頁背景
     document.body.style.backgroundImage = `url('${scenes['home']}')`;
 
-   // === 新增：確保懸浮編輯視窗被關閉 ===
+    // 2. 確保懸浮編輯視窗被關閉
     const outlineModal = document.getElementById('outline-editor-modal');
     if (outlineModal) {
         outlineModal.style.display = 'none';
     }
-    // 重置當前編輯元素變數 (如果您的代碼中有這個全域變數的話，建議也重置)
     if (typeof currentEditingElement !== 'undefined') {
         currentEditingElement = null;
     }
-	
-    // 隱藏所有功能容器
-    const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer'];
+
+    // 3. ★★★ 關鍵修正：加入 'historyContainer' 到隱藏列表 ★★★
+    const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer', 'historyContainer'];
     containers.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = "none";
     });
+
+    // 4. ★★★ 額外修正：強制關閉歷史詳情模態視窗 ★★★
+    const historyModal = document.getElementById('historyModal');
+    if (historyModal) {
+        historyModal.style.display = 'none';
+    }
+
+    // 5. ★★★ 額外修正：重置歷史紀錄介面至第一層 (範疇選擇)，避免下次打開時停留在舊紀錄 ★★★
+    const histL1 = document.getElementById('historyLevel1Wrapper');
+    const histL2 = document.getElementById('historyLevel2');
+    const histL3 = document.getElementById('historyLevel3');
+    const histBread = document.getElementById('historyBreadcrumb');
     
-    // 顯示主頁元素
+    if (histL1) histL1.style.display = 'flex'; // 恢復顯示第一層
+    if (histL2) histL2.style.display = 'none';
+    if (histL3) histL3.style.display = 'none';
+    if (histBread) histBread.style.display = 'none'; // 隱藏麵包屑
+
+    // 6. 顯示主頁元素
     document.querySelector('.title-container').style.display = 'block';
     document.getElementById('hitokoto-container').style.display = 'block';
     document.getElementById('mainMenuBox').style.display = 'block';
     document.getElementById('toolsBox').style.display = 'block';
-    
-    // === 【新增】重新顯示 DSE 倒數 ===
-    const dseBox = document.getElementById('dse-countdown-box');
-    // 注意：原本 CSS 是 display: flex，所以這裡設為 flex 以保持排版
-    if (dseBox) dseBox.style.display = 'flex'; 
-    // ===========================
 
-    // 隱藏返回按鈕（左上角圓形與側邊選單內的）
+    // 7. 重新顯示 DSE 倒數
+    const dseBox = document.getElementById('dse-countdown-box');
+    if (dseBox) dseBox.style.display = 'flex';
+
+    // 8. 隱藏返回按鈕
     document.getElementById('sideMenuHomeBtn').style.display = 'none';
     document.getElementById('homeBtn').style.display = 'none';
-    
-    // 移除所有卡片 active 狀態
+
+    // 9. 移除所有卡片 active 狀態
     document.querySelectorAll('.anime-card').forEach(card => card.classList.remove('active'));
-    
-    // 強制隱藏「工具一覽」（語薈）容器
+
+    // 10. 強制隱藏「工具一覽」
     const toolsContainer2 = document.getElementById('toolsContainer2');
     if (toolsContainer2) {
         toolsContainer2.style.display = 'none';
         document.body.style.overflow = 'auto';
     }
-    
-    // 如果側邊選單開著，也收起來
+
+    // 11. 收起側邊選單
     const sideMenu = document.getElementById('sideMenu');
     if (sideMenu && sideMenu.classList.contains('active')) {
         sideMenu.classList.remove('active');
         document.getElementById('sideMenuToggle').classList.remove('active');
     }
-    
-    // 隱藏所有儲存按鈕
+
+    // 12. 隱藏所有儲存按鈕
     hideAllSaveHtmlButtons();
-    
-    // 強制滾動到頂部
+
+    // 13. 強制滾動到頂部
     window.scrollTo({ top: 0, behavior: 'instant' });
     
-    // === 確保工具一覽容器(toolsBox)保持隱藏 (根據你原本的代碼邏輯) ===
+    // 14. 確保舊版工具箱隱藏
     const toolsBox = document.getElementById('toolsBox');
     if (toolsBox) {
         toolsBox.style.display = 'none'; 
     }
 }
-
 // 新增此函式：用於顯示議論的自訂題目介面
 // 新增此函式：用於顯示議論的自訂題目介面 (已修訂：加入 Toggle 開關邏輯)
 function showArgumentCustomTopicInput(buttonElement) { 
@@ -5963,6 +6632,10 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
         resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
         
         document.getElementById('save-argument-outline-html-btn').style.display = 'flex'; 
+    // === 在這裡貼上儲存代碼 ===
+       saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, document.getElementById("argumentOutlineResult").innerHTML);
+        // ========================
+
     } catch (error) {
         console.error("提交議論大綱時出錯:", error);
         if (error.message === "所有 API 密鑰均無法使用") {
@@ -6174,6 +6847,11 @@ ${scopeInstruction}
             }
             
             gradingResultDiv.innerHTML = initialReviewHTML;
+
+			                // === 請在這裡貼上儲存代碼 ===
+                saveToHistory("議論", "文章點評", topic, `題目：${topic}\n\n文章：${content}`, initialReviewHTML);
+                // ==========================
+
             currentArgumentReview = initialReviewHTML;
             argumentChatHistoryData.push({ sender: 'ai', message: currentArgumentReview });
             document.getElementById('save-argument-writing-html-btn').style.display = 'none';
@@ -6290,6 +6968,10 @@ guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join(
 });
 guideHTML += "</table>";
 document.getElementById("argumentGuideResult").innerHTML = guideHTML;
+
+// --- 新增：儲存議論指引 ---
+  saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
+	
 document.getElementById('save-argument-guide-html-btn').style.display = 'flex';
 } catch (error) {
 console.error("提交指引時出錯:", error);
@@ -6770,6 +7452,11 @@ async function submitWritingGuide() {
                 </div>`;
             });
             seedsDiv.innerHTML = seedsHTML;
+
+// --- 新增：儲存解題指引 ---
+   const fullGuideHTML = `<div class="guide-intro-card">${introDiv.innerHTML}</div><div class="guide-grid-3">${seedsDiv.innerHTML}</div>`;
+saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, fullGuideHTML);
+			
         }
         
         saveBtn.style.display = 'flex';
@@ -6919,7 +7606,7 @@ async function submitWriting() {
             // (大綱和敘事物象的邏輯不變)
              if (writingType === "大綱") {
                 const toneNoteForOutline = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
-                const structure = document.getElementById("structure").value;
+              const structure = document.getElementById("structure").value;
                 const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
                 content = parts.map((part, index) => {
                     const focusId = structure + "Focus" + (index + 1);
@@ -6945,7 +7632,12 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
 點評及建議語氣：${toneNoteForOutline}`;
                  document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
                 const response = await callAPI(prompt, 0);
-                displayOutlineComment(response, content);
+               displayOutlineComment(response, content);
+
+                // ★★★ 修正：將結構代碼 (fourPart) 轉為中文 (起承轉合) ★★★
+                const structureName = structure === "fourPart" ? "起承轉合" : "三線";
+                saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}\n結構：${structureName}`, document.getElementById("commentResult").innerHTML);
+// 大綱通常沒有 Canvas，直接存 innerHTML 即可，或者用 captureContainerHTML('commentResult') 也可以
             } else { // 敘事物象
                 content = document.getElementById("narrativeElements").value.trim();
                 const note = categories["敘事物象"].commentNote;
@@ -6964,6 +7656,9 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
                 elements.forEach(element => elementsHTML += `<li>${element}</li>`);
                 elementsHTML += "</ul>";
                 document.getElementById("commentResult").innerHTML = elementsHTML;
+// --- 新增：儲存敘事物象 ---
+  saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
+				 
             }
             document.getElementById('save-writing-html-btn').style.display = 'flex';
 
@@ -7243,45 +7938,53 @@ function displayOutlineComment(response, content) {
     document.getElementById("commentResult").innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
 }
 
-// 替換舊的 submitReading 函式
+// 替換舊的 submitReading 函式 (修正歷史紀錄儲存問題)
 async function submitReading() {
-const submitBtn = document.getElementById('submitReadingBtn');
-submitBtn.disabled = true; // 禁用按鈕
-	hideAllSaveHtmlButtons();
+    const submitBtn = document.getElementById('submitReadingBtn');
+    submitBtn.disabled = true; 
+    hideAllSaveHtmlButtons();
 
-try {
-const readingFunction = document.getElementById("readingFunction").value;
-const passage = document.getElementById("readingPassage").value.trim();
-const question = document.getElementById("readingQuestion").value.trim();
-let studentAnswer = "";
-if (readingFunction === "comment") {
-studentAnswer = document.getElementById("studentAnswer").value.trim();
-if (!passage || !question || !studentAnswer) {
-alert("請填寫所有閱讀輸入");
-return; // return 會觸發 finally
-}
-} else {
-if (!passage || !question) {
-alert("請填寫閱讀篇章和題目");
-return; // return 會觸發 finally
-}
-}
+    // 定義變數在 try 區塊外部，以便在需要時存取
+    let readingFunction = "";
+    let passage = "";
+    let question = "";
+    let studentAnswer = "";
+    let finalHTML = ""; // 用於點評結果
+    let guideHTML = ""; // 用於指引結果
 
-let toneNote = "";
-if (readingFunction === "comment") {
-const tone = document.getElementById("readingTone").value;
-if (tone === "chen") {
-toneNote = "請用輕鬆隨意的語氣進行點評，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。";
-} else {
-toneNote = "請用嚴肅正經的語氣進行點評。";
-}
-}
+    try {
+        readingFunction = document.getElementById("readingFunction").value;
+        passage = document.getElementById("readingPassage").value.trim();
+        question = document.getElementById("readingQuestion").value.trim();
 
-const note = readingFunction === "comment" ? categories["閱讀"].commentNote : categories["閱讀"].guideNote;
+        if (readingFunction === "comment") {
+            studentAnswer = document.getElementById("studentAnswer").value.trim();
+            if (!passage || !question || !studentAnswer) {
+                alert("請填寫所有閱讀輸入");
+                return;
+            }
+        } else {
+            if (!passage || !question) {
+                alert("請填寫閱讀篇章和題目");
+                return; 
+            }
+        }
 
-let prompt = "";
-if (readingFunction === "comment") {
-prompt = `請根據以下閱讀篇章、題目和學生的答案進行點評。要求：
+        let toneNote = "";
+        if (readingFunction === "comment") {
+            const tone = document.getElementById("readingTone").value;
+            if (tone === "chen") {
+                toneNote = "請用輕鬆隨意的語氣進行點評，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。";
+            } else {
+                toneNote = "請用嚴肅正經的語氣進行點評。";
+            }
+        }
+
+        const note = readingFunction === "comment" ? categories["閱讀"].commentNote : categories["閱讀"].guideNote;
+
+        let prompt = "";
+        if (readingFunction === "comment") {
+            prompt = `請根據以下閱讀篇章、題目和學生的答案進行點評。要求：
 1. 評估答題方向是否合理
 2. 評估文本依據是否充實具體
 3. 評估闡釋推論是否嚴謹
@@ -7296,8 +7999,8 @@ prompt = `請根據以下閱讀篇章、題目和學生的答案進行點評。�
 學生的答案：${studentAnswer}
 教學筆記：${note}
 點評語氣：${toneNote}`;
-} else { // guide
-prompt = `請根據以下閱讀篇章和題目生成答題指引。要求：
+        } else { // guide
+            prompt = `請根據以下閱讀篇章和題目生成答題指引。要求：
 1. 輸出必須包含「### 答題指引」和「### 答題詞匯」兩個部分。
 2. 在「### 答題指引」部分，請生成三道引導性問題，每道問題都以數字和句號（例如「1.」）開頭，並另起新行。
 3. 在「### 答題詞匯」部分，生成十五個由兩個字構成的相關詞彙，每個詞彙另起新行。
@@ -7305,117 +8008,116 @@ prompt = `請根據以下閱讀篇章和題目生成答題指引。要求：
 閱讀篇章：${passage}
 題目：${question}
 教學筆記：${note}`;
-}
+        }
 
-document.getElementById("readingResult").innerHTML = "陳SIR正在思考...";
-const result = await callReadingAPI(prompt);
+        document.getElementById("readingResult").innerHTML = "陳SIR正在思考...";
+        const result = await callReadingAPI(prompt);
 
-if (readingFunction === "comment") {
-const parts = result.split("###").map(part => part.trim()).filter(part => part);
-let finalHTML = "<h3>陳SIR點評：</h3>";
+        if (readingFunction === "comment") {
+            const parts = result.split("###").map(part => part.trim()).filter(part => part);
+            finalHTML = "<h3>陳SIR點評：</h3>";
 
-parts.forEach(part => {
-const lines = part.split("\n").filter(line => line.trim());
-const title = lines.shift() || ""; // 取得標題，例如 "點評"
-const content = lines.join("\n"); // 剩下的就是內容
+            parts.forEach(part => {
+                const lines = part.split("\n").filter(line => line.trim());
+                const title = lines.shift() || "";
+                const content = lines.join("\n");
 
-// 如果是點評部分，使用精美列點UI
-if (title.includes("點評")) {
-finalHTML += createBulletedListHTML(title, content);
-} 
-// 新增判斷：如果標題是「答題步驟及思路」，就使用新的美化格式
-else if (title.includes("答題步驟及思路")) {
-finalHTML += `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>${title}</h3>
-<div class="steps-container">`; // 開始步驟容器
+                if (title.includes("點評")) {
+                    finalHTML += createBulletedListHTML(title, content);
+                } 
+                else if (title.includes("答題步驟及思路")) {
+                    finalHTML += `<div class="rewrite-explanation-container">
+                    <div class="rewrite-explanation-card">
+                    <h3>${title}</h3>
+                    <div class="steps-container">`;
+                    const steps = content.split(/\s*(?=【.*?】)/).filter(s => s.trim());
+                    steps.forEach(stepText => {
+                        const match = stepText.match(/^(【.*?】)(.*)$/s);
+                        if (match) {
+                            const stepTitle = match[1].trim();
+                            const stepContent = match[2].trim().replace(/\n/g, '<br>');
+                            finalHTML += `<div class="step-card">
+                            <div class="step-title">${stepTitle}</div>
+                            <div class="step-content">${stepContent}</div>
+                            </div>`;
+                        }
+                    });
+                    finalHTML += `</div></div></div>`;
+                }
+                else {
+                    finalHTML += `<div class="rewrite-explanation-container">
+                    <div class="rewrite-explanation-card">
+                    <h3>${title}</h3>
+                    <div class="explanation-text">${content.replace(/\n/g, '<br>')}</div>
+                    </div>
+                    </div>`;
+                }
+            });
+            
+            document.getElementById("readingResult").innerHTML = finalHTML;
+            
+            // ★★★ 修正：確保在成功生成 HTML 後立即儲存「點評」 ★★★
+            saveToHistory("閱讀", "點評", question, `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, finalHTML);
+            
+            document.getElementById('save-reading-html-btn').style.display = 'flex';
 
-// 使用正則表達式，根據【】標題來分割每個步驟
-const steps = content.split(/\s*(?=【.*?】)/).filter(s => s.trim());
+        } else { // guide
+            const guideParts = result.split("###").map(part => part.trim()).filter(part => part);
+            guideHTML = "<h3>陳SIR指引：</h3>";
 
-steps.forEach(stepText => {
-// 從每個步驟中分離出標題和內容
-const match = stepText.match(/^(【.*?】)(.*)$/s);
-if (match) {
-const stepTitle = match[1].trim();
-const stepContent = match[2].trim().replace(/\n/g, '<br>');
+            guideParts.forEach(part => {
+                const lines = part.split("\n").filter(line => line.trim());
+                const title = lines.shift() || "";
+                const listItems = lines;
 
-// 生成新的卡片 HTML
-finalHTML += `<div class="step-card">
-<div class="step-title">${stepTitle}</div>
-<div class="step-content">${stepContent}</div>
-</div>`;
-}
-});
+                guideHTML += `<div class="rewrite-explanation-container">
+                <div class="rewrite-explanation-card">
+                <h3>${title}</h3>`;
 
-finalHTML += `</div></div></div>`; // 關閉所有容器
-}
-// 其他情況（例如「改寫範例」）則使用通用的卡片樣式
-else {
-finalHTML += `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>${title}</h3>
-<div class="explanation-text">${content.replace(/\n/g, '<br>')}</div>
-</div>
-</div>`;
-}
-});
-document.getElementById("readingResult").innerHTML = finalHTML;
-document.getElementById('save-reading-html-btn').style.display = 'flex'; // 顯示按鈕
-} else { // guide
-const guideParts = result.split("###").map(part => part.trim()).filter(part => part);
-let guideHTML = "<h3>陳SIR指引：</h3>";
+                if (title.includes("答題指引")) {
+                    listItems.forEach((item, index) => {
+                        const match = item.match(/^(\d+)\.?\s*(.*)$/);
+                        const number = match ? match[1] : index + 1;
+                        const text = match ? match[2].trim() : item;
+                        guideHTML += `<div class="explanation-point">
+                        <div class="explanation-number">${number}</div>
+                        <div class="explanation-text">${text}</div>
+                        </div>`;
+                    });
+                } 
+                else if (title.includes("答題詞匯")) {
+                    listItems.forEach(item => {
+                        guideHTML += `<div class="explanation-point">
+                        <div class="explanation-text">${item}</div>
+                        </div>`;
+                    });
+                } else {
+                    guideHTML += `<p>${listItems.join('<br>')}</p>`;
+                }
+                guideHTML += `</div></div>`;
+            });
+            
+            document.getElementById("readingResult").innerHTML = guideHTML;
+            
+            // ★★★ 修正：確保在成功生成 HTML 後立即儲存「指引」 ★★★
+            // 原本的代碼將這行錯誤地放在了 catch 區塊中
+            saveToHistory("閱讀", "指引", question, `篇章：${passage}\n題目：${question}`, guideHTML);
+            
+            document.getElementById('save-reading-html-btn').style.display = 'flex';
+        }
 
-guideParts.forEach(part => {
-const lines = part.split("\n").filter(line => line.trim());
-const title = lines.shift() || "";
-const listItems = lines;
-
-guideHTML += `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>${title}</h3>`;
-
-// 針對「答題指引」的問題，使用帶有數字的樣式
-if (title.includes("答題指引")) {
-listItems.forEach((item, index) => {
-const match = item.match(/^(\d+)\.?\s*(.*)$/);
-const number = match ? match[1] : index + 1;
-const text = match ? match[2].trim() : item;
-
-guideHTML += `<div class="explanation-point">
-<div class="explanation-number">${number}</div>
-<div class="explanation-text">${text}</div>
-</div>`;
-});
-} 
-// 針對「答題詞匯」，使用不帶數字的點列樣式，更簡潔
-else if (title.includes("答題詞匯")) {
-listItems.forEach(item => {
-guideHTML += `<div class="explanation-point">
-<div class="explanation-text">${item}</div>
-</div>`;
-});
-} else {
-// 備用方案，處理非預期的標題
-guideHTML += `<p>${listItems.join('<br>')}</p>`;
-}
-guideHTML += `</div></div>`;
-});
-document.getElementById("readingResult").innerHTML = guideHTML;
-document.getElementById('save-reading-html-btn').style.display = 'flex'; // 顯示按鈕
-}
-
-} catch (error) {
-console.error("提交閱讀時出錯:", error);
-if (error.message === "所有 API 密鑰均無法使用") {
-alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-} else {
-alert("生成失敗，請重試");
-}
-document.getElementById("readingResult").innerHTML = "";
-} finally {
-submitBtn.disabled = false; // 重新啟用按鈕
-}
+    } catch (error) {
+        console.error("提交閱讀時出錯:", error);
+        if (error.message === "所有 API 密鑰均無法使用") {
+            alert("今日 API 調用次數已用完或API無法連接，請明天再試");
+        } else {
+            alert("生成失敗，請重試");
+        }
+        document.getElementById("readingResult").innerHTML = "";
+        // 移除 catch 區塊中錯誤的儲存邏輯
+    } finally {
+        submitBtn.disabled = false;
+    }
 }
 
 // 課外書籍討論功能
@@ -7984,6 +8686,8 @@ finalHTML += `<div class="rewrite-explanation-container">
 }
 });
 document.getElementById("expandCommentResult").innerHTML = finalHTML;
+	// --- 新增：儲存整合拓展點評 ---
+    saveToHistory("整合拓展", "點評", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, finalHTML);
 document.getElementById('save-expand-comment-html-btn').style.display = 'flex'; // 顯示按鈕
 } catch (error) {
 console.error("提交整合拓展點評時出錯:", error);
@@ -8057,6 +8761,8 @@ guideHTML += `</div></div>`;
 });
 
 document.getElementById("expandGuideResult").innerHTML = guideHTML;
+	// --- 新增：儲存整合拓展指引 ---
+    saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, guideHTML);
 document.getElementById('save-expand-guide-html-btn').style.display = 'flex'; // 顯示按鈕
 } catch (error) {
 console.error("提交整合拓展指引時出錯:", error);
@@ -9450,6 +10156,28 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     if (scoresForDisplay) {
         initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }
+
+// --- 新增：儲存到 IndexedDB (修訂版：解決雷達圖不顯示問題) ---
+    if (scoresForDisplay) { 
+        if (uniqueIdPrefix === 'narrative') {
+            const topic = localStorage.getItem("currentTopic") || "無題目";
+            
+            // ★ 關鍵修改：使用 captureContainerHTML 抓取 'writingGradingResult' 容器
+            // 這會將雷達圖 Canvas 轉為圖片，確保在歷史紀錄中能看見
+            const htmlContent = captureContainerHTML('writingGradingResult'); 
+            
+            saveToHistory("敘事抒情", "文章點評", topic, `題目：${topic}\n\n文章：${fullTextContent}`, htmlContent);
+            
+        } else if (uniqueIdPrefix === 'argument') {
+            const topic = localStorage.getItem("argumentCurrentTopic") || "無題目";
+            
+            // ★ 關鍵修改：使用 captureContainerHTML 抓取 'argumentGradingResult' 容器
+            const htmlContent = captureContainerHTML('argumentGradingResult'); 
+            
+            saveToHistory("議論", "文章點評", topic, `題目：${topic}\n\n文章：${fullTextContent}`, htmlContent);
+        }
+    }
+	
 }
 
 
@@ -9742,6 +10470,504 @@ window.returnToHome = function() {
 };
 
 
+// ==========================================
+// === IndexedDB 歷史紀錄系統 (V2 層級版) ===
+// ==========================================
+
+const DB_NAME = 'SansiDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'history';
+
+// 定義層級結構 (主範疇 -> 子功能)
+const HISTORY_STRUCTURE = {
+    "閱讀": ["點評", "指引"],
+    "敘事抒情": ["文章點評", "大綱點評", "解題指引", "敘事物象"],
+    "議論": ["文章點評", "大綱點評", "指引"],
+    "整合拓展": ["點評", "指引"]
+};
+
+// 1. 初始化資料庫 (保持不變)
+function openHistoryDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = function(event) {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                store.createIndex('timestamp', 'timestamp', { unique: false });
+                store.createIndex('category', 'category', { unique: false });
+                store.createIndex('subFunction', 'subFunction', { unique: false });
+            }
+        };
+        request.onsuccess = function(event) { resolve(event.target.result); };
+        request.onerror = function(event) { reject(event.target.error); };
+    });
+}
+
+// 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
+function captureContainerHTML(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return "";
+
+    // 1. 複製節點，避免影響畫面
+    const clone = container.cloneNode(true);
+
+    // 2. 處理 Canvas (雷達圖)
+    // 我們必須從 *原始* 容器中獲取 Canvas，因為 clone 中的 canvas 是空的
+    const originalCanvases = container.querySelectorAll('canvas');
+    const clonedCanvases = clone.querySelectorAll('canvas');
+
+    originalCanvases.forEach((originalCanvas, index) => {
+        if (clonedCanvases[index]) {
+            try {
+                // 將 Canvas 轉為圖片 Data URL
+                const imgUrl = originalCanvas.toDataURL('image/png');
+                const img = document.createElement('img');
+                img.src = imgUrl;
+                img.className = 'radar-chart-history-img'; // 添加樣式類
+                
+                // 替換 clone 中的 canvas
+                clonedCanvases[index].parentNode.replaceChild(img, clonedCanvases[index]);
+            } catch (e) {
+                console.error("Canvas 轉換失敗:", e);
+            }
+        }
+    });
+
+    // 3. 處理可能存在的 input/textarea (確保值被保留)
+    // 雖然歷史紀錄主要存 AI 回應，但若有包含用家輸入框，需保留
+    // 這裡主要針對顯示用的 HTML，通常不需要處理輸入框，除非有點評表格包含 textarea
+    
+    return clone.innerHTML;
+}
+
+// 3. 儲存紀錄 (使用處理過的 HTML)
+async function saveToHistory(category, subFunction, title, userContent, aiContent) {
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        const record = {
+            category: category,
+            subFunction: subFunction,
+            title: title || "無標題",
+            userContent: userContent,
+            aiContent: aiContent, // 這裡必須傳入已經轉換好圖片的 HTML string
+            timestamp: new Date().getTime(),
+            dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
+        };
+
+        store.add(record);
+        console.log("紀錄已儲存");
+    } catch (error) {
+        console.error("儲存紀錄失敗:", error);
+    }
+}
+
+// ================= UI 導航邏輯 =================
+
+// 變數儲存當前導航狀態
+let currentCategoryFilter = null;
+let currentSubFunctionFilter = null;
+
+// 4. 開啟歷史頁面 (進入第一層)
+function openHistoryContainer() {
+    // 隱藏其他所有容器 (包含功能頁面)
+    const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer', 'mainMenuBox', 'hitokoto-container', 'dse-countdown-box', 'toolsBox'];
+    containers.forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.style.display = 'none';
+    });
+    document.querySelector('.title-container').style.display = 'none';
+    
+    // 顯示歷史容器
+    const historyContainer = document.getElementById('historyContainer');
+    historyContainer.style.display = 'block';
+    
+    // 顯示返回主頁按鈕
+    document.getElementById('sideMenuHomeBtn').style.display = 'flex';
+    document.getElementById('sideMenu').classList.remove('active');
+
+    // 渲染第一層
+    renderHistoryCategories();
+}
+
+// 5. 渲染第一層：主範疇
+// ==========================================
+// === 歷史紀錄 UI 渲染邏輯 (修訂版) ===
+// ==========================================
+
+// 定義範疇與圖片的對應關係 (確保與主頁一致)
+const CATEGORY_ASSETS = {
+    "閱讀": { img: '郵筒.png', en: 'READING' },
+    "敘事抒情": { img: '相機.png', en: 'NARRATIVE' },
+    "議論": { img: '筆.png', en: 'ARGUMENT' },
+    "整合拓展": { img: '火車.png', en: 'EXPAND' },
+    "課外書籍": { img: '書.png', en: 'LIBRARY' } // 預留
+};
+
+// 5. 渲染第一層：主範疇 (動漫卡片風格)
+// 5. 渲染第一層：主範疇 (動漫卡片風格)
+function renderHistoryCategories() {
+    // --- 新增：隱藏日期搜尋按鈕 (因為第一層不需要搜尋) ---
+    const searchContainer = document.getElementById('historyDateSearchContainer');
+    if (searchContainer) searchContainer.style.display = 'none';
+
+    // 顯示/隱藏層級容器
+    document.getElementById('historyLevel1Wrapper').style.display = 'flex'; // Wrapper 需要 flex
+    document.getElementById('historyLevel2').style.display = 'none';
+    document.getElementById('historyLevel3').style.display = 'none';
+    
+    // 隱藏麵包屑 (第一層不需要)
+    document.getElementById('historyBreadcrumb').style.display = 'none';
+    
+    const container = document.getElementById('historyLevel1');
+    const categories = Object.keys(HISTORY_STRUCTURE); // ["閱讀", "敘事抒情", "議論", "整合拓展"]
+    
+    let html = '';
+
+    categories.forEach(cat => {
+        const asset = CATEGORY_ASSETS[cat] || { img: '背景.png', en: 'RECORD' };
+        
+        // 生成與主頁完全一致的卡片 HTML
+        // 注意：這裡移除了 id 屬性以避免衝突，改用 onclick 直接觸發歷史功能
+        html += `
+            <div class="anime-card" style="--bg-img: url('${asset.img}');" onclick="enterHistoryCategory('${cat}')">
+                <div class="card-overlay"></div>
+                <div class="card-border-effect"></div>
+                <div class="card-content">
+                    <div class="card-text">
+                        <span class="card-zh">${cat}</span>
+                        <span class="card-en">${asset.en}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+// === 新增全域變數，用於傳遞顏色主題 ===
+let currentThemeIndex = 1; 
+
+// 6. 進入第二層：子功能 (修改版：分配顏色)
+function enterHistoryCategory(category) {
+    const searchContainer = document.getElementById('historyDateSearchContainer');
+    if (searchContainer) searchContainer.style.display = 'none';
+
+    currentCategoryFilter = category;
+    
+    document.getElementById('historyLevel1Wrapper').style.display = 'none';
+    document.getElementById('historyLevel2').style.display = 'grid';
+    document.getElementById('historyLevel3').style.display = 'none';
+
+    // 麵包屑
+    const breadcrumb = document.getElementById('historyBreadcrumb');
+    breadcrumb.style.display = 'flex';
+    document.getElementById('breadcrumb-sep-1').style.display = 'inline';
+    const catSpan = document.getElementById('breadcrumb-category');
+    catSpan.textContent = category;
+    catSpan.style.display = 'inline';
+    document.getElementById('breadcrumb-sep-2').style.display = 'none';
+    document.getElementById('breadcrumb-sub').style.display = 'none';
+
+    const container = document.getElementById('historyLevel2');
+    const subFunctions = HISTORY_STRUCTURE[category] || [];
+    
+    let html = '';
+    
+    const subIcons = {
+        "文章點評": "fa-file-alt",
+        "大綱點評": "fa-list-ol",
+        "敘事物象": "fa-tree",
+        "解題指引": "fa-compass",
+        "指引": "fa-lightbulb",
+        "點評": "fa-comment-dots"
+    };
+
+    // ★★★ 核心修改：為每個子功能分配一個固定的顏色索引 (1-5) ★★★
+    subFunctions.forEach((sub, index) => {
+        // 使用 index % 5 + 1 確保顏色在 1~5 之間循環，並讓不同按鈕顏色不同
+        const themeIndex = (index % 5) + 1;
+        
+        // 在 onclick 中傳遞 themeIndex
+        html += `
+            <div class="history-folder-btn history-theme-${themeIndex}" onclick="enterHistoryList('${sub}', ${themeIndex})">
+                <i class="fas ${subIcons[sub] || 'fa-file'}"></i>
+                <span>${sub}</span>
+            </div>
+        `;
+    });
+
+    if (subFunctions.length === 0) {
+        html = '<p style="grid-column: 1/-1; text-align:center; color: #666;">此範疇暫無子功能定義。</p>';
+    }
+
+    container.innerHTML = html;
+}
+
+// 7. 進入第三層：紀錄列表 (修改版：接收並儲存顏色)
+async function enterHistoryList(subFunction, themeIndex) {
+    currentSubFunctionFilter = subFunction;
+    
+    // ★★★ 儲存傳入的顏色索引，供渲染列表時使用 ★★★
+    // 如果是從麵包屑返回，themeIndex 可能為 undefined，則保持原值或預設為 1
+    if (themeIndex) {
+        currentThemeIndex = themeIndex;
+    }
+
+    document.getElementById('historyLevel1Wrapper').style.display = 'none';
+    document.getElementById('historyLevel2').style.display = 'none';
+    document.getElementById('historyLevel3').style.display = 'flex';
+    
+    const searchContainer = document.getElementById('historyDateSearchContainer');
+    if (searchContainer) searchContainer.style.display = 'block';
+
+    // 麵包屑邏輯 (樣式已在 CSS 修改為莫蘭迪色)
+    const breadcrumb = document.getElementById('historyBreadcrumb');
+    breadcrumb.style.display = 'flex';
+
+    const homeSpan = breadcrumb.querySelector('span[onclick="renderHistoryCategories()"]');
+    homeSpan.innerHTML = '<i class="fas fa-home"></i> 主範疇';
+    
+    document.getElementById('breadcrumb-sep-1').style.display = 'inline';
+    
+    const catSpan = document.getElementById('breadcrumb-category');
+    catSpan.textContent = currentCategoryFilter;
+    catSpan.style.display = 'inline';
+    catSpan.setAttribute('onclick', `enterHistoryCategory('${currentCategoryFilter}')`);
+    
+    document.getElementById('breadcrumb-sep-2').style.display = 'inline';
+    
+    const subSpan = document.getElementById('breadcrumb-sub');
+    subSpan.textContent = subFunction;
+    subSpan.style.display = 'inline';
+
+    const listContainer = document.getElementById('historyLevel3');
+    listContainer.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
+
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const index = store.index('timestamp');
+        const request = index.openCursor(null, 'prev');
+
+        const records = [];
+        request.onsuccess = function(event) {
+            const cursor = event.target.result;
+            if (cursor) {
+                const r = cursor.value;
+                if (r.category === currentCategoryFilter && r.subFunction === subFunction) {
+                    records.push(r);
+                }
+                cursor.continue();
+            } else {
+                renderFilteredRecords(records);
+            }
+        };
+    } catch (error) {
+        console.error("讀取失敗:", error);
+        listContainer.innerHTML = '<p>讀取失敗，請重試。</p>';
+    }
+}
+
+// 8. 渲染列表卡片 (修改版：統一顏色)
+function renderFilteredRecords(records) {
+    const listContainer = document.getElementById('historyLevel3');
+    listContainer.innerHTML = '';
+
+    if (records.length === 0) {
+        listContainer.innerHTML = `
+            <div style="text-align:center; color:#999; margin-top:40px; grid-column: 1/-1; font-family: 'Noto Serif TC', serif;">
+                <i class="far fa-file-alt" style="font-size: 40px; margin-bottom: 15px; opacity: 0.5;"></i>
+                <p>此處尚無紀錄，靜待落筆。</p>
+            </div>`;
+        listContainer.style.display = 'flex';
+        listContainer.style.justifyContent = 'center';
+        return;
+    } else {
+        listContainer.style.display = 'grid';
+    }
+
+    records.forEach((record) => {
+        // ★★★ 核心修改：移除原本的隨機顏色計算，改用統一的 currentThemeIndex ★★★
+        const accentClass = `history-theme-${currentThemeIndex}`;
+
+        const dateObj = new Date(record.timestamp);
+        const dateStr = dateObj.toLocaleDateString('zh-HK', { 
+            year: 'numeric', 
+            month: '2-digit', 
+            day: '2-digit' 
+        }).replace(/\//g, '-');
+
+        const card = document.createElement('div');
+        // 套用統一的顏色 class
+        card.className = `history-card ${accentClass}`;
+        card.setAttribute('data-timestamp', record.timestamp);
+        
+        card.innerHTML = `
+            <div onclick="viewHistoryDetail(${record.id})" style="cursor: pointer; flex-grow: 1;">
+                <div class="history-meta">
+                    <span class="history-tag">${record.subFunction}</span>
+                    <span class="history-date">${dateStr}</span>
+                </div>
+                <h4 class="history-title">${record.title}</h4>
+            </div>
+            
+            <div class="history-actions">
+                <button class="btn-delete-history" onclick="event.stopPropagation(); deleteHistoryItem(${record.id})" title="刪除此紀錄">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        `;
+        listContainer.appendChild(card);
+    });
+}
+
+	
+// 9. 刪除與清空 (保持類似)
+async function deleteHistoryItem(id) {
+    if (!confirm("確定要刪除這條紀錄嗎？")) return;
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        store = transaction.objectStore(STORE_NAME);
+        store.delete(id);
+        transaction.oncomplete = function() {
+            enterHistoryList(currentSubFunctionFilter); // 重新整理當前列表
+        };
+    } catch (e) { console.error(e); }
+}
+
+async function clearAllHistory() {
+    if (!confirm("警告：確定要清空所有歷史紀錄嗎？")) return;
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        store = transaction.objectStore(STORE_NAME);
+        store.clear();
+        transaction.oncomplete = function() {
+            if(document.getElementById('historyLevel3').style.display === 'flex') {
+                enterHistoryList(currentSubFunctionFilter);
+            } else {
+                alert("紀錄已清空");
+            }
+        };
+    } catch (e) { console.error(e); }
+}
+
+// 10. 查看詳情 (保持不變)
+async function viewHistoryDetail(id) {
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(id);
+
+        request.onsuccess = function(event) {
+            const record = event.target.result;
+            if (record) {
+                document.getElementById('historyModalTitle').textContent = `${record.category} - ${record.subFunction}`;
+                
+                // === 修改處：清空並隱藏日期顯示 ===
+                const dateElement = document.getElementById('historyModalDate');
+                if (dateElement) {
+                    dateElement.textContent = ""; 
+                    dateElement.style.display = "none"; 
+                }
+                // ==============================
+                
+                let contentHTML = '';
+                if (record.userContent) {
+                    contentHTML += `<div style="background:#f9f9f9; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid #eee;">
+                        <h4 style="margin-top:0; color:#555;">輸入內容：</h4>
+                        <div style="white-space: pre-wrap;">${record.userContent}</div>
+                    </div>`;
+                }
+                contentHTML += `<div class="ai-output-area">${record.aiContent}</div>`;
+                
+                document.getElementById('historyModalContent').innerHTML = contentHTML;
+                document.getElementById('historyModal').style.display = 'flex';
+            }
+        };
+    } catch (e) { console.error(e); }
+}
+
+function closeHistoryModal() {
+    document.getElementById('historyModal').style.display = 'none';
+}
+
+
+// === 新增：日期搜尋功能 ===
+
+// 觸發日期選擇器 (為了美觀，用按鈕觸發隱藏的 input)
+function triggerDatePicker() {
+    const picker = document.getElementById('historyDatePicker');
+    if (picker) {
+        // 嘗試顯示原生日期選擇器
+        try {
+            picker.showPicker(); 
+        } catch (e) {
+            picker.click(); // 舊版瀏覽器 fallback
+        }
+    }
+}
+
+// 執行捲動定位邏輯
+function scrollToHistoryDate(inputElement) {
+    const selectedDateStr = inputElement.value; // 格式: YYYY-MM-DD
+    if (!selectedDateStr) return;
+
+    // 將選擇的日期轉為當天的結束時間戳 (23:59:59)
+    // 因為列表是從新到舊排列 (Descending)，我們要找的第一個紀錄應該是
+    // 時間戳小於或等於「該日結束」的紀錄
+    const selectedDateEnd = new Date(selectedDateStr).setHours(23, 59, 59, 999);
+    
+    // 獲取所有已渲染的卡片
+    const cards = document.querySelectorAll('#historyLevel3 .history-card');
+    let targetCard = null;
+
+    // 移除所有舊的高亮
+    cards.forEach(c => c.classList.remove('highlighted'));
+
+    // 遍歷卡片尋找目標
+    for (let card of cards) {
+        const timestamp = parseInt(card.getAttribute('data-timestamp'));
+        
+        // 邏輯：因為卡片是按時間倒序排列 (最新的在上面)
+        // 我們要找的是第一個時間戳「小於或等於」選定日期結束時間的卡片
+        // 這代表它是該日期(或該日期之前)最新的一條紀錄
+        if (timestamp <= selectedDateEnd) {
+            targetCard = card;
+            break; // 找到後立即停止
+        }
+    }
+
+    if (targetCard) {
+        // 捲動到該卡片
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // 添加高亮效果
+        targetCard.classList.add('highlighted');
+        
+        // 檢查是否完全匹配當天 (用於提示)
+        const targetDate = new Date(parseInt(targetCard.getAttribute('data-timestamp')));
+        const checkDateStr = targetDate.toISOString().split('T')[0];
+        
+        if (checkDateStr !== selectedDateStr) {
+            // 如果找到的卡片不是選定當天的(代表那天沒紀錄)，提示使用者
+            // alert(`找不到 ${selectedDateStr} 的紀錄，已定位至最接近的過往紀錄 (${checkDateStr})。`);
+            // 上方 alert 可依需求開啟或關閉，通常直接定位即可
+        }
+    } else {
+        alert("找不到該日期或更早之前的紀錄。");
+    }
+}
+	
+	
 </script>
 
 <footer class="copyright-footer">
