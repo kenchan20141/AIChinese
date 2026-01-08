@@ -11143,6 +11143,7 @@ async function enterHistoryList(subFunction, themeIndex) {
 }
 
 // 8. 渲染列表卡片 (修改版：統一顏色)
+// === 優化版：渲染列表卡片 (整張卡片可點擊) ===
 function renderFilteredRecords(records) {
     const listContainer = document.getElementById('historyLevel3');
     listContainer.innerHTML = '';
@@ -11160,7 +11161,7 @@ function renderFilteredRecords(records) {
         listContainer.style.display = 'grid';
     }
 
-     records.forEach((record) => {
+    records.forEach((record) => {
         const accentClass = `history-theme-${currentThemeIndex}`;
 
         const dateObj = new Date(record.timestamp);
@@ -11174,17 +11175,22 @@ function renderFilteredRecords(records) {
         card.className = `history-card ${accentClass}`;
         card.setAttribute('data-timestamp', record.timestamp);
         
-        // ★★★ 修改區域：標題綁定新的處理函數 ★★★
+        // ★★★ 關鍵修改 1：將點擊事件移到最外層容器 ★★★
+        // 這樣點擊卡片的任何留白處都能打開視窗
+        card.setAttribute('onclick', `viewHistoryDetail(${record.id})`);
+
         card.innerHTML = `
-            <div onclick="viewHistoryDetail(${record.id})" style="cursor: pointer; flex-grow: 1;">
+            <!-- ★★★ 關鍵修改 2：移除這裡內層 div 的 onclick，改為純佈局容器 ★★★ -->
+            <div style="flex-grow: 1;">
                 <div class="history-meta">
                     <span class="history-tag">${record.subFunction}</span>
                     <span class="history-date">${dateStr}</span>
                 </div>
                 
                 <!-- 
-                    onclick: 負責攔截單擊，延遲打開視窗
-                    ondblclick: 負責攔截雙擊，取消單擊並進入編輯
+                    標題保留自己的 onclick/ondblclick 邏輯。
+                    因為 handleTitleClick 裡面有 event.stopPropagation()，
+                    所以點標題時不會觸發外層的直接打開，而是執行標題專屬的「延遲判斷雙擊」邏輯。
                 -->
                 <h4 class="history-title" 
                     onclick="handleTitleClick(event, ${record.id})"
@@ -11195,16 +11201,15 @@ function renderFilteredRecords(records) {
             </div>
             
             <div class="history-actions">
+                <!-- 刪除按鈕必須保留 stopPropagation，否則刪除時會同時彈出視窗 -->
                 <button class="btn-delete-history" onclick="event.stopPropagation(); deleteHistoryItem(${record.id})" title="刪除此紀錄">
                     <i class="fas fa-trash-alt"></i>
                 </button>
             </div>
         `;
-        // ★★★ 修改區域結束 ★★★
 
         listContainer.appendChild(card);
     });
-
 }
 
 	
