@@ -10711,9 +10711,9 @@ function toggleMusicPlayer() {
 // === 優化版：帶動畫的返回主頁 ===
 const performReturnToHomeLogic = window.returnToHome || function() {}; // 備份舊邏輯引用(如果有的話)
 
+// === 優化版：帶動畫的返回主頁 (修復滾動鎖定與視窗殘留) ===
 window.returnToHome = function() {
-    // 1. 找出當前正在顯示的容器 (功能頁面 或 歷史紀錄 或 工具一覽)
-    // 我們尋找 display 不為 none 的主要容器
+    // 1. 找出當前正在顯示的容器
     const activeContainer = document.querySelector(
         '#writingContainer[style*="display: block"], ' +
         '#readingContainer[style*="display: block"], ' +
@@ -10721,93 +10721,113 @@ window.returnToHome = function() {
         '#expandContainer[style*="display: block"], ' +
         '#argumentContainer[style*="display: block"], ' +
         '#historyContainer[style*="display: block"], ' +
-        '#toolsContainer2[style*="display: flex"]' // 工具一覽是用 flex
+        '#toolsContainer2[style*="display: flex"]'
     );
 
     // 2. 如果找到了正在顯示的頁面，先播動畫
     if (activeContainer) {
-        // 添加退場動畫 class
         activeContainer.classList.add('page-exit-shrink');
 
-        // 3. 設定計時器，等待動畫播完 (400ms) 再執行原本的清理與切換邏輯
+        // 3. 等待動畫播完再執行清理
         setTimeout(() => {
-            // === 執行原本的返回主頁邏輯 (隱藏所有容器、重置變數等) ===
-            // 這裡我們直接執行原本你代碼中的核心邏輯：
-            
-            // A. 隱藏所有容器
+            // A. 隱藏所有主要功能容器
             const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer', 'historyContainer', 'toolsContainer2'];
             containers.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
                     el.style.display = "none";
-                    el.classList.remove('page-exit-shrink'); // ★ 關鍵：移除動畫class，以免下次打開時還看不見
-                    el.style.opacity = ""; // 清除可能殘留的 opacity
-                    el.style.transform = ""; // 清除可能殘留的 transform
+                    el.classList.remove('page-exit-shrink');
+                    el.style.opacity = "";
+                    el.style.transform = "";
                 }
             });
 
-            // B. 恢復主頁背景
+            // ★★★ B. 關鍵修復：解鎖頁面捲動 ★★★
+            document.body.style.overflow = 'auto'; 
+            document.body.style.height = 'auto'; // 確保高度自適應
+
+            // C. 恢復主頁背景
             document.body.style.backgroundImage = `url('${scenes['home']}')`;
             document.body.style.backgroundColor = '';
 
-            // C. 顯示主頁元素 (標題、名言、卡片選單)
+            // D. 顯示主頁元素
             document.querySelector('.title-container').style.display = 'block';
             document.getElementById('hitokoto-container').style.display = 'block';
             document.getElementById('mainMenuBox').style.display = 'block';
             
-            // D. 顯示 DSE 倒數
+            // E. 顯示 DSE 倒數
             const dseBox = document.getElementById('dse-countdown-box');
             if (dseBox) dseBox.style.display = 'flex';
 
-            // E. 隱藏返回按鈕
+            // F. 隱藏返回按鈕
             document.getElementById('sideMenuHomeBtn').style.display = 'none';
             document.getElementById('homeBtn').style.display = 'none';
 
-            // F. 移除卡片 active 狀態
+            // G. 移除卡片 active 狀態
             document.querySelectorAll('.anime-card').forEach(card => card.classList.remove('active'));
 
-            // G. 收起側邊選單
+            // H. 收起側邊選單
             const sideMenu = document.getElementById('sideMenu');
             if (sideMenu) {
                 sideMenu.classList.remove('active');
                 document.getElementById('sideMenuToggle').classList.remove('active');
             }
             
-            // H. 隱藏儲存按鈕
+            // I. 隱藏儲存按鈕
             hideAllSaveHtmlButtons();
 
-            // I. 確保舊版工具箱隱藏
+            // J. 確保舊版工具箱隱藏
             const toolsBox = document.getElementById('toolsBox');
             if (toolsBox) toolsBox.style.display = 'none';
 
-            // J. 滾動到頂部
+            // K. 隱藏歷史紀錄詳情與大綱編輯視窗
+            const historyModal = document.getElementById('historyModal');
+            if (historyModal) historyModal.style.display = 'none';
+            
+            const outlineModal = document.getElementById('outline-editor-modal');
+            if (outlineModal) outlineModal.style.display = 'none';
+
+            // L. 強制關閉語薈的「預覽視窗」與「影片視窗」
+            const previewModal = document.getElementById('previewModal');
+            const previewIframe = document.getElementById('previewIframe');
+            if (previewModal) {
+                previewModal.style.display = 'none';
+                if (previewIframe) previewIframe.src = 'about:blank';
+            }
+
+            const videoModal = document.getElementById('videoModal');
+            const videoIframe = document.getElementById('videoIframe');
+            if (videoModal) {
+                videoModal.style.display = 'none';
+                if (videoIframe) videoIframe.src = '';
+            }
+
+            // M. 滾動到頂部
             window.scrollTo({ top: 0, behavior: 'instant' });
 
-            // ★★★ 4. 觸發主頁進場動畫 (這一步是新增的) ★★★
-            // 讓主選單卡片有一個「彈入」的效果
+            // N. 觸發主頁進場動畫
             const mainMenu = document.getElementById('mainMenuBox');
             const dse = document.getElementById('dse-countdown-box');
             
             if (mainMenu) {
                 mainMenu.classList.remove('home-enter-pop');
-                void mainMenu.offsetWidth; // 強制重繪
+                void mainMenu.offsetWidth; 
                 mainMenu.classList.add('home-enter-pop');
             }
             if (dse) {
                 dse.classList.remove('home-enter-pop');
-                void dse.offsetWidth; // 強制重繪
+                void dse.offsetWidth;
                 dse.classList.add('home-enter-pop');
             }
 
-        }, 350); // 設定 350ms 觸發 (略短於 CSS 的 0.4s，確保視覺銜接緊湊)
+        }, 350); 
         
     } else {
-        // 如果當前沒有任何頁面開啟(極少情況)，直接執行重置邏輯，不播動畫
-        // 這裡可以複製上面的 A-J 步驟，或是為了簡潔，忽略它，因為通常都有頁面開啟
-        originalReturnToHome(); // 如果你保留了舊函數引用
+        // 如果沒有偵測到活動頁面，直接重整或重置
+        document.body.style.overflow = 'auto'; // 保險起見這裡也加一行
+        location.reload(); 
     }
 };
-
 
 // ==========================================
 // === IndexedDB 歷史紀錄系統 (V2 層級版) ===
