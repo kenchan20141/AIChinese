@@ -3427,6 +3427,42 @@ select:focus, select:hover {
         transform: translateY(0) scale(1); /* 回復原狀 */
     }
 }
+
+	/* === 新增：頁面收縮退場動畫 === */
+.page-exit-shrink {
+    /* 0.4秒完成，使用 ease-in 讓開始慢結束快，感覺像被吸走 */
+    animation: shrinkFadeOut 0.4s cubic-bezier(0.32, 0, 0.67, 0) forwards;
+    transform-origin: center 20vh; /* 設定縮放中心點在視窗上方偏中，視覺更自然 */
+    pointer-events: none; /* 動畫播放時禁止點擊，防止誤觸 */
+}
+
+@keyframes shrinkFadeOut {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.92) translateY(20px); /* 縮小並稍微往下沉 */
+    }
+}
+
+/* === 新增：主頁選單進場特效 (配合退場) === */
+.home-enter-pop {
+    animation: popIn 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+    opacity: 0;
+}
+
+@keyframes popIn {
+    0% {
+        opacity: 0;
+        transform: scale(1.05); /* 主頁從稍微放大的狀態回復，產生景深感 */
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
 	
 </style>
 
@@ -10672,13 +10708,103 @@ function toggleMusicPlayer() {
     document.getElementById('sideMenu').classList.remove('active');
 }
 
-// === 強制在返回主頁時永遠隱藏「工具一覽」container（保險做法）===
-const originalReturnToHome = window.returnToHome;
+// === 優化版：帶動畫的返回主頁 ===
+const performReturnToHomeLogic = window.returnToHome || function() {}; // 備份舊邏輯引用(如果有的話)
+
 window.returnToHome = function() {
-    originalReturnToHome();                 // 執行原本的所有返回主頁邏輯
-    const toolsBox = document.getElementById('toolsBox');
-    if (toolsBox) {
-        toolsBox.style.display = 'none';    // 強制隱藏
+    // 1. 找出當前正在顯示的容器 (功能頁面 或 歷史紀錄 或 工具一覽)
+    // 我們尋找 display 不為 none 的主要容器
+    const activeContainer = document.querySelector(
+        '#writingContainer[style*="display: block"], ' +
+        '#readingContainer[style*="display: block"], ' +
+        '#booksContainer[style*="display: block"], ' +
+        '#expandContainer[style*="display: block"], ' +
+        '#argumentContainer[style*="display: block"], ' +
+        '#historyContainer[style*="display: block"], ' +
+        '#toolsContainer2[style*="display: flex"]' // 工具一覽是用 flex
+    );
+
+    // 2. 如果找到了正在顯示的頁面，先播動畫
+    if (activeContainer) {
+        // 添加退場動畫 class
+        activeContainer.classList.add('page-exit-shrink');
+
+        // 3. 設定計時器，等待動畫播完 (400ms) 再執行原本的清理與切換邏輯
+        setTimeout(() => {
+            // === 執行原本的返回主頁邏輯 (隱藏所有容器、重置變數等) ===
+            // 這裡我們直接執行原本你代碼中的核心邏輯：
+            
+            // A. 隱藏所有容器
+            const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer', 'historyContainer', 'toolsContainer2'];
+            containers.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.style.display = "none";
+                    el.classList.remove('page-exit-shrink'); // ★ 關鍵：移除動畫class，以免下次打開時還看不見
+                    el.style.opacity = ""; // 清除可能殘留的 opacity
+                    el.style.transform = ""; // 清除可能殘留的 transform
+                }
+            });
+
+            // B. 恢復主頁背景
+            document.body.style.backgroundImage = `url('${scenes['home']}')`;
+            document.body.style.backgroundColor = '';
+
+            // C. 顯示主頁元素 (標題、名言、卡片選單)
+            document.querySelector('.title-container').style.display = 'block';
+            document.getElementById('hitokoto-container').style.display = 'block';
+            document.getElementById('mainMenuBox').style.display = 'block';
+            
+            // D. 顯示 DSE 倒數
+            const dseBox = document.getElementById('dse-countdown-box');
+            if (dseBox) dseBox.style.display = 'flex';
+
+            // E. 隱藏返回按鈕
+            document.getElementById('sideMenuHomeBtn').style.display = 'none';
+            document.getElementById('homeBtn').style.display = 'none';
+
+            // F. 移除卡片 active 狀態
+            document.querySelectorAll('.anime-card').forEach(card => card.classList.remove('active'));
+
+            // G. 收起側邊選單
+            const sideMenu = document.getElementById('sideMenu');
+            if (sideMenu) {
+                sideMenu.classList.remove('active');
+                document.getElementById('sideMenuToggle').classList.remove('active');
+            }
+            
+            // H. 隱藏儲存按鈕
+            hideAllSaveHtmlButtons();
+
+            // I. 確保舊版工具箱隱藏
+            const toolsBox = document.getElementById('toolsBox');
+            if (toolsBox) toolsBox.style.display = 'none';
+
+            // J. 滾動到頂部
+            window.scrollTo({ top: 0, behavior: 'instant' });
+
+            // ★★★ 4. 觸發主頁進場動畫 (這一步是新增的) ★★★
+            // 讓主選單卡片有一個「彈入」的效果
+            const mainMenu = document.getElementById('mainMenuBox');
+            const dse = document.getElementById('dse-countdown-box');
+            
+            if (mainMenu) {
+                mainMenu.classList.remove('home-enter-pop');
+                void mainMenu.offsetWidth; // 強制重繪
+                mainMenu.classList.add('home-enter-pop');
+            }
+            if (dse) {
+                dse.classList.remove('home-enter-pop');
+                void dse.offsetWidth; // 強制重繪
+                dse.classList.add('home-enter-pop');
+            }
+
+        }, 350); // 設定 350ms 觸發 (略短於 CSS 的 0.4s，確保視覺銜接緊湊)
+        
+    } else {
+        // 如果當前沒有任何頁面開啟(極少情況)，直接執行重置邏輯，不播動畫
+        // 這裡可以複製上面的 A-J 步驟，或是為了簡潔，忽略它，因為通常都有頁面開啟
+        originalReturnToHome(); // 如果你保留了舊函數引用
     }
 };
 
