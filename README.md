@@ -103,7 +103,6 @@
 *   **Styling**: CSS Variables, Keyframe Animations, Glassmorphism.
 *   **Database**: IndexedDB (Async Storage for heavy text/html data).
 *   **Visualization**: Chart.js (Customized Radar configuration).
-*   **AI Integration**: Fetch API 串接 Pollinations.ai (支援多模態與 Fallback 機制).
 *   **Text Processing**: OpenCC (簡繁轉換), Regex (Markdown 解析與 HTML 淨化).
 *   **Export**: Client-side HTML generation & Blob download.
 
