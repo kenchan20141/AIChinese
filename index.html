@@ -4105,6 +4105,55 @@ select:focus, select:hover {
     color: #d32f2f !important;
     background-color: transparent !important;
 }
+
+	/* === 修復：繳交課業選擇視窗 (層級與響應式優化) === */
+#submitAssignmentModal {
+    z-index: 25000 !important; /* 確保高於歷史紀錄 (20000) 和其他元素 */
+    padding: 0 20px; /* 關鍵：左右留白，確保手機版不貼邊 */
+    box-sizing: border-box; /* 確保 padding 不會撐大寬度 */
+    display: none; /* 預設隱藏 */
+    justify-content: center; /* 垂直居中 */
+    align-items: center;     /* 水平居中 */
+}
+
+#submitAssignmentModal .modal-content {
+    width: 100%;
+    max-width: 450px; /* 限制電腦版最大寬度，比較精緻 */
+    margin: auto; /* 確保在 Flex 容器中居中 */
+    max-height: 85vh; /* 防止高度溢出 */
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px; /* 圓角更柔和 */
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3); /* 增加立體感 */
+}
+
+/* === 新增：莫蘭迪色系按鈕樣式 === */
+.btn-morandi {
+    /* 莫蘭迪暖棕色/陶土色，低飽和度，看起來舒服高級 */
+    background-color: #a1887f !important; 
+    background-image: linear-gradient(135deg, #bcaaa4 0%, #8d6e63 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    padding: 10px 20px !important;
+    font-size: 1rem !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 10px rgba(141, 110, 99, 0.3) !important;
+    transition: all 0.3s ease !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Noto Serif TC', serif;
+}
+
+.btn-morandi:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(141, 110, 99, 0.4) !important;
+    filter: brightness(105%);
+}
+
+.btn-morandi:active {
+    transform: translateY(0);
+}
 	
 </style>
 
@@ -11970,6 +12019,7 @@ async function clearAllHistory() {
 }
 
 // 優化後的查看詳情函數
+// 優化後的查看詳情函數 (已修改按鈕顏色)
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -12038,15 +12088,13 @@ async function viewHistoryDetail(id) {
                 // 4. 顯示 AI 生成內容
                 contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
                 
-                // ★★★ 核心修改：加入繳交按鈕 ★★★
-                // 檢查是否已綁定身份，只有綁定後才顯示此按鈕
+                // ★★★ 核心修改：繳交按鈕改用 .btn-morandi 樣式 ★★★
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s) {
                     contentHTML += `
                         <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
                             <span style="font-size: 0.9em; color: #888;">對這份生成結果滿意嗎？</span>
-                            <button class="btn-action" 
-                                    style="background-color: #ff9800; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); padding: 10px 20px; font-size: 1rem;" 
+                            <button class="btn-action btn-morandi" 
                                     onclick="openSubmitSelector(${record.id})">
                                 <i class="fas fa-paper-plane"></i> 繳交此紀錄為課業
                             </button>
@@ -12957,17 +13005,34 @@ function doAssignment(type, topic) {
 }
 
 // === 核心：同步 IndexedDB 到 Firebase ===
-async function syncHistoryToFirebase() {
+// 2. 修改 syncHistoryToFirebase：移除成功提示
+async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return alert("請先綁定身份");
+    if (!s) {
+        if (!isSilent) alert("請先綁定身份");
+        return;
+    }
 
-    const btn = event.target;
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
-    btn.disabled = true;
+    let btn = null;
+    let originalText = "";
+    
+    // 只有在非靜默模式（手動點擊）且存在事件對象時，才改變按鈕狀態
+    // 加入 typeof event 檢查以防止在某些自動調用情境下報錯
+    if (!isSilent && typeof event !== 'undefined' && event && event.target) {
+        btn = event.target;
+        // 如果點到的是圖示 (i 標籤)，則向上尋找 button 標籤
+        if (btn.tagName !== 'BUTTON') {
+            btn = btn.closest('button');
+        }
+        
+        if (btn) {
+            originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
+            btn.disabled = true;
+        }
+    }
 
     try {
-        // 1. 從 IndexedDB 讀取所有紀錄
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
@@ -12975,25 +13040,40 @@ async function syncHistoryToFirebase() {
 
         request.onsuccess = function(e) {
             const records = e.target.result;
-            
-            // 2. 寫入 Firebase
-            // 路徑結構: students/年級/班級/姓名/history
             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+            
             database.ref(path).set(records, (error) => {
                 if (error) {
-                    alert("上傳失敗：" + error.message);
+                    console.error("自動同步失敗:", error);
+                    // 只有失敗時，且非靜默模式才彈窗警告
+                    if (!isSilent) alert("上傳失敗：" + error.message);
                 } else {
-                    alert("✅ 成功同步所有紀錄給老師！");
+                    console.log("自動同步成功");
+                    // ★★★ 已移除 alert("✅ 成功同步所有紀錄給老師！"); ★★★
                 }
-                btn.innerHTML = originalText;
-                btn.disabled = false;
+                
+                // 無論成功或失敗，都要恢復按鈕狀態
+                if (!isSilent && btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
             });
         };
+        
+        request.onerror = function(e) {
+            console.error("IndexedDB 讀取錯誤", e);
+            if (!isSilent && btn) {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        };
+
     } catch (err) {
         console.error(err);
-        alert("讀取本地數據失敗");
-        btn.innerHTML = originalText;
-        btn.disabled = false;
+        if (!isSilent && btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     }
 }
 
