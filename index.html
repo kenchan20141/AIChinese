@@ -4154,6 +4154,66 @@ select:focus, select:hover {
 .btn-morandi:active {
     transform: translateY(0);
 }
+
+	/* ========================================= */
+/* === 大綱結果表格美化 (原稿紙風格) === */
+/* ========================================= */
+
+/* 針對 敘事抒情(rewriteTable) 和 議論(argumentRewriteTable) 的改寫表格 */
+/* 同時也美化點評表格 (commentTable, argumentCommentTable) 以保持一致 */
+#rewriteTable td, #commentTable td,
+#argumentRewriteTable td, #argumentCommentTable td {
+    /* 1. 基礎字體與排版 (與輸入框一致) */
+    font-family: 'Noto Serif TC', 'Songti TC', serif !important;
+    font-size: 18px !important;       
+    line-height: 40px !important;     /* 關鍵：配合格線高度 */
+    color: #2c3e50;                   
+    letter-spacing: 1px;              
+    
+    /* 2. 原稿紙背景 (40px 高) */
+    background-color: #fffcf6 !important;        
+    background-image: 
+        linear-gradient(transparent 39px, rgba(42, 150, 137, 0.2) 39px, rgba(42, 150, 137, 0.2) 40px, transparent 40px),
+        linear-gradient(90deg, transparent 39px, rgba(0,0,0,0.02) 39px, rgba(0,0,0,0.02) 40px, transparent 40px) !important;
+    background-size: 40px 40px !important;       
+    background-attachment: local;     
+    
+    /* 3. 邊框與間距 */
+    border: 1px solid #8baea8 !important;        
+    padding: 0 15px !important;       
+    vertical-align: top; /* 文字靠上對齊 */
+    
+    /* 確保文字對齊格線 */
+    white-space: pre-wrap; /* 保留換行 */
+}
+
+/* 表頭樣式美化 */
+#rewriteTable th, #commentTable th,
+#argumentRewriteTable th, #argumentCommentTable th {
+    background-color: #2A9689 !important;
+    color: white !important;
+    font-weight: bold;
+    border: 1px solid #1e7e72 !important;
+    padding: 10px;
+    font-size: 1.1em;
+}
+
+/* === 手機版響應式調整 (格線縮小) === */
+@media (max-width: 600px) {
+    #rewriteTable td, #commentTable td,
+    #argumentRewriteTable td, #argumentCommentTable td {
+        font-size: 16px !important;
+        line-height: 32px !important; /* 手機版行高 */
+        
+        /* 手機版背景格線 (32px) */
+        background-image: 
+            linear-gradient(transparent 31px, rgba(42, 150, 137, 0.2) 31px, rgba(42, 150, 137, 0.2) 32px, transparent 32px),
+            linear-gradient(90deg, transparent 31px, rgba(0,0,0,0.02) 31px, rgba(0,0,0,0.02) 32px, transparent 32px) !important;
+        background-size: 32px 32px !important;
+        
+        padding: 0 8px !important;
+    }
+}
 	
 </style>
 
@@ -7532,8 +7592,8 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
         const comments = parseCommentPart(commentPart);
         const rewrites = parseRewritePart(rewritePart);
 
-        // --- 修訂重點：加入 div.table-container 並使用不同的 ID ---
-        let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="argumentCommentTable"><tr><th>部份</th><th>論點</th><th>論據及論證</th><th>點評</th><th>建議</th></tr>`;
+        // 1. 點評表格 (設定欄寬)
+        let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="argumentCommentTable"><tr><th style="width:10%">部份</th><th style="width:20%">論點</th><th style="width:30%">論據及論證</th><th style="width:20%">點評</th><th style="width:20%">建議</th></tr>`;
         outlineContent.forEach(item => {
             const comment = comments[item.part]?.comment || "未生成點評";
             const suggestion = comments[item.part]?.suggestion || "未生成建議";
@@ -7541,8 +7601,8 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
         });
         commentTableHTML += "</table></div>";
 
-        // --- 修訂重點：加入 div.table-container 並使用不同的 ID ---
-        let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="argumentRewriteTable"><tr><th>部份</th><th>論點</th><th>論據及論證</th></tr>`;
+        // 2. 改寫表格 (設定欄寬與結構)
+        let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="argumentRewriteTable"><tr><th style="width:15%">部份</th><th style="width:25%">論點</th><th style="width:60%">論據及論證</th></tr>`;
         outlineContent.forEach(item => {
             const rewrite = rewrites[item.part] || { point: "未生成論點", evidence: "未生成論據及論證" };
             rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.point || "未生成論點"}</td><td>${rewrite.evidence || "未生成論據及論證"}</td></tr>`;
@@ -7564,15 +7624,15 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
             explanationHTML += `</div></div>`;
         }
 
-        // --- 修訂重點：強制設定容器寬度為 100%，防止被內部表格撐開 ---
+        // 強制設定容器寬度，防止跑版
         const resultContainer = document.getElementById("argumentOutlineResult");
         resultContainer.style.width = "100%";
         resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
         
         document.getElementById('save-argument-outline-html-btn').style.display = 'flex'; 
-    // === 在這裡貼上儲存代碼 ===
-       saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, document.getElementById("argumentOutlineResult").innerHTML);
-        // ========================
+        
+        // 儲存到歷史紀錄
+        saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, document.getElementById("argumentOutlineResult").innerHTML);
 
     } catch (error) {
         console.error("提交議論大綱時出錯:", error);
@@ -8800,6 +8860,7 @@ ${scopeInstruction}
 
 
 // 輔助函式，用於顯示大綱的評論 (從 submitWriting 中提取出來)
+// 輔助函式，用於顯示大綱的評論 (敘事抒情)
 function displayOutlineComment(response, content) {
     const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
     const commentIndex = sections.indexOf("點評及建議");
@@ -8846,19 +8907,25 @@ function displayOutlineComment(response, content) {
     }
     const comments = parseCommentPart(commentPart);
     const rewrites = parseRewritePart(rewritePart);
-    let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th>部份</th><th>結構段重點</th><th>情節大要</th><th>點評</th><th>建議</th></tr>`;
+
+    // 1. 點評表格 (加上 table-container)
+    let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th style="width:10%;">部份</th><th style="width:20%;">結構段重點</th><th style="width:30%;">情節大要</th><th style="width:20%;">點評</th><th style="width:20%;">建議</th></tr>`;
     content.forEach(item => {
         const comment = comments[item.part]?.comment || "未生成點評";
         const suggestion = comments[item.part]?.suggestion || "未生成建議";
         commentTableHTML += `<tr><td>${item.part}</td><td>${item.focus}</td><td>${item.plot}</td><td>${comment}</td><td>${suggestion}</td></tr>`;
     });
     commentTableHTML += "</table></div>";
-    let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th>部份</th><th>結構段重點</th><th>情節大要</th></tr>`;
+
+    // 2. 改寫表格 (加上 table-container 並調整欄位寬度)
+    // 透過 style="width:XX%" 確保欄位不會被文字撐到變形
+    let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th style="width:15%;">部份</th><th style="width:30%;">結構段重點</th><th style="width:55%;">情節大要</th></tr>`;
     content.forEach(item => {
         const rewrite = rewrites[item.part] || { focus: "未生成結構段重點", plot: "未生成情節大要" };
         rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.focus || "未生成結構段重點"}</td><td>${rewrite.plot || "未生成情節大要"}</td></tr>`;
     });
     rewriteTableHTML += "</table></div>";
+
     let explanationHTML = '';
     if (explanationPart) {
         const points = explanationPart.split(/\s*(?=\d\.\s*)/).filter(p => p.trim());
