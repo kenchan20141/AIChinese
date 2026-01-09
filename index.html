@@ -56,9 +56,11 @@ form-action 'self';
 <!-- 引入 Chart.js 以繪製雷達圖 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-	<!-- Firebase SDK -->
+<!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<!-- 新增這行：Firebase Authentication -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
 
 <!-- === 新增：頁面右緣卡扣按鈕 === -->
@@ -12446,64 +12448,99 @@ function initClassNumbers() {
 document.addEventListener('DOMContentLoaded', initClassNumbers);
 
 
-// 2. 修改後的綁定身份函式 (包含班號)
-async function saveStudentIdentity() {
+// === Firebase 初始化後，宣告 Auth 實例 ===
+// 確保在 const database = firebase.database(); 附近加入這行：
+const auth = firebase.auth();
+
+// === 新增：學校電郵登入處理函式 ===
+async function handleSchoolLogin() {
     const grade = document.getElementById('studentGrade').value;
     const cls = document.getElementById('studentClass').value;
-    const number = document.getElementById('studentNumber').value; // 取得班號
-    const name = document.getElementById('studentName').value.trim();
-    const password = document.getElementById('studentPassword').value.trim();
+    const number = document.getElementById('studentNumber').value;
     
-    if(!name) return alert("請輸入姓名");
-    if(!password) return alert("請輸入密碼");
-    
-    const btn = event.target;
-    const originalText = btn.innerHTML;
+    const btn = event.target.closest('button'); // 確保抓到按鈕
+    const originalContent = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
     btn.disabled = true;
 
-    // 依然使用姓名作為路徑 (因為班號可能會變，姓名較少變，且方便老師辨識)
+    const provider = new firebase.auth.GoogleAuthProvider();
+    // 強制每次都選擇帳號，避免自動登入錯誤的私人帳號
+    provider.setCustomParameters({
+        prompt: 'select_account'
+    });
+
+    try {
+        const result = await auth.signInWithPopup(provider);
+        const user = result.user;
+        const email = user.email;
+
+        // === 關鍵：檢查電郵網域 ===
+        if (!email.endsWith('@ccckyc.edu.hk')) {
+            // 如果不是學校電郵，強制登出並報錯
+            await auth.signOut();
+            alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
+            
+            btn.innerHTML = originalContent;
+            btn.disabled = false;
+            return;
+        }
+
+        // === 驗證通過 ===
+        const studentName = user.displayName || email.split('@')[0]; // 自動獲取名字
+        
+        // 執行綁定邏輯
+        await bindStudentIdentity(grade, cls, number, studentName, email, user.uid);
+
+    } catch (error) {
+        console.error("登入錯誤:", error);
+        alert("登入取消或發生錯誤：" + error.message);
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+    }
+}
+
+// === 綁定並儲存學生資料到 Database ===
+async function bindStudentIdentity(grade, cls, number, name, email, uid) {
+    // 路徑結構：students/年級/班級/姓名/profile
+    // 注意：這裡我們依然用「姓名」做資料夾名稱以便老師辨識，但會存入 uid
     const path = `students/${grade}/${cls}/${name}/profile`;
 
     try {
-        const snapshot = await database.ref(path).once('value');
-        const userData = snapshot.val();
+        // 更新資料庫
+        await database.ref(path).update({
+            name: name,
+            grade: grade,
+            class: cls,
+            number: number,
+            email: email, // 儲存電郵
+            uid: uid,     // 儲存 Firebase UID
+            last_login: new Date().toLocaleString('zh-HK'),
+            status: 'active'
+        });
 
-        if (userData) {
-            // 驗證密碼
-            if (userData.password && userData.password !== password) {
-                alert("⛔ 密碼錯誤！請重新輸入。");
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-                return;
-            } else {
-                // 更新登入時間和最新的班號 (防止學生換了班號)
-                await database.ref(path).update({
-                    last_login: new Date().toLocaleString('zh-HK'),
-                    number: number, // 更新班號
-                    password: password
-                });
-                finishLogin(grade, cls, number, name); // 傳入班號
-            }
-        } else {
-            // 新用戶註冊
-            await database.ref(path).set({
-                name: name,
-                grade: grade,
-                class: cls,
-                number: number, // 儲存班號
-                password: password,
-                last_login: new Date().toLocaleString('zh-HK'),
-                status: 'active'
-            });
-            alert("綁定成功！密碼已設定。");
-            finishLogin(grade, cls, number, name);
-        }
+        alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
+        
+        // 完成登入流程 (寫入 localStorage 並刷新介面)
+        const profile = { 
+            grade, 
+            class: cls, 
+            number, 
+            name, 
+            email // 額外儲存電郵到本地
+        };
+        localStorage.setItem('studentProfile', JSON.stringify(profile));
+        
+        checkStudentLogin(); // 刷新介面顯示歡迎訊息
+
     } catch (error) {
-        console.error(error);
-        alert("連線錯誤");
-        btn.innerHTML = originalText;
-        btn.disabled = false;
+        console.error("資料庫寫入失敗:", error);
+        alert("資料庫連線錯誤，請稍後再試。");
+        // 如果寫入失敗，雖然登入了但要恢復按鈕狀態
+        const btn = document.querySelector('#studentIdentityForm button');
+        if(btn) {
+            btn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入'; 
+            btn.disabled = false;
+        }
     }
 }
 
@@ -13080,39 +13117,39 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
         <span class="close-modal-btn" onclick="closeStudentCloudModal()">&times;</span>
       
         
-        <!-- 身份設定表單 -->
-        <div id="studentIdentityForm">
-            <div style="display: flex; gap: 10px;">
-                <div style="flex: 1;">
-                    <label>年級：</label>
-                    <select id="studentGrade" class="no-modal-editor">
-                        <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
-                        <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
-                    </select>
-                </div>
-                <div style="flex: 1;">
-                    <label>班別：</label>
-                    <select id="studentClass" class="no-modal-editor">
-                        <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- 班號選擇 (由 JS 自動生成 1-32) -->
-            <label>班號：</label>
-            <select id="studentNumber" class="no-modal-editor">
-                <!-- JS 會自動填入選項 -->
+     <!-- 身份設定表單 -->
+<div id="studentIdentityForm">
+    <div style="display: flex; gap: 10px;">
+        <div style="flex: 1;">
+            <label>年級：</label>
+            <select id="studentGrade" class="no-modal-editor">
+                <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
+                <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
             </select>
-
-            <label>姓名：</label>
-            <input type="text" id="studentName" class="no-modal-editor" placeholder="請輸入全名">
-
-            <label>密碼：</label>
-            <input type="password" id="studentPassword" class="no-modal-editor" placeholder="設定或驗證密碼">
-            <p style="font-size:0.8em; color:#888; margin-top:-5px; margin-bottom:15px;">(若是第一次使用，此密碼將成為你的專屬密碼)</p>
-
-            <button class="btn-action" onclick="saveStudentIdentity()" style="width: 100%;">綁定身份</button>
         </div>
+        <div style="flex: 1;">
+            <label>班別：</label>
+            <select id="studentClass" class="no-modal-editor">
+                <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- 班號選擇 -->
+    <label>班號：</label>
+    <select id="studentNumber" class="no-modal-editor">
+        <!-- JS 會自動填入選項 -->
+    </select>
+
+    <!-- 移除了手動輸入姓名與密碼，改用 Google 登入 -->
+    
+    <div style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 8px; border: 1px dashed #4A90E2; text-align: center;">
+        <p style="color: #555; margin-bottom: 10px; font-size: 0.9em;">請使用學校電郵 (@ccckyc.edu.hk) 進行驗證</p>
+        <button class="btn-action" onclick="handleSchoolLogin()" style="width: 100%; background-color: #4285F4; border: none;">
+            <i class="fab fa-google"></i> 學校帳號登入
+        </button>
+    </div>
+</div>
 
         <!-- 登入後顯示區域 -->
         <div id="studentCloudPanel" style="display:none; margin-top:15px;">
