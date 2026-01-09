@@ -12140,13 +12140,143 @@ function openStudentLoginModal() {
     checkStudentLogin();
 }
 
+// ==========================================
+// === 全新修訂：學生身份自動同步與轉班處理 ===
+// ==========================================
+
+// 1. 修改 checkStudentLogin：顯示緩存並觸發背景同步
 function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (s) {
+        // A. 先顯示緩存資料 (UI 秒開)
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
-        document.getElementById('welcomeText').textContent = `你好，${s.grade}${s.class}班 - ${s.name}`;
+        
+        // 顯示歡迎訊息 (含班號)
+        updateWelcomeMessage(s);
+            
+        // 載入舊課業列表
         loadAssignments(s.grade, s.class);
+
+        // B. 【核心新增】背景執行：驗證身份並檢查是否有變更 (轉班/改班號)
+        verifyStudentStatus(s);
+    }
+}
+
+// 2. 輔助函式：更新歡迎文字
+function updateWelcomeMessage(profile) {
+    const numDisplay = profile.number ? `(${profile.number})` : '';
+    document.getElementById('welcomeText').innerHTML = 
+        `你好，${profile.grade}${profile.class} ${numDisplay} - ${profile.name} 
+         <span style="font-size:0.8em; color:#ccc; margin-left:5px;" id="syncStatusIcon"></span>`;
+}
+
+// 3. 【核心新增】驗證學生狀態 (同步資料 + 處理轉班)
+async function verifyStudentStatus(localProfile) {
+    const statusIcon = document.getElementById('syncStatusIcon');
+    if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-sync fa-spin"></i>'; // 顯示同步中圖示
+
+    const oldPath = `students/${localProfile.grade}/${localProfile.class}/${localProfile.name}/profile`;
+
+    try {
+        // 嘗試從舊地址讀取資料
+        const snapshot = await database.ref(oldPath).once('value');
+        const cloudData = snapshot.val();
+
+        if (cloudData) {
+            // === 情況一：學生還在原班 (可能改了班號或密碼) ===
+            // 檢查資料是否有變動
+            if (cloudData.number != localProfile.number || cloudData.password !== localProfile.password) {
+                console.log("偵測到班號或資料更新，同步中...");
+                
+                // 更新本地緩存
+                localProfile.number = cloudData.number;
+                localProfile.password = cloudData.password; // 同步新密碼
+                localStorage.setItem('studentProfile', JSON.stringify(localProfile));
+                
+                // 刷新介面
+                updateWelcomeMessage(localProfile);
+                if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>'; // 綠色勾勾
+            } else {
+                if(statusIcon) statusIcon.innerHTML = ''; // 資料一致，移除圖示
+            }
+        } else {
+            // === 情況二：舊地址找不到人 (可能轉班了，或者被刪除了) ===
+            console.warn("原路徑找不到學生，啟動全校搜尋模式...");
+            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-search fa-spin" style="color: orange;"></i>'; // 搜尋中圖示
+            
+            await findStudentNewLocation(localProfile.name);
+        }
+    } catch (error) {
+        console.error("同步檢查失敗:", error);
+        if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: red;"></i>';
+    }
+}
+
+// 4. 【核心新增】全校搜尋模式 (處理轉班)
+async function findStudentNewLocation(studentName) {
+    try {
+        // 讀取整個 students 節點 (如果資料量非常大，建議改由 Cloud Functions 處理，但一般學校規模尚可)
+        const snapshot = await database.ref('students').once('value');
+        const allData = snapshot.val();
+        
+        let found = false;
+        let newGrade = '';
+        let newClass = '';
+        let newInfo = null;
+
+        // 遍歷所有年級和班級
+        if (allData) {
+            for (const grade in allData) {
+                for (const cls in allData[grade]) {
+                    const studentsInClass = allData[grade][cls];
+                    // 檢查該班級是否有這位學生
+                    if (studentsInClass && studentsInClass[studentName]) {
+                        found = true;
+                        newGrade = grade;
+                        newClass = cls;
+                        newInfo = studentsInClass[studentName].profile;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+        }
+
+        if (found && newInfo) {
+            // === 找到新班級！執行轉班更新 ===
+            const newProfile = {
+                name: studentName,
+                grade: newGrade,
+                class: newClass,
+                number: newInfo.number,
+                password: newInfo.password
+            };
+
+            // 1. 更新本地緩存
+            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+            
+            // 2. 提示用戶
+            alert(`系統偵測到您的班級已變更！\n\n已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
+            
+            // 3. 刷新介面與課業列表
+            updateWelcomeMessage(newProfile);
+            loadAssignments(newGrade, newClass); // 重新讀取新班級的功課
+            
+            // 清除舊班級的緩存 (如果有)
+            const oldCacheKey = `assignment_cache_${studentName}`; // 舊版 Key 假設
+            localStorage.removeItem(oldCacheKey);
+
+        } else {
+            // === 全校都找不到 (被刪除了) ===
+            alert("您的學生資料已被移除，請聯繫老師或重新綁定。");
+            // 登出並清除資料
+            localStorage.removeItem('studentProfile');
+            location.reload(); 
+        }
+
+    } catch (error) {
+        console.error("搜尋學生失敗:", error);
     }
 }
 
@@ -12238,20 +12368,7 @@ function finishLogin(grade, cls, number, name) {
     if(btn) { btn.innerHTML = '綁定身份'; btn.disabled = false; }
 }
 
-// 4. 修改歡迎訊息顯示 (顯示班號)
-function checkStudentLogin() {
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (s) {
-        document.getElementById('studentIdentityForm').style.display = 'none';
-        document.getElementById('studentCloudPanel').style.display = 'block';
-        
-        // 顯示格式： 6A (12) - 陳大文
-        document.getElementById('welcomeText').textContent = 
-            `你好，${s.grade}${s.class} (${s.number}) - ${s.name}`;
-            
-        loadAssignments(s.grade, s.class);
-    }
-}
+
 // === 讀取老師派發的課業 ===
 // === 修訂版 V5：讀取課業列表 (未繳交 -> 跳轉至歷史紀錄) ===
 // === 極速版 V6：並行讀取課業列表 (解決載入過慢問題) ===
