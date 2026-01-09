@@ -4287,6 +4287,145 @@ select:focus, select:hover {
         background-size: 32px 32px !important;
     }
 }
+
+
+/* === 加載動畫覆蓋層樣式 === */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(255, 252, 245, 0.92); /* 米白色半透明背景 */
+    backdrop-filter: blur(5px); /* 毛玻璃效果 */
+    z-index: 99999; /* 確保在最上層 */
+    display: none; /* 預設隱藏 */
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.loading-content {
+    text-align: center;
+    transform: translateY(-50px);
+    width: 100%;          /* 確保容器撐滿 */
+    padding: 0 20px;      /* 左右保留 20px 的安全邊距，不讓文字撞牆 */
+    box-sizing: border-box; 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.loading-gif {
+    width: 380px; /* 根據你的 GIF 大小調整 */
+    height: auto;
+    margin-bottom: 25px;
+    opacity: 0.8;
+}
+
+.loading-text {
+    font-family: 'Noto Serif TC', serif;
+    /* 核心修改：自動縮放字體大小 */
+    font-size: clamp(1.2rem, 5vw, 2.2rem); 
+    font-weight: 700;
+    color: #2A9689;
+    
+    /* 核心修改：不分行 */
+    white-space: nowrap; 
+    
+    /* 核心修改：字距也改為動態，避免在小螢幕太撐 */
+    letter-spacing: clamp(2px, 1vw, 6px); 
+    
+    text-shadow: 0 2px 10px rgba(42, 150, 137, 0.2);
+    animation: pulseText 2s infinite ease-in-out;
+}
+@keyframes pulseText {
+    0% { opacity: 0.6; transform: scale(0.98); }
+    50% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0.6; transform: scale(0.98); }
+}
+
+
+	/* === 生成結果畫布專用樣式 === */
+.result-canvas-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(245, 245, 243, 0.98); /* 接近語薈的米色底 */
+    z-index: 30000; /* 確保在最頂層 */
+    display: none; /* 預設隱藏 */
+    overflow-y: auto;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.result-canvas-content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.result-canvas-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 0;
+    border-bottom: 2px solid #2A9689;
+    margin-bottom: 20px;
+    position: sticky;
+    top: 0;
+    background: rgba(245, 245, 243, 0.95);
+    z-index: 10;
+}
+
+#resultCanvasTitle {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #2A9689;
+    font-family: 'Noto Serif TC', serif;
+}
+
+.result-canvas-close {
+    background-color: #d9534f;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.result-canvas-close:hover {
+    background-color: #c9302c;
+    transform: scale(1.05);
+}
+
+.result-canvas-body {
+    flex-grow: 1;
+    /* 這裡會繼承原本的結果樣式，如表格、點評卡片等 */
+}
+
+/* 確保畫布內的雷達圖容器高度正確 */
+.result-canvas-body .radar-chart-container {
+    height: 350px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 600px) {
+    .result-canvas-content { padding: 15px; }
+    #resultCanvasTitle { font-size: 1.1rem; }
+}
+
+	
 	
 </style>
 
@@ -4745,6 +4884,46 @@ transform: scale(1.15);
 
 
 <script>
+
+	// 打開結果畫布
+function openResultCanvas(title) {
+    const canvas = document.getElementById('resultCanvas');
+    const body = document.getElementById('resultCanvasBody');
+    document.getElementById('resultCanvasTitle').innerText = title || "生成結果";
+    
+    body.innerHTML = ''; // 清空舊內容
+    canvas.style.display = 'block';
+    document.body.style.overflow = 'hidden'; // 鎖定主頁面捲動
+}
+
+// 關閉結果畫布
+function closeResultCanvas() {
+    const canvas = document.getElementById('resultCanvas');
+    canvas.style.display = 'none';
+    document.body.style.overflow = 'auto'; // 恢復主頁面捲動
+    
+    // 如果有雷達圖實例，關閉時銷毀以防衝突 (選用)
+    // if (window.narrative_radarChartInstance) window.narrative_radarChartInstance.destroy();
+}
+
+
+	// === 顯示加載動畫 ===
+function showLoading(text) {
+    const overlay = document.getElementById('loadingOverlay');
+    const textEl = document.getElementById('loadingText');
+    if (overlay && textEl) {
+        textEl.innerText = text || "正在運算中..."; // 動態設定文字
+        overlay.style.display = 'flex';
+    }
+}
+
+// === 隱藏加載動畫 ===
+function hideLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
 
 
 	// === 動畫觸發輔助函數 ===
@@ -7618,7 +7797,7 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
 教學筆記：${note}
 點評及建議語氣：${toneNote}`;
 
-        document.getElementById("argumentOutlineResult").innerHTML = "陳SIR正在點評...";
+        showLoading("陳SIR 正在審視大綱...");
 
         const response = await callAPI(prompt, 0);
         const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
@@ -7698,7 +7877,9 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
             explanationHTML += `</div></div>`;
         }
 
-        const resultContainer = document.getElementById("argumentOutlineResult");
+        openResultCanvas("議論文大綱建議");
+const resultContainer = document.getElementById("resultCanvasBody");
+resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
         resultContainer.style.width = "100%";
         resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
         
@@ -7717,6 +7898,7 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
         document.getElementById("argumentOutlineResult").innerHTML = "";
     } finally {
         submitBtn.disabled = false;
+		hideLoading();
     }
 }
 
@@ -7763,7 +7945,8 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-        gradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`;
+        // 使用變數動態顯示閱卷員名字
+showLoading(`${currentReviewerName} 正在細閱文章...`);
 
         if (isFullReview) {
             // =================================================================
@@ -7937,6 +8120,7 @@ ${scopeInstruction}
         gradingResultDiv.innerHTML = "";
     } finally {
         submitBtn.disabled = false;
+		hideLoading();
     }
 }
 
@@ -8027,7 +8211,7 @@ let prompt = `請根據以下輸入提供參考建議。要求：
 論據：${evidence || "無"}
 論證：${argument || "無"}
 教學筆記：${note}`;
-document.getElementById("argumentGuideResult").innerHTML = "陳SIR正在思考...";
+showLoading("陳SIR 正在思考...");
 
 // 【核心修訂】改用閱讀專用的 API 函式
 const guide = await callReadingAPI(prompt);
@@ -8038,7 +8222,8 @@ const [title, ...content] = part.split("\n").filter(line => line.trim());
 guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
 });
 guideHTML += "</table>";
-document.getElementById("argumentGuideResult").innerHTML = guideHTML;
+openResultCanvas("議論文寫作指引");
+document.getElementById("resultCanvasBody").innerHTML = guideHTML;
 
 // --- 新增：儲存議論指引 ---
   saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
@@ -8054,6 +8239,7 @@ alert("指引生成失敗，請重試");
 document.getElementById("argumentGuideResult").innerHTML = "";
 } finally {
 submitBtn.disabled = false; // 重新啟用按鈕
+	hideLoading();
 }
 }
 
@@ -8415,7 +8601,7 @@ async function submitWritingGuide() {
     }
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 陳SIR正在分析中...';
+    showLoading("陳SIR 正在拆解題目...");
     
     // 清空並顯示結果容器
     introDiv.innerHTML = "";
@@ -8542,6 +8728,7 @@ saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = '提交分析';
+		hideLoading();
     }
 }
 
@@ -8701,8 +8888,8 @@ async function submitWriting() {
 ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\n")}
 教學筆記：${note}
 點評及建議語氣：${toneNoteForOutline}`;
-                 document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
-                const response = await callAPI(prompt, 0);
+                 showLoading("陳SIR 正在點評..."); // 改用全屏漏斗動畫
+const response = await callAPI(prompt, 0);
                displayOutlineComment(response, content);
 
                 // ★★★ 修正：將結構代碼 (fourPart) 轉為中文 (起承轉合) ★★★
@@ -8723,17 +8910,16 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
                 document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
                 const response = await callAPI(prompt, 0);
                 const elements = response.split("\n").map(item => item.trim()).filter(item => item);
-                let elementsHTML = "<h3>生成的物象（50項）：</h3><ul>";
-                elements.forEach(element => elementsHTML += `<li>${element}</li>`);
-                elementsHTML += "</ul>";
-                document.getElementById("commentResult").innerHTML = elementsHTML;
-// --- 新增：儲存敘事物象 ---
-  saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
-				 
-            }
-            document.getElementById('save-writing-html-btn').style.display = 'flex';
-
-        } else { // 片段描寫 (文章點評)
+               let elementsHTML = "<h3>生成的物象（50項）：</h3><ul>";
+elements.forEach(element => elementsHTML += `<li>${element}</li>`);
+elementsHTML += "</ul>";
+ openResultCanvas("敘事物象生成結果");
+                document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
+                
+                // 儲存到歷史紀錄
+                saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
+                hideLoading();
+            } else { // 片段描寫 (文章點評)
             content = document.getElementById("writingContent").value.trim();
             if (!content) {
                 alert("請先輸入寫作內容");
@@ -8746,7 +8932,8 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
             if (isFullReview) {
-                writingGradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`;
+    // 改用全屏漏斗動畫，並動態顯示閱卷員名字
+    showLoading(`${currentReviewerName} 正在點評...`); 
 
                 const focus = localStorage.getItem("currentFocus");
                 const plot = localStorage.getItem("currentPlot");
@@ -8928,6 +9115,7 @@ ${scopeInstruction}
         document.getElementById("commentResult").innerHTML = "";
     } finally {
         submitBtn.disabled = false;
+		hideLoading();
     }
 }
 
@@ -9016,9 +9204,10 @@ let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-containe
     }
     
     // 強制設定寬度為100%
-    const resultContainer = document.getElementById("commentResult");
-    resultContainer.style.width = "100%";
-    resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
+  // 修改後：
+openResultCanvas("敘事大綱點評結果");
+const resultContainer = document.getElementById("resultCanvasBody");
+resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
 }
 
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存問題)
@@ -9093,7 +9282,7 @@ async function submitReading() {
 教學筆記：${note}`;
         }
 
-        document.getElementById("readingResult").innerHTML = "陳SIR正在思考...";
+        showLoading("陳SIR 正在分析篇章...");
         const result = await callReadingAPI(prompt);
 
         if (readingFunction === "comment") {
@@ -9137,7 +9326,8 @@ async function submitReading() {
                 }
             });
             
-            document.getElementById("readingResult").innerHTML = finalHTML;
+           openResultCanvas("閱讀理解點評");
+document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             
             // ★★★ 修正：確保在成功生成 HTML 後立即儲存「點評」 ★★★
             saveToHistory("閱讀", "點評", question, `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, finalHTML);
@@ -9180,7 +9370,8 @@ async function submitReading() {
                 guideHTML += `</div></div>`;
             });
             
-            document.getElementById("readingResult").innerHTML = guideHTML;
+            openResultCanvas("閱讀理解指引");
+document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             
             // ★★★ 修正：確保在成功生成 HTML 後立即儲存「指引」 ★★★
             // 原本的代碼將這行錯誤地放在了 catch 區塊中
@@ -9200,6 +9391,7 @@ async function submitReading() {
         // 移除 catch 區塊中錯誤的儲存邏輯
     } finally {
         submitBtn.disabled = false;
+		hideLoading();
     }
 }
 
@@ -9747,7 +9939,7 @@ const prompt = `請根據以下內容進行點評，要求：
 教學筆記：${note}
 點評語氣：${toneNote}`;
 
-document.getElementById("expandCommentResult").innerHTML = "陳SIR正在點評...";
+showLoading("陳SIR 正在審視拓展方向...");
 
 const comment = await callAPI(prompt);
 const commentParts = comment.split("###").map(part => part.trim()).filter(part => part);
@@ -9768,7 +9960,8 @@ finalHTML += `<div class="rewrite-explanation-container">
 </div>`;
 }
 });
-document.getElementById("expandCommentResult").innerHTML = finalHTML;
+openResultCanvas("整合拓展點評");
+document.getElementById("resultCanvasBody").innerHTML = finalHTML;
 	// --- 新增：儲存整合拓展點評 ---
     saveToHistory("整合拓展", "點評", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, finalHTML);
 document.getElementById('save-expand-comment-html-btn').style.display = 'flex'; // 顯示按鈕
@@ -9782,6 +9975,7 @@ alert("點評生成失敗，請重試");
 document.getElementById("expandCommentResult").innerHTML = "";
 } finally {
 submitBtn.disabled = false;
+	hideLoading();
 }
 }
 
@@ -9814,7 +10008,7 @@ const prompt = `請根據以下內容生成指引問題。要求：
 整合拓展：${expand}
 教學筆記：${note}`;
 
-document.getElementById("expandGuideResult").innerHTML = "陳SIR正在思考指引...";
+showLoading("陳SIR 正在思考指引...");
 const guide = await callAPI(prompt);
 const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
 
@@ -9857,6 +10051,7 @@ alert("指引生成失敗，請重試");
 document.getElementById("expandGuideResult").innerHTML = "";
 } finally {
 submitBtn.disabled = false; // 重新啟用按鈕
+	hideLoading();
 }
 }
 
@@ -11021,15 +11216,8 @@ ${basePrompt}
  * @param {string} fullTextContent - 用戶提交的完整文章內容
  */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
-    const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
-    if (window[instanceName]) {
-        window[instanceName].destroy();
-        window[instanceName] = null;
-    }
-
-    const resultContainer = document.getElementById(containerId);
-    
-    let reviewerName = "陳SIR";
+    // 1. 先找出閱卷員的名字
+    let reviewerName = "陳SIR"; 
     let reviewerSelect;
     
     if (uniqueIdPrefix === 'narrative') {
@@ -11041,6 +11229,17 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     if (reviewerSelect) {
         reviewerName = reviewerSelect.options[reviewerSelect.selectedIndex].text;
         reviewerName = reviewerName.replace(/\s*\(預設\)\s*/, ''); 
+    }
+
+    // 2. 【關鍵修正】確定名字後，才打開畫布
+    openResultCanvas(reviewerName + " 評核報告");
+    const resultContainer = document.getElementById("resultCanvasBody");
+
+    // 3. 處理舊的雷達圖實例
+    const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
+    if (window[instanceName]) {
+        window[instanceName].destroy();
+        window[instanceName] = null;
     }
     
     let finalHTML = `<h3>${reviewerName}點評：</h3>`;
@@ -11059,10 +11258,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
              try {
                 const originalScores = JSON.parse(originalGradingMatch[1].trim());
                 const llama3Scores = JSON.parse(llama3GradingMatch[1].trim());
-                
-                console.log("--- 雙模型評分驗證 (敘事抒情文) ---");
-                console.log("現有模型 (Qwen) 原始評分:", JSON.parse(JSON.stringify(originalScores)));
-                console.log("驗證模型 (Llama-3) 原始評分:", JSON.parse(JSON.stringify(llama3Scores)));
                 
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
@@ -11104,67 +11299,42 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
                 finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
 
-                console.log("Qwen V8規則後分數:", JSON.parse(JSON.stringify(finalQwenScores)));
-                console.log("Llama-3 (應用所有規則後)分數:", JSON.parse(JSON.stringify(finalLlama3Scores)));
-
                 const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
                 const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
                 
                 if (totalLlama3 > totalQwen) {
                     scoresForDisplay = finalLlama3Scores;
-                    console.log("決策: Llama-3 最終總分較高，採用其結果。");
                 } else {
                     scoresForDisplay = finalQwenScores;
-                    console.log("決策: Qwen 最終總分較高或相等，採用其結果。");
                 }
 
             } catch (e) {
-                console.error("解析、比對或應用評分規則時出錯:", e);
+                console.error("解析評分時出錯:", e);
                 scoresForDisplay = null;
             }
-        } else {
-            console.warn("敘事抒情文缺少雙模型評分資料，無法進行驗證。");
-            scoresForDisplay = null;
         }
     } 
     else if (uniqueIdPrefix === 'argument') {
         if (originalGradingMatch && originalGradingMatch[1]) {
              try {
-                const originalScores = JSON.parse(originalGradingMatch[1].trim());
-                console.log("--- 單模型原始評分 (議論文) ---");
-                console.log("模型原始評分 (未經處理):", JSON.parse(JSON.stringify(originalScores)));
-                scoresForDisplay = originalScores;
-
+                scoresForDisplay = JSON.parse(originalGradingMatch[1].trim());
              } catch(e) {
-                console.error("解析議論文原始評分時出錯:", e);
                 scoresForDisplay = null;
              }
-        } else {
-             console.warn("議論文缺少評分資料，無法進行處理。");
-             scoresForDisplay = null;
         }
-    } else {
-        console.warn("未知的文章類型或評分資料缺失。");
-        scoresForDisplay = null;
     }
     
     if (scoresForDisplay) {
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
-        console.log("最終把關規則後的分數:", JSON.parse(JSON.stringify(scoresForDisplay)));
-        console.log("基於最終分數重新計算的總分:", finalTotalScoreAfterRules);
-        console.log("基於最終分數重新計算的等級:", finalGradeForDisplay);
     }
 
     if (scoresForDisplay) {
         const wordCount = fullTextContent.length;
         if (wordCount < 500) {
-            console.log(`字數嚴重不足 (${wordCount}字)，強制評為等級1。`);
             scoresForDisplay = {
-                content: 1, 
-                expression: 1, 
-                structure: 1, 
+                content: 1, expression: 1, structure: 1, 
                 radar: { "立意": 1, "取材": 1, "扣題": 1, "詳略": 1, "詞彙": 1, "文學性": 1 }
             };
             finalGradeForDisplay = "1";
@@ -11172,59 +11342,39 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         else if (wordCount < 800) {
             const gradeHierarchy = ["1", "2", "3", "4", "5", "5*", "5**"];
             const originalGradeIndex = gradeHierarchy.indexOf(finalGradeForDisplay);
-            const maxGradeIndex = gradeHierarchy.indexOf("3");
-            if (originalGradeIndex > maxGradeIndex) {
-                console.log(`字數不足800字 (${wordCount}字)，原等級 ${finalGradeForDisplay} 被強制降為最高等級3。`);
+            if (originalGradeIndex > gradeHierarchy.indexOf("3")) {
                 finalGradeForDisplay = "3";
             }
         }
     }
 
+    // 接下來的 AI 點評語氣調整與 HTML 生成
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
 
     if (finalGradeForDisplay === "5**") {
-        critiqueRewriteInstruction = "點評中應為讚賞。請完全移除所有批評或負面評價，只保留或改寫為讚賞和肯定。";
+        critiqueRewriteInstruction = "點評中應為讚賞。請完全移除所有批評或負面評價。";
     } else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") {
-        critiqueRewriteInstruction = "點評主要以讚賞為主。請保留主要的優點分析，可以提及一兩個微小的、建設性的改進建議，但整體基調必須是正面的。";
+        critiqueRewriteInstruction = "點評主要以讚賞為主，可提及微小的建議。";
     } else if (finalGradeForDisplay === "4") {
-        critiqueRewriteInstruction = "點評應有褒有貶。請確保評論中既包含對優點的肯定，也包含對主要缺點的明確指出，兩者份量應大致均衡。";
+        critiqueRewriteInstruction = "點評應有褒有貶，份量大致均衡。";
     } else {
-        critiqueRewriteInstruction = "點評以批評為主。請集中分析文章存在的核心問題，指出需要優先改進的地方。可以簡單提及一兩個做得尚可的地方作為鼓勵，但主要篇幅應用於批評。";
+        critiqueRewriteInstruction = "點評以批評為主，集中分析核心問題。";
     }
     
-    const rewritePrompt = `你是一個中文科老師的助手，你的任務是根據最終的評級，調整一篇已寫好的點評的語氣。
-
-    ### 原始文章
-    ${fullTextContent}
-
-    ### 原始點評
-    ${originalCritiqueText}
-
-    ### 最終等級
-    ${finalGradeForDisplay}
-
-    ### 語氣調整指令
-    ${critiqueRewriteInstruction}
-
-    ### 你的任務
-    請根據「語氣調整指令」，重寫「原始點評」。
-    - 你的輸出**只能**是重寫後的點評文字。
-    - 保持原有的列點格式。
-    - **絕對不要**包含任何額外的解釋、標題或XML標籤。直接輸出調整後的點評即可。`;
+    const rewritePrompt = `請根據等級 ${finalGradeForDisplay} 調整這段點評的語氣：${originalCritiqueText}。指令：${critiqueRewriteInstruction}`;
 
     try {
         finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5); 
     } catch (e) {
-        console.error("重寫點評失敗，將使用原始點評:", e);
         finalCritiqueText = originalCritiqueText;
     }
 
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix);
     } else {
-        finalHTML += "<p>評等資料不完整，無法顯示分數。</p>";
+        finalHTML += "<p>評等資料不完整。</p>";
     }
     if (finalCritiqueText) {
         finalHTML += createBulletedListHTML("點評", finalCritiqueText);
@@ -11233,40 +11383,22 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     if (rewriteMatch && rewriteMatch[1]) {
-        // 【核心修訂】在這裡移除「改寫範例」中的星號
         const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '').replace(/\n/g, '<br>');
         finalHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteContent}</p></div></div>`;
     }
 
+    // 最後注入 HTML 並初始化雷達圖
     resultContainer.innerHTML = finalHTML;
 
     if (scoresForDisplay) {
         initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }
 
-// --- 新增：儲存到 IndexedDB (修訂版：解決雷達圖不顯示問題) ---
-    if (scoresForDisplay) { 
-        if (uniqueIdPrefix === 'narrative') {
-            const topic = localStorage.getItem("currentTopic") || "無題目";
-            
-            // ★ 關鍵修改：使用 captureContainerHTML 抓取 'writingGradingResult' 容器
-            // 這會將雷達圖 Canvas 轉為圖片，確保在歷史紀錄中能看見
-            const htmlContent = captureContainerHTML('writingGradingResult'); 
-            
-            saveToHistory("敘事抒情", "文章點評", topic, `題目：${topic}\n\n文章：${fullTextContent}`, htmlContent);
-            
-        } else if (uniqueIdPrefix === 'argument') {
-            const topic = localStorage.getItem("argumentCurrentTopic") || "無題目";
-            
-            // ★ 關鍵修改：使用 captureContainerHTML 抓取 'argumentGradingResult' 容器
-            const htmlContent = captureContainerHTML('argumentGradingResult'); 
-            
-            saveToHistory("議論", "文章點評", topic, `題目：${topic}\n\n文章：${fullTextContent}`, htmlContent);
-        }
-    }
-	
+    // 儲存到歷史紀錄
+    const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
+    const htmlContent = captureContainerHTML('resultCanvasBody'); 
+    saveToHistory(uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${fullTextContent}`, htmlContent);
 }
-
 
 // =======================================================
 // === 評等系統邏輯結束 ===
@@ -13508,6 +13640,29 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     </div>
 </div>
 
+	<!-- === 加載動畫覆蓋層 (新增) === -->
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-content">
+        <!-- 這裡建議換成你喜歡的漏斗或墨水筆 GIF 連結 -->
+        <img src="生成中.gif" alt="Loading" class="loading-gif"> 
+        <div class="loading-text" id="loadingText">正在思考中...</div>
+    </div>
+</div>
+
+<!-- 新增的畫布 HTML -->
+<div id="resultCanvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #fdfcf8; z-index: 30000; display: none; overflow-y: auto; font-family: 'Noto Serif TC', serif;">
+    <div style="max-width: 900px; margin: 0 auto; padding: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 2px solid #2A9689; margin-bottom: 20px; position: sticky; top: 0; background: #fdfcf8; z-index: 10;">
+            <span id="resultCanvasTitle" style="font-size: 1.4rem; font-weight: bold; color: #2A9689;">生成結果</span>
+            <button onclick="closeResultCanvas()" style="background-color: #d9534f; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold;">
+                <i class="fas fa-times"></i> 
+            </button>
+        </div>
+        <div id="resultCanvasBody">
+            <!-- 內容注入處 -->
+        </div>
+    </div>
+</div>
 	
 
 </body>
