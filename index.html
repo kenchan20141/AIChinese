@@ -4,12 +4,12 @@
 
 <meta http-equiv="Content-Security-Policy" content="
 default-src 'self'; 
-script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com; 
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com; 
 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; 
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com;
 media-src 'self' https://youfulca.com https://*.streamable.com https://assets.mixkit.co https://taira-komori.net;
-connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai  https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com;
+connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com;
 frame-src 'self' https://streamable.com https://kenchan20151.pyscriptapps.com https://kenchan20141.github.io https://sansi.vercel.app https://lyricschi.vercel.app https://penpalchi.vercel.app https://litstudy.vercel.app https://621d05f47d591.site123.me https://script.google.com https://www.i2ocr.com;
 object-src 'none';
 base-uri 'self';
@@ -56,6 +56,10 @@ form-action 'self';
 <!-- 引入 Chart.js 以繪製雷達圖 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+	<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
 
 <!-- === 新增：頁面右緣卡扣按鈕 === -->
 <button id="sideMenuToggle" title="展開選單">
@@ -67,6 +71,13 @@ form-action 'self';
         <button class="side-menu-close" id="sideMenuClose">&times;</button>
         
        <div class="side-menu-items">
+
+<!-- 在 side-menu-items 內加入 -->
+<button class="side-menu-item" onclick="openStudentLoginModal()">
+    <i class="fas fa-cloud-upload-alt"></i>
+    <span>雲端同步</span>
+</button>
+		   
     <!-- 1. 工具一覽 (已添加 ID 以確保 JS 控制準確) -->
     <button class="side-menu-item" id="sideMenuToolsBtn" onclick="openToolsFromSideMenu()">
         <i class="fas fa-toolbox"></i>
@@ -329,23 +340,25 @@ button:hover {
 .clear-btn:hover { background: #c82333; }
 
 /* === 表單輸入框美化 === */
-select, textarea, input[type="text"] {
+/* === 表單輸入框美化 (已加入 password 支援) === */
+select, textarea, input[type="text"], input[type="password"] {
     width: 100%;
-    padding: 12px 15px; /* 增加內邊距 */
+    padding: 12px 15px;
     margin: 10px 0;
-    border: 1px solid #dcdfe6; /* 更柔和的邊框顏色 */
-    border-radius: 8px; /* 更大的圓角 */
+    border: 1px solid #dcdfe6;
+    border-radius: 8px;
     box-sizing: border-box;
-    background-color: #fcfdfd; /* 非常淺的背景色 */
+    background-color: #fcfdfd;
     font-size: 1.3em;
     color: #333;
     transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    font-family: 'Noto Serif TC', serif; /* 確保字體一致 */
 }
 
-select:focus, textarea:focus, input[type="text"]:focus {
-    outline: none; /* 移除預設的 outline */
-    border-color: #4A90E2; /* 焦點狀態下的邊框顏色 */
-    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2); /* 模擬 glow 效果 */
+select:focus, textarea:focus, input[type="text"]:focus, input[type="password"]:focus {
+    outline: none;
+    border-color: #4A90E2;
+    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
 }
 
 textarea {
@@ -3500,6 +3513,466 @@ select:focus, select:hover {
     background-color: #333;
     color: white;
     padding: 5px;
+}
+
+/* === 學生雲端中心：全新課業列表樣式 === */
+
+/* =======================================================
+   === 雲端中心：Note Card 打洞風格 (莫蘭迪色系 V3) ===
+   ======================================================= */
+
+/* 1. 基礎卡片構造 (Note Card) */
+.task-card {
+    /* 基礎紙張設定 */
+    background-color: #fdfcf8;      /* 米白紙張底色 */
+    border: 1px solid #e0ddd7;      /* 淺卡其細邊框 */
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+    padding: 20px 15px 20px 55px;   /* 左側留白給打洞區 */
+    margin-bottom: 15px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 4px 4px 0px rgba(0,0,0,0.03); /* 復古硬陰影 */
+
+    /* 關鍵：打洞與分隔線背景 */
+    background-image: 
+        /* A. 垂直分隔線 */
+        linear-gradient(to right, transparent 39px, #e0ddd7 40px, transparent 41px),
+        /* B. 打洞效果 (模擬孔洞) */
+        radial-gradient(circle at 20px 50%, #d1cdc5 6px, transparent 7px);
+    
+    background-size: 
+        100% 100%, /* 分隔線撐滿 */
+        100% 35px; /* 打洞重複間距 */
+    
+    background-repeat: 
+        no-repeat,
+        repeat-y;
+        
+    background-position: 
+        0 0,
+        0 12px;
+}
+
+/* 2. 頂部顏色條 (用來區分狀態) */
+.task-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 6px; /* 頂部色條高度 */
+    z-index: 1;
+}
+
+/* 3. 懸停效果 */
+.task-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 6px 6px 0px rgba(0,0,0,0.05);
+    background-color: #fff; /* 稍微變亮 */
+}
+
+/* 4. 左側文字區塊優化 */
+.task-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-grow: 1;
+    padding-right: 15px;
+    z-index: 2; /* 確保在背景之上 */
+}
+
+.task-topic {
+    font-family: 'Noto Serif TC', serif; /* 文藝字體 */
+    font-weight: bold;
+    font-size: 1.1rem;
+    color: #4a4a4a;
+}
+
+.task-meta {
+    font-family: 'Courier New', monospace; /* 打字機字體日期 */
+    font-size: 0.85rem;
+    color: #999;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.task-type-tag {
+    font-family: sans-serif;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #eee;
+    color: #666;
+    font-weight: normal;
+    letter-spacing: 1px;
+}
+
+/* 5. 右側狀態膠囊 (Pill) 優化 */
+.task-status {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    z-index: 2;
+}
+
+/* =========================================
+   === 狀態配色定義 (莫蘭迪色系) ===
+   ========================================= */
+
+/* A. 未繳交 (豆沙紅) */
+.status-pending::before {
+    background-color: #d69a92; /* 頂部色條 */
+}
+.status-pending .task-status {
+    background-color: #f7ebea; /* 淺豆沙底 */
+    color: #a67069;            /* 深豆沙字 */
+}
+.status-pending .task-topic {
+    color: #a67069;            /* 題目變色以示提醒 */
+}
+
+/* B. 待批改 (灰綠) */
+.status-submitted::before {
+    background-color: #8fa398; /* 頂部色條 */
+}
+.status-submitted .task-status {
+    background-color: #e8edea; /* 淺灰綠底 */
+    color: #5e7067;            /* 深灰綠字 */
+}
+.status-submitted .task-topic {
+    color: #888;               /* 題目變灰 */
+}
+
+/* C. 已發還 (香芋紫) */
+.status-returned::before {
+    background-color: #b6a6ca; /* 頂部色條 */
+}
+.status-returned .task-status {
+    background-color: #f0ebf5; /* 淺紫底 */
+    color: #7e6f8f;            /* 深紫字 */
+}
+.status-returned .task-topic {
+    color: #333;               /* 題目深灰 */
+}
+
+/* === 三種狀態的配色 === */
+
+
+/* === 老師評語專用樣式 (嵌入在歷史紀錄 UI 中) === */
+.teacher-feedback-section {
+    background-color: #fffaf5; /* 極淡的米暖色背景 */
+    border: 2px solid #e6dace; /* 淺卡其/奶茶色邊框 */
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+    position: relative;
+    box-shadow: 0 4px 15px rgba(141, 110, 99, 0.08); /* 暖色系微陰影 */
+    animation: slideDown 0.5s ease-out;
+}
+
+.teacher-feedback-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed #d7ccc8; /* 淺褐色虛線 */
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+/* 標題文字顏色 */
+.teacher-feedback-title {
+    font-weight: bold; 
+    font-size: 1.2rem; 
+    color: #8d6e63; /* 莫蘭迪深褐色文字 */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.teacher-score-badge {
+    background-color: #d9534f; /* 保留紅色分數牌，突顯重點 */
+    color: white;
+    font-size: 1.5rem;
+    font-weight: bold;
+    padding: 5px 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    transform: rotate(-2deg);
+}
+
+.teacher-comment-content {
+    font-size: 1.1rem;
+    line-height: 1.8;
+    color: #4e342e; /* 深咖啡色文字 */
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    padding: 0;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.teacher-feedback-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed #ffb74d;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.teacher-score-badge {
+    background-color: #d9534f;
+    color: white;
+    font-size: 1.5rem;
+    font-weight: bold;
+    padding: 5px 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transform: rotate(-2deg); /* 蓋章效果 */
+}
+
+.teacher-comment-content {
+    font-size: 1.1rem;
+    line-height: 1.8;
+    color: #5d4037;
+    white-space: pre-wrap; /* 保留老師評語的換行 */
+}
+
+
+
+	/* === 新增：評語詳情彈窗樣式 === */
+.feedback-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.75);
+    z-index: 10000; /* 確保在最上層 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    box-sizing: border-box;
+    backdrop-filter: blur(5px);
+}
+
+.feedback-modal-content {
+    background-color: #fff;
+    width: 100%;
+    max-width: 700px;
+    max-height: 90vh;
+    border-radius: 12px;
+    box-shadow: 0 15px 50px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.feedback-header {
+    padding: 15px 20px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.feedback-header h3 {
+    margin: 0;
+    color: #2A9689;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.feedback-close-btn {
+    background: #e9ecef; /* 明顯的按鈕背景 */
+    border: none;
+    color: #555;
+    font-size: 1.5rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.feedback-close-btn:hover {
+    background-color: #d9534f;
+    color: white;
+    transform: rotate(90deg);
+}
+
+.feedback-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+/* 老師評語區塊 */
+.teacher-comment-box {
+    background-color: #fff8e1;
+    border: 1px solid #ffe0b2;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+    color: #5d4037;
+    position: relative;
+}
+
+.teacher-comment-box::before {
+    content: '老師回饋';
+    position: absolute;
+    top: -10px;
+    left: 15px;
+    background: #ff9800;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+
+/* 學生原稿區塊 */
+.original-work-box {
+    background-color: #fdfdfd;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+.original-work-summary {
+    padding: 12px 15px;
+    cursor: pointer;
+    font-weight: bold;
+    color: #555;
+    background-color: #f1f1f1;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: background 0.2s;
+}
+
+.original-work-summary:hover {
+    background-color: #e2e6ea;
+}
+
+.original-work-content {
+    padding: 15px;
+    white-space: pre-wrap;
+    font-family: 'Noto Serif TC', serif;
+    color: #333;
+    line-height: 1.8;
+    border-top: 1px solid #eee;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}
+
+	/* ============================================
+   === 學生雲端中心：全螢幕模式 (App 風格) ===
+   ============================================ */
+
+/* 1. 強制讓內容容器填滿整個視窗 */
+#studentCloudModal .modal-content {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;  /* 移除原本的寬度限制 */
+    max-height: none !important; /* 移除高度限制 */
+    margin: 0 !important;        /* 移除置中邊距 */
+    border-radius: 0 !important; /* 移除圓角，更像原生頁面 */
+    border: none !important;     /* 移除邊框 */
+    display: flex;               /* 使用 Flexbox 佈局 */
+    flex-direction: column;      /* 垂直排列內容 */
+    box-sizing: border-box;
+    padding: 20px;               /* 保持內距 */
+}
+
+/* 2. 調整關閉按鈕的位置，讓它更大、更顯眼 */
+#studentCloudModal .close-modal-btn {
+    top: 15px;
+    right: 20px;
+    font-size: 36px; /* 加大按鈕 */
+    z-index: 10;
+}
+
+/* 3. 調整登入後的面板，讓它佔滿剩餘空間 */
+#studentCloudPanel {
+    flex-grow: 1;           /* 自動填滿剩餘高度 */
+    display: flex;          /* 使用 Flexbox */
+    flex-direction: column; /* 垂直排列 */
+    margin-top: 10px !important; 
+    overflow: hidden;       /* 防止外層滾動 */
+}
+
+/* 4. 關鍵優化：讓課業列表自動延伸，並在內部滾動 */
+/* 原本設定了 max-height: 250px，全螢幕模式下這會太短，所以要移除限制 */
+#studentCloudModal #assignmentList {
+    max-height: none !important; /* 移除高度限制 */
+    flex-grow: 1;                /* 自動填滿剩餘空間 */
+    overflow-y: auto;            /* 內容過多時顯示滾動條 */
+    padding-bottom: 40px;        /* 底部留白 */
+    border: none !important;     /* 移除外框線 (選擇性) */
+}
+
+/* 5. 針對手機版的微調 */
+@media (max-width: 600px) {
+    #studentCloudModal .modal-content {
+        padding: 15px;
+    }
+}
+
+	/* === 區塊分隔線 (老師回饋 vs 學生作業) === */
+.feedback-separator {
+    position: relative;
+    height: 1px;
+    margin: 40px 0; /* 上下大幅留白，區隔兩者 */
+    border: none;
+    border-top: 2px dashed #d7ccc8; /* 淺褐色虛線 */
+    text-align: center;
+    overflow: visible;
+}
+
+.feedback-separator::after {
+    content: '▼ 提交內容'; /* 中央提示文字 */
+    position: absolute;
+    top: -12px; /* 垂直置中 */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #fff; /* 白底蓋住虛線 */
+    padding: 0 15px;
+    color: #a1887f; /* 莫蘭迪淺褐文字 */
+    font-size: 0.85rem;
+    font-weight: bold;
+    letter-spacing: 1px;
 }
 	
 </style>
@@ -10938,7 +11411,7 @@ function captureContainerHTML(containerId) {
     return clone.innerHTML;
 }
 
-// 3. 儲存紀錄 (使用處理過的 HTML)
+// 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
 async function saveToHistory(category, subFunction, title, userContent, aiContent) {
     try {
         const db = await openHistoryDB();
@@ -10950,15 +11423,76 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             subFunction: subFunction,
             title: title || "無標題",
             userContent: userContent,
-            aiContent: aiContent, // 這裡必須傳入已經轉換好圖片的 HTML string
+            aiContent: aiContent,
             timestamp: new Date().getTime(),
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
         };
 
         store.add(record);
-        console.log("紀錄已儲存");
+        console.log("本地紀錄已儲存");
+        
+        // ★★★ 新增：自動同步邏輯 ★★★
+        // 檢查是否已綁定身份，如果是，則自動同步
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (s) {
+            // 傳入 true 表示「靜默模式」，不彈出 alert
+            syncHistoryToFirebase(true); 
+        }
+
     } catch (error) {
         console.error("儲存紀錄失敗:", error);
+    }
+}
+
+// 2. 修改 syncHistoryToFirebase：支援靜默模式 (silent mode)
+async function syncHistoryToFirebase(isSilent = false) {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) {
+        if (!isSilent) alert("請先綁定身份");
+        return;
+    }
+
+    // 如果不是靜默模式（例如手動點擊），才顯示按鈕狀態變化
+    let btn = null;
+    let originalText = "";
+    if (!isSilent && event && event.target) {
+        btn = event.target;
+        originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
+        btn.disabled = true;
+    }
+
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = function(e) {
+            const records = e.target.result;
+            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+            
+            database.ref(path).set(records, (error) => {
+                if (error) {
+                    console.error("自動同步失敗:", error);
+                    if (!isSilent && btn) alert("上傳失敗：" + error.message);
+                } else {
+                    console.log("自動同步成功");
+                    if (!isSilent && btn) alert("✅ 成功同步所有紀錄給老師！");
+                }
+                
+                if (!isSilent && btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        if (!isSilent && btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     }
 }
 
@@ -11293,89 +11827,81 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // --- 1. 計算該子功能的莫蘭迪色系索引 (1-5) ---
-                let themeIndex = 1; // 預設值
+                // 1. 計算該子功能的莫蘭迪色系索引
+                let themeIndex = 1;
                 if (HISTORY_STRUCTURE[record.category]) {
                     const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
                     if (subIndex !== -1) {
-                        // 邏輯與列表頁保持一致：(index % 5) + 1
                         themeIndex = (subIndex % 5) + 1;
                     }
                 }
                 const themeClass = `history-theme-context-${themeIndex}`;
-                // --------------------------------------------------
-
-                // 設定標題，並將圖標換成對應顏色
                 const colorVar = `var(--m-color-${themeIndex})`;
+
+                // 2. 設定標題
                 document.getElementById('historyModalTitle').innerHTML = 
                     `<i class="fas fa-book-open" style="color:${colorVar}"></i> 
                      <span style="color:#333">${record.category}</span> 
                      <span style="font-size:0.8em; color:#bbb; margin: 0 5px;">/</span> 
                      <span style="color:${colorVar}; font-weight:bold;">${record.subFunction}</span>`;
                 
-                // 隱藏舊日期
                 const dateElement = document.getElementById('historyModalDate');
                 if (dateElement) dateElement.style.display = "none"; 
                 
                 let contentHTML = '';
 
-                // --- 輸入內容：智能解析邏輯 ---
+                // 3. 處理學生輸入內容 (智能解析)
                 if (record.userContent) {
                     const rawText = record.userContent;
                     const lines = rawText.split('\n');
-                    
-                    // 這裡加上了計算出來的顏色 class
                     let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
-                    
                     let currentLabel = '輸入內容'; 
                     let currentContent = [];
-                    
-                    // 正則：偵測標題行
                     const labelRegex = /^(.{2,10}?)[：:](.*)$/;
 
-                    lines.forEach((line, index) => {
+                    lines.forEach((line) => {
                         const match = line.match(labelRegex);
                         if (match) {
-                            // 結算上一段
                             if (currentContent.length > 0) {
-                                parsedHTML += `
-                                    <div class="history-item-block">
-                                        <div class="history-item-label">${currentLabel}</div>
-                                        <div class="history-item-content">${currentContent.join('\n')}</div>
-                                    </div>`;
+                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
                             }
-                            // 開啟新一段
                             currentLabel = match[1].trim(); 
                             const restOfLine = match[2].trim();
                             currentContent = restOfLine ? [restOfLine] : []; 
                         } else {
-                            if (line.trim() !== "") {
-                                currentContent.push(line);
-                            }
+                            if (line.trim() !== "") currentContent.push(line);
                         }
                     });
 
-                    // 結算最後一段
                     if (currentContent.length > 0 || lines.length === 0) { 
                          const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-                         parsedHTML += `
-                            <div class="history-item-block">
-                                <div class="history-item-label">${currentLabel}</div>
-                                <div class="history-item-content">${finalContent}</div>
-                            </div>`;
+                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
                     }
-
                     parsedHTML += '</div>';
                     
-                    // 外層容器
-                    contentHTML += `
-                    <div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
-                        ${parsedHTML}
-                    </div>`;
+                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
                 }
 
+                // 4. 顯示 AI 生成內容
                 contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
                 
+                // ★★★ 核心修改：加入繳交按鈕 ★★★
+                // 檢查是否已綁定身份，只有綁定後才顯示此按鈕
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                if (s) {
+                    contentHTML += `
+                        <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
+                            <span style="font-size: 0.9em; color: #888;">對這份生成結果滿意嗎？</span>
+                            <button class="btn-action" 
+                                    style="background-color: #ff9800; box-shadow: 0 4px 10px rgba(255, 152, 0, 0.3); padding: 10px 20px; font-size: 1rem;" 
+                                    onclick="openSubmitSelector(${record.id})">
+                                <i class="fas fa-paper-plane"></i> 繳交此紀錄為課業
+                            </button>
+                        </div>
+                    `;
+                }
+                // ★★★ 修改結束 ★★★
+
                 document.getElementById('historyModalContent').innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
             }
@@ -11383,6 +11909,7 @@ async function viewHistoryDetail(id) {
     } catch (e) { console.error(e); }
 }
 
+	
 function closeHistoryModal() {
     document.getElementById('historyModal').style.display = 'none';
 }
@@ -11574,6 +12101,680 @@ function handleTitleDblClick(element, id) {
     // 3. 進入編輯模式
     enableTitleEditing(element, id);
 }
+
+
+// === Firebase 初始化 ===
+// === Firebase 初始化 ===
+const firebaseConfig = {
+  apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+  authDomain: "sansidata.firebaseapp.com",
+  projectId: "sansidata",
+  storageBucket: "sansidata.firebasestorage.app",
+  messagingSenderId: "580288358575",
+  appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+  
+  // ★★★ 請務必確認有沒有這一行，且網址正確 ★★★
+  // 您可以在 Firebase Console -> Realtime Database 頁面最上方找到這個網址
+  // 通常是下面這個格式，但也可能是 https://sansidata-default-rtdb.firebaseio.com
+  databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
+};
+
+// 檢查是否重複初始化
+if (!firebase.apps.length) {
+    try {
+        firebase.initializeApp(firebaseConfig);
+        console.log("Firebase 初始化成功！"); // 按 F12 查看 Console
+    } catch (e) {
+        console.error("Firebase 初始化失敗：", e);
+        alert("資料庫連線失敗，請檢查網路或 CSP 設定");
+    }
+} else {
+    firebase.app(); // 如果已經初始化，使用現有的
+}
+
+const database = firebase.database();
+
+// === 學生身份邏輯 ===
+function openStudentLoginModal() {
+    document.getElementById('studentCloudModal').style.display = 'flex';
+    checkStudentLogin();
+}
+
+function checkStudentLogin() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (s) {
+        document.getElementById('studentIdentityForm').style.display = 'none';
+        document.getElementById('studentCloudPanel').style.display = 'block';
+        document.getElementById('welcomeText').textContent = `你好，${s.grade}${s.class}班 - ${s.name}`;
+        loadAssignments(s.grade, s.class);
+    }
+}
+
+// 1. 初始化班號選項 (請放在 initDSECalendar 或 DOMContentLoaded 內執行，或是直接放在 script 最後)
+function initClassNumbers() {
+    const select = document.getElementById('studentNumber');
+    if (!select) return;
+    select.innerHTML = '';
+    for (let i = 1; i <= 32; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = i; // 顯示數字
+        select.appendChild(opt);
+    }
+}
+// 呼叫初始化
+document.addEventListener('DOMContentLoaded', initClassNumbers);
+
+
+// 2. 修改後的綁定身份函式 (包含班號)
+async function saveStudentIdentity() {
+    const grade = document.getElementById('studentGrade').value;
+    const cls = document.getElementById('studentClass').value;
+    const number = document.getElementById('studentNumber').value; // 取得班號
+    const name = document.getElementById('studentName').value.trim();
+    const password = document.getElementById('studentPassword').value.trim();
+    
+    if(!name) return alert("請輸入姓名");
+    if(!password) return alert("請輸入密碼");
+    
+    const btn = event.target;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
+    btn.disabled = true;
+
+    // 依然使用姓名作為路徑 (因為班號可能會變，姓名較少變，且方便老師辨識)
+    const path = `students/${grade}/${cls}/${name}/profile`;
+
+    try {
+        const snapshot = await database.ref(path).once('value');
+        const userData = snapshot.val();
+
+        if (userData) {
+            // 驗證密碼
+            if (userData.password && userData.password !== password) {
+                alert("⛔ 密碼錯誤！請重新輸入。");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            } else {
+                // 更新登入時間和最新的班號 (防止學生換了班號)
+                await database.ref(path).update({
+                    last_login: new Date().toLocaleString('zh-HK'),
+                    number: number, // 更新班號
+                    password: password
+                });
+                finishLogin(grade, cls, number, name); // 傳入班號
+            }
+        } else {
+            // 新用戶註冊
+            await database.ref(path).set({
+                name: name,
+                grade: grade,
+                class: cls,
+                number: number, // 儲存班號
+                password: password,
+                last_login: new Date().toLocaleString('zh-HK'),
+                status: 'active'
+            });
+            alert("綁定成功！密碼已設定。");
+            finishLogin(grade, cls, number, name);
+        }
+    } catch (error) {
+        console.error(error);
+        alert("連線錯誤");
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+// 3. 輔助函式：完成登入 (更新本地儲存)
+function finishLogin(grade, cls, number, name) {
+    const profile = { grade, class: cls, number, name };
+    localStorage.setItem('studentProfile', JSON.stringify(profile));
+    checkStudentLogin();
+    
+    // 重置按鈕
+    const btn = document.querySelector('#studentIdentityForm button');
+    if(btn) { btn.innerHTML = '綁定身份'; btn.disabled = false; }
+}
+
+// 4. 修改歡迎訊息顯示 (顯示班號)
+function checkStudentLogin() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (s) {
+        document.getElementById('studentIdentityForm').style.display = 'none';
+        document.getElementById('studentCloudPanel').style.display = 'block';
+        
+        // 顯示格式： 6A (12) - 陳大文
+        document.getElementById('welcomeText').textContent = 
+            `你好，${s.grade}${s.class} (${s.number}) - ${s.name}`;
+            
+        loadAssignments(s.grade, s.class);
+    }
+}
+// === 讀取老師派發的課業 ===
+// === 修訂版 V5：讀取課業列表 (未繳交 -> 跳轉至歷史紀錄) ===
+// === 極速版 V6：並行讀取課業列表 (解決載入過慢問題) ===
+async function loadAssignments(grade, cls) {
+    const listDiv = document.getElementById('assignmentList');
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+
+    // 定義緩存 Key (每個學生獨立緩存)
+    const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
+    
+    // --- 步驟 1: 嘗試讀取緩存 (實現秒開) ---
+    const cachedData = localStorage.getItem(cacheKey);
+    let hasCache = false;
+
+    if (cachedData) {
+        try {
+            const parsedCache = JSON.parse(cachedData);
+            if (parsedCache && parsedCache.length > 0) {
+                console.log("已載入本地緩存，顯示舊資料...");
+                // 渲染緩存資料，並加上一個「正在同步」的小提示
+                renderAssignmentList(parsedCache, true); 
+                hasCache = true;
+            }
+        } catch (e) {
+            console.error("緩存解析失敗", e);
+        }
+    }
+
+    // 如果沒有緩存，才顯示 Loading 轉圈圈
+    if (!hasCache) {
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#888;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
+    }
+
+    // --- 步驟 2: 背景網絡請求 (檢查更新) ---
+    try {
+        const assignmentsSnap = await database.ref(`assignments/${grade}/${cls}`).once('value');
+        const assignmentsData = assignmentsSnap.val();
+
+        if (!assignmentsData) {
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#999;"><i class="far fa-smile"></i> 目前沒有新課業</div>';
+            localStorage.removeItem(cacheKey); // 清空緩存
+            return;
+        }
+
+        const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
+
+        // 並行請求學生提交狀態
+        const fetchPromises = tasksArray.map(async ([key, task]) => {
+            const submitSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
+            return {
+                key: key,
+                task: task,
+                submission: submitSnap.val()
+            };
+        });
+
+        const results = await Promise.all(fetchPromises);
+
+        // --- 步驟 3: 比對與更新 ---
+        // 將新資料存入緩存
+        const newCacheStr = JSON.stringify(results);
+        
+        // 如果新資料跟緩存不一樣 (或者原本沒緩存)，才刷新畫面
+        if (newCacheStr !== cachedData) {
+            console.log("偵測到雲端資料更新，刷新介面...");
+            localStorage.setItem(cacheKey, newCacheStr); // 更新緩存
+            renderAssignmentList(results, false); // 渲染新資料 (移除同步提示)
+        } else {
+            console.log("雲端資料無變化，保持原狀。");
+            // 雖然資料沒變，但我們要移除「正在同步...」的提示 (如果有的話)
+            // 簡單的方法是重新渲染一次，或者透過 DOM 操作移除提示元素
+            if (hasCache) renderAssignmentList(results, false); 
+        }
+
+    } catch (error) {
+        console.error("雲端同步失敗", error);
+        // 如果有緩存，就保持顯示緩存，只提示連線錯誤
+        if (!hasCache) {
+            listDiv.innerHTML = '<p style="color:red; text-align:center;">連線錯誤，無法載入。</p>';
+        }
+    }
+}
+
+// === 輔助函數：渲染列表 HTML (避免代碼重複) ===
+function renderAssignmentList(dataArray, isSyncing) {
+    const listDiv = document.getElementById('assignmentList');
+    let html = '';
+
+    // 如果正在同步，顯示一個低調的提示條
+    if (isSyncing) {
+        html += `<div style="text-align:center; font-size:0.8rem; color:#aaa; margin-bottom:10px; animation: pulse 1.5s infinite;">
+                    <i class="fas fa-sync-alt fa-spin"></i> 正在檢查最新課業...
+                 </div>`;
+    }
+
+    for (const item of dataArray) {
+        const task = item.task;
+        const submission = item.submission;
+        
+        // 狀態判斷邏輯
+        let uiClass = '';
+        let statusIcon = '';
+        let statusText = '';
+        let clickAction = '';
+        let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
+
+        // 1. 已發還
+        if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
+            uiClass = 'status-returned';
+            statusIcon = '<i class="fas fa-envelope-open-text"></i>';
+            statusText = '查看評語';
+            submission.topic = task.topic; 
+            const submissionStr = encodeURIComponent(JSON.stringify(submission));
+            clickAction = `showTeacherFeedback('${submissionStr}')`;
+        }
+        // 2. 已繳交
+        else if (submission) {
+            uiClass = 'status-submitted';
+            statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
+            statusText = '<span style="color:#5e7067;">已繳交</span>';
+            submission.topic = task.topic;
+            submission.isPending = true; 
+            const submissionStr = encodeURIComponent(JSON.stringify(submission));
+            clickAction = `showTeacherFeedback('${submissionStr}')`;
+        }
+        // 3. 未繳交
+        else {
+            uiClass = 'status-pending';
+            statusIcon = '<i class="fas fa-history"></i>'; 
+            statusText = '未繳交';
+            clickAction = `goToHistoryForAssignment('${task.topic}')`;
+        }
+
+        html += `
+        <div class="task-card ${uiClass}" onclick="${clickAction}">
+            <div class="task-info">
+                <div class="task-topic">${task.topic}</div>
+                <div class="task-meta">
+                    <span class="task-type-tag">${task.type}</span>
+                    <span>${dateDisplay}</span>
+                </div>
+            </div>
+            <div class="task-status">
+                ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
+            </div>
+        </div>`;
+    }
+    
+    listDiv.innerHTML = html;
+}
+	// === 新增：從未繳交課業跳轉至歷史紀錄 ===
+// === 新增：從未繳交課業跳轉至歷史紀錄 (無提示版) ===
+function goToHistoryForAssignment(topic) {
+    // 1. 關閉「學生雲端中心」彈窗
+    document.getElementById('studentCloudModal').style.display = 'none';
+    
+    // 2. 打開「歷史紀錄」容器 (這會自動顯示第一層的五個範疇卡片)
+    openHistoryContainer();
+    
+    // 3. 滾動到頁面頂部
+    window.scrollTo({ top: 0, behavior: 'instant' });
+}
+// === 顯示老師回饋 (彈窗) ===
+// === 最終修訂版：顯示老師回饋 (隱藏右上角日期 + 大地色系) ===
+function showTeacherFeedback(submissionStr) {
+    let record;
+    try {
+        record = JSON.parse(decodeURIComponent(submissionStr));
+    } catch (e) {
+        console.error("解析失敗", e);
+        return alert("資料讀取錯誤");
+    }
+
+    const feedback = record.teacherFeedback || {};
+    const isPending = record.isPending === true;
+
+    // 1. 決定主題顏色
+    let themeIndex = 1;
+    if (record.category && HISTORY_STRUCTURE[record.category]) {
+        const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
+        if (subIndex !== -1) {
+            themeIndex = (subIndex % 5) + 1;
+        }
+    }
+    const themeClass = `history-theme-context-${themeIndex}`;
+
+    // 2. 構建「老師回饋」區塊
+    let teacherFeedbackHTML = '';
+    
+    if (isPending) {
+        // 待批改
+        teacherFeedbackHTML = `
+            <div style="background:#f4f8f6; border:2px dashed #8fa398; border-radius:12px; padding:20px; text-align:center;">
+                <h3 style="color:#5e7067; margin-top:0;"><i class="fas fa-check-circle"></i> 作業已繳交</h3>
+                <p style="color:#666; margin-bottom:5px;">老師尚未批改這份作業。</p>
+                <small style="color:#999;">繳交日期：${record.submittedAt ? record.submittedAt.split(' ')[0] : '未知'}</small>
+            </div>
+        `;
+    } else {
+        // 已發還
+        const scoreDisplay = feedback.score ? `<div class="teacher-score-badge">${feedback.score}</div>` : '';
+        const dateObj = feedback.timestamp ? new Date(feedback.timestamp) : null;
+        const dateStr = dateObj ? dateObj.toLocaleDateString('zh-HK') : '未知';
+        const commentText = feedback.comment ? feedback.comment.trim() : "（沒有文字評語）";
+
+        teacherFeedbackHTML = `
+            <div class="teacher-feedback-section">
+                <div class="teacher-feedback-header">
+                    <div class="teacher-feedback-title">
+                        <i class="fas fa-chalkboard-teacher"></i> 老師回饋
+                    </div>
+                    ${scoreDisplay}
+                </div>
+                <div class="teacher-comment-content">${commentText}</div>
+                
+                <div style="text-align:right; margin-top:15px; font-size:0.85em; color:#a1887f;">
+                    <i class="far fa-calendar-alt"></i> 批改日期：${dateStr}
+                </div>
+            </div>
+        `;
+    }
+
+    // 3. 構建整體內容 HTML
+    let contentHTML = teacherFeedbackHTML;
+
+    // ★★★ 關鍵修改：如果有學生內容，加入分隔線 ★★★
+    if (record.userContent || record.aiContent) {
+        contentHTML += `<div class="feedback-separator"></div>`;
+    }
+
+    // 4. 構建「學生原稿」區塊
+    if (record.userContent) {
+        const rawText = record.userContent;
+        const lines = rawText.split('\n');
+        let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
+        let currentLabel = '輸入內容'; 
+        let currentContent = [];
+        const labelRegex = /^(.{2,10}?)[：:](.*)$/;
+
+        lines.forEach((line) => {
+            const match = line.match(labelRegex);
+            if (match) {
+                if (currentContent.length > 0) {
+                    parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                }
+                currentLabel = match[1].trim(); 
+                const restOfLine = match[2].trim();
+                currentContent = restOfLine ? [restOfLine] : []; 
+            } else {
+                if (line.trim() !== "") currentContent.push(line);
+            }
+        });
+
+        if (currentContent.length > 0 || lines.length === 0) { 
+             const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
+             parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
+        }
+        parsedHTML += '</div>';
+        
+        // 這裡移除了原本左上角的絕對定位標籤，讓畫面更乾淨，因為上方已有分隔線提示
+        contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
+                            ${parsedHTML}
+                        </div>`;
+    }
+
+    if (record.aiContent) {
+        contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
+    }
+
+    // 5. 顯示 Modal
+    const historyModal = document.getElementById('historyModal');
+    const modalTitle = document.getElementById('historyModalTitle');
+    const modalContent = document.getElementById('historyModalContent');
+    const modalDate = document.getElementById('historyModalDate');
+
+    modalTitle.innerHTML = `<span style="color:#2A9689; font-weight:bold;">${record.topic || "課業紀錄"}</span>`;
+    
+    if (modalDate) {
+        modalDate.style.display = 'none'; // 隱藏日期
+    }
+
+    modalContent.innerHTML = contentHTML;
+    historyModal.style.display = 'flex';
+}
+// === 執行未繳交課業動作 (簡化版) ===
+function doAssignment(type, topic) {
+    document.getElementById('studentCloudModal').style.display = 'none';
+    
+    // 跳轉邏輯 (與之前相同)
+    if (type === '敘事' || type === '敘事抒情') {
+        document.getElementById('writingBtn').click();
+        setTimeout(() => {
+            const select = document.getElementById('writingType');
+            if (select) { select.value = '片段描寫'; toggleWritingType(); }
+            const btn = document.querySelector('#topicSelectionArea .btn-custom');
+            if(btn) btn.click();
+            const titleInput = document.getElementById('customTitle') || document.getElementById('customTopic');
+            if (titleInput) {
+                titleInput.value = topic;
+                titleInput.focus();
+                alert(`題目「${topic}」已準備就緒，請開始寫作。`);
+            }
+        }, 800);
+    } else if (type === '議論') {
+        document.getElementById('argumentBtn').click();
+        setTimeout(() => {
+            const select = document.getElementById('argumentType');
+            if (select) { select.value = 'writing'; toggleArgumentType(); }
+            const btn = document.querySelector('#argumentTopicSelectionArea .btn-custom');
+            if(btn) btn.click();
+            const titleInput = document.getElementById('argumentCustomTopic');
+            if (titleInput) {
+                titleInput.value = topic;
+                setArgumentCustomTopic();
+                alert(`題目「${topic}」已鎖定。`);
+            }
+        }, 800);
+    }
+    // 可繼續擴充其他類型...
+}
+
+// === 核心：同步 IndexedDB 到 Firebase ===
+async function syncHistoryToFirebase() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return alert("請先綁定身份");
+
+    const btn = event.target;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
+    btn.disabled = true;
+
+    try {
+        // 1. 從 IndexedDB 讀取所有紀錄
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = function(e) {
+            const records = e.target.result;
+            
+            // 2. 寫入 Firebase
+            // 路徑結構: students/年級/班級/姓名/history
+            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+            database.ref(path).set(records, (error) => {
+                if (error) {
+                    alert("上傳失敗：" + error.message);
+                } else {
+                    alert("✅ 成功同步所有紀錄給老師！");
+                }
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        alert("讀取本地數據失敗");
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+
+// 1. 打開選擇視窗，列出該班級的有效作業
+// === 繳交邏輯 1: 打開選擇視窗 ===
+function openSubmitSelector(recordId) {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return alert("請先在「雲端同步」中綁定身份！");
+
+    // 將紀錄 ID 存入隱藏欄位，稍後繳交時使用
+    document.getElementById('pendingRecordId').value = recordId;
+    document.getElementById('submitAssignmentModal').style.display = 'flex';
+    
+    const listDiv = document.getElementById('activeAssignmentList');
+    listDiv.innerHTML = '<div style="text-align:center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> 正在讀取老師的課業列表...</div>';
+
+    // 從 Firebase 讀取該班級的作業
+    database.ref(`assignments/${s.grade}/${s.class}`).once('value', (snapshot) => {
+        const data = snapshot.val();
+        listDiv.innerHTML = '';
+
+        if (!data) {
+            listDiv.innerHTML = '<p style="color:#999; text-align:center;">目前老師沒有派發任何課業。</p>';
+            return;
+        }
+
+        const keys = Object.keys(data).reverse(); // 新的在上面
+        
+        keys.forEach(key => {
+            const task = data[key];
+            const item = document.createElement('div');
+            item.style.cssText = "padding: 15px; margin-bottom: 10px; background: #fff; border: 2px solid #eee; border-radius: 10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between;";
+            
+            item.innerHTML = `
+                <div>
+                    <div style="font-weight:bold; color:#333; font-size: 1.1rem; margin-bottom: 5px;">${task.topic}</div>
+                    <div style="font-size:0.85em; color:#666;">
+                        <span style="background:#e0f7fa; color:#006064; padding:2px 8px; border-radius:4px; font-weight:bold;">${task.type}</span>
+                        ${new Date(task.timestamp).toLocaleDateString()}
+                    </div>
+                </div>
+                <div style="color: #2A9689; font-size: 1.2rem;"><i class="fas fa-upload"></i></div>
+            `;
+            
+            // 滑鼠效果
+            item.onmouseover = function() { 
+                this.style.borderColor = "#2A9689"; 
+                this.style.background = "#f0fdfc"; 
+                this.style.transform = "translateY(-2px)";
+            };
+            item.onmouseout = function() { 
+                this.style.borderColor = "#eee"; 
+                this.style.background = "#fff"; 
+                this.style.transform = "translateY(0)";
+            };
+            
+            // 點擊即繳交
+            item.onclick = function() { confirmAndSubmitAssignment(key, task.topic); };
+            
+            listDiv.appendChild(item);
+        });
+    });
+}
+
+// === 繳交邏輯 2: 確認並上傳 ===
+async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
+    const recordId = parseInt(document.getElementById('pendingRecordId').value);
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+    // 二次確認
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(注意：這將會覆蓋你之前對此功課的繳交內容)`)) return;
+
+    try {
+        // 從本地資料庫撈出該筆紀錄的完整資料
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(recordId);
+
+        request.onsuccess = function(e) {
+            const record = e.target.result;
+            if (!record) return alert("找不到原始紀錄，請重試。");
+
+            // 上傳到 Firebase 的 assignments_submissions 路徑
+            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+            
+            // 顯示載入中
+            const modalBody = document.getElementById('activeAssignmentList');
+            modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師...</div>';
+
+            database.ref(submitPath).set({
+                ...record, // 包含 title, userContent, aiContent
+                submittedAt: new Date().toLocaleString('zh-HK'),
+                studentName: s.name,
+                studentClass: s.class,
+                studentGrade: s.grade
+            }, (error) => {
+                if (error) {
+                    alert("繳交失敗：" + error.message);
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                } else {
+                    // 成功特效與提示
+                    alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        alert("系統錯誤，無法讀取紀錄。");
+    }
+}
+
+// 2. 執行繳交動作
+async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
+    const recordId = parseInt(document.getElementById('pendingRecordId').value);
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(這將會覆蓋你之前對此功課的繳交)`)) return;
+
+    try {
+        // A. 從 IndexedDB 獲取該紀錄的完整內容
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(recordId);
+
+        request.onsuccess = function(e) {
+            const record = e.target.result;
+            if (!record) return alert("找不到原始紀錄，請重試。");
+
+            // B. 寫入 Firebase 的 submissions 路徑
+            // 路徑：assignments_submissions/課業ID/學生姓名
+            // 這樣老師可以通過「課業ID」直接拉出所有人的這份功課
+            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+            
+            database.ref(submitPath).set({
+                ...record, // 包含原本的所有內容 (title, userContent, aiContent...)
+                submittedAt: new Date().toLocaleString('zh-HK'),
+                studentName: s.name,
+                studentClass: s.class,
+                studentGrade: s.grade
+            }, (error) => {
+                if (error) {
+                    alert("繳交失敗：" + error.message);
+                } else {
+                    alert(`🎉 繳交成功！\n已將此紀錄呈交給老師。`);
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        alert("系統錯誤，無法讀取紀錄。");
+    }
+}
+
+
+
+
+
+	
 	
 	
 </script>
@@ -11604,6 +12805,83 @@ function handleTitleDblClick(element, id) {
 </div>
 	<!-- 煙花特效畫布 -->
 <canvas id="fireworksCanvas"></canvas>
+
+<!-- 學生雲端中心 (修訂版) -->
+<div id="studentCloudModal" class="books-modal">
+    <div class="modal-content">
+        <span class="close-modal-btn" onclick="document.getElementById('studentCloudModal').style.display='none'">&times;</span>
+      
+        
+        <!-- 身份設定表單 -->
+        <div id="studentIdentityForm">
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;">
+                    <label>年級：</label>
+                    <select id="studentGrade" class="no-modal-editor">
+                        <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
+                        <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
+                    </select>
+                </div>
+                <div style="flex: 1;">
+                    <label>班別：</label>
+                    <select id="studentClass" class="no-modal-editor">
+                        <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 班號選擇 (由 JS 自動生成 1-32) -->
+            <label>班號：</label>
+            <select id="studentNumber" class="no-modal-editor">
+                <!-- JS 會自動填入選項 -->
+            </select>
+
+            <label>姓名：</label>
+            <input type="text" id="studentName" class="no-modal-editor" placeholder="請輸入全名">
+
+            <label>密碼：</label>
+            <input type="password" id="studentPassword" class="no-modal-editor" placeholder="設定或驗證密碼">
+            <p style="font-size:0.8em; color:#888; margin-top:-5px; margin-bottom:15px;">(若是第一次使用，此密碼將成為你的專屬密碼)</p>
+
+            <button class="btn-action" onclick="saveStudentIdentity()" style="width: 100%;">綁定身份</button>
+        </div>
+
+        <!-- 登入後顯示區域 -->
+        <div id="studentCloudPanel" style="display:none; margin-top:15px;">
+            <p id="welcomeText" style="font-weight:bold; color:#555; text-align:center; font-size:1.1em;"></p>
+            
+            <div style="border-top: 1px dashed #ccc; margin: 15px 0; padding-top:10px;">
+                <h4 style="margin-top:0; color:#2A9689;"><i class="fas fa-tasks"></i> 你的課業狀態</h4>
+                <!-- 課業列表容器 -->
+                <div id="assignmentList" style="max-height: 250px; overflow-y:auto; padding-right:5px;">
+                    載入中...
+                </div>
+            </div>
+
+      
+        </div>
+    </div>
+</div>
+
+<!-- 繳交功課選擇視窗 -->
+<div id="submitAssignmentModal" class="books-modal" style="z-index: 2200;">
+    <div class="modal-content" style="max-width: 400px;">
+        <span class="close-modal-btn" onclick="document.getElementById('submitAssignmentModal').style.display='none'">&times;</span>
+        <h3 style="color: #2A9689; border-bottom: 2px solid #eee; padding-bottom: 10px;">
+            <i class="fas fa-paper-plane"></i> 繳交課業
+        </h3>
+        <p>請選擇這份紀錄屬於哪一份課業：</p>
+        
+        <!-- 這裡會動態載入老師開設的功課 -->
+        <div id="activeAssignmentList" style="margin: 15px 0; max-height: 200px; overflow-y: auto;">
+            載入中...
+        </div>
+
+        <input type="hidden" id="pendingRecordId"> <!-- 暫存要繳交的紀錄 ID -->
+    </div>
+</div>
+
+	
 
 </body>
 </html>
