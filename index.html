@@ -9960,31 +9960,33 @@ svg.appendChild(line);
 
 // Listeners for Tool 2 (工具一覽展開邏輯)
 document.getElementById('expandToolsBtn2').addEventListener('click', function() {
+    // 1. ★★★ 強制關閉其他兩個全螢幕介面 ★★★
+    document.getElementById('historyContainer').style.display = 'none';
+    document.getElementById('studentCloudModal').style.display = 'none';
+
+    // 2. 顯示語薈
     const container = document.getElementById('toolsContainer2');
     container.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden'; // 鎖定捲動
     document.querySelector('#toolsContainer2 .main-container').classList.add('loaded');
     
-    // 關鍵修改：隱藏左上角的返回按鈕
+    // 3. 按鈕狀態調整
     document.getElementById('homeBtn').style.display = 'none';
-    // 顯示側邊選單中的返回按鈕
     document.getElementById('sideMenuHomeBtn').style.display = 'flex';
+    
+    // 確保雲端按鈕顯示 (因為離開了雲端介面)
+    const cloudBtn = document.getElementById('sideMenuCloudBtn');
+    if (cloudBtn) cloudBtn.style.display = 'flex';
     
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(drawConnectors, 100);
 });
 
 // 工具一覽關閉邏輯
+// 工具一覽關閉邏輯
 document.getElementById('closeToolsBtn2').addEventListener('click', function() {
-    document.getElementById('toolsContainer2').style.display = 'none';
-    document.body.style.overflow = 'auto';
-    
-    // 檢查是否返回到主頁
-    const isOnMainPage = document.querySelector('.title-container').style.display !== 'none';
-    if(isOnMainPage) {
-        // 在主頁時隱藏側邊選單的返回按鈕
-        document.getElementById('sideMenuHomeBtn').style.display = 'none';
-    }
+    // 同樣直接呼叫 returnToHome() 以確保主頁被正確還原，不會顯示白畫面
+    returnToHome();
 });
 
 // '語弈錄' Interactivity for Tool 2
@@ -11850,27 +11852,43 @@ let currentCategoryFilter = null;
 let currentSubFunctionFilter = null;
 
 // 4. 開啟歷史頁面 (進入第一層)
+// 4. 開啟歷史頁面 (進入第一層)
 function openHistoryContainer() {
-    // 隱藏其他所有容器 (包含功能頁面)
-    const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer', 'mainMenuBox', 'hitokoto-container', 'dse-countdown-box', 'toolsBox'];
+    // 1. 定義要隱藏的所有容器 (加入 'toolsContainer2' 和 'studentCloudModal')
+    const containers = [
+        'writingContainer', 'readingContainer', 'booksContainer', 
+        'expandContainer', 'argumentContainer', 'mainMenuBox', 
+        'hitokoto-container', 'dse-countdown-box', 'toolsBox',
+        'toolsContainer2',      // <--- 關閉語薈
+        'studentCloudModal'     // <--- 關閉學生雲端
+    ];
+    
     containers.forEach(id => {
         const el = document.getElementById(id);
         if(el) el.style.display = 'none';
     });
     document.querySelector('.title-container').style.display = 'none';
     
-    // 顯示歷史容器
+    // 2. ★★★ 關鍵：解鎖捲動 (因為語薈和學生雲端都會鎖住捲動) ★★★
+    document.body.style.overflow = 'auto'; 
+
+    // 3. 顯示歷史容器
     const historyContainer = document.getElementById('historyContainer');
     historyContainer.style.display = 'block';
     
-    // 顯示返回主頁按鈕
-    document.getElementById('sideMenuHomeBtn').style.display = 'flex';
+    // 4. 按鈕狀態調整
+    const homeBtn = document.getElementById('sideMenuHomeBtn');
+    if (homeBtn) homeBtn.style.display = 'flex';
+    
+    // 確保雲端按鈕顯示 (因為離開了雲端介面)
+    const cloudBtn = document.getElementById('sideMenuCloudBtn');
+    if (cloudBtn) cloudBtn.style.display = 'flex';
+
     document.getElementById('sideMenu').classList.remove('active');
 
     // 渲染第一層
     renderHistoryCategories();
 }
-
 // 5. 渲染第一層：主範疇
 // ==========================================
 // === 歷史紀錄 UI 渲染邏輯 (修訂版) ===
@@ -12484,17 +12502,19 @@ const database = firebase.database();
 function openStudentLoginModal() {
     const modal = document.getElementById('studentCloudModal');
     if (modal) {
-        // 顯示視窗
+        // 1. ★★★ 強制關閉其他兩個全螢幕介面 ★★★
+        document.getElementById('historyContainer').style.display = 'none';
+        document.getElementById('toolsContainer2').style.display = 'none';
+
+        // 2. 顯示視窗並鎖定捲動
         modal.style.display = 'block'; 
-        
-        // 鎖定主頁面滾動
         document.body.style.overflow = 'hidden'; 
         
-        // 執行登入檢查
+        // 3. 執行登入檢查
         checkStudentLogin();
 
-        // --- UI 按鈕狀態切換 ---
-        // 隱藏「雲端同步/課業狀態」按鈕
+        // 4. --- UI 按鈕狀態切換 ---
+        // 隱藏「雲端同步」按鈕 (因為已經在雲端介面了)
         const cloudBtn = document.getElementById('sideMenuCloudBtn');
         if (cloudBtn) cloudBtn.style.display = 'none';
 
@@ -12502,11 +12522,11 @@ function openStudentLoginModal() {
         const homeBtn = document.getElementById('sideMenuHomeBtn');
         if (homeBtn) homeBtn.style.display = 'flex';
 
-        // 隱藏左上角浮動的返回按鈕 (避免重複)
+        // 隱藏左上角浮動的返回按鈕
         const floatHomeBtn = document.getElementById('homeBtn');
         if (floatHomeBtn) floatHomeBtn.style.display = 'none';
 
-        // 強制收起側邊選單 (優化體驗)
+        // 強制收起側邊選單
         const sideMenu = document.getElementById('sideMenu');
         if (sideMenu) {
             sideMenu.classList.remove('active');
@@ -12517,22 +12537,12 @@ function openStudentLoginModal() {
 
 // === 2. 修改關閉「學生雲端中心」的函式 ===
 function closeStudentCloudModal() {
-    const modal = document.getElementById('studentCloudModal');
-    if (modal) {
-        modal.style.display = 'none';
-        
-        // 恢復主頁面滾動
-        document.body.style.overflow = 'auto'; 
-
-        // --- UI 按鈕狀態還原 ---
-        // 顯示回「雲端同步」按鈕
-        const cloudBtn = document.getElementById('sideMenuCloudBtn');
-        if (cloudBtn) cloudBtn.style.display = 'flex';
-
-        // 隱藏「返回主頁」按鈕 (因為已經回到主頁了)
-        const homeBtn = document.getElementById('sideMenuHomeBtn');
-        if (homeBtn) homeBtn.style.display = 'none';
-    }
+    // 直接呼叫 returnToHome()，它會負責：
+    // 1. 播放退場動畫
+    // 2. 隱藏雲端視窗
+    // 3. 重新顯示主頁選單、標題、DSE倒數
+    // 4. 解鎖頁面捲動
+    returnToHome();
 }
 
 // ==========================================
