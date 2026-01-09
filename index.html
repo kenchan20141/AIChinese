@@ -12297,20 +12297,37 @@ function closeStudentCloudModal() {
 // ==========================================
 
 // 1. 修改 checkStudentLogin：顯示緩存並觸發背景同步
-function checkStudentLogin() {
+async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
+    
     if (s) {
         // A. 先顯示緩存資料 (UI 秒開)
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         
-        // 顯示歡迎訊息 (含班號)
         updateWelcomeMessage(s);
-            
-        // 載入舊課業列表
         loadAssignments(s.grade, s.class);
 
-        // B. 【核心新增】背景執行：驗證身份並檢查是否有變更 (轉班/改班號)
+        // B. 【新增】檢查 Firebase Auth 帳號是否還活著
+        const user = firebase.auth().currentUser;
+        
+        if (user) {
+            try {
+                // 強制從伺服器重新載入使用者狀態
+                await user.reload(); 
+            } catch (error) {
+                console.error("Auth 驗證失敗:", error);
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/user-token-expired') {
+                    // 如果帳號在後台被刪除了
+                    alert("⚠️ 您的帳號已失效或被移除，請重新登入。");
+                    localStorage.removeItem('studentProfile');
+                    location.reload();
+                    return; // 終止後續執行
+                }
+            }
+        }
+
+        // C. 背景執行資料同步
         verifyStudentStatus(s);
     }
 }
@@ -12323,7 +12340,7 @@ function updateWelcomeMessage(profile) {
          <span style="font-size:0.8em; color:#ccc; margin-left:5px;" id="syncStatusIcon"></span>`;
 }
 
-// 3. 【核心新增】驗證學生狀態 (同步資料 + 處理轉班)
+// 3. 【核心新增】驗證學生狀態 (同步資料 + 處理轉班 + 處理帳號失效)
 async function verifyStudentStatus(localProfile) {
     const statusIcon = document.getElementById('syncStatusIcon');
     if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-sync fa-spin"></i>'; // 顯示同步中圖示
@@ -12336,24 +12353,25 @@ async function verifyStudentStatus(localProfile) {
         const cloudData = snapshot.val();
 
         if (cloudData) {
-            // === 情況一：學生還在原班 (可能改了班號或密碼) ===
+            // === 情況一：學生還在原班 (可能改了班號) ===
             // 檢查資料是否有變動
-            if (cloudData.number != localProfile.number || cloudData.password !== localProfile.password) {
-                console.log("偵測到班號或資料更新，同步中...");
+            if (cloudData.number != localProfile.number) {
+                console.log("偵測到班號更新，同步中...");
                 
                 // 更新本地緩存
                 localProfile.number = cloudData.number;
-                localProfile.password = cloudData.password; // 同步新密碼
+                // 注意：如果現在是用 Google 登入，密碼欄位通常不再需要同步，除非你有特殊用途
+                
                 localStorage.setItem('studentProfile', JSON.stringify(localProfile));
                 
                 // 刷新介面
                 updateWelcomeMessage(localProfile);
                 if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>'; // 綠色勾勾
             } else {
-                if(statusIcon) statusIcon.innerHTML = ''; // 資料一致，移除圖示
+                if(statusIcon) statusIcon.innerHTML = ''; // 資料一致，移除圖示保持介面乾淨
             }
         } else {
-            // === 情況二：舊地址找不到人 (可能轉班了，或者被刪除了) ===
+            // === 情況二：舊地址找不到人 (可能轉班了，或者資料被刪除了) ===
             console.warn("原路徑找不到學生，啟動全校搜尋模式...");
             if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-search fa-spin" style="color: orange;"></i>'; // 搜尋中圖示
             
@@ -12362,6 +12380,16 @@ async function verifyStudentStatus(localProfile) {
     } catch (error) {
         console.error("同步檢查失敗:", error);
         if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: red;"></i>';
+
+        // ★★★ 關鍵修改：處理帳號被刪除的情況 ★★★
+        // 當你在 Authentication 刪除帳號，Firebase 規則通常會拒絕讀取 (PERMISSION_DENIED)
+        if (error.code === 'PERMISSION_DENIED' || error.message.includes('permission_denied')) {
+            alert("⚠️ 您的帳號權限已失效（可能已被移除），將自動登出。");
+            
+            // 清除本地緩存並強制重整
+            localStorage.removeItem('studentProfile');
+            location.reload();
+        }
     }
 }
 
