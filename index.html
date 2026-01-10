@@ -13255,7 +13255,7 @@ async function handleSchoolLogin() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
     btn.disabled = true;
 
-    // 3. 暫存用戶輸入的資料 (為了 Redirect 回來後使用)
+    // 3. 暫存資料 (以防萬一)
     const tempStudentData = {
         manualName: manualName,
         grade: grade,
@@ -13267,22 +13267,24 @@ async function handleSchoolLogin() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
-    // 4. 偵測裝置類型
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
     try {
-        if (isMobile) {
-            // === 手機版：使用重新導向 (Redirect) ===
-            // 這會離開當前頁面，去 Google 登入，登入完會自動跳回來
-            await auth.signInWithRedirect(provider);
-        } else {
-            // === 電腦版：維持彈出視窗 (Popup) ===
-            const result = await auth.signInWithPopup(provider);
-            await processLoginResult(result.user, btn, originalContent);
-        }
+        // ★★★ 關鍵修改：不分手機電腦，統一使用 Popup ★★★
+        // 這能確保頁面不刷新，資料與狀態得以保留
+        const result = await auth.signInWithPopup(provider);
+        await processLoginResult(result.user, btn, originalContent);
+
     } catch (error) {
-        console.error("登入啟動錯誤:", error);
-        alert("登入發生錯誤：" + error.message);
+        console.error("登入錯誤:", error);
+        
+        // 處理手機瀏覽器常見的 Popup 被阻擋問題
+        if (error.code === 'auth/popup-blocked') {
+            alert("⚠️ 登入視窗被瀏覽器阻擋了。\n\n請允許此網站顯示彈出式視窗，或嘗試使用其他瀏覽器 (如 Chrome)。");
+        } else if (error.code === 'auth/popup-closed-by-user') {
+            // 用戶自己關閉視窗，不做處理
+        } else {
+            alert("登入發生錯誤：" + error.message);
+        }
+        
         btn.innerHTML = originalContent;
         btn.disabled = false;
     }
@@ -13372,14 +13374,11 @@ async function handleStudentLogout() {
 
 	
 // === 綁定並儲存學生資料到 Database ===
-// === 優化版：綁定並儲存學生資料到 Database ===
 async function bindStudentIdentity(grade, cls, number, name, email, uid) {
-    // 路徑結構：students/年級/班級/姓名/profile
     const path = `students/${grade}/${cls}/${name}/profile`;
 
     try {
-        // 1. 更新資料庫 (背景執行，不阻塞 UI)
-        // 我們不使用 await 阻擋整個流程，讓它在背景跑，除非出錯才報警
+        // 1. 背景寫入資料庫
         const updatePromise = database.ref(path).update({
             name: name,
             grade: grade,
@@ -13392,40 +13391,25 @@ async function bindStudentIdentity(grade, cls, number, name, email, uid) {
         });
 
         // 2. 建立本地資料物件
-        const profile = { 
-            grade, 
-            class: cls, 
-            number, 
-            name, 
-            email 
-        };
+        const profile = { grade, class: cls, number, name, email };
         localStorage.setItem('studentProfile', JSON.stringify(profile));
 
-        // 3. 【關鍵優化】直接手動更新 UI，不呼叫 checkStudentLogin()
-        // 這樣可以避免觸發 verifyStudentStatus -> findStudentNewLocation 的全庫掃描死循環
+        // 3. 直接更新 UI (不重新讀取資料庫，實現秒開)
         alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
         
-        // 隱藏登入表單
         document.getElementById('studentIdentityForm').style.display = 'none';
-        // 顯示雲端面板
         document.getElementById('studentCloudPanel').style.display = 'block';
-        
-        // 更新歡迎文字
         updateWelcomeMessage(profile);
-        
-        // 載入功課 (這是輕量操作)
         loadAssignments(grade, cls);
 
-        // 等待資料庫寫入完成 (非阻塞，僅為了錯誤捕捉)
+        // 等待寫入完成 (非阻塞)
         await updatePromise;
 
     } catch (error) {
         console.error("資料庫寫入失敗:", error);
-        // 即使寫入報錯，如果本地 localStorage 已存，學生仍可暫時使用部分功能
-        alert("資料庫連線不穩，但已為您登入。若功能異常請重新整理。");
+        // 即使寫入失敗，本地已登入，讓學生先用
     }
 }
-
 	
 // 3. 輔助函式：完成登入 (更新本地儲存)
 function finishLogin(grade, cls, number, name) {
@@ -13990,26 +13974,6 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
 }
 
 
-// === 新增：監聽手機 Redirect 登入返回 ===
-auth.getRedirectResult().then(async (result) => {
-    if (result.user) {
-        console.log("偵測到 Redirect 登入返回");
-        await processLoginResult(result.user, null, null);
-        
-        if (sessionStorage.getItem('sansi_temp_student_data')) {
-             openStudentLoginModal();
-        }
-    } else {
-        // ★ 新增：如果跳轉回來但沒有抓到使用者 (常見於手機隱私模式或長時間閒置)
-        // console.log("沒有偵測到重定向登入結果");
-    }
-}).catch((error) => {
-    console.error("Redirect 登入錯誤:", error);
-    if (error.code !== 'auth/popup-closed-by-user') {
-        // ★ 修正：取消註解，讓錯誤能顯示出來
-        alert("登入驗證發生錯誤：" + error.message);
-    }
-});
 
 
 	
