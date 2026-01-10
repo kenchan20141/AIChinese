@@ -5006,9 +5006,10 @@ transform: scale(1.15);
 
 	// === 神思通知系統邏輯 ===
 
-// === 持久性通知系統核心邏輯 ===
+// === 持久性通知系統核心邏輯 (精確篩選版) ===
 let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') || '[]');
-let isInitialNotifCheck = true;
+let isInitialAssignmentLoad = true;
+let isInitialSubmissionLoad = true;
 
 function initNotificationListeners() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -5021,30 +5022,120 @@ function initNotificationListeners() {
         document.body.appendChild(div);
     }
 
-    // 1. 監聽新課業
-    database.ref(`assignments/${s.grade}/${s.class}`).on('value', (snapshot) => {
+    // --- 1. 監聽新課業 (嚴格限制在學生的年級與班級路徑) ---
+    const assignmentPath = `assignments/${s.grade}/${s.class}`;
+    database.ref(assignmentPath).on('value', (snapshot) => {
         const data = snapshot.val() || {};
+        
+        // 首次載入時，將現有課業標記為已讀，防止舊課業突然彈出通知
+        if (isInitialAssignmentLoad) {
+            Object.keys(data).forEach(key => {
+                if (!notifiedIds.includes(key)) {
+                    notifiedIds.push(key);
+                }
+            });
+            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
+            isInitialAssignmentLoad = false;
+            return; 
+        }
+
+        // 之後有變動時，才發送通知
         Object.keys(data).forEach(key => {
-            // 如果 ID 不在「已讀清單」中，則顯示
             if (!notifiedIds.includes(key)) {
                 showSansiNotif('new', data[key].topic, key);
             }
         });
     });
 
-    // 2. 監聽已發還課業
+    // --- 2. 監聽已發還課業 (精確比對身份：姓名 + 年級 + 班別) ---
     database.ref('assignments_submissions').on('value', (snapshot) => {
         const allData = snapshot.val() || {};
+        
+        let hasNewValidNotification = false;
+
         Object.keys(allData).forEach(assignId => {
+            // 這裡必須同時符合：姓名、年級、班別
             const myWork = allData[assignId][s.name];
-            if (myWork && myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
+            
+            if (myWork && 
+                myWork.studentGrade == s.grade && 
+                myWork.studentClass == s.class && 
+                myWork.teacherFeedback && 
+                myWork.teacherFeedback.status === 'returned') {
+                
                 const feedbackId = "fb_" + assignId + "_" + myWork.teacherFeedback.timestamp;
-                if (!notifiedIds.includes(feedbackId)) {
-                    showSansiNotif('returned', myWork.title || "課業", feedbackId);
+                
+                // 首次載入時不通知，只記錄 ID
+                if (isInitialSubmissionLoad) {
+                    if (!notifiedIds.includes(feedbackId)) notifiedIds.push(feedbackId);
+                } else {
+                    // 非首次載入，且尚未通知過，才顯示
+                    if (!notifiedIds.includes(feedbackId)) {
+                        showSansiNotif('returned', myWork.title || "課業", feedbackId);
+                        hasNewValidNotification = true;
+                    }
                 }
             }
         });
+
+        if (isInitialSubmissionLoad) {
+            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
+            isInitialSubmissionLoad = false;
+        }
+        
+        updateNotifBadge();
     });
+}
+
+/**
+ * 顯示通知 (邏輯不變，僅確保 uniqueId 正確處理)
+ */
+function showSansiNotif(type, topic, uniqueId) {
+    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return;
+
+    const container = document.getElementById('notifContainer');
+    const notif = document.createElement('div');
+    notif.setAttribute('data-notif-id', uniqueId);
+    
+    const isNew = type === 'new';
+    notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
+    
+    notif.innerHTML = `
+        <div class="notif-title">
+            <i class="fas ${isNew ? 'fa-feather-alt' : 'fa-clipboard-check'}"></i>
+            ${isNew ? '新課業發佈' : '課業已批改'}
+        </div>
+        <div class="notif-body">
+            <strong>${topic}</strong><br>
+            ${isNew ? '老師派發了新的練習。' : '老師已完成批改並發還評語。'}
+        </div>
+        <div class="notif-click-hint">點擊前往查看</div>
+    `;
+
+    notif.onclick = () => {
+        if (!notifiedIds.includes(uniqueId)) {
+            notifiedIds.push(uniqueId);
+            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
+        }
+        notif.classList.add('fade-out');
+        setTimeout(() => {
+            notif.remove();
+            updateNotifBadge();
+        }, 500);
+        openStudentLoginModal();
+    };
+
+    container.appendChild(notif);
+    updateNotifBadge();
+}
+
+// 更新紅點：只有當畫面上確實存在通知卡片時才顯示紅點
+function updateNotifBadge() {
+    const container = document.getElementById('notifContainer');
+    const badge = document.getElementById('notifBadge');
+    if (badge) {
+        badge.style.display = (container && container.querySelectorAll('.sansi-notification').length > 0) ? 'block' : 'none';
+    }
 }
 
 /**
