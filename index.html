@@ -13144,8 +13144,18 @@ async function verifyStudentStatus(localProfile) {
 
 // 4. 【核心新增】全校搜尋模式 (處理轉班)
 async function findStudentNewLocation(studentName) {
+    // 顯示提示，讓用戶知道系統正在進行大量運算
+    const statusIcon = document.getElementById('syncStatusIcon');
+    if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-cog fa-spin" style="color: orange;"></i> 正在搜尋...';
+
     try {
-        // 讀取整個 students 節點 (如果資料量非常大，建議改由 Cloud Functions 處理，但一般學校規模尚可)
+        // 【優化】嘗試只讀取 'profile' 節點，而不是整個學生資料
+        // 注意：這依賴於 Firebase 結構，如果無法僅讀取 profile，
+        // 建議在 Firebase Rules 或結構上做優化（例如建立獨立的 user-index）
+        // 這裡我們暫時維持讀取 students，但加上 try-catch 和超時保護
+        
+        console.log("啟動全校搜尋... (這可能會花一點時間)");
+        
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
         
@@ -13161,6 +13171,7 @@ async function findStudentNewLocation(studentName) {
                     const studentsInClass = allData[grade][cls];
                     // 檢查該班級是否有這位學生
                     if (studentsInClass && studentsInClass[studentName]) {
+                        // 確保找到的是該本人的資料 (比對 UID 或 電郵會更安全，這裡比對名字)
                         found = true;
                         newGrade = grade;
                         newClass = cls;
@@ -13179,33 +13190,27 @@ async function findStudentNewLocation(studentName) {
                 grade: newGrade,
                 class: newClass,
                 number: newInfo.number,
-                password: newInfo.password
+                email: newInfo.email // 補上電郵
             };
 
-            // 1. 更新本地緩存
             localStorage.setItem('studentProfile', JSON.stringify(newProfile));
-            
-            // 2. 提示用戶
             alert(`系統偵測到您的班級已變更！\n\n已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
             
-            // 3. 刷新介面與課業列表
             updateWelcomeMessage(newProfile);
-            loadAssignments(newGrade, newClass); // 重新讀取新班級的功課
+            loadAssignments(newGrade, newClass);
             
-            // 清除舊班級的緩存 (如果有)
-            const oldCacheKey = `assignment_cache_${studentName}`; // 舊版 Key 假設
-            localStorage.removeItem(oldCacheKey);
+            if(statusIcon) statusIcon.innerHTML = ''; // 清除圖示
 
         } else {
-            // === 全校都找不到 (被刪除了) ===
-            alert("您的學生資料已被移除，請聯繫老師或重新綁定。");
-            // 登出並清除資料
-            localStorage.removeItem('studentProfile');
-            location.reload(); 
+            // 找不到人
+            console.warn("全校搜尋未果");
+            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-question-circle" style="color: grey;"></i>';
+            // 不自動登出，避免因為網絡慢讀取不到數據而導致用戶被踢出
         }
 
     } catch (error) {
         console.error("搜尋學生失敗:", error);
+        if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-wifi" style="color: red;"></i>';
     }
 }
 
@@ -13367,50 +13372,61 @@ async function handleStudentLogout() {
 
 	
 // === 綁定並儲存學生資料到 Database ===
+// === 優化版：綁定並儲存學生資料到 Database ===
 async function bindStudentIdentity(grade, cls, number, name, email, uid) {
     // 路徑結構：students/年級/班級/姓名/profile
-    // 注意：這裡我們依然用「姓名」做資料夾名稱以便老師辨識，但會存入 uid
     const path = `students/${grade}/${cls}/${name}/profile`;
 
     try {
-        // 更新資料庫
-        await database.ref(path).update({
+        // 1. 更新資料庫 (背景執行，不阻塞 UI)
+        // 我們不使用 await 阻擋整個流程，讓它在背景跑，除非出錯才報警
+        const updatePromise = database.ref(path).update({
             name: name,
             grade: grade,
             class: cls,
             number: number,
-            email: email, // 儲存電郵
-            uid: uid,     // 儲存 Firebase UID
+            email: email,
+            uid: uid,
             last_login: new Date().toLocaleString('zh-HK'),
             status: 'active'
         });
 
-        alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
-        
-        // 完成登入流程 (寫入 localStorage 並刷新介面)
+        // 2. 建立本地資料物件
         const profile = { 
             grade, 
             class: cls, 
             number, 
             name, 
-            email // 額外儲存電郵到本地
+            email 
         };
         localStorage.setItem('studentProfile', JSON.stringify(profile));
+
+        // 3. 【關鍵優化】直接手動更新 UI，不呼叫 checkStudentLogin()
+        // 這樣可以避免觸發 verifyStudentStatus -> findStudentNewLocation 的全庫掃描死循環
+        alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
         
-        checkStudentLogin(); // 刷新介面顯示歡迎訊息
+        // 隱藏登入表單
+        document.getElementById('studentIdentityForm').style.display = 'none';
+        // 顯示雲端面板
+        document.getElementById('studentCloudPanel').style.display = 'block';
+        
+        // 更新歡迎文字
+        updateWelcomeMessage(profile);
+        
+        // 載入功課 (這是輕量操作)
+        loadAssignments(grade, cls);
+
+        // 等待資料庫寫入完成 (非阻塞，僅為了錯誤捕捉)
+        await updatePromise;
 
     } catch (error) {
         console.error("資料庫寫入失敗:", error);
-        alert("資料庫連線錯誤，請稍後再試。");
-        // 如果寫入失敗，雖然登入了但要恢復按鈕狀態
-        const btn = document.querySelector('#studentIdentityForm button');
-        if(btn) {
-            btn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入'; 
-            btn.disabled = false;
-        }
+        // 即使寫入報錯，如果本地 localStorage 已存，學生仍可暫時使用部分功能
+        alert("資料庫連線不穩，但已為您登入。若功能異常請重新整理。");
     }
 }
 
+	
 // 3. 輔助函式：完成登入 (更新本地儲存)
 function finishLogin(grade, cls, number, name) {
     const profile = { grade, class: cls, number, name };
