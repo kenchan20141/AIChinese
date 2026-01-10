@@ -121,14 +121,14 @@ form-action 'self';
 <script>
   // 定義智能啟動函式
   async function smartInitOneSignal() {
-    // 步驟 1: 清理舊的、錯誤路徑的 Service Worker
+    // 步驟 1: 強制清理所有舊的 Service Worker，避免路徑衝突
     if ('serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (let registration of registrations) {
-          // 如果發現 Worker 註冊在根目錄 (造成衝突的原因)，強制移除
-          if (registration.scope === 'https://kenchan20141.github.io/') {
-            console.log('正在移除錯誤路徑的 Worker:', registration.scope);
+          // 只要不是我們目前需要的正確 scope，就全部移除，防止干擾
+          if (registration.scope !== window.location.origin + "/AIChinese/") {
+            console.log('正在移除舊的或錯誤路徑的 Worker:', registration.scope);
             await registration.unregister();
           }
         }
@@ -144,18 +144,20 @@ form-action 'self';
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // ★★★ 關鍵修正 1：告訴 SDK 資源檔在 AIChinese 資料夾 ★★★
+          // ★★★ 修正：告訴 SDK 允許在子目錄運行 ★★★
+          allowLocalhostAsSecureOrigin: true,
+
+          // ★★★ 關鍵修正 1：明確指定 Worker 檔案的【絕對路徑】 ★★★
+          // 注意開頭加上斜線 /，確保瀏覽器從根網域下的子目錄尋找
+          serviceWorkerPath: "/AIChinese/OneSignalSDKWorker.js",
+
+          // ★★★ 關鍵修正 2：指定 SDK 資源的基礎路徑 ★★★
           path: "/AIChinese/",
 
-          // ★★★ 關鍵修正 2：明確指定 Worker 檔案的完整路徑 (包含資料夾) ★★★
-          // 這是解決 404 錯誤的核心
-          serviceWorkerPath: "AIChinese/OneSignalSDKWorker.js",
-
-          // ★★★ 關鍵修正 3：限制 Worker 的作用範圍在子目錄，避免與根目錄衝突 ★★★
+          // ★★★ 關鍵修正 3：嚴格限制作用範圍 ★★★
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           notifyButton: { enable: true },
-          allowLocalhostAsSecureOrigin: true,
         });
         
         console.log("OneSignal 修正並初始化成功！");
