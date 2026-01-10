@@ -13230,9 +13230,10 @@ document.addEventListener('DOMContentLoaded', initClassNumbers);
 const auth = firebase.auth();
 
 // === 新增：學校電郵登入處理函式 ===
+// === 修改後：學校電郵登入處理函式 (支援手機 Redirect) ===
 async function handleSchoolLogin() {
     // 1. 獲取用戶輸入的資料
-    const manualName = document.getElementById('studentNameInput').value.trim(); // 獲取手動輸入的姓名
+    const manualName = document.getElementById('studentNameInput').value.trim();
     const grade = document.getElementById('studentGrade').value;
     const cls = document.getElementById('studentClass').value;
     const number = document.getElementById('studentNumber').value;
@@ -13240,7 +13241,7 @@ async function handleSchoolLogin() {
     // 2. 驗證姓名是否已填寫
     if (!manualName) {
         alert("請務必填寫您的「中文姓名」才能進行註冊！");
-        document.getElementById('studentNameInput').focus(); // 將焦點移回輸入框
+        document.getElementById('studentNameInput').focus();
         return;
     }
 
@@ -13249,36 +13250,82 @@ async function handleSchoolLogin() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
     btn.disabled = true;
 
+    // 3. 暫存用戶輸入的資料 (為了 Redirect 回來後使用)
+    const tempStudentData = {
+        manualName: manualName,
+        grade: grade,
+        cls: cls,
+        number: number
+    };
+    sessionStorage.setItem('sansi_temp_student_data', JSON.stringify(tempStudentData));
+
     const provider = new firebase.auth.GoogleAuthProvider();
-    provider.setCustomParameters({
-        prompt: 'select_account'
-    });
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    // 4. 偵測裝置類型
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     try {
-        const result = await auth.signInWithPopup(provider);
-        const user = result.user;
-        const email = user.email;
-
-        // 3. 檢查電郵網域
-        if (!email.endsWith('@ccckyc.edu.hk')) {
-            await auth.signOut();
-            alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
-            
-            btn.innerHTML = originalContent;
-            btn.disabled = false;
-            return;
+        if (isMobile) {
+            // === 手機版：使用重新導向 (Redirect) ===
+            // 這會離開當前頁面，去 Google 登入，登入完會自動跳回來
+            await auth.signInWithRedirect(provider);
+        } else {
+            // === 電腦版：維持彈出視窗 (Popup) ===
+            const result = await auth.signInWithPopup(provider);
+            await processLoginResult(result.user, btn, originalContent);
         }
-
-        // 4. 使用手動輸入的姓名進行綁定 (不使用 Google 的顯示名稱)
-        // 傳入 manualName 替代 user.displayName
-        await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
-
     } catch (error) {
-        console.error("登入錯誤:", error);
-        alert("登入取消或發生錯誤：" + error.message);
+        console.error("登入啟動錯誤:", error);
+        alert("登入發生錯誤：" + error.message);
         btn.innerHTML = originalContent;
         btn.disabled = false;
     }
+}
+
+	// === 新增：統一處理登入後的邏輯 ===
+async function processLoginResult(user, btn, originalContent) {
+    // 從 sessionStorage 取回暫存資料 (如果是 Popup 模式，直接讀取變數亦可，但統一讀取較保險)
+    // 如果是 Popup 模式當下變數還在，如果是 Redirect 模式則依賴 Storage
+    let manualName, grade, cls, number;
+    
+    const storedData = sessionStorage.getItem('sansi_temp_student_data');
+    if (storedData) {
+        const data = JSON.parse(storedData);
+        manualName = data.manualName;
+        grade = data.grade;
+        cls = data.cls;
+        number = data.number;
+    } else {
+        // 如果找不到暫存資料 (極少見)，嘗試重新讀取 DOM (僅限 Popup 不刷新的情況)
+        manualName = document.getElementById('studentNameInput')?.value.trim();
+        grade = document.getElementById('studentGrade')?.value;
+        cls = document.getElementById('studentClass')?.value;
+        number = document.getElementById('studentNumber')?.value;
+    }
+
+    if (!manualName) {
+        alert("資料遺失，請重新輸入姓名後再試一次。");
+        if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+        return;
+    }
+
+    const email = user.email;
+
+    // 檢查電郵網域
+    if (!email.endsWith('@ccckyc.edu.hk')) {
+        await auth.signOut();
+        alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
+        sessionStorage.removeItem('sansi_temp_student_data'); // 清除暫存
+        if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+        return;
+    }
+
+    // 執行綁定
+    await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
+    
+    // 成功後清除暫存
+    sessionStorage.removeItem('sansi_temp_student_data');
 }
 
 // === 新增：學生登出處理函式 ===
@@ -13927,7 +13974,30 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
 }
 
 
-
+// === 新增：監聽手機 Redirect 登入返回 ===
+auth.getRedirectResult().then(async (result) => {
+    if (result.user) {
+        // 這是手機版跳轉回來後會執行的地方
+        console.log("偵測到 Redirect 登入返回");
+        
+        // 嘗試恢復按鈕狀態 (為了視覺體驗，雖非必要)
+        // 由於頁面刷新，DOM 已經重置，這裡主要負責執行邏輯
+        
+        // 呼叫統一處理函式 (此時 btn 為 null，因為頁面剛刷新)
+        await processLoginResult(result.user, null, null);
+        
+        // 為了確保體驗，如果是在雲端中心介面，重新打開它
+        if (sessionStorage.getItem('sansi_temp_student_data')) {
+             openStudentLoginModal();
+        }
+    }
+}).catch((error) => {
+    console.error("Redirect 登入錯誤:", error);
+    if (error.code !== 'auth/popup-closed-by-user') {
+        // 只有非「用戶手動關閉」的錯誤才報錯
+        // alert("登入驗證發生錯誤，請重試。");
+    }
+});
 
 
 	
