@@ -12869,17 +12869,25 @@ const auth = firebase.auth();
 
 // === 新增：學校電郵登入處理函式 ===
 async function handleSchoolLogin() {
+    // 1. 獲取用戶輸入的資料
+    const manualName = document.getElementById('studentNameInput').value.trim(); // 獲取手動輸入的姓名
     const grade = document.getElementById('studentGrade').value;
     const cls = document.getElementById('studentClass').value;
     const number = document.getElementById('studentNumber').value;
     
-    const btn = event.target.closest('button'); // 確保抓到按鈕
+    // 2. 驗證姓名是否已填寫
+    if (!manualName) {
+        alert("請務必填寫您的「中文姓名」才能進行註冊！");
+        document.getElementById('studentNameInput').focus(); // 將焦點移回輸入框
+        return;
+    }
+
+    const btn = event.target.closest('button'); 
     const originalContent = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
     btn.disabled = true;
 
     const provider = new firebase.auth.GoogleAuthProvider();
-    // 強制每次都選擇帳號，避免自動登入錯誤的私人帳號
     provider.setCustomParameters({
         prompt: 'select_account'
     });
@@ -12889,9 +12897,8 @@ async function handleSchoolLogin() {
         const user = result.user;
         const email = user.email;
 
-        // === 關鍵：檢查電郵網域 ===
+        // 3. 檢查電郵網域
         if (!email.endsWith('@ccckyc.edu.hk')) {
-            // 如果不是學校電郵，強制登出並報錯
             await auth.signOut();
             alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
             
@@ -12900,11 +12907,9 @@ async function handleSchoolLogin() {
             return;
         }
 
-        // === 驗證通過 ===
-        const studentName = user.displayName || email.split('@')[0]; // 自動獲取名字
-        
-        // 執行綁定邏輯
-        await bindStudentIdentity(grade, cls, number, studentName, email, user.uid);
+        // 4. 使用手動輸入的姓名進行綁定 (不使用 Google 的顯示名稱)
+        // 傳入 manualName 替代 user.displayName
+        await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
 
     } catch (error) {
         console.error("登入錯誤:", error);
@@ -13558,66 +13563,76 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
 <canvas id="fireworksCanvas"></canvas>
 
 <!-- 學生雲端中心 (修訂版) -->
+<!-- 學生雲端中心 (修訂版：加入姓名輸入與指引) -->
 <div id="studentCloudModal" class="books-modal">
     <div class="modal-content">
-        <!-- 修改這一行：改用函式關閉 -->
         <span class="close-modal-btn" onclick="closeStudentCloudModal()">&times;</span>
-      
-        
-     <!-- 身份設定表單 -->
-<div id="studentIdentityForm">
-    <div style="display: flex; gap: 10px;">
-        <div style="flex: 1;">
-            <label>年級：</label>
-            <select id="studentGrade" class="no-modal-editor">
-                <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
-                <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
+
+        <!-- 身份設定表單 -->
+        <div id="studentIdentityForm">
+            
+            <!-- 新增：標題與指引區塊 -->
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px dashed #b0bec5; padding-bottom: 15px;">
+                <h3 style="color: #546e7a; margin: 0 0 10px 0; font-size: 1.5em;">註冊帳號</h3>
+                <p style="color: #78909c; font-size: 0.95em; line-height: 1.6; margin: 0; background-color: #e8ecef; padding: 10px; border-radius: 8px;">
+                    <i class="fas fa-info-circle"></i> <strong>指引：</strong><br>
+                    請先輸入您的<strong>中文姓名</strong>，並選擇正確的<strong>年級、班別及班號</strong>，<br>
+                    確認無誤後，再點擊下方的「學校帳號登入」按鈕。
+                </p>
+            </div>
+
+            <!-- 新增：姓名輸入欄位 -->
+            <label style="font-weight: bold; color: #455a64;">姓名：</label>
+            <input type="text" id="studentNameInput" class="no-modal-editor" placeholder="請輸入您的中文全名 (例如：陳大文)" 
+                   style="width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #cfd8dc; border-radius: 8px; font-size: 1.1em;">
+
+            <!--原有的選單 -->
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;">
+                    <label style="font-weight: bold; color: #455a64;">年級：</label>
+                    <select id="studentGrade" class="no-modal-editor">
+                        <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
+                        <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
+                    </select>
+                </div>
+                <div style="flex: 1;">
+                    <label style="font-weight: bold; color: #455a64;">班別：</label>
+                    <select id="studentClass" class="no-modal-editor">
+                        <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                    </select>
+                </div>
+            </div>
+
+            <label style="font-weight: bold; color: #455a64;">班號：</label>
+            <select id="studentNumber" class="no-modal-editor">
+                <!-- JS 會自動填入選項 -->
             </select>
+
+            <!-- 登入按鈕區塊 -->
+            <div style="margin-top: 25px; padding: 20px; background: #fff; border: 2px solid #607d8b; border-radius: 12px; text-align: center;">
+                <p style="color: #78909c; margin-bottom: 15px; font-size: 0.9em;">
+                    系統將驗證您的 @ccckyc.edu.hk 學校電郵
+                </p>
+                
+                <button class="btn-action" onclick="handleSchoolLogin()" 
+                        style="width: 100%; background-color: #607d8b; border: none; padding: 12px; font-size: 1.1em; letter-spacing: 1px; box-shadow: 0 4px 10px rgba(96, 125, 139, 0.3);">
+                    <i class="fab fa-google"></i> 學校帳號登入
+                </button>
+            </div>
         </div>
-        <div style="flex: 1;">
-            <label>班別：</label>
-            <select id="studentClass" class="no-modal-editor">
-                <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
-            </select>
-        </div>
-    </div>
 
-    <!-- 班號選擇 -->
-    <label>班號：</label>
-    <select id="studentNumber" class="no-modal-editor">
-        <!-- JS 會自動填入選項 -->
-    </select>
-
-    <!-- 移除了手動輸入姓名與密碼，改用 Google 登入 -->
-    
-   <!-- === 修訂後的登入區塊 (莫蘭迪色系) === -->
-<div style="margin-top: 25px; padding: 20px; background: #e8ecef; border-radius: 12px; border: 1px solid #b0bec5; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-    <p style="color: #546e7a; margin-bottom: 15px; font-weight: bold; font-size: 1em; letter-spacing: 1px;">
-        <i class="fas fa-school"></i> 身份驗證
-    </p>
-    <p style="color: #78909c; margin-bottom: 15px; font-size: 0.9em;">
-        請使用學校電郵 (@ccckyc.edu.hk) 登入
-    </p>
-    
-    <!-- 按鍵改用莫蘭迪深灰藍 -->
-    <button class="btn-action" onclick="handleSchoolLogin()" 
-            style="width: 100%; background-color: #607d8b; border: none; padding: 12px; font-size: 1.1em; letter-spacing: 1px; box-shadow: 0 4px 10px rgba(96, 125, 139, 0.3);">
-        <i class="fab fa-google"></i> 學校帳號登入
-    </button>
-</div>
-</div>
-
-        <!-- 登入後顯示區域 -->
+        <!-- 登入後顯示區域 (保持不變) -->
         <div id="studentCloudPanel" style="display:none; margin-top:15px;">
             <p id="welcomeText" style="font-weight:bold; color:#555; text-align:center; font-size:1.1em;"></p>
-            
             <div style="border-top: 1px dashed #ccc; margin: 15px 0; padding-top:10px;">
                 <h4 style="margin-top:0; color:#2A9689;"><i class="fas fa-tasks"></i> 你的課業狀態</h4>
-                <!-- 課業列表容器 -->
                 <div id="assignmentList" style="max-height: 250px; overflow-y:auto; padding-right:5px;">
                     載入中...
                 </div>
             </div>
+        </div>
+    </div>
+</div>
 
       
         </div>
