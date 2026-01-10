@@ -122,71 +122,48 @@ form-action 'self';
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 
-  async function smartInitOneSignal() {
-    
-    // =========================================================
-    // 步驟 1：暴力清除所有「非」此子目錄的 Worker
-    // =========================================================
-    if ('serviceWorker' in navigator) {
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        // 定義絕對正確的 Scope 網址
-        const correctScope = "https://kenchan20141.github.io/AIChinese/";
-
-        for (let registration of registrations) {
-          // 如果註冊的範圍不是我們指定的那個完整網址，一律移除
-          if (registration.scope !== correctScope) {
-            console.log('正在移除錯誤範圍的 Service Worker:', registration.scope);
-            await registration.unregister();
-          }
-        }
-      } catch (e) {
-        console.warn('清理舊 Worker 時發生錯誤 (可忽略):', e);
-      }
-    }
-
-    // =========================================================
-    // 步驟 2：使用「完整絕對網址」進行初始化
-    // =========================================================
+  window.addEventListener('load', async function() {
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // ★★★ 關鍵 1：路徑直接寫死完整網址 (含 https 和子目錄) ★★★
-          // 這告訴 SDK：所有資源都要去這個網址找，不要去根目錄！
+          // === 絕對路徑設定 (保持這個，因為它是對的) ===
           path: "https://kenchan20141.github.io/AIChinese/",
-          
-          // ★★★ 關鍵 2：明確指定檔案名稱 ★★★
           serviceWorkerPath: "OneSignalSDKWorker.js",
-          
-          // ★★★ 關鍵 3：強制鎖定 Scope 在子目錄 ★★★
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
-          notifyButton: { enable: true }
+          
+          // === 自動重新訂閱 (這行很重要) ===
+          // 這會讓它在初始化時，自動檢查並嘗試註冊 Worker
+          notifyButton: { enable: true } 
         });
         
-        console.log("OneSignal 初始化成功 (絕對網址版)！");
+        console.log("OneSignal V5 穩定版載入成功！");
 
-        // 重新補上標籤邏輯
+        // ★★★ 強制檢查：如果還沒註冊 Worker，現在註冊！ ★★★
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js', {
+                scope: '/AIChinese/'
+            }).then(function(registration) {
+                console.log('✅ Service Worker 手動補強註冊成功，範圍:', registration.scope);
+            }).catch(function(error) {
+                console.log('❌ Service Worker 註冊失敗:', error);
+            });
+        }
+
+        // 補上標籤
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            OneSignal.User.addTags({ 
-                grade: String(s.grade), 
-                class: String(s.class), 
-                userType: 'student' 
-            });
+            OneSignal.User.addTags({ grade: String(s.grade), class: String(s.class), userType: 'student' });
         }
 
       } catch (err) {
         console.error("OneSignal 初始化失敗:", err);
       }
     });
-  }
-
-  // 使用 window.onload 確保頁面資源載入完畢後才執行
-  window.addEventListener('load', smartInitOneSignal);
+  });
 </script>
 	
 <style>
