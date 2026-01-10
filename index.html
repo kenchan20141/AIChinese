@@ -4425,7 +4425,30 @@ select:focus, select:hover {
     #resultCanvasTitle { font-size: 1.1rem; }
 }
 
-	
+	/* === 新增：學生登出按鈕樣式 === */
+.logout-icon-btn {
+    background-color: #ef9a9a; /* 莫蘭迪淡紅色 */
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 10px; /* 與歡迎文字保持距離 */
+    font-size: 14px;
+    vertical-align: middle;
+}
+
+.logout-icon-btn:hover {
+    background-color: #e53935; /* 懸停時變深紅 */
+    transform: scale(1.15) rotate(90deg); /* 懸停時稍微旋轉放大 */
+    box-shadow: 0 4px 8px rgba(229, 57, 53, 0.3);
+}
 	
 </style>
 
@@ -12919,6 +12942,44 @@ async function handleSchoolLogin() {
     }
 }
 
+// === 新增：學生登出處理函式 ===
+async function handleStudentLogout() {
+    if (!confirm("確定要登出學生帳號嗎？\n(登出後下次需要重新輸入姓名驗證)")) {
+        return;
+    }
+
+    try {
+        // 1. Firebase 登出
+        await firebase.auth().signOut();
+    } catch (e) {
+        console.error("Firebase 登出錯誤 (可忽略):", e);
+    }
+
+    // 2. 清除本地學生資料
+    localStorage.removeItem('studentProfile');
+    
+    // 3. 清除相關的課業緩存 (這裡使用萬用字元清除該使用者的緩存較難，暫時清除當前頁面狀態即可)
+    // 若您有特定的緩存命名規則，可在這裡一併移除
+
+    // 4. UI 界面重置
+    document.getElementById('studentCloudPanel').style.display = 'none';
+    document.getElementById('studentIdentityForm').style.display = 'block';
+    
+    // 重置按鈕狀態
+    const loginBtn = document.querySelector('#studentIdentityForm button');
+    if (loginBtn) {
+        loginBtn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入';
+        loginBtn.disabled = false;
+    }
+
+    // 重置輸入框 (選擇性)
+    document.getElementById('studentNameInput').value = '';
+    
+    // 5. 提示訊息
+    alert("已成功登出！");
+}
+
+	
 // === 綁定並儲存學生資料到 Database ===
 async function bindStudentIdentity(grade, cls, number, name, email, uid) {
     // 路徑結構：students/年級/班級/姓名/profile
@@ -13549,13 +13610,18 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
         <div id="studentIdentityForm">
             
             <!-- 新增：標題與指引區塊 -->
-            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px dashed #b0bec5; padding-bottom: 15px;">
-                <h3 style="color: #546e7a; margin: 0 0 10px 0; font-size: 1.5em;">註冊帳號</h3>
-                <p style="color: #78909c; font-size: 0.95em; line-height: 1.6; margin: 0; background-color: #e8ecef; padding: 10px; border-radius: 8px; text-align: left;">
-    <i class="fas fa-info-circle"></i> <strong>指引：</strong><br>
-    請先輸入您的<strong>中文姓名</strong>，並選擇正確的<strong>年級、班別及班號</strong>，確認無誤後，再點擊下方的「學校帳號登入」按鈕。
-</p>
-            </div>
+       <div style="margin-bottom: 20px; border-bottom: 2px dashed #b0bec5; padding-bottom: 15px; text-align: center;">
+    <h3 style="color: #546e7a; margin: 0 0 15px 0; font-size: 1.5em;">註冊帳號</h3>
+    
+    <div style="background-color: #e8ecef; padding: 15px; border-radius: 8px; text-align: center; color: #78909c; font-size: 0.95em; line-height: 1.6;">
+        <div style="font-weight: bold; margin-bottom: 8px;">
+            <i class="fas fa-info-circle"></i> 指引：
+        </div>
+        <div style="text-align: left; margin-top: 5px;">
+            請先輸入您的<strong>中文姓名</strong>，並選擇正確的<strong>年級、班別及班號</strong>，確認無誤後，再點擊下方的「學校帳號登入」按鈕。
+        </div>
+    </div>
+</div>
 
             <!-- 新增：姓名輸入欄位 -->
             <label style="font-weight: bold; color: #455a64;">姓名：</label>
@@ -13597,16 +13663,26 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
             </div>
         </div>
 
-        <!-- 登入後顯示區域 (保持不變) -->
-        <div id="studentCloudPanel" style="display:none; margin-top:15px;">
-            <p id="welcomeText" style="font-weight:bold; color:#555; text-align:center; font-size:1.1em;"></p>
-            <div style="border-top: 1px dashed #ccc; margin: 15px 0; padding-top:10px;">
-                <h4 style="margin-top:0; color:#2A9689;"><i class="fas fa-tasks"></i> 你的課業狀態</h4>
-                <div id="assignmentList" style="max-height: 250px; overflow-y:auto; padding-right:5px;">
-                    載入中...
-                </div>
-            </div>
+       <!-- 登入後顯示區域 -->
+<div id="studentCloudPanel" style="display:none; margin-top:15px;">
+    
+    <!-- 修改處：將歡迎文字與登出按鈕放在同一個容器內 -->
+    <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
+        <p id="welcomeText" style="font-weight:bold; color:#555; font-size:1.1em; margin: 0;"></p>
+        
+        <!-- 新增：圖案設計的登出鍵 -->
+        <button class="logout-icon-btn" onclick="handleStudentLogout()" title="登出帳號">
+            <i class="fas fa-sign-out-alt"></i>
+        </button>
+    </div>
+
+    <div style="border-top: 1px dashed #ccc; margin: 15px 0; padding-top:10px;">
+        <h4 style="margin-top:0; color:#2A9689;"><i class="fas fa-tasks"></i> 你的課業狀態</h4>
+        <div id="assignmentList" style="max-height: 250px; overflow-y:auto; padding-right:5px;">
+            載入中...
         </div>
+    </div>
+</div>
     </div>
 </div>
 
