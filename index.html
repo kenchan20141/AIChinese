@@ -5023,8 +5023,9 @@ transform: scale(1.15);
 
 	// === 神思通知系統邏輯 ===
 
-// === 持久性通知系統 (支援同步刪除版) ===
+// === 持久性通知系統 (修正版：進入頁面即補發未讀通知) ===
 let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') || '[]');
+// 這些變數現在只用於判斷是否需要同步刪除，不再用於阻擋通知
 let isInitialAssignmentLoad = true;
 let isInitialSubmissionLoad = true;
 
@@ -5039,7 +5040,7 @@ function initNotificationListeners() {
         document.body.appendChild(div);
     }
 
-    // --- 1. 監聽新課業 (增加刪除偵測) ---
+    // --- 1. 監聽新課業 ---
     const assignmentPath = `assignments/${s.grade}/${s.class}`;
     database.ref(assignmentPath).on('value', (snapshot) => {
         const data = snapshot.val() || {};
@@ -5055,23 +5056,19 @@ function initNotificationListeners() {
             }
         });
         
-        // B. 處理新通知
-        if (isInitialAssignmentLoad) {
-            currentKeys.forEach(key => { if (!notifiedIds.includes(key)) notifiedIds.push(key); });
-            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
-            isInitialAssignmentLoad = false;
-            return; 
-        }
-
+        // B. 處理新通知 (修正點：移除 isInitialAssignmentLoad 的阻擋邏輯)
+        // 無論是剛進入頁面還是之後，只要 notifiedIds 裡沒有，就視為新通知
         currentKeys.forEach(key => {
             if (!notifiedIds.includes(key)) {
                 showSansiNotif('new', data[key].topic, key);
             }
         });
+
+        isInitialAssignmentLoad = false; // 標記初始載入完成
         updateNotifBadge();
     });
 
-    // --- 2. 監聽已發還課業 (增加刪除/撤回偵測) ---
+    // --- 2. 監聽已發還課業 ---
     database.ref('assignments_submissions').on('value', (snapshot) => {
         const allData = snapshot.val() || {};
         let validFeedbackIds = [];
@@ -5084,17 +5081,15 @@ function initNotificationListeners() {
                 const feedbackId = "fb_" + assignId + "_" + myWork.teacherFeedback.timestamp;
                 validFeedbackIds.push(feedbackId);
                 
-                if (isInitialSubmissionLoad) {
-                    if (!notifiedIds.includes(feedbackId)) notifiedIds.push(feedbackId);
-                } else {
-                    if (!notifiedIds.includes(feedbackId)) {
-                        showSansiNotif('returned', myWork.title || "課業", feedbackId);
-                    }
+                // (修正點：移除 isInitialSubmissionLoad 的 if/else 分流)
+                // 只要本地紀錄沒有這個評語 ID，就顯示通知
+                if (!notifiedIds.includes(feedbackId)) {
+                    showSansiNotif('returned', myWork.title || "課業", feedbackId);
                 }
             }
         });
 
-        // 處理撤回同步：如果老師取消發還評語或刪除課業，移除對應通知
+        // 處理撤回同步
         const activeReturnedNotifs = document.querySelectorAll('.sansi-notification[data-type="returned"]');
         activeReturnedNotifs.forEach(node => {
             const id = node.getAttribute('data-notif-id');
@@ -5104,10 +5099,7 @@ function initNotificationListeners() {
             }
         });
 
-        if (isInitialSubmissionLoad) {
-            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
-            isInitialSubmissionLoad = false;
-        }
+        isInitialSubmissionLoad = false; // 標記初始載入完成
         updateNotifBadge();
     });
 }
