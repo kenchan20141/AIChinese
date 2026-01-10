@@ -4,17 +4,18 @@
 
 <meta http-equiv="Content-Security-Policy" content="
 default-src 'self'; 
-script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com; 
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com; 
 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; 
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com https://*.googleusercontent.com;
 media-src 'self' https://youfulca.com https://*.streamable.com https://assets.mixkit.co https://taira-komori.net;
-connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications;
+connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications https://api.onesignal.com;
 frame-src 'self' https://streamable.com https://kenchan20141.pyscriptapps.com https://kenchan20141.github.io https://sansi.vercel.app https://lyricschi.vercel.app https://penpalchi.vercel.app https://litstudy.vercel.app https://621d05f47d591.site123.me https://script.google.com https://www.i2ocr.com https://*.firebaseapp.com https://onesignal.com;
 object-src 'none';
 base-uri 'self';
 form-action 'self';
 ">
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>神思</title>
@@ -121,27 +122,20 @@ form-action 'self';
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   OneSignalDeferred.push(async function(OneSignal) {
     await OneSignal.init({
-      appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815", // 您的神思 App ID
+      appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
       
-      // ★★★ 關鍵差異：因為您是 GitHub Pages，必須加這行 ★★★
-      // 如果這行沒加，Service Worker 會 404 導致離線失敗
-      // 請確認您的網址是否為 ...github.io/AIChinese/，是的話保留這行
-      path: "/AIChinese/", 
-      
-      notifyButton: {
-        enable: true, // 開啟右下角鈴鐺，讓學生訂閱
-      },
+      // ★★★ 關鍵：強制指定 Service Worker 範圍 ★★★
+      serviceWorkerParam: { scope: "/AIChinese/" },
+      serviceWorkerPath: "OneSignalSDKWorker.js",
+      path: "/AIChinese/",
+
+      notifyButton: { enable: true },
       allowLocalhostAsSecureOrigin: true,
     });
-    
-    // 初始化時，順便檢查是否已登入，如果是舊生自動補打標籤
+
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (s) {
-        OneSignal.User.addTags({
-            grade: s.grade,
-            class: s.class,
-            userType: 'student'
-        });
+        OneSignal.User.addTags({ grade: s.grade, class: s.class, userType: 'student' });
     }
   });
 </script>
@@ -5270,7 +5264,7 @@ function showRedBadge(show) {
 // 在頁面載入及登入成功後啟動
 document.addEventListener('DOMContentLoaded', () => {
     // 延遲一點點啟動，避開初次載入的數據洪流
-    setTimeout(initSansiNotifications, 2000);
+    setTimeout(initNotificationListeners, 2000);
 });
 
 // 修改你原有的 checkStudentLogin，在切換到雲端面板時清除紅點
@@ -14122,6 +14116,27 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
 </footer>
 
 <!-- === 大綱編輯懸浮視窗 (修正版) === -->
+<!-- === 大綱編輯懸浮視窗 (修正版) === -->
+<div id="outline-editor-modal" class="outline-modal-overlay">
+    <div class="outline-modal-content">
+        <h3 id="modal-title">編輯內容</h3>
+        
+        <!-- ★★★ 新增：懸浮視窗內的範文選擇器 (預設隱藏) ★★★ -->
+        <select id="modal-template-select" style="display: none; margin-bottom: 10px; padding: 8px; font-size: 16px; border: 1px solid #2A9689; border-radius: 5px; background-color: #f0fdfc;">
+            <option value="">指定範文</option>
+        </select>
+        <!-- ★★★ 新增結束 ★★★ -->
+
+        <textarea id="modal-textarea" rows="15"></textarea>
+        <div class="modal-buttons">
+            <button id="modal-ocr-btn" class="btn-action" style="background-color: #17a2b8;">OCR</button>
+            <button id="modal-save-btn" class="btn-action">輸入</button>
+        </div>
+        <button id="modal-close-btn" class="preview-close-btn" title="關閉">&times;</button>
+    </div>
+</div>
+	<!-- 煙花特效畫布 -->
+<canvas id="fireworksCanvas"></canvas>
 <!-- 學生雲端中心 (修訂版：加入姓名輸入與指引) -->
 <div id="studentCloudModal" class="books-modal">
     <div class="modal-content">
@@ -14253,6 +14268,8 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
         </div>
     </div>
 </div>
+
+	
 	
 
 </body>
