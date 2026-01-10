@@ -115,8 +115,36 @@ form-action 'self';
 </button>
 
 
-<!-- OneSignal SDK -->
+<!-- OneSignal SDK (參照參考代碼的寫法) -->
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script>
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+      appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815", // 您的神思 App ID
+      
+      // ★★★ 關鍵差異：因為您是 GitHub Pages，必須加這行 ★★★
+      // 如果這行沒加，Service Worker 會 404 導致離線失敗
+      // 請確認您的網址是否為 ...github.io/AIChinese/，是的話保留這行
+      path: "/AIChinese/", 
+      
+      notifyButton: {
+        enable: true, // 開啟右下角鈴鐺，讓學生訂閱
+      },
+      allowLocalhostAsSecureOrigin: true,
+    });
+    
+    // 初始化時，順便檢查是否已登入，如果是舊生自動補打標籤
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (s) {
+        OneSignal.User.addTags({
+            grade: s.grade,
+            class: s.class,
+            userType: 'student'
+        });
+    }
+  });
+</script>
 
 	
 <style>
@@ -13482,50 +13510,40 @@ async function bindStudentIdentity(grade, cls, number, name, email, uid) {
     const path = `students/${grade}/${cls}/${name}/profile`;
 
     try {
-        // 1. 背景寫入資料庫
+        // ... (Firebase 更新代碼保持不變) ...
         const updatePromise = database.ref(path).update({
-            name: name,
-            grade: grade,
-            class: cls,
-            number: number,
-            email: email,
-            uid: uid,
-            last_login: new Date().toLocaleString('zh-HK'),
-            status: 'active'
+            name: name, grade: grade, class: cls, number: number, email: email, uid: uid,
+            last_login: new Date().toLocaleString('zh-HK'), status: 'active'
         });
 
-       // 2. 建立本地資料物件
+        // 建立本地資料物件
         const profile = { grade, class: cls, number, name, email };
         localStorage.setItem('studentProfile', JSON.stringify(profile));
 
-        // ★★★ [新增] OneSignal 標籤設定 ★★★
-        // 當學生綁定身份時，自動將其分組到對應的年級和班別
+        // ★★★ [新增] OneSignal 標籤設定 (參考您的成功案例) ★★★
         if (window.OneSignalDeferred) {
             window.OneSignalDeferred.push(function(OneSignal) {
-                console.log("正在設定 OneSignal 標籤...");
+                // 這是分類的關鍵：給瀏覽器貼上 "4A" 的標籤
                 OneSignal.User.addTags({
                     grade: grade,
                     class: cls,
                     userType: 'student'
-                }).then(() => console.log("OneSignal 標籤設定完成"));
+                });
+                console.log("OneSignal 標籤已設定");
             });
         }
         // ★★★ [新增結束] ★★★
 
-        // 3. 直接更新 UI (不重新讀取資料庫，實現秒開)
+        // ... (原本的 UI 更新代碼) ...
         alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
-        
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         updateWelcomeMessage(profile);
         loadAssignments(grade, cls);
-
-        // 等待寫入完成 (非阻塞)
         await updatePromise;
 
     } catch (error) {
         console.error("資料庫寫入失敗:", error);
-        // 即使寫入失敗，本地已登入，讓學生先用
     }
 }
 	
