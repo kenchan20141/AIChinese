@@ -13656,88 +13656,59 @@ function finishLogin(grade, cls, number, name) {
 
 // === 讀取老師派發的課業 ===
 // === 修訂版 V5：讀取課業列表 (未繳交 -> 跳轉至歷史紀錄) ===
-// === 極速版 V6：並行讀取課業列表 (解決載入過慢問題) ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // 定義緩存 Key (每個學生獨立緩存)
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // --- 步驟 1: 嘗試讀取緩存 (實現秒開) ---
+    // 1. 優先顯示本地緩存 (秒開)
     const cachedData = localStorage.getItem(cacheKey);
-    let hasCache = false;
-
     if (cachedData) {
-        try {
-            const parsedCache = JSON.parse(cachedData);
-            if (parsedCache && parsedCache.length > 0) {
-                console.log("已載入本地緩存，顯示舊資料...");
-                // 渲染緩存資料，並加上一個「正在同步」的小提示
-                renderAssignmentList(parsedCache, true); 
-                hasCache = true;
-            }
-        } catch (e) {
-            console.error("緩存解析失敗", e);
-        }
+        renderAssignmentList(JSON.parse(cachedData), true);
+    } else {
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
-    // 如果沒有緩存，才顯示 Loading 轉圈圈
-    if (!hasCache) {
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#888;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
-    }
-
-    // --- 步驟 2: 背景網絡請求 (檢查更新) ---
     try {
-        const assignmentsSnap = await database.ref(`assignments/${grade}/${cls}`).once('value');
+        // 2. [優化重點] 並行抓取：課業清單 + 學生所有提交紀錄
+        // 不要一項一項抓，改為抓取整個 submissions 分支
+        const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
+            database.ref(`assignments/${grade}/${cls}`).once('value'),
+            database.ref(`assignments_submissions`).once('value') // 一次性抓取
+        ]);
+
         const assignmentsData = assignmentsSnap.val();
+        const allSubmissionsData = allSubmissionsSnap.val() || {};
 
         if (!assignmentsData) {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#999;"><i class="far fa-smile"></i> 目前沒有新課業</div>';
-            localStorage.removeItem(cacheKey); // 清空緩存
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
             return;
         }
 
+        // 3. 在本地記憶體比對，不發起額外請求
         const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
-
-        // 並行請求學生提交狀態
-        const fetchPromises = tasksArray.map(async ([key, task]) => {
-            const submitSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
-            return {
-                key: key,
-                task: task,
-                submission: submitSnap.val()
-            };
+        const results = tasksArray.map(([key, task]) => {
+            // 從剛才抓到的大物件中直接找該學生的資料
+            const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
+            return { key, task, submission };
         });
 
-        const results = await Promise.all(fetchPromises);
-
-        // --- 步驟 3: 比對與更新 ---
-        // 將新資料存入緩存
+        // 4. 更新緩存並渲染
         const newCacheStr = JSON.stringify(results);
-        
-        // 如果新資料跟緩存不一樣 (或者原本沒緩存)，才刷新畫面
         if (newCacheStr !== cachedData) {
-            console.log("偵測到雲端資料更新，刷新介面...");
-            localStorage.setItem(cacheKey, newCacheStr); // 更新緩存
-            renderAssignmentList(results, false); // 渲染新資料 (移除同步提示)
-        } else {
-            console.log("雲端資料無變化，保持原狀。");
-            // 雖然資料沒變，但我們要移除「正在同步...」的提示 (如果有的話)
-            // 簡單的方法是重新渲染一次，或者透過 DOM 操作移除提示元素
-            if (hasCache) renderAssignmentList(results, false); 
+            localStorage.setItem(cacheKey, newCacheStr);
+            renderAssignmentList(results, false);
         }
 
     } catch (error) {
-        console.error("雲端同步失敗", error);
-        // 如果有緩存，就保持顯示緩存，只提示連線錯誤
-        if (!hasCache) {
-            listDiv.innerHTML = '<p style="color:red; text-align:center;">連線錯誤，無法載入。</p>';
-        }
+        console.error("載入失敗", error);
     }
 }
 
+
+	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
