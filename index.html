@@ -123,45 +123,41 @@ form-action 'self';
   
   // 定義智能啟動函式
   async function smartInitOneSignal() {
-    // 1. 強制清理註冊在錯誤路徑(根目錄)的 Worker
+    // 1. 強力清除所有已註冊的 Service Worker (避免舊的根目錄 Worker 干擾)
     if ('serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (let registration of registrations) {
-          // 如果 Worker 的作用範圍不是在 /AIChinese/ 下，就移除它
-          if (!registration.scope.includes("/AIChinese/")) {
-            console.log('移除錯誤路徑的 Worker:', registration.scope);
-            await registration.unregister();
-          }
+          // 無論是哪個 Scope，只要是這個網域的，為了修復錯誤先全部註銷
+          console.log('正在強制移除舊 Worker:', registration.scope);
+          await registration.unregister();
         }
       } catch (e) {
-        console.warn('清理舊 Worker 時發生輕微錯誤:', e);
+        console.warn('清理舊 Worker 時發生錯誤:', e);
       }
     }
 
-    // 2. 初始化 OneSignal
+    // 2. 初始化 OneSignal (使用完整網址)
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // ★★★ 關鍵修正：指定 SDK 檔案的基礎目錄 ★★★
+          // ★★★ 關鍵修正 1：使用完整網址，杜絕路徑解析錯誤 ★★★
+          serviceWorkerPath: "https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js",
+
+          // ★★★ 關鍵修正 2：明確指定 SDK 資源目錄 ★★★
           path: "/AIChinese/",
 
-          // ★★★ 關鍵修正：明確指定 Worker 檔案的完整路徑 ★★★
-          // 這告訴瀏覽器去 /AIChinese/ 資料夾找檔案，而不是去根目錄找
-          serviceWorkerPath: "/AIChinese/OneSignalSDKWorker.js",
-
-          // ★★★ 關鍵修正：限制 Worker 的作用範圍在子目錄 ★★★
+          // ★★★ 關鍵修正 3：鎖定 Scope 在子目錄 (這非常重要) ★★★
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: true }
         });
         
-        console.log("OneSignal 初始化成功！(路徑修正版)");
+        console.log("OneSignal 初始化成功 (完整路徑版)！");
 
-        // 補上標籤邏輯
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
             OneSignal.User.addTags({ grade: s.grade, class: s.class, userType: 'student' });
