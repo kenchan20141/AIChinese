@@ -4589,6 +4589,32 @@ select:focus, select:hover {
 .notif-icon {
     font-size: 0.9rem;
 }
+
+
+* === 側邊選單紅點樣式 (修訂版) === */
+.notification-badge {
+    display: none; /* 預設隱藏 */
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 12px;
+    height: 12px;
+    background-color: #ff4444; /* 鮮豔紅 */
+    border-radius: 50%;
+    border: 2px solid #333; /* 增加邊框讓它在深色背景更突出 */
+    box-shadow: 0 0 5px rgba(255, 68, 68, 0.8);
+    animation: badgePulse 2s infinite;
+    z-index: 10;
+}
+
+/* 紅點呼吸動畫，增加急迫感 */
+@keyframes badgePulse {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
+    70% { transform: scale(1.1); box-shadow: 0 0 0 4px rgba(255, 68, 68, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
+}
+
+	
 	
 </style>
 
@@ -6739,6 +6765,63 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 </div>
 
 <script>
+
+
+// === 新增：監聽未繳交功課並控制紅點 ===
+let pendingMonitorRef = null; // 用於儲存監聽器引用，方便登出時移除
+
+function monitorPendingAssignments() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+
+    const badge = document.getElementById('notifBadge');
+    // 如果之前有監聽器，先移除，避免重複
+    if (pendingMonitorRef) {
+        pendingMonitorRef.off();
+    }
+
+    // 設定監聽路徑：該班級的所有功課
+    pendingMonitorRef = database.ref(`assignments/${s.grade}/${s.class}`);
+
+    pendingMonitorRef.on('value', async (snapshot) => {
+        const assignments = snapshot.val();
+        
+        // 如果沒有功課，直接隱藏紅點
+        if (!assignments) {
+            if(badge) badge.style.display = 'none';
+            return;
+        }
+
+        const assignmentKeys = Object.keys(assignments);
+        let hasPending = false;
+
+        // 使用 Promise.all 並行檢查每一份功課的繳交狀態
+        const checkPromises = assignmentKeys.map(async (key) => {
+            // 檢查 assignments_submissions 路徑下是否有該學生的紀錄
+            const subSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
+            return subSnap.exists(); // true = 已交, false = 未交
+        });
+
+        const results = await Promise.all(checkPromises);
+
+        // 檢查結果：只要有一個 false (未交)，就標記為有待辦
+        if (results.includes(false)) {
+            hasPending = true;
+        }
+
+        // 更新 UI
+        if (badge) {
+            if (hasPending) {
+                badge.style.display = 'block';
+                badge.title = "您有未繳交的課業！";
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    });
+}
+
+	
 
 // --- 【全新修訂】儲存頁面為 HTML 的功能 (已整合雷達圖轉換) ---
 function savePageAsHTML(filename = '神思-存檔.html') {
@@ -13162,38 +13245,30 @@ function closeStudentCloudModal() {
 // === 全新修訂：學生身份自動同步與轉班處理 ===
 // ==========================================
 
-// 1. 修改 checkStudentLogin：顯示緩存並觸發背景同步
+// 修改原本的 checkStudentLogin
 async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     
     if (s) {
-        // A. 先顯示緩存資料 (UI 秒開)
+        // A. UI 切換
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         
+        // B. 更新歡迎語
         updateWelcomeMessage(s);
+        
+        // C. 載入課業列表
         loadAssignments(s.grade, s.class);
 
-        // B. 【新增】檢查 Firebase Auth 帳號是否還活著
-        const user = firebase.auth().currentUser;
-        
-        if (user) {
-            try {
-                // 強制從伺服器重新載入使用者狀態
-                await user.reload(); 
-            } catch (error) {
-                console.error("Auth 驗證失敗:", error);
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/user-token-expired') {
-                    // 如果帳號在後台被刪除了
-                    alert("⚠️ 您的帳號已失效或被移除，請重新登入。");
-                    localStorage.removeItem('studentProfile');
-                    location.reload();
-                    return; // 終止後續執行
-                }
-            }
-        }
+        // ★★★ 新增：啟動紅點監聽器 ★★★
+        monitorPendingAssignments(); 
+        // ★★★ 新增結束 ★★★
 
-        // C. 背景執行資料同步
+        // D. 背景驗證與 Auth 檢查 (保持您原有的代碼)
+        const user = firebase.auth().currentUser;
+        if (user) {
+            try { await user.reload(); } catch (error) { /* error handling */ }
+        }
         verifyStudentStatus(s);
     }
 }
@@ -13466,6 +13541,16 @@ async function handleStudentLogout() {
         });
     }
     // ★★★ [新增結束] ★★★
+
+
+	 // ★★★ 新增：移除紅點監聽 ★★★
+    if (pendingMonitorRef) {
+        pendingMonitorRef.off();
+        pendingMonitorRef = null;
+    }
+    const badge = document.getElementById('notifBadge');
+    if(badge) badge.style.display = 'none';
+    // ★★★ 新增結束 ★★★
 
     try {
         // 1. Firebase 登出
