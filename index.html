@@ -8389,16 +8389,27 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
             explanationHTML += `</div></div>`;
         }
 
-        openResultCanvas("議論文大綱建議");
-const resultContainer = document.getElementById("resultCanvasBody");
-resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
+       openResultCanvas("議論文大綱建議");
+        const resultContainer = document.getElementById("resultCanvasBody");
+        const fullAiResultHtml = commentTableHTML + rewriteTableHTML + explanationHTML;
+        resultContainer.innerHTML = fullAiResultHtml;
         resultContainer.style.width = "100%";
-        resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
         
         document.getElementById('save-argument-outline-html-btn').style.display = 'flex'; 
         
+        // ★★★ 修正開始：簡化歷史紀錄的輸入內容 ★★★
+        // 因為右邊的點評表格已經有完整的「論點」和「論據」，這裡只存題目即可，避免重複
+        let userInputHistoryStr = `題目：${topic}`;
+
         // 儲存到歷史紀錄
-        saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, document.getElementById("argumentOutlineResult").innerHTML);
+        saveToHistory(
+            "議論", 
+            "大綱點評", 
+            topic, 
+            userInputHistoryStr, // 現在只存題目
+            fullAiResultHtml     // AI 結果畫布 (內含完整的輸入+點評表格)
+        );
+        // ★★★ 修正結束 ★★★
 
     } catch (error) {
         console.error("提交議論大綱時出錯:", error);
@@ -9376,7 +9387,7 @@ async function submitWriting() {
             // (大綱和敘事物象的邏輯不變)
              if (writingType === "大綱") {
                 const toneNoteForOutline = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
-              const structure = document.getElementById("structure").value;
+                const structure = document.getElementById("structure").value;
                 const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
                 content = parts.map((part, index) => {
                     const focusId = structure + "Focus" + (index + 1);
@@ -9400,14 +9411,27 @@ async function submitWriting() {
 ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\n")}
 教學筆記：${note}
 點評及建議語氣：${toneNoteForOutline}`;
-                 showLoading("陳SIR 正在點評..."); // 改用全屏漏斗動畫
-const response = await callAPI(prompt, 0);
-               displayOutlineComment(response, content);
+                
+                showLoading("陳SIR 正在點評..."); 
+                const response = await callAPI(prompt, 0);
+                displayOutlineComment(response, content);
 
-                // ★★★ 修正：將結構代碼 (fourPart) 轉為中文 (起承轉合) ★★★
+                // ★★★ 修正開始：簡化歷史紀錄的輸入內容 ★★★
                 const structureName = structure === "fourPart" ? "起承轉合" : "三線";
-                saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}\n結構：${structureName}`, document.getElementById("commentResult").innerHTML);
-// 大綱通常沒有 Canvas，直接存 innerHTML 即可，或者用 captureContainerHTML('commentResult') 也可以
+                
+                // 既然結果表格已包含大綱細節，這裡只記錄題目和結構名稱，保持簡潔
+                let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
+
+                // 儲存
+                saveToHistory(
+                    "敘事抒情", 
+                    "大綱點評", 
+                    topic, 
+                    userContentForHistory, // 這裡現在只有題目和結構
+                    document.getElementById("resultCanvasBody").innerHTML // AI 結果畫布 (內含完整的輸入+點評表格)
+                );
+                // ★★★ 修正結束 ★★★
+                // ★★★ 修正結束 ★★★
             } else { // 敘事物象
                 content = document.getElementById("narrativeElements").value.trim();
                 const note = categories["敘事物象"].commentNote;
