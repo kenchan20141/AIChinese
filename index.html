@@ -4,7 +4,7 @@
 
 <meta http-equiv="Content-Security-Policy" content="
 default-src 'self'; 
-script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com; 
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com;
 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; 
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com https://*.googleusercontent.com;
@@ -119,50 +119,49 @@ form-action 'self';
 <!-- OneSignal SDK -->
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <script>
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  
   // 定義智能啟動函式
   async function smartInitOneSignal() {
-    // 步驟 1: 強制清理所有舊的 Service Worker，避免路徑衝突
+    // 1. 強制清理註冊在錯誤路徑(根目錄)的 Worker
     if ('serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (let registration of registrations) {
-          // 只要不是我們目前需要的正確 scope，就全部移除，防止干擾
-          if (registration.scope !== window.location.origin + "/AIChinese/") {
-            console.log('正在移除舊的或錯誤路徑的 Worker:', registration.scope);
+          // 如果 Worker 的作用範圍不是在 /AIChinese/ 下，就移除它
+          if (!registration.scope.includes("/AIChinese/")) {
+            console.log('移除錯誤路徑的 Worker:', registration.scope);
             await registration.unregister();
           }
         }
       } catch (e) {
-        console.warn('清理 Worker 時發生微小錯誤 (可忽略):', e);
+        console.warn('清理舊 Worker 時發生輕微錯誤:', e);
       }
     }
 
-    // 步驟 2: 使用正確路徑初始化
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    // 2. 初始化 OneSignal
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // ★★★ 修正：告訴 SDK 允許在子目錄運行 ★★★
-          allowLocalhostAsSecureOrigin: true,
-
-          // ★★★ 關鍵修正 1：明確指定 Worker 檔案的【絕對路徑】 ★★★
-          // 注意開頭加上斜線 /，確保瀏覽器從根網域下的子目錄尋找
-          serviceWorkerPath: "/AIChinese/OneSignalSDKWorker.js",
-
-          // ★★★ 關鍵修正 2：指定 SDK 資源的基礎路徑 ★★★
+          // ★★★ 關鍵修正：指定 SDK 檔案的基礎目錄 ★★★
           path: "/AIChinese/",
 
-          // ★★★ 關鍵修正 3：嚴格限制作用範圍 ★★★
+          // ★★★ 關鍵修正：明確指定 Worker 檔案的完整路徑 ★★★
+          // 這告訴瀏覽器去 /AIChinese/ 資料夾找檔案，而不是去根目錄找
+          serviceWorkerPath: "/AIChinese/OneSignalSDKWorker.js",
+
+          // ★★★ 關鍵修正：限制 Worker 的作用範圍在子目錄 ★★★
           serviceWorkerParam: { scope: "/AIChinese/" },
 
-          notifyButton: { enable: true },
+          allowLocalhostAsSecureOrigin: true,
+          notifyButton: { enable: true }
         });
         
-        console.log("OneSignal 修正並初始化成功！");
+        console.log("OneSignal 初始化成功！(路徑修正版)");
 
-        // 重新補上標籤邏輯
+        // 補上標籤邏輯
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
             OneSignal.User.addTags({ grade: s.grade, class: s.class, userType: 'student' });
@@ -174,7 +173,6 @@ form-action 'self';
     });
   }
 
-  // 執行智能啟動
   smartInitOneSignal();
 </script>
 	
