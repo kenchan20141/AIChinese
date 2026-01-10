@@ -122,34 +122,36 @@ form-action 'self';
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 
-  window.addEventListener('load', async function() {
+  // 定義初始化函式
+  function fastInitOneSignal() {
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // === 絕對路徑設定 (保持這個，因為它是對的) ===
+          // 絕對路徑設定 (這是最穩的)
           path: "https://kenchan20141.github.io/AIChinese/",
           serviceWorkerPath: "OneSignalSDKWorker.js",
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
-          
-          // === 自動重新訂閱 (這行很重要) ===
-          // 這會讓它在初始化時，自動檢查並嘗試註冊 Worker
-          notifyButton: { enable: true } 
+          // 關閉自動搖鈴，改由下方程式碼強制控制
+          notifyButton: { enable: false } 
         });
         
-        console.log("OneSignal V5 穩定版載入成功！");
+        console.log("OneSignal 初始化完成 (極速版)！");
 
-        // ★★★ 強制檢查：如果還沒註冊 Worker，現在註冊！ ★★★
+        // ★★★ 關鍵修改：不等了，直接強制彈出視窗！ ★★★
+        // 檢查是否已訂閱，如果還沒，立刻彈出
+        if (!OneSignal.User.PushSubscription.optedIn) {
+            console.log("尚未訂閱，強制彈出視窗...");
+            OneSignal.User.PushSubscription.optIn();
+        }
+
+        // 手動補強註冊 Service Worker (確保背景通知能用)
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js', {
                 scope: '/AIChinese/'
-            }).then(function(registration) {
-                console.log('✅ Service Worker 手動補強註冊成功，範圍:', registration.scope);
-            }).catch(function(error) {
-                console.log('❌ Service Worker 註冊失敗:', error);
             });
         }
 
@@ -163,7 +165,10 @@ form-action 'self';
         console.error("OneSignal 初始化失敗:", err);
       }
     });
-  });
+  }
+
+  // ★★★ 關鍵修改：不使用 'load' 事件，直接執行！ ★★★
+  fastInitOneSignal();
 </script>
 	
 <style>
