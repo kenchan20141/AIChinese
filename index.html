@@ -4449,6 +4449,102 @@ select:focus, select:hover {
     transform: scale(1.15) rotate(90deg); /* 懸停時稍微旋轉放大 */
     box-shadow: 0 4px 8px rgba(229, 57, 53, 0.3);
 }
+
+	/* === 通知系統 UI === */
+.sansi-notification-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 30005;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+}
+
+.sansi-notification {
+    pointer-events: auto;
+    width: 300px;
+    background-color: #fdfcf8;
+    border: 1px solid #e0ddd7;
+    border-radius: 8px;
+    padding: 15px 15px 15px 45px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    animation: notificationSlideIn 0.5s ease-out forwards;
+    
+    /* 打洞效果 */
+    background-image: 
+        radial-gradient(circle at 18px 50%, #d1cdc5 5px, transparent 6px);
+    background-size: 100% 30px;
+    background-repeat: repeat-y;
+    background-position: 0 10px;
+}
+
+@keyframes notificationSlideIn {
+    from { opacity: 0; transform: translateX(100px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.sansi-notification.fade-out {
+    opacity: 0;
+    transform: translateX(50px);
+}
+
+.sansi-notification::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+}
+
+/* 新課業：豆沙紅 */
+.notif-new-task::before { background-color: #d69a92; }
+.notif-new-task i { color: #d69a92; }
+
+/* 已批改：香芋紫 */
+.notif-returned::before { background-color: #b6a6ca; }
+.notif-returned i { color: #b6a6ca; }
+
+.notif-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.notif-title {
+    font-family: 'Noto Serif TC', serif;
+    font-weight: bold;
+    font-size: 1rem;
+    color: #444;
+}
+
+.notif-desc {
+    font-size: 0.85rem;
+    color: #888;
+}
+
+/* 側邊選單紅點提示 */
+#sideMenuCloudBtn {
+    position: relative;
+}
+
+.notification-badge {
+    position: absolute;
+    top: 5px;
+    right: 15px;
+    width: 10px;
+    height: 10px;
+    background-color: #ff5252;
+    border: 2px solid #1e1e1e;
+    border-radius: 50%;
+    display: none; /* 預設隱藏 */
+}
 	
 </style>
 
@@ -4907,6 +5003,149 @@ transform: scale(1.15);
 
 
 <script>
+
+	// === 神思通知系統邏輯 ===
+
+let lastAssignmentCount = null;
+let monitoredReturnedKeys = new Set();
+
+// 初始化通知監聽
+function initSansiNotifications() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+
+    // 1. 建立通知容器
+    if (!document.getElementById('notifContainer')) {
+        const container = document.createElement('div');
+        container.id = 'notifContainer';
+        container.className = 'sansi-notification-container';
+        document.body.appendChild(container);
+    }
+
+    // 2. 監聽新課業 (根據班級路徑)
+    const assignmentPath = `assignments/${s.grade}/${s.class}`;
+    database.ref(assignmentPath).on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+        
+        const count = Object.keys(data).length;
+        
+        // 第一次載入時僅記錄數量，不彈出
+        if (lastAssignmentCount === null) {
+            lastAssignmentCount = count;
+            return;
+        }
+
+        // 當數量增加時，找出最新的一個
+        if (count > lastAssignmentCount) {
+            const latestTask = Object.values(data).sort((a, b) => b.timestamp - a.timestamp)[0];
+            showSansiNotification('new-task', latestTask.topic);
+            showRedBadge(true);
+        }
+        lastAssignmentCount = count;
+    });
+
+    // 3. 監聽已發還課業
+    // 我們需要檢查 assignments_submissions 下所有屬於該學生的回饋
+    database.ref('assignments_submissions').on('value', (snapshot) => {
+        const allSubmissions = snapshot.val();
+        if (!allSubmissions) return;
+
+        let hasNewReturn = false;
+
+        Object.keys(allSubmissions).forEach(taskKey => {
+            const studentWork = allSubmissions[taskKey][s.name];
+            if (studentWork && studentWork.teacherFeedback && studentWork.teacherFeedback.status === 'returned') {
+                // 使用 taskKey + 批改時間作為唯一標識，防止重複通知
+                const feedbackId = taskKey + "_" + (studentWork.teacherFeedback.timestamp || '');
+                
+                // 如果這個批改還沒被通知過，且是最近產生的（例如 1 小時內）
+                if (!monitoredReturnedKeys.has(feedbackId)) {
+                    const feedbackTime = studentWork.teacherFeedback.timestamp || 0;
+                    const oneHourAgo = Date.now() - 3600000;
+                    
+                    if (feedbackTime > oneHourAgo) {
+                        showSansiNotification('returned', studentWork.title || "課業");
+                        hasNewReturn = true;
+                    }
+                    monitoredReturnedKeys.add(feedbackId);
+                }
+            }
+        });
+
+        if (hasNewReturn) showRedBadge(true);
+    });
+}
+
+/**
+ * 顯示通知彈窗
+ * @param {string} type - 'new-task' 或 'returned'
+ * @param {string} title - 課業題目
+ */
+function showSansiNotification(type, title) {
+    const container = document.getElementById('notifContainer');
+    const notif = document.createElement('div');
+    
+    const isNewTask = type === 'new-task';
+    notif.className = `sansi-notification ${isNewTask ? 'notif-new-task' : 'notif-returned'}`;
+    
+    const icon = isNewTask ? 'fa-file-signature' : 'fa-clipboard-check';
+    const headText = isNewTask ? '新課業發佈' : '課業已批改';
+    const subText = isNewTask ? '點擊前往查看題目' : '老師已發還評語';
+
+    notif.innerHTML = `
+        <div class="notif-content">
+            <div class="notif-title"><i class="fas ${icon}"></i> ${headText}</div>
+            <div style="font-size:0.9rem; color:#555; margin:2px 0;">${title}</div>
+            <div class="notif-desc">${subText}</div>
+        </div>
+    `;
+
+    // 點擊通知直接打開雲端中心
+    notif.onclick = () => {
+        notif.classList.add('fade-out');
+        setTimeout(() => notif.remove(), 300);
+        openStudentLoginModal(); 
+        showRedBadge(false);
+    };
+
+    container.appendChild(notif);
+
+    // 8秒後自動消失
+    setTimeout(() => {
+        if (notif.parentNode) {
+            notif.classList.add('fade-out');
+            setTimeout(() => notif.remove(), 300);
+        }
+    }, 8000);
+}
+
+// 顯示或隱藏側邊選單紅點
+function showRedBadge(show) {
+    const cloudBtn = document.getElementById('sideMenuCloudBtn');
+    if (!cloudBtn) return;
+
+    let badge = cloudBtn.querySelector('.notification-badge');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'notification-badge';
+        cloudBtn.appendChild(badge);
+    }
+    badge.style.display = show ? 'block' : 'none';
+}
+
+// 在頁面載入及登入成功後啟動
+document.addEventListener('DOMContentLoaded', () => {
+    // 延遲一點點啟動，避開初次載入的數據洪流
+    setTimeout(initSansiNotifications, 2000);
+});
+
+// 修改你原有的 checkStudentLogin，在切換到雲端面板時清除紅點
+const originalCheckLogin = window.checkStudentLogin;
+window.checkStudentLogin = async function() {
+    await originalCheckLogin();
+    showRedBadge(false); // 打開雲端中心就視為已讀
+};
 
 	// 打開結果畫布
 function openResultCanvas(title) {
