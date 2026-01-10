@@ -122,40 +122,45 @@ form-action 'self';
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 
-  // 定義初始化函式
-  function fastInitOneSignal() {
+  // V7: 加入時間戳記，強制瀏覽器抓新檔案
+  const cacheBuster = "?v=" + new Date().getTime(); 
+
+  window.addEventListener('load', async function() {
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // 絕對路徑設定 (這是最穩的)
+          // 絕對路徑
           path: "https://kenchan20141.github.io/AIChinese/",
-          serviceWorkerPath: "OneSignalSDKWorker.js",
+          
+          // ★★★ 關鍵修改：檔名後面加上亂數參數 ★★★
+          // 這會強迫瀏覽器重新下載檔案，不再用舊的緩存
+          serviceWorkerPath: "OneSignalSDKWorker.js" + cacheBuster,
+          
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
-          // 關閉自動搖鈴，改由下方程式碼強制控制
           notifyButton: { enable: false } 
         });
         
-        console.log("OneSignal 初始化完成 (極速版)！");
+        console.log("OneSignal 初始化成功 (強制更新版)！");
 
-        // ★★★ 關鍵修改：不等了，直接強制彈出視窗！ ★★★
-        // 檢查是否已訂閱，如果還沒，立刻彈出
-        if (!OneSignal.User.PushSubscription.optedIn) {
-            console.log("尚未訂閱，強制彈出視窗...");
-            OneSignal.User.PushSubscription.optIn();
+        // 強制檢查與補強註冊
+        if (OneSignal.User.PushSubscription.optedIn) {
+             console.log("用戶已訂閱，檢查 Worker 狀態...");
+             if ('serviceWorker' in navigator) {
+                // 同樣加上版本號
+                navigator.serviceWorker.register('https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js' + cacheBuster, {
+                    scope: '/AIChinese/'
+                }).then(reg => {
+                    console.log('✅ 新版 Worker 強制覆蓋成功:', reg);
+                });
+             }
+        } else {
+             OneSignal.User.PushSubscription.optIn();
         }
 
-        // 手動補強註冊 Service Worker (確保背景通知能用)
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js', {
-                scope: '/AIChinese/'
-            });
-        }
-
-        // 補上標籤
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
             OneSignal.User.addTags({ grade: String(s.grade), class: String(s.class), userType: 'student' });
@@ -165,10 +170,7 @@ form-action 'self';
         console.error("OneSignal 初始化失敗:", err);
       }
     });
-  }
-
-  // ★★★ 關鍵修改：不使用 'load' 事件，直接執行！ ★★★
-  fastInitOneSignal();
+  });
 </script>
 	
 <style>
