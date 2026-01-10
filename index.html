@@ -4590,30 +4590,37 @@ select:focus, select:hover {
     font-size: 0.9rem;
 }
 
+/* === 雲端按鈕與紅點樣式修正 === */
 
-* === 側邊選單紅點樣式 (修訂版) === */
+/* 1. 確保按鈕本身是相對定位，讓紅點可以依附在它右上角 */
+#sideMenuCloudBtn {
+    position: relative !important; 
+    overflow: visible !important; /* 確保紅點不會被切掉 */
+}
+
+/* 2. 紅點樣式 (呼吸燈效果) */
 .notification-badge {
-    display: none; /* 預設隱藏 */
+    display: none; /* 預設隱藏，由 JS 控制顯示 */
     position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 12px;
-    height: 12px;
+    top: 5px;          /* 距離頂部 */
+    right: 5px;        /* 距離右邊 */
+    width: 10px;
+    height: 10px;
     background-color: #ff4444; /* 鮮豔紅 */
     border-radius: 50%;
-    border: 2px solid #333; /* 增加邊框讓它在深色背景更突出 */
+    border: 2px solid #333;    /* 與深色背景區隔的邊框 */
     box-shadow: 0 0 5px rgba(255, 68, 68, 0.8);
+    z-index: 100;
+    pointer-events: none;      /* 讓紅點不影響點擊 */
     animation: badgePulse 2s infinite;
-    z-index: 10;
 }
 
-/* 紅點呼吸動畫，增加急迫感 */
+/* 紅點呼吸動畫 */
 @keyframes badgePulse {
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
-    70% { transform: scale(1.1); box-shadow: 0 0 0 4px rgba(255, 68, 68, 0); }
+    70% { transform: scale(1.2); box-shadow: 0 0 0 4px rgba(255, 68, 68, 0); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
 }
-
 	
 	
 </style>
@@ -6767,28 +6774,30 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 <script>
 
 
-// === 新增：監聽未繳交功課並控制紅點 ===
-let pendingMonitorRef = null; // 用於儲存監聽器引用，方便登出時移除
+// === 監聽未繳交功課並控制紅點 (核心邏輯) ===
+let pendingMonitorRef = null; // 用於儲存監聽器，方便登出時移除
 
 function monitorPendingAssignments() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return;
-
     const badge = document.getElementById('notifBadge');
-    // 如果之前有監聽器，先移除，避免重複
+    
+    // 如果沒有登入資料或找不到紅點元素，直接退出
+    if (!s || !badge) return;
+
+    // 如果之前有監聽器，先移除，避免重複疊加
     if (pendingMonitorRef) {
         pendingMonitorRef.off();
     }
 
-    // 設定監聽路徑：該班級的所有功課
+    // 設定監聽路徑：該年級班別的所有功課
     pendingMonitorRef = database.ref(`assignments/${s.grade}/${s.class}`);
 
     pendingMonitorRef.on('value', async (snapshot) => {
         const assignments = snapshot.val();
         
-        // 如果沒有功課，直接隱藏紅點
+        // 如果老師根本沒派發過功課，隱藏紅點
         if (!assignments) {
-            if(badge) badge.style.display = 'none';
+            badge.style.display = 'none';
             return;
         }
 
@@ -6799,28 +6808,27 @@ function monitorPendingAssignments() {
         const checkPromises = assignmentKeys.map(async (key) => {
             // 檢查 assignments_submissions 路徑下是否有該學生的紀錄
             const subSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
-            return subSnap.exists(); // true = 已交, false = 未交
+            
+            // 如果 subSnap.exists() 為 false，代表還沒交
+            return subSnap.exists(); 
         });
 
         const results = await Promise.all(checkPromises);
 
-        // 檢查結果：只要有一個 false (未交)，就標記為有待辦
+        // 檢查結果：只要結果陣列中有任何一個 false (未交)，就標記為有待辦
         if (results.includes(false)) {
             hasPending = true;
         }
 
         // 更新 UI
-        if (badge) {
-            if (hasPending) {
-                badge.style.display = 'block';
-                badge.title = "您有未繳交的課業！";
-            } else {
-                badge.style.display = 'none';
-            }
+        if (hasPending) {
+            badge.style.display = 'block';
+            badge.title = "您有未繳交的課業！"; // 滑鼠懸停提示
+        } else {
+            badge.style.display = 'none';
         }
     });
 }
-
 	
 
 // --- 【全新修訂】儲存頁面為 HTML 的功能 (已整合雷達圖轉換) ---
@@ -13260,9 +13268,8 @@ async function checkStudentLogin() {
         // C. 載入課業列表
         loadAssignments(s.grade, s.class);
 
-        // ★★★ 新增：啟動紅點監聽器 ★★★
+		 // ★★★ 加入這行：啟動紅點監聽器 ★★★
         monitorPendingAssignments(); 
-        // ★★★ 新增結束 ★★★
 
         // D. 背景驗證與 Auth 檢查 (保持您原有的代碼)
         const user = firebase.auth().currentUser;
@@ -13326,6 +13333,14 @@ async function verifyStudentStatus(localProfile) {
         // 當你在 Authentication 刪除帳號，Firebase 規則通常會拒絕讀取 (PERMISSION_DENIED)
         if (error.code === 'PERMISSION_DENIED' || error.message.includes('permission_denied')) {
             alert("⚠️ 您的帳號權限已失效（可能已被移除），將自動登出。");
+
+			 // ★★★ 加入這段：移除紅點與監聽 ★★★
+    if (pendingMonitorRef) {
+        pendingMonitorRef.off(); // 停止監聽 Firebase
+        pendingMonitorRef = null;
+    }
+    const badge = document.getElementById('notifBadge');
+    if(badge) badge.style.display = 'none'; // 強制隱藏紅點
             
             // 清除本地緩存並強制重整
             localStorage.removeItem('studentProfile');
