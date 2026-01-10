@@ -13131,15 +13131,16 @@ const firebaseConfig = {
 
 // 檢查是否重複初始化
 if (!firebase.apps.length) {
-    try {
-        firebase.initializeApp(firebaseConfig);
-        console.log("Firebase 初始化成功！"); // 按 F12 查看 Console
-    } catch (e) {
-        console.error("Firebase 初始化失敗：", e);
-        alert("資料庫連線失敗，請檢查網路或 CSP 設定");
-    }
-} else {
-    firebase.app(); // 如果已經初始化，使用現有的
+    firebase.initializeApp(firebaseConfig);
+    
+    // ★★★ 持久化代碼放這裡 ★★★
+    firebase.database().enablePersistence().catch(function(err) {
+        if (err.code == 'failed-precondition') {
+            console.warn("多個分頁開啟，快取僅在一個分頁生效");
+        } else if (err.code == 'unimplemented') {
+            console.warn("瀏覽器不支援快取");
+        }
+    });
 }
 
 const database = firebase.database();
@@ -13663,7 +13664,7 @@ async function loadAssignments(grade, cls) {
 
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // 1. 優先顯示本地緩存 (秒開)
+    // 1. 立即顯示快取資料 (localStorage)
     const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
         renderAssignmentList(JSON.parse(cachedData), true);
@@ -13672,30 +13673,29 @@ async function loadAssignments(grade, cls) {
     }
 
     try {
-        // 2. [優化重點] 並行抓取：課業清單 + 學生所有提交紀錄
-        // 不要一項一項抓，改為抓取整個 submissions 分支
-        const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
-            database.ref(`assignments/${grade}/${cls}`).once('value'),
-            database.ref(`assignments_submissions`).once('value') // 一次性抓取
+        // 2. 方案二優化：一次性讀取課業列表與該學生的提交分支
+        // 這樣總共只產生 2 個網路請求，速度極快
+        const [assignmentsSnap, submissionsSnap] = await Promise.all([
+            database.ref(`assignments/${grade}/${cls}`).orderByChild('timestamp').once('value'),
+            database.ref(`assignments_submissions`).once('value') 
         ]);
 
         const assignmentsData = assignmentsSnap.val();
-        const allSubmissionsData = allSubmissionsSnap.val() || {};
+        const allSubmissions = submissionsSnap.val() || {};
 
         if (!assignmentsData) {
             listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
             return;
         }
 
-        // 3. 在本地記憶體比對，不發起額外請求
+        // 3. 在本地端處理資料
         const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
         const results = tasksArray.map(([key, task]) => {
-            // 從剛才抓到的大物件中直接找該學生的資料
-            const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
+            const submission = (allSubmissions[key] && allSubmissions[key][s.name]) ? allSubmissions[key][s.name] : null;
             return { key, task, submission };
         });
 
-        // 4. 更新緩存並渲染
+        // 4. 更新畫面並同步到快取
         const newCacheStr = JSON.stringify(results);
         if (newCacheStr !== cachedData) {
             localStorage.setItem(cacheKey, newCacheStr);
@@ -13703,10 +13703,10 @@ async function loadAssignments(grade, cls) {
         }
 
     } catch (error) {
-        console.error("載入失敗", error);
+        console.error("Firebase 讀取失敗", error);
+        if (!cachedData) listDiv.innerHTML = '<p style="text-align:center; color:red;">載入失敗</p>';
     }
 }
-
 
 	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
