@@ -72,33 +72,33 @@ form-action 'self';
     <div class="side-menu-content">
         <button class="side-menu-close" id="sideMenuClose">&times;</button>
         
-       <div class="side-menu-items">
-
-<!-- 在 side-menu-items 內加入 -->
-<button class="side-menu-item" id="sideMenuCloudBtn" onclick="openStudentLoginModal()">
-    <i class="fas fa-cloud-upload-alt"></i>
-    <span>雲端同步</span>
-</button>
-		   
-    <!-- 1. 工具一覽 (已添加 ID 以確保 JS 控制準確) -->
-    <button class="side-menu-item" id="sideMenuToolsBtn" onclick="openToolsFromSideMenu()">
-        <i class="fas fa-toolbox"></i>
-        <span>工具一覽</span>
+      <div class="side-menu-items">
+    <!-- 1. 雲端同步 -->
+    <button class="side-menu-item" id="sideMenuCloudBtn" onclick="openStudentLoginModal()">
+        <i class="fas fa-cloud-upload-alt"></i>
+        <span>雲端同步</span>
+        <div id="notifBadge" class="notification-badge"></div>
     </button>
-
+		   
     <!-- 2. 歷史紀錄 -->
     <button class="side-menu-item" onclick="openHistoryContainer()">
         <i class="fas fa-history"></i>
         <span>歷史紀錄</span>
     </button>
 
-    <!-- 3. 返回主頁 (已移至此處，位於歷史紀錄下方) -->
+    <!-- 3. 工具一覽 (已移至歷史紀錄下方) -->
+    <button class="side-menu-item" id="sideMenuToolsBtn" onclick="openToolsFromSideMenu()">
+        <i class="fas fa-toolbox"></i>
+        <span>工具一覽</span>
+    </button>
+
+    <!-- 4. 返回主頁 -->
     <button class="side-menu-item" id="sideMenuHomeBtn" onclick="returnToHome()" style="display: none;">
         <i class="fas fa-home"></i>
         <span>返回主頁</span>
     </button>
     
-    <!-- 4. 音樂播放器 -->
+    <!-- 5. 音樂播放器 -->
     <button class="side-menu-item" onclick="toggleMusicPlayer()">
         <i class="fas fa-music"></i>
         <span>音樂播放器</span>
@@ -5006,119 +5006,124 @@ transform: scale(1.15);
 
 	// === 神思通知系統邏輯 ===
 
-let lastAssignmentCount = null;
-let monitoredReturnedKeys = new Set();
+// === 持久性通知系統核心邏輯 ===
+let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') || '[]');
+let isInitialNotifCheck = true;
 
-// 初始化通知監聽
-function initSansiNotifications() {
+function initNotificationListeners() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // 1. 建立通知容器
     if (!document.getElementById('notifContainer')) {
-        const container = document.createElement('div');
-        container.id = 'notifContainer';
-        container.className = 'sansi-notification-container';
-        document.body.appendChild(container);
+        const div = document.createElement('div');
+        div.id = 'notifContainer';
+        div.className = 'sansi-notification-container';
+        document.body.appendChild(div);
     }
 
-    // 2. 監聽新課業 (根據班級路徑)
-    const assignmentPath = `assignments/${s.grade}/${s.class}`;
-    database.ref(assignmentPath).on('value', (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
-        
-        const count = Object.keys(data).length;
-        
-        // 第一次載入時僅記錄數量，不彈出
-        if (lastAssignmentCount === null) {
-            lastAssignmentCount = count;
-            return;
-        }
-
-        // 當數量增加時，找出最新的一個
-        if (count > lastAssignmentCount) {
-            const latestTask = Object.values(data).sort((a, b) => b.timestamp - a.timestamp)[0];
-            showSansiNotification('new-task', latestTask.topic);
-            showRedBadge(true);
-        }
-        lastAssignmentCount = count;
+    // 1. 監聽新課業
+    database.ref(`assignments/${s.grade}/${s.class}`).on('value', (snapshot) => {
+        const data = snapshot.val() || {};
+        Object.keys(data).forEach(key => {
+            // 如果 ID 不在「已讀清單」中，則顯示
+            if (!notifiedIds.includes(key)) {
+                showSansiNotif('new', data[key].topic, key);
+            }
+        });
     });
 
-    // 3. 監聽已發還課業
-    // 我們需要檢查 assignments_submissions 下所有屬於該學生的回饋
+    // 2. 監聽已發還課業
     database.ref('assignments_submissions').on('value', (snapshot) => {
-        const allSubmissions = snapshot.val();
-        if (!allSubmissions) return;
-
-        let hasNewReturn = false;
-
-        Object.keys(allSubmissions).forEach(taskKey => {
-            const studentWork = allSubmissions[taskKey][s.name];
-            if (studentWork && studentWork.teacherFeedback && studentWork.teacherFeedback.status === 'returned') {
-                // 使用 taskKey + 批改時間作為唯一標識，防止重複通知
-                const feedbackId = taskKey + "_" + (studentWork.teacherFeedback.timestamp || '');
-                
-                // 如果這個批改還沒被通知過，且是最近產生的（例如 1 小時內）
-                if (!monitoredReturnedKeys.has(feedbackId)) {
-                    const feedbackTime = studentWork.teacherFeedback.timestamp || 0;
-                    const oneHourAgo = Date.now() - 3600000;
-                    
-                    if (feedbackTime > oneHourAgo) {
-                        showSansiNotification('returned', studentWork.title || "課業");
-                        hasNewReturn = true;
-                    }
-                    monitoredReturnedKeys.add(feedbackId);
+        const allData = snapshot.val() || {};
+        Object.keys(allData).forEach(assignId => {
+            const myWork = allData[assignId][s.name];
+            if (myWork && myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
+                const feedbackId = "fb_" + assignId + "_" + myWork.teacherFeedback.timestamp;
+                if (!notifiedIds.includes(feedbackId)) {
+                    showSansiNotif('returned', myWork.title || "課業", feedbackId);
                 }
             }
         });
-
-        if (hasNewReturn) showRedBadge(true);
     });
 }
 
 /**
- * 顯示通知彈窗
- * @param {string} type - 'new-task' 或 'returned'
- * @param {string} title - 課業題目
+ * 顯示通知
+ * @param {string} type - 類型
+ * @param {string} topic - 標題
+ * @param {string} uniqueId - 用於辨識是否已讀的唯一 ID
  */
-function showSansiNotification(type, title) {
+function showSansiNotif(type, topic, uniqueId) {
+    // 檢查畫面上是否已經有同一個 ID 的通知
+    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return;
+
     const container = document.getElementById('notifContainer');
     const notif = document.createElement('div');
+    notif.setAttribute('data-notif-id', uniqueId);
     
-    const isNewTask = type === 'new-task';
-    notif.className = `sansi-notification ${isNewTask ? 'notif-new-task' : 'notif-returned'}`;
+    const isNew = type === 'new';
+    notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
     
-    const icon = isNewTask ? 'fa-file-signature' : 'fa-clipboard-check';
-    const headText = isNewTask ? '新課業發佈' : '課業已批改';
-    const subText = isNewTask ? '點擊前往查看題目' : '老師已發還評語';
-
     notif.innerHTML = `
-        <div class="notif-content">
-            <div class="notif-title"><i class="fas ${icon}"></i> ${headText}</div>
-            <div style="font-size:0.9rem; color:#555; margin:2px 0;">${title}</div>
-            <div class="notif-desc">${subText}</div>
+        <div class="notif-title">
+            <i class="fas ${isNew ? 'fa-feather-alt' : 'fa-clipboard-check'}"></i>
+            ${isNew ? '新課業發佈' : '課業已批改'}
         </div>
+        <div class="notif-body">
+            <strong>${topic}</strong><br>
+            ${isNew ? '老師派發了新的練習，請準時完成。' : '老師已完成批改並發還評語。'}
+        </div>
+        <div class="notif-click-hint">點擊以關閉並前往查看</div>
     `;
 
-    // 點擊通知直接打開雲端中心
+    // 點擊事件：消失、記錄已讀、打開雲端
     notif.onclick = () => {
+        // 1. 記錄到已讀清單
+        if (!notifiedIds.includes(uniqueId)) {
+            notifiedIds.push(uniqueId);
+            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
+        }
+
+        // 2. 動畫消失
         notif.classList.add('fade-out');
-        setTimeout(() => notif.remove(), 300);
-        openStudentLoginModal(); 
-        showRedBadge(false);
+        setTimeout(() => notif.remove(), 500);
+
+        // 3. UI 互動
+        openStudentLoginModal();
+        updateNotifBadge();
     };
 
     container.appendChild(notif);
-
-    // 8秒後自動消失
-    setTimeout(() => {
-        if (notif.parentNode) {
-            notif.classList.add('fade-out');
-            setTimeout(() => notif.remove(), 300);
-        }
-    }, 8000);
+    updateNotifBadge();
 }
+
+// 更新側邊欄紅點狀態
+function updateNotifBadge() {
+    const container = document.getElementById('notifContainer');
+    const badge = document.getElementById('notifBadge');
+    if (badge) {
+        // 如果容器內有任何子元素（即有未讀通知），顯示紅點
+        badge.style.display = (container && container.childElementCount > 0) ? 'block' : 'none';
+    }
+}
+
+// 啟動監聽
+document.addEventListener('DOMContentLoaded', () => {
+    // 延遲啟動以確保 Firebase 已準備就緒
+    setTimeout(initNotificationListeners, 2500);
+});
+
+// 修改原有登入檢查
+const originalCloudLogin = window.checkStudentLogin;
+window.checkStudentLogin = async function() {
+    await originalCloudLogin();
+    // 進入雲端中心後，可以選擇是否清除所有畫面的通知（選用）
+    /*
+    const container = document.getElementById('notifContainer');
+    if(container) container.innerHTML = '';
+    updateNotifBadge();
+    */
+};
 
 // 顯示或隱藏側邊選單紅點
 function showRedBadge(show) {
