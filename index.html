@@ -117,60 +117,61 @@ form-action 'self';
 
 
 <!-- OneSignal SDK -->
+<!-- OneSignal SDK -->
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
-  
-  // 定義智能啟動函式 (強力修復版)
+
   async function smartInitOneSignal() {
-    // ---------------------------------------------------------
-    // ★★★ 自動大掃除機制 V2：更積極地清理錯誤路徑 ★★★
-    // ---------------------------------------------------------
+    
+    // =========================================================
+    // 步驟 1：暴力清除所有「非」此子目錄的 Worker
+    // =========================================================
     if ('serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
-        
+        // 定義絕對正確的 Scope 網址
+        const correctScope = "https://kenchan20141.github.io/AIChinese/";
+
         for (let registration of registrations) {
-          // 邏輯修正：只要這個 Worker 的範圍 (scope) 不包含 "/AIChinese/"
-          // 就代表它是錯的（例如卡在根目錄 / 的），一律移除！
-          if (!registration.scope.includes("/AIChinese/")) {
-            console.log('已自動刪除錯誤路徑的 Service Worker:', registration.scope);
+          // 如果註冊的範圍不是我們指定的那個完整網址，一律移除
+          if (registration.scope !== correctScope) {
+            console.log('正在移除錯誤範圍的 Service Worker:', registration.scope);
             await registration.unregister();
           }
         }
       } catch (e) {
-        console.warn('清理過程遇到小問題 (不影響運作):', e);
+        console.warn('清理舊 Worker 時發生錯誤 (可忽略):', e);
       }
     }
 
-    // ---------------------------------------------------------
-    // ★★★ 初始化設定：強制指定相對路徑 ★★★
-    // ---------------------------------------------------------
+    // =========================================================
+    // 步驟 2：使用「完整絕對網址」進行初始化
+    // =========================================================
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // 1. 指定 SDK 檔案所在的「目錄」 (必須有前後斜線)
-          path: "/AIChinese/",
+          // ★★★ 關鍵 1：路徑直接寫死完整網址 (含 https 和子目錄) ★★★
+          // 這告訴 SDK：所有資源都要去這個網址找，不要去根目錄！
+          path: "https://kenchan20141.github.io/AIChinese/",
           
-          // 2. 指定 Worker 檔案的「名稱」 (不要寫絕對網址，寫檔名即可)
-          // 這樣瀏覽器會自動在上面的 path 目錄下尋找此檔案
+          // ★★★ 關鍵 2：明確指定檔案名稱 ★★★
           serviceWorkerPath: "OneSignalSDKWorker.js",
           
-          // 3. 嚴格限制 Worker 的作用範圍在子目錄下
+          // ★★★ 關鍵 3：強制鎖定 Scope 在子目錄 ★★★
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: true }
         });
         
-        console.log("OneSignal 初始化成功 (路徑修復版)！");
+        console.log("OneSignal 初始化成功 (絕對網址版)！");
 
         // 重新補上標籤邏輯
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            // 確保數據轉為字串，避免因格式問題報錯
             OneSignal.User.addTags({ 
                 grade: String(s.grade), 
                 class: String(s.class), 
@@ -184,7 +185,7 @@ form-action 'self';
     });
   }
 
-  // 確保在頁面完全載入後執行，避免與其他腳本衝突
+  // 使用 window.onload 確保頁面資源載入完畢後才執行
   window.addEventListener('load', smartInitOneSignal);
 </script>
 	
