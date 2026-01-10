@@ -119,44 +119,46 @@ form-action 'self';
 <!-- OneSignal SDK -->
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <script>
-  // 智能修復與初始化函式
+  // 定義智能啟動函式
   async function smartInitOneSignal() {
-    // 1. 強制清除所有舊的、錯誤的 Service Workers
+    // 步驟 1: 清理舊的、錯誤路徑的 Service Worker
     if ('serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (let registration of registrations) {
-          // 不管它是什麼，只要是跟我們網站有關的，先登出再說，確保乾淨重來
-          await registration.unregister();
-          console.log("已清除舊的 Service Worker:", registration.scope);
+          // 如果發現 Worker 註冊在根目錄 (造成衝突的原因)，強制移除
+          if (registration.scope === 'https://kenchan20141.github.io/') {
+            console.log('正在移除錯誤路徑的 Worker:', registration.scope);
+            await registration.unregister();
+          }
         }
       } catch (e) {
-        console.warn("清理 Worker 時遇到小問題 (可忽略):", e);
+        console.warn('清理 Worker 時發生微小錯誤 (可忽略):', e);
       }
     }
 
-    // 2. 重新初始化
+    // 步驟 2: 使用正確路徑初始化
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // 這是告訴 SDK 運作的基礎目錄
-          path: "/AIChinese/", 
+          // ★★★ 關鍵修正 1：告訴 SDK 資源檔在 AIChinese 資料夾 ★★★
+          path: "/AIChinese/",
 
-          // ★★★ 最終修正：使用「絕對路徑」(最前面加斜線) ★★★
-          // 這樣瀏覽器就會精確地去 https://您的網域/AIChinese/OneSignalSDKWorker.js 找檔案
-          serviceWorkerPath: "/AIChinese/OneSignalSDKWorker.js",
+          // ★★★ 關鍵修正 2：明確指定 Worker 檔案的完整路徑 (包含資料夾) ★★★
+          // 這是解決 404 錯誤的核心
+          serviceWorkerPath: "AIChinese/OneSignalSDKWorker.js",
 
-          // 限制 Worker 的作用範圍
+          // ★★★ 關鍵修正 3：限制 Worker 的作用範圍在子目錄，避免與根目錄衝突 ★★★
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           notifyButton: { enable: true },
           allowLocalhostAsSecureOrigin: true,
         });
-
-        console.log("OneSignal 重新初始化成功！");
+        
+        console.log("OneSignal 修正並初始化成功！");
 
         // 重新補上標籤邏輯
         const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -170,7 +172,7 @@ form-action 'self';
     });
   }
 
-  // 執行
+  // 執行智能啟動
   smartInitOneSignal();
 </script>
 	
