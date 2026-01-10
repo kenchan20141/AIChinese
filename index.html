@@ -116,35 +116,63 @@ form-action 'self';
 </button>
 
 
-<!-- OneSignal SDK (參照參考代碼的寫法) -->
+<!-- OneSignal SDK -->
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <script>
- window.OneSignalDeferred = window.OneSignalDeferred || [];
-OneSignalDeferred.push(async function(OneSignal) {
-    await OneSignal.init({
-        appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
-        
-        // 1. 指定 SDK 內部資源的基礎路徑
-        path: "/AIChinese/",
-
-        // 2. ★★★ 關鍵修正：強制指定 Worker 檔案包含子目錄路徑 ★★★
-        serviceWorkerPath: "AIChinese/OneSignalSDKWorker.js",
-
-        // 3. ★★★ 關鍵修正：限制 Service Worker 的作用範圍 (Scope) ★★★
-        // 如果不加這行，瀏覽器會試圖控制根目錄，導致權限錯誤
-        serviceWorkerParam: { scope: "/AIChinese/" },
-
-        notifyButton: { enable: true },
-        allowLocalhostAsSecureOrigin: true,
-    });
-
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (s) {
-        OneSignal.User.addTags({ grade: s.grade, class: s.class, userType: 'student' });
+  // 智能修復與初始化函式
+  async function smartInitOneSignal() {
+    // 1. 強制清除所有舊的、錯誤的 Service Workers
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (let registration of registrations) {
+          // 不管它是什麼，只要是跟我們網站有關的，先登出再說，確保乾淨重來
+          await registration.unregister();
+          console.log("已清除舊的 Service Worker:", registration.scope);
+        }
+      } catch (e) {
+        console.warn("清理 Worker 時遇到小問題 (可忽略):", e);
+      }
     }
-});
-</script>
 
+    // 2. 重新初始化
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    OneSignalDeferred.push(async function(OneSignal) {
+      try {
+        await OneSignal.init({
+          appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
+          
+          // 這是告訴 SDK 運作的基礎目錄
+          path: "/AIChinese/", 
+
+          // ★★★ 最終修正：使用「絕對路徑」(最前面加斜線) ★★★
+          // 這樣瀏覽器就會精確地去 https://您的網域/AIChinese/OneSignalSDKWorker.js 找檔案
+          serviceWorkerPath: "/AIChinese/OneSignalSDKWorker.js",
+
+          // 限制 Worker 的作用範圍
+          serviceWorkerParam: { scope: "/AIChinese/" },
+
+          notifyButton: { enable: true },
+          allowLocalhostAsSecureOrigin: true,
+        });
+
+        console.log("OneSignal 重新初始化成功！");
+
+        // 重新補上標籤邏輯
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (s) {
+            OneSignal.User.addTags({ grade: s.grade, class: s.class, userType: 'student' });
+        }
+
+      } catch (err) {
+        console.error("OneSignal 初始化失敗:", err);
+      }
+    });
+  }
+
+  // 執行
+  smartInitOneSignal();
+</script>
 	
 <style>
 /* === 全局基礎設定 === */
