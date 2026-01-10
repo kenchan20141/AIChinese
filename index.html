@@ -123,41 +123,50 @@ form-action 'self';
   
   // 定義智能啟動函式
   async function smartInitOneSignal() {
-    // 1. 強力清除所有已註冊的 Service Worker (避免舊的根目錄 Worker 干擾)
+    // ---------------------------------------------------------
+    // ★★★ 自動大掃除機制：這段代碼會幫所有訪客清理垃圾 ★★★
+    // ---------------------------------------------------------
     if ('serviceWorker' in navigator) {
       try {
         const registrations = await navigator.serviceWorker.getRegistrations();
+        
+        // 取得我們「期望」的正確路徑 (即 https://kenchan20141.github.io/AIChinese/)
+        // 注意：這裡強制加上結尾的斜線，標準化路徑
+        const myScope = window.location.origin + "/AIChinese/"; 
+
         for (let registration of registrations) {
-          // 無論是哪個 Scope，只要是這個網域的，為了修復錯誤先全部註銷
-          console.log('正在強制移除舊 Worker:', registration.scope);
-          await registration.unregister();
+          // 邏輯：只要這個 Worker 的範圍 (scope) 不是我們現在這個子目錄
+          // 就代表它是舊的、錯的、或者是卡在根目錄的，一律殺掉！
+          if (registration.scope !== myScope) {
+            console.log('已自動刪除錯誤的 Service Worker:', registration.scope);
+            await registration.unregister();
+          }
         }
       } catch (e) {
-        console.warn('清理舊 Worker 時發生錯誤:', e);
+        console.warn('清理過程遇到小問題 (不影響運作):', e);
       }
     }
 
-    // 2. 初始化 OneSignal (使用完整網址)
+    // ---------------------------------------------------------
+    // ★★★ 乾淨之後，才安裝正確的版本 ★★★
+    // ---------------------------------------------------------
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // ★★★ 關鍵修正 1：使用完整網址，杜絕路徑解析錯誤 ★★★
-          serviceWorkerPath: "https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js",
-
-          // ★★★ 關鍵修正 2：明確指定 SDK 資源目錄 ★★★
+          // 這裡再次確保路徑萬無一失
           path: "/AIChinese/",
-
-          // ★★★ 關鍵修正 3：鎖定 Scope 在子目錄 (這非常重要) ★★★
+          serviceWorkerPath: "https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js",
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: true }
         });
         
-        console.log("OneSignal 初始化成功 (完整路徑版)！");
+        console.log("OneSignal 初始化成功 (已執行自動清理)！");
 
+        // 重新補上標籤邏輯
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
             OneSignal.User.addTags({ grade: s.grade, class: s.class, userType: 'student' });
