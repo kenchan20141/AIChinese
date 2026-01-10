@@ -15438,6 +15438,101 @@ setTimeout(() => {
 }, 1500);
 
 </script>
+
+
+
+<!-- === [新增] 神思大數據收集模組 === -->
+<script>
+(function() {
+    // 變數初始化
+    let pageStartTime = Date.now();
+    let isPageActive = true;
+
+    // 取得當前日期路徑格式: YYYY/MM/DD
+    function getDatePath() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}/${m}/${d}`;
+    }
+
+    // 核心上傳函式
+    function uploadStats() {
+        // 如果頁面已經標記為非活躍，或者停留時間太短(小於2秒)，則不上傳
+        if (!isPageActive) return;
+        
+        const duration = Math.round((Date.now() - pageStartTime) / 1000); 
+        if (duration < 2) return; 
+
+        const datePath = getDatePath();
+        const s = JSON.parse(localStorage.getItem('studentProfile')); // 檢查學生登入狀態
+        
+        // 1. 更新【所有用家】(包含訪客)
+        runTransaction(`analytics/${datePath}/global`, duration);
+        
+        // 2. 如果是【已登入學生】，額外更新三個維度
+        if (s && s.grade && s.class && s.name) {
+            // A. 全校 (School)
+            runTransaction(`analytics/${datePath}/school`, duration);
+            
+            // B. 班級 (Classes)
+            runTransaction(`analytics/${datePath}/classes/${s.grade}${s.class}`, duration);
+            
+            // C. 個人 (Students)
+            runTransaction(`analytics/${datePath}/students/${s.grade}/${s.class}/${s.name}`, duration);
+        }
+
+        isPageActive = false; // 防止重複發送
+    }
+
+    // Firebase 原子計數器 (確保多人寫入不衝突)
+    function runTransaction(path, duration) {
+        // 確保 database 已初始化
+        if (typeof database === 'undefined' && typeof firebase !== 'undefined') {
+            window.database = firebase.database();
+        }
+        
+        if (window.database) {
+            const ref = window.database.ref(path);
+            ref.transaction((currentData) => {
+                if (currentData === null) {
+                    return { visits: 1, duration: duration };
+                } else {
+                    return {
+                        visits: (currentData.visits || 0) + 1,
+                        duration: (currentData.duration || 0) + duration
+                    };
+                }
+            }).catch(err => console.error("Stats Error:", err)); // 靜默失敗，不影響體驗
+        }
+    }
+
+    // 監聽頁面隱藏/關閉事件 (最可靠的方式)
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+            uploadStats(); // 使用者切換分頁或關閉，上傳數據
+        } else {
+            // 使用者切換回來，重置計時器，開始新的一輪計時
+            pageStartTime = Date.now();
+            isPageActive = true;
+        }
+    });
+
+    // 備用監聽 (針對 iOS Safari 有時不觸發 visibilitychange)
+    window.addEventListener('pagehide', function() {
+        uploadStats();
+    });
+
+})();
+</script>
+
+
+
+
+	
+
+
 	
 
 </body>
