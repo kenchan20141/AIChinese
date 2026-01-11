@@ -14305,6 +14305,7 @@ function finishLogin(grade, cls, number, name) {
 
 
 // === 修訂版 V8：背景熱更新 (秒開緩存 + 強制同步) ===
+// === 修訂版 V9：精準讀取 (只讀自己，不讀全校) ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14313,61 +14314,50 @@ async function loadAssignments(grade, cls) {
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     const cachedData = localStorage.getItem(cacheKey);
 
-    // --- 步驟 1：UI 搶先渲染 (解決卡死感) ---
-    // 不管 Firebase 準備好了沒，先顯示緩存內容。
-    // 傳入 true，讓列表頂部顯示「正在同步...」的動態提示，告知用戶現在顯示的可能是舊資料
+    // --- 步驟 1：UI 搶先渲染 (顯示緩存) ---
     if (cachedData) {
         renderAssignmentList(JSON.parse(cachedData), true);
     } else {
-        // 只有在完全沒有緩存時，才顯示大 Loading 轉圈
         listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
-    // --- 步驟 2：背景強制同步 (保證獲取最新數據) ---
-    // 這裡我們不設超時，讓它一直等到數據回來為止
     try {
-        const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
-            database.ref(`assignments/${grade}/${cls}`).once('value'),
-            database.ref(`assignments_submissions`).once('value')
-        ]);
-
+        // 1. 只讀取「該班級」的功課列表 (不讀全校)
+        const assignmentsSnap = await database.ref(`assignments/${grade}/${cls}`).once('value');
         const assignmentsData = assignmentsSnap.val();
-        const allSubmissionsData = allSubmissionsSnap.val() || {};
 
         if (!assignmentsData) {
-            // 如果老師刪光了課業，清空緩存並顯示空白
             localStorage.removeItem(cacheKey);
             listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
             return;
         }
 
-        // 整理數據
+        // 2. 將功課轉換為陣列並按時間倒序排列 (最新的在上面)
         const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
-        const results = tasksArray.map(([key, task]) => {
-            const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
+
+        // 3. 【關鍵修改】並行查詢：只讀取「該學生」針對這些功課的提交狀態
+        // 我們不再讀取整個 assignments_submissions，而是針對每一份功課 ID + 學生姓名去查
+        const results = await Promise.all(tasksArray.map(async ([key, task]) => {
+            // 精準路徑：assignments_submissions / 功課ID / 學生姓名
+            const subPath = `assignments_submissions/${key}/${s.name}`;
+            const subSnap = await database.ref(subPath).once('value');
+            const submission = subSnap.val(); // 如果沒交，這裡是 null
+            
             return { key, task, submission };
-        });
+        }));
 
         // 更新緩存
         const newCacheStr = JSON.stringify(results);
         localStorage.setItem(cacheKey, newCacheStr);
 
-        // --- 步驟 3：數據回來了，刷新 UI ---
-        // 傳入 false，表示同步完成，這會移除頂部的「正在同步...」提示條
-        // 使用者會看到列表瞬間更新為最新狀態
+        // --- 步驟 4：刷新 UI ---
         renderAssignmentList(results, false);
 
     } catch (error) {
-        console.error("同步最新數據失敗", error);
+        console.error("同步數據失敗", error);
         
-        // 如果失敗了（例如斷網），至少讓使用者知道現在看的是舊資料
-        // 我們不移除內容，只修改提示
         if (cachedData) {
-            // 重新渲染緩存，但這次可以把提示改成「網絡不穩」之類，或者保持原狀
-            // 這裡簡單處理：保持顯示緩存，但移除同步動畫，避免一直轉
             renderAssignmentList(JSON.parse(cachedData), false);
-            
-            // 插入一個錯誤提示在最上方
             const errDiv = document.createElement('div');
             errDiv.style.cssText = "text-align:center; font-size:0.8rem; color:red; margin-bottom:5px;";
             errDiv.innerHTML = "<i class='fas fa-exclamation-triangle'></i> 網絡不穩，無法更新最新狀態";
