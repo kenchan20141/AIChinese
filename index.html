@@ -5763,10 +5763,19 @@ let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') ||
 let isInitialAssignmentLoad = true;
 let isInitialSubmissionLoad = true;
 
+// ==========================================
+// === 純 Firebase 通知系統 (輕量化版) ===
+// ==========================================
+
+// 用於記錄本次會話中已經彈出過的通知 ID，防止重覆彈出
+// (這只是一個運行時的 Set，重新整理後會重置，這符合即時通知的特性)
+let sessionNotifiedSet = new Set();
+
 function initNotificationListeners() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
+    // 確保通知容器存在
     if (!document.getElementById('notifContainer')) {
         const div = document.createElement('div');
         div.id = 'notifContainer';
@@ -5774,91 +5783,73 @@ function initNotificationListeners() {
         document.body.appendChild(div);
     }
 
-    // --- 1. 監聽新課業 ---
+    // --- 1. 監聽新課業 (使用 child_added 只監聽新增的項目) ---
+    // 使用 limitToLast(1) 避免一進頁面就彈出所有舊功課的通知海
     const assignmentPath = `assignments/${s.grade}/${s.class}`;
-    database.ref(assignmentPath).on('value', (snapshot) => {
-        const data = snapshot.val() || {};
-        const currentKeys = Object.keys(data);
+    
+    // 首次加載標記，避免頁面剛打開時彈出舊通知
+    let isFirstLoad = true;
 
-        // A. 處理刪除同步：如果畫面上有的通知，但在資料庫裡沒了，就移除卡片
-        const activeNotifs = document.querySelectorAll('.sansi-notification[data-type="new"]');
-        activeNotifs.forEach(node => {
-            const id = node.getAttribute('data-notif-id');
-            if (!currentKeys.includes(id)) {
-                node.classList.add('fade-out');
-                setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
-            }
-        });
+    database.ref(assignmentPath).limitToLast(5).on('child_added', (snapshot) => {
+        if (isFirstLoad) return; // 略過頁面剛載入時的舊數據
+
+        const assignmentId = snapshot.key;
+        const task = snapshot.val();
         
-        // B. 處理新通知 (修正點：移除 isInitialAssignmentLoad 的阻擋邏輯)
-        // 無論是剛進入頁面還是之後，只要 notifiedIds 裡沒有，就視為新通知
-        currentKeys.forEach(key => {
-            if (!notifiedIds.includes(key)) {
-                showSansiNotif('new', data[key].topic, key);
-            }
-        });
-
-        isInitialAssignmentLoad = false; // 標記初始載入完成
-        updateNotifBadge();
+        // 顯示通知卡片
+        if (!sessionNotifiedSet.has(assignmentId)) {
+            sessionNotifiedSet.add(assignmentId);
+            showSansiNotif('new', task.topic, assignmentId);
+        }
     });
 
-    // --- 2. 監聽已發還課業 ---
-    database.ref('assignments_submissions').on('value', (snapshot) => {
-        const allData = snapshot.val() || {};
-        let validFeedbackIds = [];
+    // 設定一個短暫延時後，將 isFirstLoad 設為 false，開始接收真正的「新」通知
+    setTimeout(() => { isFirstLoad = false; }, 2000);
 
-        Object.keys(allData).forEach(assignId => {
-            const myWork = allData[assignId][s.name];
-            if (myWork && myWork.studentGrade == s.grade && myWork.studentClass == s.class && 
-                myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
+
+    // --- 2. 監聽「已發還」的評語 ---
+    // 這裡我們監聽 assignments_submissions 下的所有變更
+    // 為了效能，我們只監聽最近變動的
+    // 注意：Firebase Realtime DB 的 query 比較有限，這裡採用簡化的監聽方式
+    const submissionsRef = database.ref('assignments_submissions');
+    
+    // 監聽變更 (當老師改完成績，該節點會變更)
+    submissionsRef.on('child_changed', (snapshot) => {
+        const assignmentId = snapshot.key; // 課業 ID
+        const submissions = snapshot.val(); // 該課業下所有人的提交
+        
+        // 檢查是否有「我的」提交
+        if (submissions && submissions[s.name]) {
+            const myWork = submissions[s.name];
+            
+            // 檢查是否剛被發還 (狀態為 returned)
+            if (myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
                 
-                const feedbackId = "fb_" + assignId + "_" + myWork.teacherFeedback.timestamp;
-                validFeedbackIds.push(feedbackId);
+                // 產生一個基於時間戳的唯一 ID，避免重複通知
+                const feedbackId = `fb_${assignmentId}_${myWork.teacherFeedback.timestamp}`;
                 
-                // (修正點：移除 isInitialSubmissionLoad 的 if/else 分流)
-                // 只要本地紀錄沒有這個評語 ID，就顯示通知
-                if (!notifiedIds.includes(feedbackId)) {
-                    showSansiNotif('returned', myWork.title || "課業", feedbackId);
+                if (!sessionNotifiedSet.has(feedbackId)) {
+                    sessionNotifiedSet.add(feedbackId);
+                    showSansiNotif('returned', myWork.topic || "課業評語", feedbackId);
                 }
             }
-        });
-
-        // 處理撤回同步
-        const activeReturnedNotifs = document.querySelectorAll('.sansi-notification[data-type="returned"]');
-        activeReturnedNotifs.forEach(node => {
-            const id = node.getAttribute('data-notif-id');
-            if (!validFeedbackIds.includes(id)) {
-                node.classList.add('fade-out');
-                setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
-            }
-        });
-
-        isInitialSubmissionLoad = false; // 標記初始載入完成
-        updateNotifBadge();
+        }
     });
 }
 
-/**
- * 修訂版：顯示通知 (解決問題三：新通知壓在舊通知上方)
- */
-function showSansiNotif(type, topic, uniqueId) {
-    // 1. 防重複機制
-    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return;
 
+function showSansiNotif(type, topic, uniqueId) {
     const container = document.getElementById('notifContainer');
     if (!container) return;
 
+    // 建立卡片元素
     const notif = document.createElement('div');
-    notif.setAttribute('data-notif-id', uniqueId);
-    notif.setAttribute('data-type', type); 
+    notif.className = `sansi-notification ${type === 'new' ? 'notif-new' : 'notif-returned'}`;
     
-    const isNew = type === 'new';
-    notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
-    
-    const badgeText = isNew ? '新課業發佈' : '批改已發還';
-    const descText = isNew 
-        ? '老師為你的班級指派了新任務，請適時進入系統完成練習。' 
-        : '你提交的課業已有新的老師評語及評分，請即時檢閱。';
+    const badgeText = type === 'new' ? '新課業' : '已發還';
+    const descText = type === 'new' 
+        ? '老師發佈了新任務，請前往查看。' 
+        : '你的課業已有評語，點擊查看詳情。';
 
     notif.innerHTML = `
         <div class="notif-badge">${badgeText}</div>
@@ -5871,22 +5862,41 @@ function showSansiNotif(type, topic, uniqueId) {
         </div>
     `;
 
+    // ★★★ 關鍵修正：點擊事件極簡化 ★★★
+    // 不讀寫 LocalStorage，不進行比對，單純打開視窗
     notif.onclick = () => {
-        if (!notifiedIds.includes(uniqueId)) {
-            notifiedIds.push(uniqueId);
-            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
-        }
-        notif.classList.add('fade-out');
-        setTimeout(() => { notif.remove(); updateNotifBadge(); }, 500);
+        // 1. 視覺上移除通知
+        notif.style.opacity = '0';
+        setTimeout(() => notif.remove(), 300);
+        
+        // 2. 打開雲端視窗 (這會觸發 loadAssignments 自動拉取最新資料)
         openStudentLoginModal();
     };
 
-    // ★★★ 關鍵修改：使用 prepend 讓新通知插入到最上方 (解決問題三) ★★★
+    // 自動插入到最上方
     container.prepend(notif);
     
-    updateNotifBadge();
+    // 播放提示音 (選用)
+    // const audio = new Audio('notification.mp3'); audio.play().catch(()=>{});
 }
 
+// 重新啟動監聽的輔助函式 (放在 DOMContentLoaded 或登入後)
+function restartNotificationListener() {
+    // 先移除舊的監聽 (如果有的話，避免重複)
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (s) {
+        database.ref(`assignments/${s.grade}/${s.class}`).off();
+        database.ref('assignments_submissions').off();
+    }
+    
+    // 重新啟動
+    initNotificationListeners();
+}
+
+// 在頁面載入完成後啟動
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initNotificationListeners, 3000); // 延遲 3 秒啟動，避免跟主頁面載入搶資源
+});
 
 // 更新紅點：只有當畫面上確實存在通知卡片時才顯示紅點
 function updateNotifBadge() {
