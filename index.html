@@ -5688,16 +5688,26 @@ transform: scale(1.15);
 
 	// === 神思通知系統邏輯 ===
 
-// === 持久性通知系統 (修正版：進入頁面即補發未讀通知) ===
+// === 神思通知系統邏輯 (高效能修正版) ===
+
+// 讀取已讀紀錄
 let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') || '[]');
-// 這些變數現在只用於判斷是否需要同步刪除，不再用於阻擋通知
-let isInitialAssignmentLoad = true;
-let isInitialSubmissionLoad = true;
+
+// 用來管理監聽器，避免重複綁定
+let activeListeners = {
+    assignments: null,
+    submissions: {} // 儲存個別作業的提交狀態監聽器
+};
+let isNotificationInitialized = false; // 防止重複執行
 
 function initNotificationListeners() {
+    // 1. 防止重複啟動
+    if (isNotificationInitialized) return;
+    
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return;
+    if (!s) return; // 未登入則不執行
 
+    // 建立通知容器 (如果不存在)
     if (!document.getElementById('notifContainer')) {
         const div = document.createElement('div');
         div.id = 'notifContainer';
@@ -5705,185 +5715,169 @@ function initNotificationListeners() {
         document.body.appendChild(div);
     }
 
-    // --- 1. 監聽新課業 ---
-    const assignmentPath = `assignments/${s.grade}/${s.class}`;
-    database.ref(assignmentPath).on('value', (snapshot) => {
-        const data = snapshot.val() || {};
-        const currentKeys = Object.keys(data);
+    isNotificationInitialized = true;
+    console.log("通知監聽系統已啟動 (高效能模式)");
 
-        // A. 處理刪除同步：如果畫面上有的通知，但在資料庫裡沒了，就移除卡片
+    // --- 1. 監聽班級課業列表 (主監聽器) ---
+    const assignmentPath = `assignments/${s.grade}/${s.class}`;
+    
+    // 如果之前有監聽，先移除
+    if (activeListeners.assignments) {
+        database.ref(assignmentPath).off();
+    }
+
+    activeListeners.assignments = database.ref(assignmentPath);
+    activeListeners.assignments.on('value', (snapshot) => {
+        const assignmentsData = snapshot.val() || {};
+        const assignmentKeys = Object.keys(assignmentsData);
+
+        // A. 處理新課業通知
+        assignmentKeys.forEach(key => {
+            // 如果不在已讀列表中，發送通知
+            if (!notifiedIds.includes(key)) {
+                showSansiNotif('new', assignmentsData[key].topic, key);
+            }
+
+            // B. [關鍵優化] 為每一份存在的作業，精準監聽「該學生的提交狀態」
+            // 這樣就不用下載全校的資料庫，大幅提升速度
+            monitorSubmissionStatus(key, s.name, assignmentsData[key].topic);
+        });
+
+        // C. 清理舊監聽器 (如果作業被老師刪除了，就不再監聽該作業的提交狀態)
+        Object.keys(activeListeners.submissions).forEach(monitoredKey => {
+            if (!assignmentKeys.includes(monitoredKey)) {
+                // 作業已不存在，移除監聽
+                database.ref(`assignments_submissions/${monitoredKey}/${s.name}`).off();
+                delete activeListeners.submissions[monitoredKey];
+            }
+        });
+
+        // D. 同步移除畫面上已失效的通知卡片 (例如老師刪除了作業)
         const activeNotifs = document.querySelectorAll('.sansi-notification[data-type="new"]');
         activeNotifs.forEach(node => {
             const id = node.getAttribute('data-notif-id');
-            if (!currentKeys.includes(id)) {
-                node.classList.add('fade-out');
-                setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
-            }
-        });
-        
-        // B. 處理新通知 (修正點：移除 isInitialAssignmentLoad 的阻擋邏輯)
-        // 無論是剛進入頁面還是之後，只要 notifiedIds 裡沒有，就視為新通知
-        currentKeys.forEach(key => {
-            if (!notifiedIds.includes(key)) {
-                showSansiNotif('new', data[key].topic, key);
-            }
-        });
-
-        isInitialAssignmentLoad = false; // 標記初始載入完成
-        updateNotifBadge();
-    });
-
-    // --- 2. 監聽已發還課業 ---
-    database.ref('assignments_submissions').on('value', (snapshot) => {
-        const allData = snapshot.val() || {};
-        let validFeedbackIds = [];
-
-        Object.keys(allData).forEach(assignId => {
-            const myWork = allData[assignId][s.name];
-            if (myWork && myWork.studentGrade == s.grade && myWork.studentClass == s.class && 
-                myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
-                
-                const feedbackId = "fb_" + assignId + "_" + myWork.teacherFeedback.timestamp;
-                validFeedbackIds.push(feedbackId);
-                
-                // (修正點：移除 isInitialSubmissionLoad 的 if/else 分流)
-                // 只要本地紀錄沒有這個評語 ID，就顯示通知
-                if (!notifiedIds.includes(feedbackId)) {
-                    showSansiNotif('returned', myWork.title || "課業", feedbackId);
-                }
-            }
-        });
-
-        // 處理撤回同步
-        const activeReturnedNotifs = document.querySelectorAll('.sansi-notification[data-type="returned"]');
-        activeReturnedNotifs.forEach(node => {
-            const id = node.getAttribute('data-notif-id');
-            if (!validFeedbackIds.includes(id)) {
+            if (!assignmentKeys.includes(id)) {
                 node.classList.add('fade-out');
                 setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
             }
         });
 
-        isInitialSubmissionLoad = false; // 標記初始載入完成
         updateNotifBadge();
     });
 }
 
+// 輔助函式：針對單份作業監聽「已發還」狀態
+function monitorSubmissionStatus(assignmentId, studentName, topicTitle) {
+    // 如果已經在監聽這份作業，就跳過
+    if (activeListeners.submissions[assignmentId]) return;
+
+    const submissionPath = `assignments_submissions/${assignmentId}/${studentName}`;
+    const subRef = database.ref(submissionPath);
+
+    // 儲存參照以便稍後可以移除
+    activeListeners.submissions[assignmentId] = subRef;
+
+    subRef.on('value', (snapshot) => {
+        const myWork = snapshot.val();
+        
+        // 檢查是否有「已發還」標記
+        if (myWork && myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
+            // 產生唯一的評語 ID (利用時間戳)
+            const feedbackId = "fb_" + assignmentId + "_" + myWork.teacherFeedback.timestamp;
+            
+            // 如果這個評語還沒被讀過，顯示通知
+            if (!notifiedIds.includes(feedbackId)) {
+                showSansiNotif('returned', myWork.title || topicTitle || "課業", feedbackId);
+            }
+        }
+        
+        // 如果狀態變成不是 returned (例如老師撤回)，可以在這裡處理通知撤回 (選用)
+        // 目前保留簡單邏輯即可
+    });
+}
+
 /**
- * 修改 showSansiNotif 以標記類型
- */
-/**
- * 整合修訂版：顯示持久性、結構化排版的通知
- * 包含：類型標記、已讀記憶、點擊消失、以及防重複機制
+ * 顯示通知卡片 (維持原本的 UI 邏輯)
  */
 function showSansiNotif(type, topic, uniqueId) {
-    // 1. 防重複機制：檢查畫面上是否已經存在同一個 ID 的通知
-    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return;
+    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return; // 防重複
 
     const container = document.getElementById('notifContainer');
-    if (!container) return; // 安全檢查
+    if (!container) return;
 
     const notif = document.createElement('div');
-    
-    // 2. 設定屬性（包含 data-type 方便老師刪除課業時同步撤回）
     notif.setAttribute('data-notif-id', uniqueId);
     notif.setAttribute('data-type', type); 
     
     const isNew = type === 'new';
     notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
     
-    // 3. 定義結構化內容
     const badgeText = isNew ? '新課業發佈' : '批改已發還';
-    const iconClass = isNew ? 'fa-feather-alt' : 'fa-clipboard-check';
     const descText = isNew 
         ? '老師為你的班級指派了新任務，請適時進入系統完成練習。' 
         : '你提交的課業已有新的老師評語及評分，請即時檢閱。';
 
-    // 4. 插入結構化 HTML
     notif.innerHTML = `
         <div class="notif-badge">${badgeText}</div>
         <div class="notif-header">
             <div class="notif-topic">《${topic}》</div>
         </div>
-        <div class="notif-desc">
-            ${descText}
-        </div>
+        <div class="notif-desc">${descText}</div>
         <div class="notif-footer">
             <span>點擊前往查看詳情</span>
             <i class="fas fa-chevron-right" style="font-size: 0.7rem;"></i>
         </div>
     `;
 
-    // 5. 點擊事件：處理持久性邏輯（記錄已讀、動畫、跳轉）
     notif.onclick = () => {
-        // A. 記錄到 localStorage 的已讀清單，防止重新整理後再次出現
+        // 記錄已讀
         if (!notifiedIds.includes(uniqueId)) {
             notifiedIds.push(uniqueId);
             localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
         }
-
-        // B. 執行退場動畫並移除元素
+        // 移除卡片
         notif.classList.add('fade-out');
         setTimeout(() => {
             notif.remove();
-            updateNotifBadge(); // 移除後即時檢查並更新側邊欄紅點
+            updateNotifBadge();
         }, 500);
-
-        // C. UI 互動：打開學生雲端中心
+        // 打開雲端中心
         openStudentLoginModal();
     };
 
-    // 6. 渲染到畫面並更新紅點
     container.appendChild(notif);
     updateNotifBadge();
 }
 
-
-
-// 更新紅點：只有當畫面上確實存在通知卡片時才顯示紅點
+// 更新側邊欄紅點
 function updateNotifBadge() {
     const container = document.getElementById('notifContainer');
     const badge = document.getElementById('notifBadge');
+    // 如果全域有未交功課變數 (window.hasPendingWork)，也要考慮進去
+    const hasVisibleNotifs = (container && container.querySelectorAll('.sansi-notification').length > 0);
+    const hasPending = window.hasPendingWork || false;
+
     if (badge) {
-        badge.style.display = (container && container.querySelectorAll('.sansi-notification').length > 0) ? 'block' : 'none';
+        badge.style.display = (hasVisibleNotifs || hasPending) ? 'block' : 'none';
     }
 }
 
-/**
- * 顯示通知
- * @param {string} type - 類型
- * @param {string} topic - 標題
- * @param {string} uniqueId - 用於辨識是否已讀的唯一 ID
- */
 
-
-// 更新側邊欄紅點狀態
-function updateNotifBadge() {
-    const container = document.getElementById('notifContainer');
-    const badge = document.getElementById('notifBadge');
-    if (badge) {
-        // 如果容器內有任何子元素（即有未讀通知），顯示紅點
-        badge.style.display = (container && container.childElementCount > 0) ? 'block' : 'none';
-    }
-}
-
-// 啟動監聽
+	
+// 啟動點：頁面載入後執行
 document.addEventListener('DOMContentLoaded', () => {
-    // 延遲啟動以確保 Firebase 已準備就緒
-    setTimeout(initNotificationListeners, 2500);
+    // 只保留這一個啟動點，移除其他的 setTimeout
+    setTimeout(initNotificationListeners, 1500);
 });
 
-// 修改原有登入檢查
-const originalCloudLogin = window.checkStudentLogin;
+// 修改原有的登入檢查，登入後立即啟動監聽
+const originalCheckLoginForNotif = window.checkStudentLogin;
 window.checkStudentLogin = async function() {
-    await originalCloudLogin();
-    // 進入雲端中心後，可以選擇是否清除所有畫面的通知（選用）
-    /*
-    const container = document.getElementById('notifContainer');
-    if(container) container.innerHTML = '';
-    updateNotifBadge();
-    */
+    await originalCheckLoginForNotif();
+    // 登入成功後，立即初始化通知監聽 (如果尚未初始化)
+    initNotificationListeners();
 };
+
 
 // 顯示或隱藏側邊選單紅點
 function showRedBadge(show) {
