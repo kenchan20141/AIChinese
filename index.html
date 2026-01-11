@@ -14348,19 +14348,23 @@ function finishLogin(grade, cls, number, name) {
 }
 
 
-// === 全域變數：儲存監聽器參照 ===
+// === 全域變數：儲存監聽器參照 (防止重複監聽) ===
 let currentAssignmentRef = null;
 
-// === 修訂版 V10：實時監聽 + 並行讀取 (解決卡頓與不刷新) ===
+// === 純 Firebase 版：實時同步課業列表 ===
 function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    const s = JSON.parse(localStorage.getItem('studentProfile')); // 這裡只讀取身份，不讀取舊課業數據
+    
+    // 如果沒有身份資料，就不執行
     if (!s) return;
 
-    // 1. 顯示載入中狀態 (保留舊內容，加上 loading icon)
-    listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#2A9689;"><i class="fas fa-circle-notch fa-spin"></i> 正在同步雲端資料...</div>';
+    // 1. 顯示載入中狀態
+    listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#2A9689;"><i class="fas fa-circle-notch fa-spin"></i> 正在連線至雲端...</div>';
 
-    // 2. 清理舊連線 (防止重複監聽導致記憶體洩漏)
+    // 2. 重要：清理舊連線
+    // 如果之前有打開過（例如從 6A 切換到 6B，或者關閉再打開），先斷開之前的監聽
+    // 否則會造成記憶體洩漏，甚至導致舊的數據覆蓋新的數據
     if (currentAssignmentRef) {
         currentAssignmentRef.off();
     }
@@ -14368,118 +14372,120 @@ function loadAssignments(grade, cls) {
     // 3. 建立實時連線
     currentAssignmentRef = database.ref(`assignments/${grade}/${cls}`);
     
+    // 使用 .on() 保持連線，資料有變動會自動刷新
     currentAssignmentRef.on('value', async (snapshot) => {
         const assignmentsData = snapshot.val();
 
-        // 情況 A: 老師刪光了所有作業
+        // 情況 A: 資料庫回傳 null (該班級沒有任何功課)
+        // 這是解決「卡住」的關鍵，必須明確處理 null
         if (!assignmentsData) {
             listDiv.innerHTML = '<div style="text-align:center; padding:40px; color:#aaa;"><i class="far fa-folder-open" style="font-size:40px; margin-bottom:10px;"></i><br>目前沒有任何課業</div>';
             return;
         }
 
         try {
-            // ★★★ 優化重點：並行讀取 (Parallel Fetching) ★★★
-            // 相比於等待 await 一個接一個讀取，Promise.all 可以同時發出所有請求
-            
+            // 情況 B: 有功課，開始處理數據
+            // 我們需要將 Object 轉換為 Array，並同時查詢學生的提交狀態
             const keys = Object.keys(assignmentsData);
             
-            // 建立一組 Promise 請求
+            // 使用 Promise.all 並行查詢所有功課的提交狀態 (純雲端查詢，不讀本地)
             const promises = keys.map(async (key) => {
                 const task = assignmentsData[key];
-                // 讀取該學生的提交狀態
+                
+                // 直接查詢 Firebase 確認是否已交
                 const subSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
                 const submission = subSnap.exists() ? subSnap.val() : null;
                 
                 return { key, task, submission };
             });
 
-            // 等待所有請求完成
+            // 等待所有查詢完成
             const tasksArray = await Promise.all(promises);
 
-            // ★★★ 優化重點：排序 (解決問題三：新課業在最上) ★★★
-            // 根據 timestamp 降序排列 (新的時間戳較大，排前面)
+            // 排序：新的功課 (timestamp 大) 排在上面
             tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
 
-            // 渲染列表
+            // 渲染列表 (傳入 false 表示這不是「同步中」的狀態，而是「已完成」)
             renderAssignmentList(tasksArray, false);
 
         } catch (error) {
-            console.error("數據同步錯誤:", error);
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">數據同步發生錯誤，請稍後再試。</div>';
+            console.error("數據處理錯誤:", error);
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">讀取數據時發生錯誤，請檢查網絡。</div>';
         }
     }, (error) => {
+        // Firebase 連線層級的錯誤 (例如權限不足或斷網)
         console.error("Firebase 監聽失敗:", error);
+        listDiv.innerHTML = `<div style="text-align:center; padding:20px; color:red;">連線失敗：${error.message}</div>`;
     });
 }
 	
-// === 渲染函式 (負責 UI 顯示) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
 
-    // 1. 狀態提示條 (低調顯示)
-    if (isSyncing) {
-        html += `<div style="text-align:center; font-size:0.85rem; color:#2A9689; margin-bottom:15px; background:rgba(42, 150, 137, 0.1); padding:8px; border-radius:8px;">
-                    <i class="fas fa-sync-alt fa-spin"></i> 正在與雲端同步...
-                 </div>`;
+    // 如果陣列為空 (雖然上面 check 過 null，但防止過濾後變空)
+    if (dataArray.length === 0) {
+        listDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#999;">暫無課業</div>';
+        return;
     }
 
-    // 2. 遍歷數據 (dataArray 已經排好序了)
-    if (dataArray.length === 0) {
-        html += '<div style="text-align:center; padding:30px; color:#999;">暫無課業</div>';
-    } else {
-        for (const item of dataArray) {
-            const task = item.task;
-            const submission = item.submission;
+    for (const item of dataArray) {
+        const task = item.task;
+        const submission = item.submission;
+        
+        // --- 狀態判斷邏輯 ---
+        let uiClass = '';
+        let statusIcon = '';
+        let statusText = '';
+        let clickAction = '';
+        let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
+
+        // 優先順序 1: 老師已發還 (Returned)
+        if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
+            uiClass = 'status-returned'; // 紫色
+            statusIcon = '<i class="fas fa-envelope-open-text"></i>';
+            statusText = '查看評語';
             
-            // UI 狀態邏輯
-            let uiClass = '';
-            let statusIcon = '';
-            let statusText = '';
-            let clickAction = '';
-            let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
-
-            if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
-                uiClass = 'status-returned';
-                statusIcon = '<i class="fas fa-envelope-open-text"></i>';
-                statusText = '查看評語';
-                submission.topic = task.topic; 
-                const submissionStr = encodeURIComponent(JSON.stringify(submission));
-                clickAction = `showTeacherFeedback('${submissionStr}')`;
-            }
-            else if (submission) {
-                uiClass = 'status-submitted';
-                statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
-                statusText = '<span style="color:#5e7067;">已繳交</span>';
-                submission.topic = task.topic;
-                submission.isPending = true; 
-                const submissionStr = encodeURIComponent(JSON.stringify(submission));
-                clickAction = `showTeacherFeedback('${submissionStr}')`;
-            }
-            else {
-                uiClass = 'status-pending';
-                statusIcon = '<i class="fas fa-pen-fancy"></i>'; 
-                statusText = '未繳交';
-                clickAction = `goToHistoryForAssignment('${task.topic}')`;
-            }
-
-            html += `
-            <div class="task-card ${uiClass}" onclick="${clickAction}">
-                <div class="task-info">
-                    <div class="task-topic">${task.topic}</div>
-                    <div class="task-meta">
-                        <span class="task-type-tag">${task.type}</span>
-                        <span>${dateDisplay}</span>
-                    </div>
-                </div>
-                <div class="task-status">
-                    ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
-                </div>
-            </div>`;
+            // 準備數據供彈窗使用
+            submission.topic = task.topic; 
+            const submissionStr = encodeURIComponent(JSON.stringify(submission));
+            clickAction = `showTeacherFeedback('${submissionStr}')`;
         }
+        // 優先順序 2: 學生已提交 (Submitted)
+        else if (submission) {
+            uiClass = 'status-submitted'; // 綠色
+            statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
+            statusText = '<span style="color:#5e7067;">已繳交</span>';
+            
+            submission.topic = task.topic;
+            submission.isPending = true; // 標記為待批改
+            const submissionStr = encodeURIComponent(JSON.stringify(submission));
+            clickAction = `showTeacherFeedback('${submissionStr}')`;
+        }
+        // 優先順序 3: 未繳交 (Pending)
+        else {
+            uiClass = 'status-pending'; // 紅色
+            statusIcon = '<i class="fas fa-pen-fancy"></i>'; 
+            statusText = '未繳交';
+            clickAction = `goToHistoryForAssignment('${task.topic}')`; // 跳轉去寫作
+        }
+
+        // 產生卡片 HTML
+        html += `
+        <div class="task-card ${uiClass}" onclick="${clickAction}">
+            <div class="task-info">
+                <div class="task-topic">${task.topic}</div>
+                <div class="task-meta">
+                    <span class="task-type-tag">${task.type}</span>
+                    <span>${dateDisplay}</span>
+                </div>
+            </div>
+            <div class="task-status">
+                ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
+            </div>
+        </div>`;
     }
     
-    // 3. 寫入 HTML
     listDiv.innerHTML = html;
 }
 	// === 新增：從未繳交課業跳轉至歷史紀錄 ===
