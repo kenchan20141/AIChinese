@@ -127,30 +127,31 @@ form-action 'self';
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
-          // 設定 SDK 檔案的基礎路徑
-          path: "https://kenchan20141.github.io/AIChinese/",
           
-          // ★★★ 修正 1: 移除 cacheBuster 亂數，保持檔名固定 ★★★
+          // === 關鍵修正：移除動態時間戳，避免每次產生新的 Worker ===
           serviceWorkerPath: "OneSignalSDKWorker.js",
           
+          // 確保 Scope 正確
           serviceWorkerParam: { scope: "/AIChinese/" },
+
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: false } 
         });
         
-        console.log("OneSignal 初始化成功");
+        console.log("OneSignal 初始化成功 (修正版)！");
 
-        // ★★★ 修正 2: 移除手動 navigator.serviceWorker.register ★★★
-        // OneSignal init 內部已經會處理註冊，重複註冊會導致衝突
-
-        // 檢查訂閱狀態
-        if (!OneSignal.User.PushSubscription.optedIn) {
-             OneSignal.User.PushSubscription.optIn();
-        }
-
+        // === 標籤設定 (保留你的邏輯) ===
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            OneSignal.User.addTags({ grade: String(s.grade), class: String(s.class), userType: 'student' });
+            // 延遲一點點確保 User ID 已建立
+            setTimeout(() => {
+                OneSignal.User.addTags({ 
+                    grade: String(s.grade), 
+                    class: String(s.class), 
+                    userType: 'student' 
+                });
+                console.log("標籤已更新");
+            }, 1000);
         }
 
       } catch (err) {
@@ -4028,68 +4029,25 @@ select:focus, select:hover {
    ======================================================= */
 
 /* 1. 外層容器：變成全螢幕視窗，負責處理滾動 */
-/* === 修訂：學生雲端中心佈局 (解決問題二：滾動與爆版) === */
-
-/* 1. 外層容器：鎖定視窗，避免雙重滾動 */
 #studentCloudModal {
     position: fixed !important;
-    top: 0; left: 0;
-    width: 100% !important; height: 100% !important;
-    background-color: #f5f5f3 !important;
-    z-index: 10050 !important;
-    padding: 0 !important;
-    overflow: hidden !important; /* ★ 關鍵：禁止外層滾動 */
-    display: none;
-}
-
-/* 2. 內容區域：使用 Flexbox 佈局，撐滿高度 */
-#studentCloudModal .modal-content {
+    top: 0;
+    left: 0;
     width: 100% !important;
-    max-width: 800px !important;
     height: 100% !important;
-    margin: 0 auto !important;
-    padding: 80px 20px 20px 20px !important; /* 頂部留白給關閉鍵 */
-    border: none !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    box-sizing: border-box;
+    background-color: #fdfcf8 !important; /* 設定背景色，避免透明 */
+    z-index: 10050 !important; /* 確保在最上層 */
+    padding: 0 !important;
     
-    display: flex;          /* ★ 啟用 Flex */
-    flex-direction: column; /* ★ 垂直排列 */
-}
-
-/* 3. 面板區域：自動填滿剩餘空間 */
-#studentCloudPanel {
-    flex: 1;                /* ★ 自動佔據剩餘高度 */
-    display: flex; 
-    flex-direction: column;
-    overflow: hidden;       /* ★ 內部元素溢出隱藏 */
-    margin-top: 10px !important;
-}
-
-/* 4. 列表區域：開啟滾動 (解決問題二) */
-#assignmentList {
-    flex: 1;                /* ★ 自動填滿 #studentCloudPanel 的剩餘空間 */
-    overflow-y: auto;       /* ★ 內容過多時顯示滾動條 */
-    max-height: none !important; /* ★ 移除舊的高度限制 */
-    padding-bottom: 60px;   /* ★ 底部留白，方便手機點擊最下方項目 */
-    padding-right: 5px;
-    -webkit-overflow-scrolling: touch; /* ★ iOS 慣性滾動 */
-}
-
-/* 5. 確保通知容器不會阻擋操作 (針對問題三的樣式輔助) */
-.sansi-notification-container {
-    position: fixed;
-    top: 25px;
-    right: 20px;
-    z-index: 35000;
-    display: flex;
-    flex-direction: column; /* 垂直排列 */
-    gap: 15px;
-    pointer-events: none;
-    max-height: 80vh;       /* 防止通知太多蓋住整個畫面 */
-    overflow: hidden;       /* 超出不顯示，避免破壞版面 */
+    /* 關鍵：讓容器自己產生滾動條，而不是內容 */
+    overflow-y: auto !important; 
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch; /* 讓 iOS 滾動更順滑 */
+    
+    /* 佈局重置：移除置中，改為自然流動 */
+    display: none; /* 預設隱藏，由 JS 控制 */
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
 }
 
 /* 2. 內容區域：撐滿寬度，移除圓角 */
@@ -5268,33 +5226,6 @@ select:focus, select:hover {
         min-width: 70px !important;
     }
 }
-
-	/* === 修復：課業列表滾動與佈局 === */
-#studentCloudPanel {
-    /* 讓面板佔滿剩餘空間 */
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 120px); /* 扣除頂部標題的高度 */
-    overflow: hidden; /* 防止外層雙重滾動 */
-}
-
-#assignmentList {
-    /* 核心修復：啟用垂直滾動 */
-    flex: 1;               /* 自動填滿高度 */
-    overflow-y: auto;      /* 內容多時顯示滾動條 */
-    max-height: none !important; /* 移除舊的高度限制 */
-    padding-bottom: 50px;  /* 底部留白，方便手機操作 */
-    padding-right: 5px;    /* 避免滾動條蓋住內容 */
-    -webkit-overflow-scrolling: touch; /* iOS 慣性滾動 */
-}
-
-/* 修復卡片樣式，確保新舊順序視覺正確 */
-.task-card {
-    /* 確保不會被壓縮 */
-    flex-shrink: 0;
-    margin-bottom: 12px;
-}
 	
 	
 </style>
@@ -5763,19 +5694,10 @@ let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') ||
 let isInitialAssignmentLoad = true;
 let isInitialSubmissionLoad = true;
 
-// ==========================================
-// === 純 Firebase 通知系統 (輕量化版) ===
-// ==========================================
-
-// 用於記錄本次會話中已經彈出過的通知 ID，防止重覆彈出
-// (這只是一個運行時的 Set，重新整理後會重置，這符合即時通知的特性)
-let sessionNotifiedSet = new Set();
-
 function initNotificationListeners() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // 確保通知容器存在
     if (!document.getElementById('notifContainer')) {
         const div = document.createElement('div');
         div.id = 'notifContainer';
@@ -5783,120 +5705,140 @@ function initNotificationListeners() {
         document.body.appendChild(div);
     }
 
-    // --- 1. 監聽新課業 (使用 child_added 只監聽新增的項目) ---
-    // 使用 limitToLast(1) 避免一進頁面就彈出所有舊功課的通知海
+    // --- 1. 監聽新課業 ---
     const assignmentPath = `assignments/${s.grade}/${s.class}`;
-    
-    // 首次加載標記，避免頁面剛打開時彈出舊通知
-    let isFirstLoad = true;
+    database.ref(assignmentPath).on('value', (snapshot) => {
+        const data = snapshot.val() || {};
+        const currentKeys = Object.keys(data);
 
-    database.ref(assignmentPath).limitToLast(5).on('child_added', (snapshot) => {
-        if (isFirstLoad) return; // 略過頁面剛載入時的舊數據
-
-        const assignmentId = snapshot.key;
-        const task = snapshot.val();
+        // A. 處理刪除同步：如果畫面上有的通知，但在資料庫裡沒了，就移除卡片
+        const activeNotifs = document.querySelectorAll('.sansi-notification[data-type="new"]');
+        activeNotifs.forEach(node => {
+            const id = node.getAttribute('data-notif-id');
+            if (!currentKeys.includes(id)) {
+                node.classList.add('fade-out');
+                setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
+            }
+        });
         
-        // 顯示通知卡片
-        if (!sessionNotifiedSet.has(assignmentId)) {
-            sessionNotifiedSet.add(assignmentId);
-            showSansiNotif('new', task.topic, assignmentId);
-        }
+        // B. 處理新通知 (修正點：移除 isInitialAssignmentLoad 的阻擋邏輯)
+        // 無論是剛進入頁面還是之後，只要 notifiedIds 裡沒有，就視為新通知
+        currentKeys.forEach(key => {
+            if (!notifiedIds.includes(key)) {
+                showSansiNotif('new', data[key].topic, key);
+            }
+        });
+
+        isInitialAssignmentLoad = false; // 標記初始載入完成
+        updateNotifBadge();
     });
 
-    // 設定一個短暫延時後，將 isFirstLoad 設為 false，開始接收真正的「新」通知
-    setTimeout(() => { isFirstLoad = false; }, 2000);
+    // --- 2. 監聽已發還課業 ---
+    database.ref('assignments_submissions').on('value', (snapshot) => {
+        const allData = snapshot.val() || {};
+        let validFeedbackIds = [];
 
-
-    // --- 2. 監聽「已發還」的評語 ---
-    // 這裡我們監聽 assignments_submissions 下的所有變更
-    // 為了效能，我們只監聽最近變動的
-    // 注意：Firebase Realtime DB 的 query 比較有限，這裡採用簡化的監聽方式
-    const submissionsRef = database.ref('assignments_submissions');
-    
-    // 監聽變更 (當老師改完成績，該節點會變更)
-    submissionsRef.on('child_changed', (snapshot) => {
-        const assignmentId = snapshot.key; // 課業 ID
-        const submissions = snapshot.val(); // 該課業下所有人的提交
-        
-        // 檢查是否有「我的」提交
-        if (submissions && submissions[s.name]) {
-            const myWork = submissions[s.name];
-            
-            // 檢查是否剛被發還 (狀態為 returned)
-            if (myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
+        Object.keys(allData).forEach(assignId => {
+            const myWork = allData[assignId][s.name];
+            if (myWork && myWork.studentGrade == s.grade && myWork.studentClass == s.class && 
+                myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
                 
-                // 產生一個基於時間戳的唯一 ID，避免重複通知
-                const feedbackId = `fb_${assignmentId}_${myWork.teacherFeedback.timestamp}`;
+                const feedbackId = "fb_" + assignId + "_" + myWork.teacherFeedback.timestamp;
+                validFeedbackIds.push(feedbackId);
                 
-                if (!sessionNotifiedSet.has(feedbackId)) {
-                    sessionNotifiedSet.add(feedbackId);
-                    showSansiNotif('returned', myWork.topic || "課業評語", feedbackId);
+                // (修正點：移除 isInitialSubmissionLoad 的 if/else 分流)
+                // 只要本地紀錄沒有這個評語 ID，就顯示通知
+                if (!notifiedIds.includes(feedbackId)) {
+                    showSansiNotif('returned', myWork.title || "課業", feedbackId);
                 }
             }
-        }
+        });
+
+        // 處理撤回同步
+        const activeReturnedNotifs = document.querySelectorAll('.sansi-notification[data-type="returned"]');
+        activeReturnedNotifs.forEach(node => {
+            const id = node.getAttribute('data-notif-id');
+            if (!validFeedbackIds.includes(id)) {
+                node.classList.add('fade-out');
+                setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
+            }
+        });
+
+        isInitialSubmissionLoad = false; // 標記初始載入完成
+        updateNotifBadge();
     });
 }
 
-
+/**
+ * 修改 showSansiNotif 以標記類型
+ */
+/**
+ * 整合修訂版：顯示持久性、結構化排版的通知
+ * 包含：類型標記、已讀記憶、點擊消失、以及防重複機制
+ */
 function showSansiNotif(type, topic, uniqueId) {
+    // 1. 防重複機制：檢查畫面上是否已經存在同一個 ID 的通知
+    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return;
+
     const container = document.getElementById('notifContainer');
-    if (!container) return;
+    if (!container) return; // 安全檢查
 
-    // 建立卡片元素
     const notif = document.createElement('div');
-    notif.className = `sansi-notification ${type === 'new' ? 'notif-new' : 'notif-returned'}`;
     
-    const badgeText = type === 'new' ? '新課業' : '已發還';
-    const descText = type === 'new' 
-        ? '老師發佈了新任務，請前往查看。' 
-        : '你的課業已有評語，點擊查看詳情。';
+    // 2. 設定屬性（包含 data-type 方便老師刪除課業時同步撤回）
+    notif.setAttribute('data-notif-id', uniqueId);
+    notif.setAttribute('data-type', type); 
+    
+    const isNew = type === 'new';
+    notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
+    
+    // 3. 定義結構化內容
+    const badgeText = isNew ? '新課業發佈' : '批改已發還';
+    const iconClass = isNew ? 'fa-feather-alt' : 'fa-clipboard-check';
+    const descText = isNew 
+        ? '老師為你的班級指派了新任務，請適時進入系統完成練習。' 
+        : '你提交的課業已有新的老師評語及評分，請即時檢閱。';
 
+    // 4. 插入結構化 HTML
     notif.innerHTML = `
         <div class="notif-badge">${badgeText}</div>
         <div class="notif-header">
             <div class="notif-topic">《${topic}》</div>
         </div>
-        <div class="notif-desc">${descText}</div>
+        <div class="notif-desc">
+            ${descText}
+        </div>
         <div class="notif-footer">
-            <span>點擊查看</span> <i class="fas fa-chevron-right"></i>
+            <span>點擊前往查看詳情</span>
+            <i class="fas fa-chevron-right" style="font-size: 0.7rem;"></i>
         </div>
     `;
 
-    // ★★★ 關鍵修正：點擊事件極簡化 ★★★
-    // 不讀寫 LocalStorage，不進行比對，單純打開視窗
+    // 5. 點擊事件：處理持久性邏輯（記錄已讀、動畫、跳轉）
     notif.onclick = () => {
-        // 1. 視覺上移除通知
-        notif.style.opacity = '0';
-        setTimeout(() => notif.remove(), 300);
-        
-        // 2. 打開雲端視窗 (這會觸發 loadAssignments 自動拉取最新資料)
+        // A. 記錄到 localStorage 的已讀清單，防止重新整理後再次出現
+        if (!notifiedIds.includes(uniqueId)) {
+            notifiedIds.push(uniqueId);
+            localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
+        }
+
+        // B. 執行退場動畫並移除元素
+        notif.classList.add('fade-out');
+        setTimeout(() => {
+            notif.remove();
+            updateNotifBadge(); // 移除後即時檢查並更新側邊欄紅點
+        }, 500);
+
+        // C. UI 互動：打開學生雲端中心
         openStudentLoginModal();
     };
 
-    // 自動插入到最上方
-    container.prepend(notif);
-    
-    // 播放提示音 (選用)
-    // const audio = new Audio('notification.mp3'); audio.play().catch(()=>{});
+    // 6. 渲染到畫面並更新紅點
+    container.appendChild(notif);
+    updateNotifBadge();
 }
 
-// 重新啟動監聽的輔助函式 (放在 DOMContentLoaded 或登入後)
-function restartNotificationListener() {
-    // 先移除舊的監聽 (如果有的話，避免重複)
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (s) {
-        database.ref(`assignments/${s.grade}/${s.class}`).off();
-        database.ref('assignments_submissions').off();
-    }
-    
-    // 重新啟動
-    initNotificationListeners();
-}
 
-// 在頁面載入完成後啟動
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initNotificationListeners, 3000); // 延遲 3 秒啟動，避免跟主頁面載入搶資源
-});
 
 // 更新紅點：只有當畫面上確實存在通知卡片時才顯示紅點
 function updateNotifBadge() {
@@ -13942,15 +13884,13 @@ function openStudentLoginModal() {
     }
 }
 
-// === 修改關閉函式：離開時斷開連線，節省效能 ===
+// === 2. 修改關閉「學生雲端中心」的函式 ===
 function closeStudentCloudModal() {
-    // 1. 斷開實時監聽
-    if (currentAssignmentRef) {
-        currentAssignmentRef.off(); 
-        currentAssignmentRef = null;
-    }
-
-    // 2. 執行原有的返回主頁邏輯
+    // 直接呼叫 returnToHome()，它會負責：
+    // 1. 播放退場動畫
+    // 2. 隱藏雲端視窗
+    // 3. 重新顯示主頁選單、標題、DSE倒數
+    // 4. 解鎖頁面捲動
     returnToHome();
 }
 
@@ -14358,129 +14298,111 @@ function finishLogin(grade, cls, number, name) {
 }
 
 
-// === 全域變數：儲存監聽器參照 (防止重複監聽) ===
-let currentAssignmentRef = null;
-
-// === 純 Firebase 版：實時同步課業列表 ===
-function loadAssignments(grade, cls) {
+// === 讀取老師派發的課業 ===
+// === 修訂版 V5：讀取課業列表 (未繳交 -> 跳轉至歷史紀錄) ===
+async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
-    const s = JSON.parse(localStorage.getItem('studentProfile')); // 這裡只讀取身份，不讀取舊課業數據
-    
-    // 如果沒有身份資料，就不執行
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // 1. 顯示載入中狀態
-    listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#2A9689;"><i class="fas fa-circle-notch fa-spin"></i> 正在連線至雲端...</div>';
-
-    // 2. 重要：清理舊連線
-    // 如果之前有打開過（例如從 6A 切換到 6B，或者關閉再打開），先斷開之前的監聽
-    // 否則會造成記憶體洩漏，甚至導致舊的數據覆蓋新的數據
-    if (currentAssignmentRef) {
-        currentAssignmentRef.off();
+    const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
+    
+    // 1. 優先顯示本地緩存 (秒開)
+    const cachedData = localStorage.getItem(cacheKey);
+    if (cachedData) {
+        renderAssignmentList(JSON.parse(cachedData), true);
+    } else {
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
-    // 3. 建立實時連線
-    currentAssignmentRef = database.ref(`assignments/${grade}/${cls}`);
-    
-    // 使用 .on() 保持連線，資料有變動會自動刷新
-    currentAssignmentRef.on('value', async (snapshot) => {
-        const assignmentsData = snapshot.val();
+    try {
+        // 2. [優化重點] 並行抓取：課業清單 + 學生所有提交紀錄
+        // 不要一項一項抓，改為抓取整個 submissions 分支
+        const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
+            database.ref(`assignments/${grade}/${cls}`).once('value'),
+            database.ref(`assignments_submissions`).once('value') // 一次性抓取
+        ]);
 
-        // 情況 A: 資料庫回傳 null (該班級沒有任何功課)
-        // 這是解決「卡住」的關鍵，必須明確處理 null
+        const assignmentsData = assignmentsSnap.val();
+        const allSubmissionsData = allSubmissionsSnap.val() || {};
+
         if (!assignmentsData) {
-            listDiv.innerHTML = '<div style="text-align:center; padding:40px; color:#aaa;"><i class="far fa-folder-open" style="font-size:40px; margin-bottom:10px;"></i><br>目前沒有任何課業</div>';
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
             return;
         }
 
-        try {
-            // 情況 B: 有功課，開始處理數據
-            // 我們需要將 Object 轉換為 Array，並同時查詢學生的提交狀態
-            const keys = Object.keys(assignmentsData);
-            
-            // 使用 Promise.all 並行查詢所有功課的提交狀態 (純雲端查詢，不讀本地)
-            const promises = keys.map(async (key) => {
-                const task = assignmentsData[key];
-                
-                // 直接查詢 Firebase 確認是否已交
-                const subSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
-                const submission = subSnap.exists() ? subSnap.val() : null;
-                
-                return { key, task, submission };
-            });
+        // 3. 在本地記憶體比對，不發起額外請求
+        const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
+        const results = tasksArray.map(([key, task]) => {
+            // 從剛才抓到的大物件中直接找該學生的資料
+            const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
+            return { key, task, submission };
+        });
 
-            // 等待所有查詢完成
-            const tasksArray = await Promise.all(promises);
-
-            // 排序：新的功課 (timestamp 大) 排在上面
-            tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
-
-            // 渲染列表 (傳入 false 表示這不是「同步中」的狀態，而是「已完成」)
-            renderAssignmentList(tasksArray, false);
-
-        } catch (error) {
-            console.error("數據處理錯誤:", error);
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">讀取數據時發生錯誤，請檢查網絡。</div>';
+        // 4. 更新緩存並渲染
+        const newCacheStr = JSON.stringify(results);
+        if (newCacheStr !== cachedData) {
+            localStorage.setItem(cacheKey, newCacheStr);
+            renderAssignmentList(results, false);
         }
-    }, (error) => {
-        // Firebase 連線層級的錯誤 (例如權限不足或斷網)
-        console.error("Firebase 監聽失敗:", error);
-        listDiv.innerHTML = `<div style="text-align:center; padding:20px; color:red;">連線失敗：${error.message}</div>`;
-    });
+
+    } catch (error) {
+        console.error("載入失敗", error);
+    }
 }
+
+
 	
+// === 輔助函數：渲染列表 HTML (避免代碼重複) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
 
-    // 如果陣列為空 (雖然上面 check 過 null，但防止過濾後變空)
-    if (dataArray.length === 0) {
-        listDiv.innerHTML = '<div style="text-align:center; padding:30px; color:#999;">暫無課業</div>';
-        return;
+    // 如果正在同步，顯示一個低調的提示條
+    if (isSyncing) {
+        html += `<div style="text-align:center; font-size:0.8rem; color:#aaa; margin-bottom:10px; animation: pulse 1.5s infinite;">
+                    <i class="fas fa-sync-alt fa-spin"></i> 正在檢查最新課業...
+                 </div>`;
     }
 
     for (const item of dataArray) {
         const task = item.task;
         const submission = item.submission;
         
-        // --- 狀態判斷邏輯 ---
+        // 狀態判斷邏輯
         let uiClass = '';
         let statusIcon = '';
         let statusText = '';
         let clickAction = '';
         let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
 
-        // 優先順序 1: 老師已發還 (Returned)
+        // 1. 已發還
         if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
-            uiClass = 'status-returned'; // 紫色
+            uiClass = 'status-returned';
             statusIcon = '<i class="fas fa-envelope-open-text"></i>';
             statusText = '查看評語';
-            
-            // 準備數據供彈窗使用
             submission.topic = task.topic; 
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
             clickAction = `showTeacherFeedback('${submissionStr}')`;
         }
-        // 優先順序 2: 學生已提交 (Submitted)
+        // 2. 已繳交
         else if (submission) {
-            uiClass = 'status-submitted'; // 綠色
+            uiClass = 'status-submitted';
             statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
             statusText = '<span style="color:#5e7067;">已繳交</span>';
-            
             submission.topic = task.topic;
-            submission.isPending = true; // 標記為待批改
+            submission.isPending = true; 
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
             clickAction = `showTeacherFeedback('${submissionStr}')`;
         }
-        // 優先順序 3: 未繳交 (Pending)
+        // 3. 未繳交
         else {
-            uiClass = 'status-pending'; // 紅色
-            statusIcon = '<i class="fas fa-pen-fancy"></i>'; 
+            uiClass = 'status-pending';
+            statusIcon = '<i class="fas fa-history"></i>'; 
             statusText = '未繳交';
-            clickAction = `goToHistoryForAssignment('${task.topic}')`; // 跳轉去寫作
+            clickAction = `goToHistoryForAssignment('${task.topic}')`;
         }
 
-        // 產生卡片 HTML
         html += `
         <div class="task-card ${uiClass}" onclick="${clickAction}">
             <div class="task-info">
