@@ -13910,13 +13910,15 @@ function openStudentLoginModal() {
     }
 }
 
-// === 2. 修改關閉「學生雲端中心」的函式 ===
+// === 修改關閉函式：離開時斷開連線，節省效能 ===
 function closeStudentCloudModal() {
-    // 直接呼叫 returnToHome()，它會負責：
-    // 1. 播放退場動畫
-    // 2. 隱藏雲端視窗
-    // 3. 重新顯示主頁選單、標題、DSE倒數
-    // 4. 解鎖頁面捲動
+    // 1. 斷開實時監聽
+    if (currentAssignmentRef) {
+        currentAssignmentRef.off(); 
+        currentAssignmentRef = null;
+    }
+
+    // 2. 執行原有的返回主頁邏輯
     returnToHome();
 }
 
@@ -14324,70 +14326,77 @@ function finishLogin(grade, cls, number, name) {
 }
 
 
-// === 讀取老師派發的課業 ===
-// === 最終修訂 V8：強制同步、正確排序、解決滾動 ===
-async function loadAssignments(grade, cls) {
+// === 全域變數：儲存監聽器參照，以便關閉時移除 ===
+let currentAssignmentRef = null;
+
+// === 最終極速版 V9：實時監聽 (Real-time) + 自動清洗 + 強制排序 ===
+function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // 1. 【顯示緩存】先呈現舊資料 (為了秒開體驗)
+    // 1. 【秒開】先顯示本地緩存 (避免白畫面)
     const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
-        // 傳入 true 顯示頂部「同步中」的提示條
+        // 顯示舊資料，並標記「同步中...」
         renderAssignmentList(JSON.parse(cachedData), true); 
     } else {
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#888;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#888;"><i class="fas fa-spinner fa-spin"></i> 建立連線中...</div>';
     }
 
-    try {
-        // 2. 【強制拉取】無視緩存，直接從 Firebase 抓最新資料
-        const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
-            database.ref(`assignments/${grade}/${cls}`).once('value'),
-            database.ref(`assignments_submissions`).once('value') 
-        ]);
+    // 2. 【清理舊連線】避免重複監聽導致效能問題
+    if (currentAssignmentRef) {
+        currentAssignmentRef.off(); // 斷開舊的連線
+    }
 
-        const assignmentsData = assignmentsSnap.val();
-        const allSubmissionsData = allSubmissionsSnap.val() || {};
+    // 3. 【建立實時連線】使用 .on() 而不是 .once()
+    // 這行代碼的意思是：「只要資料庫有任何變動（新增/修改/刪除），立刻執行這個函式」
+    currentAssignmentRef = database.ref(`assignments/${grade}/${cls}`);
+    
+    currentAssignmentRef.on('value', async (snapshot) => {
+        const assignmentsData = snapshot.val();
 
-        // 3. 【刪除檢測】如果 Firebase 回傳空值，代表老師刪光了所有作業
+        // 4. 【即時刪除處理】如果老師刪光了，這裡會立刻收到 null
         if (!assignmentsData) {
             listDiv.innerHTML = '<div style="text-align:center; padding:40px; color:#aaa;"><i class="far fa-folder-open" style="font-size:40px; margin-bottom:10px;"></i><br>目前沒有任何課業</div>';
-            localStorage.removeItem(cacheKey); // 殺死本地舊緩存
+            localStorage.removeItem(cacheKey); // 立刻清除緩存
             return;
         }
 
-        // 4. 【資料清洗與排序】
-        // 這裡只處理 Firebase 存在的 key，被刪除的 key 不會進入這個陣列
-        const tasksArray = Object.entries(assignmentsData).map(([key, task]) => {
-            const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
-            return { key, task, submission };
-        });
+        try {
+            // 5. 【獲取提交狀態】
+            // 為了確保狀態準確，每次課業變動時，我們也重新拉一次提交紀錄
+            const submissionsSnap = await database.ref(`assignments_submissions`).once('value');
+            const allSubmissionsData = submissionsSnap.val() || {};
 
-        // ★★★ 核心修復：強制時間倒序 (最新的 timestamp 大，排前面) ★★★
-        tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
+            // 6. 【資料重組】
+            // map 只會遍歷 assignmentsData (Firebase 傳來的最新名單)
+            // 所以「被刪除的課業」根本不會進入這個 tasksArray，從而實現自動消失
+            const tasksArray = Object.entries(assignmentsData).map(([key, task]) => {
+                const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
+                return { key, task, submission };
+            });
 
-        // 5. 【覆蓋更新】
-        // 無論資料有無變動，都強制更新介面，確保同步狀態解除，且刪除的作業消失
-        localStorage.setItem(cacheKey, JSON.stringify(tasksArray));
-        
-        // 呼叫渲染，傳入 false 代表「同步完成」，隱藏讀取條
-        renderAssignmentList(tasksArray, false); 
+            // 7. 【強制排序】新課業(大 timestamp) 排在最上面
+            tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
 
-    } catch (error) {
-        console.error("同步失敗", error);
-        // 如果失敗，只移除讀取條，保留舊緩存顯示，並提示離線
-        if (cachedData) {
-            // 這裡我們重繪一次緩存資料，但傳入 false 以移除「同步中」圖示，並加一個小紅點提示
-            renderAssignmentList(JSON.parse(cachedData), false);
-            // 可以在列表頂部插入一個小小的離線提示 (選用)
-            listDiv.insertAdjacentHTML('afterbegin', '<div style="font-size:12px; text-align:center; color:red; padding:5px;">⚠️ 網絡不穩，目前顯示舊紀錄</div>');
-        } else {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線失敗，請檢查網絡。</div>';
+            // 8. 【更新緩存與介面】
+            localStorage.setItem(cacheKey, JSON.stringify(tasksArray));
+            
+            // 呼叫渲染，傳入 false 代表「同步完成」，移除 loading 圖示
+            renderAssignmentList(tasksArray, false); 
+
+        } catch (error) {
+            console.error("處理數據失敗:", error);
+            // 發生錯誤時保留緩存顯示，但移除 loading
+            if (cachedData) renderAssignmentList(JSON.parse(cachedData), false);
         }
-    }
+    }, (error) => {
+        console.error("監聽失敗:", error);
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線中斷，請檢查網絡。</div>';
+    });
 }
 
 	
