@@ -3611,12 +3611,15 @@ select:focus, select:hover {
 .task-card::before {
     content: '';
     position: absolute;
+	background-color: var(--theme-color) !important;
     top: 0;
     left: 0;
     width: 100%;
     height: 6px; /* 頂部色條高度 */
     z-index: 1;
 }
+
+
 
 /* 3. 懸停效果 */
 .task-card:hover {
@@ -14375,7 +14378,7 @@ async function loadAssignments(grade, cls) {
 
 	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
-// === 輔助函數：渲染列表 HTML (已加入莫蘭迪色輪替) ===
+// === 輔助函數：渲染列表 HTML (修訂版：僅改變上方色條顏色) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
@@ -14389,19 +14392,17 @@ function renderAssignmentList(dataArray, isSyncing) {
         '#c7b299'  // 奶茶棕 (Latte)
     ];
 
-    // 如果正在同步，顯示一個低調的提示條
     if (isSyncing) {
         html += `<div style="text-align:center; font-size:0.8rem; color:#aaa; margin-bottom:10px; animation: pulse 1.5s infinite;">
                     <i class="fas fa-sync-alt fa-spin"></i> 正在檢查最新課業...
                  </div>`;
     }
 
-    // 改用 forEach 為了獲取 index (索引)，用來分配顏色
     dataArray.forEach((item, index) => {
         const task = item.task;
         const submission = item.submission;
         
-        // ★★★ 核心邏輯：根據索引分配顏色 ★★★
+        // 根據索引分配顏色
         const themeColor = morandiPalette[index % morandiPalette.length];
 
         // 狀態判斷邏輯
@@ -14411,7 +14412,6 @@ function renderAssignmentList(dataArray, isSyncing) {
         let clickAction = '';
         let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
 
-        // 1. 已發還
         if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
             uiClass = 'status-returned';
             statusIcon = '<i class="fas fa-envelope-open-text"></i>';
@@ -14420,7 +14420,6 @@ function renderAssignmentList(dataArray, isSyncing) {
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
             clickAction = `showTeacherFeedback('${submissionStr}')`;
         }
-        // 2. 已繳交
         else if (submission) {
             uiClass = 'status-submitted';
             statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
@@ -14430,22 +14429,22 @@ function renderAssignmentList(dataArray, isSyncing) {
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
             clickAction = `showTeacherFeedback('${submissionStr}')`;
         }
-        // 3. 未繳交
         else {
             uiClass = 'status-pending';
             statusIcon = '<i class="fas fa-pen"></i>'; 
-            statusText = '前往作答';
+            statusText = '未繳交';
             clickAction = `goToHistoryForAssignment('${task.topic}')`;
         }
 
-        // ★★★ HTML 生成 (加入 style 屬性) ★★★
-        // 1. 卡片加入 border-left 樣式，顏色為 themeColor
-        // 2. 標籤 (task-type-tag) 背景色設為 themeColor，文字白色
+        // ★★★ 關鍵修改處 ★★★
+        // 1. style="--theme-color: ${themeColor};" -> 將顏色變數傳給 CSS (控制上方色條)
+        // 2. 移除了 border-left 樣式
         html += `
-        <div class="task-card ${uiClass}" onclick="${clickAction}" style="border-left: 6px solid ${themeColor} !important;">
+        <div class="task-card ${uiClass}" onclick="${clickAction}" style="--theme-color: ${themeColor};">
             <div class="task-info">
                 <div class="task-topic">${task.topic}</div>
                 <div class="task-meta">
+                    <!-- 標籤背景色也同步使用該主題色 -->
                     <span class="task-type-tag" style="background-color: ${themeColor}; color: white; border:none;">${task.type}</span>
                     <span><i class="far fa-clock"></i> ${dateDisplay}</span>
                 </div>
