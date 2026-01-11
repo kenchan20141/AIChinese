@@ -13965,60 +13965,44 @@ function updateWelcomeMessage(profile) {
 // 3. 【核心新增】驗證學生狀態 (同步資料 + 處理轉班 + 處理帳號失效)
 async function verifyStudentStatus(localProfile) {
     const statusIcon = document.getElementById('syncStatusIcon');
-    if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-sync fa-spin"></i>'; // 顯示同步中圖示
+    if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-sync fa-spin"></i>'; 
 
     const oldPath = `students/${localProfile.grade}/${localProfile.class}/${localProfile.name}/profile`;
 
     try {
-        // 嘗試從舊地址讀取資料
+        // 1. 只讀取，絕對不寫入！
         const snapshot = await database.ref(oldPath).once('value');
         const cloudData = snapshot.val();
 
         if (cloudData) {
-            // === 情況一：學生還在原班 (可能改了班號) ===
-            // 檢查資料是否有變動
+            // === 情況一：資料存在 (正常) ===
+            // 只有確定資料存在後，才可以執行更新 (例如同步班號)
             if (cloudData.number != localProfile.number) {
                 console.log("偵測到班號更新，同步中...");
-                
-                // 更新本地緩存
                 localProfile.number = cloudData.number;
-                // 注意：如果現在是用 Google 登入，密碼欄位通常不再需要同步，除非你有特殊用途
-                
                 localStorage.setItem('studentProfile', JSON.stringify(localProfile));
-                
-                // 刷新介面
                 updateWelcomeMessage(localProfile);
-                if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-check" style="color: #28a745;"></i>'; // 綠色勾勾
-            } else {
-                if(statusIcon) statusIcon.innerHTML = ''; // 資料一致，移除圖示保持介面乾淨
             }
-        } else {
-            // === 情況二：舊地址找不到人 (可能轉班了，或者資料被刪除了) ===
-            console.warn("原路徑找不到學生，啟動全校搜尋模式...");
-            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-search fa-spin" style="color: orange;"></i>'; // 搜尋中圖示
             
+            // (選擇性) 在這裡才可以安全地更新最後登入時間，因為確定節點存在
+            // database.ref(oldPath).update({ last_login: new Date().toLocaleString('zh-HK') });
+
+            if(statusIcon) statusIcon.innerHTML = ''; 
+        } else {
+            // === 情況二：雲端找不到此人 (資料庫被清空，或轉班) ===
+            console.warn("原路徑找不到資料，啟動全校搜尋以確認身份...");
+            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-search fa-spin" style="color: orange;"></i>'; 
+            
+            // 轉交給搜尋函式處理，這裡絕對不進行任何寫入！
             await findStudentNewLocation(localProfile.name);
         }
     } catch (error) {
         console.error("同步檢查失敗:", error);
         if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: red;"></i>';
-
-        // ★★★ 關鍵修改：處理帳號被刪除的情況 ★★★
-        // 當你在 Authentication 刪除帳號，Firebase 規則通常會拒絕讀取 (PERMISSION_DENIED)
-        if (error.code === 'PERMISSION_DENIED' || error.message.includes('permission_denied')) {
-            alert("⚠️ 您的帳號權限已失效（可能已被移除），將自動登出。");
-
-			 // ★★★ 加入這段：移除紅點與監聽 ★★★
-    if (pendingMonitorRef) {
-        pendingMonitorRef.off(); // 停止監聽 Firebase
-        pendingMonitorRef = null;
-    }
-    const badge = document.getElementById('notifBadge');
-    if(badge) badge.style.display = 'none'; // 強制隱藏紅點
-            
-            // 清除本地緩存並強制重整
-            localStorage.removeItem('studentProfile');
-            location.reload();
+        
+        // 如果權限被拒，代表帳號可能被刪，執行登出
+        if (error.code === 'PERMISSION_DENIED') {
+            handleStudentLogout();
         }
     }
 }
@@ -14027,12 +14011,9 @@ async function verifyStudentStatus(localProfile) {
 // 【核心新增】全校搜尋模式 (處理轉班與畢業)
 async function findStudentNewLocation(studentName) {
     const statusIcon = document.getElementById('syncStatusIcon');
-    if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-cog fa-spin" style="color: orange;"></i> 正在搜尋...';
-
+    
     try {
-        console.log("啟動全校搜尋...");
-        
-        // 1. 先去正式的學生名單 (students) 找
+        // 1. 搜尋正式名單
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
         
@@ -14058,7 +14039,8 @@ async function findStudentNewLocation(studentName) {
         }
 
         if (found && newInfo) {
-            // === 情況 A: 找到新班級 (正常升班) ===
+            // === 情況 A: 找到新班級 (自動修正本地資料) ===
+            // 這會發生在該學生已經被老師升班為 6A，但他本地還存著 5A 的時候
             const newProfile = {
                 name: studentName,
                 grade: newGrade,
@@ -14067,40 +14049,36 @@ async function findStudentNewLocation(studentName) {
                 email: newInfo.email
             };
             localStorage.setItem('studentProfile', JSON.stringify(newProfile));
-            alert(`系統偵測到您的班級已變更！\n\n已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
+            alert(`系統已將您的資料更新為新學年班別：${newGrade}${newClass} (${newInfo.number})`);
             
             updateWelcomeMessage(newProfile);
             loadAssignments(newGrade, newClass);
             if(statusIcon) statusIcon.innerHTML = ''; 
 
         } else {
-            // === 情況 B: 正式名單沒找到，去「待分班區」找 ===
-            // 這主要針對剛從中三升上來的學生，老師還沒分班
+            // 2. 搜尋待分班區 (pending_allocation)
             const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
             
             if (pendingSnap.exists()) {
-                alert("校方正在進行中四分班作業。\n\n您的資料目前在「待分班名單」中，暫時無法登入。\n請等待老師完成分班後再試。");
-                if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-clock" style="color: orange;"></i> 待分班';
-                // 這裡不登出，保持等待狀態
-                return;
+                alert("您目前在「待分班名單」中 (例如中三升中四)。\n請等待老師完成分班作業後再登入。");
+                return; // 保持等待狀態，不登出也不寫入
             }
 
-            // === 情況 C: 都找不到 (表示已被刪除，例如中六畢業) ===
-            console.warn("全校搜尋未果");
-            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-user-slash" style="color: red;"></i>';
+            // === 情況 C: 徹底找不到 (資料庫已清空，但學生本地還有舊資料) ===
+            // 這就是您擔心的情況！
+            console.warn("資料庫無此人，判定為舊學年殘留資料。");
             
-            alert("⚠️ 系統找不到您的資料！\n\n可能原因：\n1. 您已畢業（中六學生資料已刪除）。\n2. 您的帳號已被老師移除。\n\n系統將自動登出。");
-            
-            // 執行登出清理
-            handleStudentLogout();
+            // ★★★ 關鍵動作：強制登出並銷毀本地資料 ★★★
+            // 這樣學生就會被踢回登入畫面，必須重新註冊為 6A
+            // 由於被踢出，系統就不會有機會寫入 "5A" 到資料庫
+            alert("系統資料庫已重置 (新學年開始)。\n\n您的舊身份 (5A) 已失效，請重新登入並註冊您的新班級。");
+            handleStudentLogout(); 
         }
 
     } catch (error) {
-        console.error("搜尋學生失敗:", error);
-        if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-wifi" style="color: red;"></i>';
+        console.error("搜尋錯誤:", error);
     }
 }
-
 	
 // 1. 初始化班號選項 (請放在 initDSECalendar 或 DOMContentLoaded 內執行，或是直接放在 script 最後)
 function initClassNumbers() {
