@@ -14375,9 +14375,19 @@ async function loadAssignments(grade, cls) {
 
 	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
+// === 輔助函數：渲染列表 HTML (已加入莫蘭迪色輪替) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
+
+    // 定義莫蘭迪色系調色盤 (5色循環)
+    const morandiPalette = [
+        '#8fa398', // 灰綠 (Sage)
+        '#94a7b5', // 霧霾藍 (Dusty Blue)
+        '#b6a6ca', // 香芋紫 (Taro)
+        '#d69a92', // 豆沙紅 (Bean Red)
+        '#c7b299'  // 奶茶棕 (Latte)
+    ];
 
     // 如果正在同步，顯示一個低調的提示條
     if (isSyncing) {
@@ -14386,10 +14396,14 @@ function renderAssignmentList(dataArray, isSyncing) {
                  </div>`;
     }
 
-    for (const item of dataArray) {
+    // 改用 forEach 為了獲取 index (索引)，用來分配顏色
+    dataArray.forEach((item, index) => {
         const task = item.task;
         const submission = item.submission;
         
+        // ★★★ 核心邏輯：根據索引分配顏色 ★★★
+        const themeColor = morandiPalette[index % morandiPalette.length];
+
         // 狀態判斷邏輯
         let uiClass = '';
         let statusIcon = '';
@@ -14419,25 +14433,28 @@ function renderAssignmentList(dataArray, isSyncing) {
         // 3. 未繳交
         else {
             uiClass = 'status-pending';
-            statusIcon = '<i class="fas fa-history"></i>'; 
-            statusText = '未繳交';
+            statusIcon = '<i class="fas fa-pen"></i>'; 
+            statusText = '前往作答';
             clickAction = `goToHistoryForAssignment('${task.topic}')`;
         }
 
+        // ★★★ HTML 生成 (加入 style 屬性) ★★★
+        // 1. 卡片加入 border-left 樣式，顏色為 themeColor
+        // 2. 標籤 (task-type-tag) 背景色設為 themeColor，文字白色
         html += `
-        <div class="task-card ${uiClass}" onclick="${clickAction}">
+        <div class="task-card ${uiClass}" onclick="${clickAction}" style="border-left: 6px solid ${themeColor} !important;">
             <div class="task-info">
                 <div class="task-topic">${task.topic}</div>
                 <div class="task-meta">
-                    <span class="task-type-tag">${task.type}</span>
-                    <span>${dateDisplay}</span>
+                    <span class="task-type-tag" style="background-color: ${themeColor}; color: white; border:none;">${task.type}</span>
+                    <span><i class="far fa-clock"></i> ${dateDisplay}</span>
                 </div>
             </div>
             <div class="task-status">
                 ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
             </div>
         </div>`;
-    }
+    });
     
     listDiv.innerHTML = html;
 }
