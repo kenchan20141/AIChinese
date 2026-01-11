@@ -5225,6 +5225,33 @@ select:focus, select:hover {
         min-width: 70px !important;
     }
 }
+
+	/* === 修復：課業列表滾動與佈局 === */
+#studentCloudPanel {
+    /* 讓面板佔滿剩餘空間 */
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px); /* 扣除頂部標題的高度 */
+    overflow: hidden; /* 防止外層雙重滾動 */
+}
+
+#assignmentList {
+    /* 核心修復：啟用垂直滾動 */
+    flex: 1;               /* 自動填滿高度 */
+    overflow-y: auto;      /* 內容多時顯示滾動條 */
+    max-height: none !important; /* 移除舊的高度限制 */
+    padding-bottom: 50px;  /* 底部留白，方便手機操作 */
+    padding-right: 5px;    /* 避免滾動條蓋住內容 */
+    -webkit-overflow-scrolling: touch; /* iOS 慣性滾動 */
+}
+
+/* 修復卡片樣式，確保新舊順序視覺正確 */
+.task-card {
+    /* 確保不會被壓縮 */
+    flex-shrink: 0;
+    margin-bottom: 12px;
+}
 	
 	
 </style>
@@ -14298,8 +14325,7 @@ function finishLogin(grade, cls, number, name) {
 
 
 // === 讀取老師派發的課業 ===
-// === 修訂版 V6：極速載入課業列表 (緩存優先 + 並行讀取 + 倒序排列) ===
-// === 修訂版 V7：極速載入 + 智能同步 (自動清洗已刪除課業) ===
+// === 最終修訂 V8：強制同步、正確排序、解決滾動 ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14307,18 +14333,17 @@ async function loadAssignments(grade, cls) {
 
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // 1. 【極速預覽】先顯示本地緩存 (即使包含已被刪除的舊課業，也暫時顯示，確保秒開)
+    // 1. 【顯示緩存】先呈現舊資料 (為了秒開體驗)
     const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
-        // 傳入 true 顯示「同步中」圖示，讓學生知道現在看到的可能不是最新的
+        // 傳入 true 顯示頂部「同步中」的提示條
         renderAssignmentList(JSON.parse(cachedData), true); 
     } else {
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#888;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
     try {
-        // 2. 【獲取真理】從 Firebase 抓取最新的課業狀態
-        // 使用 Promise.all 並行抓取，速度最快
+        // 2. 【強制拉取】無視緩存，直接從 Firebase 抓最新資料
         const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
             database.ref(`assignments/${grade}/${cls}`).once('value'),
             database.ref(`assignments_submissions`).once('value') 
@@ -14327,116 +14352,113 @@ async function loadAssignments(grade, cls) {
         const assignmentsData = assignmentsSnap.val();
         const allSubmissionsData = allSubmissionsSnap.val() || {};
 
-        // 3. 【關鍵修正：處理「老師刪光所有課業」的情況】
-        // 如果 Firebase 回傳 null (代表該班級沒有任何課業)，必須強制清空緩存
+        // 3. 【刪除檢測】如果 Firebase 回傳空值，代表老師刪光了所有作業
         if (!assignmentsData) {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#666;">目前沒有新課業</div>';
-            localStorage.removeItem(cacheKey); // ★ 核心：殺死本地舊資料，防止幽靈課業殘留
+            listDiv.innerHTML = '<div style="text-align:center; padding:40px; color:#aaa;"><i class="far fa-folder-open" style="font-size:40px; margin-bottom:10px;"></i><br>目前沒有任何課業</div>';
+            localStorage.removeItem(cacheKey); // 殺死本地舊緩存
             return;
         }
 
-        // 4. 【資料清洗】重組數據 (只保留 Firebase 存在的課業)
-        // 這裡只會處理 assignmentsData 裡有的 key，如果老師刪除了某個 key，這裡就不會出現
-        // 因此被刪除的課業會在這裡被自動過濾掉
+        // 4. 【資料清洗與排序】
+        // 這裡只處理 Firebase 存在的 key，被刪除的 key 不會進入這個陣列
         const tasksArray = Object.entries(assignmentsData).map(([key, task]) => {
             const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
             return { key, task, submission };
         });
 
-        // 5. 【倒序排列】新的在上面
+        // ★★★ 核心修復：強制時間倒序 (最新的 timestamp 大，排前面) ★★★
         tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
 
-        // 6. 【覆蓋更新】將清洗過的新列表存入緩存
-        // 這樣下次進來時，localStorage 裡就是乾淨的、沒有被刪除課業的列表了
-        const newCacheStr = JSON.stringify(tasksArray);
+        // 5. 【覆蓋更新】
+        // 無論資料有無變動，都強制更新介面，確保同步狀態解除，且刪除的作業消失
+        localStorage.setItem(cacheKey, JSON.stringify(tasksArray));
         
-        // 只有當資料真的有變動（例如有新課業、或有課業被刪除）才刷新畫面
-        if (newCacheStr !== cachedData) {
-            localStorage.setItem(cacheKey, newCacheStr);
-            renderAssignmentList(tasksArray, false); // 刷新畫面，移除「同步中」圖示
-        } else {
-            // 資料沒變，也要移除「同步中」圖示
-            renderAssignmentList(tasksArray, false); 
-        }
+        // 呼叫渲染，傳入 false 代表「同步完成」，隱藏讀取條
+        renderAssignmentList(tasksArray, false); 
 
     } catch (error) {
         console.error("同步失敗", error);
-        // 如果連線失敗，至少緩存還在，學生還能看舊資料 (這是離線功能的優點)
-        // 可以選擇加一個提示
+        // 如果失敗，只移除讀取條，保留舊緩存顯示，並提示離線
         if (cachedData) {
-            // 保持現有顯示，但可能提示一下網絡不穩
+            // 這裡我們重繪一次緩存資料，但傳入 false 以移除「同步中」圖示，並加一個小紅點提示
+            renderAssignmentList(JSON.parse(cachedData), false);
+            // 可以在列表頂部插入一個小小的離線提示 (選用)
+            listDiv.insertAdjacentHTML('afterbegin', '<div style="font-size:12px; text-align:center; color:red; padding:5px;">⚠️ 網絡不穩，目前顯示舊紀錄</div>');
         } else {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線逾時，請檢查網絡。</div>';
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線失敗，請檢查網絡。</div>';
         }
     }
 }
 
 	
+// === 渲染函式 (負責 UI 顯示) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
 
-    // 如果正在後台同步，顯示一個低調的呼吸燈提示，讓使用者知道系統還在運作
+    // 1. 狀態提示條 (低調顯示)
     if (isSyncing) {
-        html += `<div style="text-align:center; font-size:0.8rem; color:#2A9689; margin-bottom:10px; background:rgba(42, 150, 137, 0.1); padding:5px; border-radius:4px;">
-                    <i class="fas fa-circle-notch fa-spin"></i> 正在同步最新狀態...
+        html += `<div style="text-align:center; font-size:0.85rem; color:#2A9689; margin-bottom:15px; background:rgba(42, 150, 137, 0.1); padding:8px; border-radius:8px;">
+                    <i class="fas fa-sync-alt fa-spin"></i> 正在與雲端同步...
                  </div>`;
     }
 
-    // 遍歷已排序的陣列 (dataArray 已經是新的在上面了)
-    for (const item of dataArray) {
-        const task = item.task;
-        const submission = item.submission;
-        
-        // --- 狀態判斷邏輯 (保持不變) ---
-        let uiClass = '';
-        let statusIcon = '';
-        let statusText = '';
-        let clickAction = '';
-        let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
+    // 2. 遍歷數據 (dataArray 已經排好序了)
+    if (dataArray.length === 0) {
+        html += '<div style="text-align:center; padding:30px; color:#999;">暫無課業</div>';
+    } else {
+        for (const item of dataArray) {
+            const task = item.task;
+            const submission = item.submission;
+            
+            // UI 狀態邏輯
+            let uiClass = '';
+            let statusIcon = '';
+            let statusText = '';
+            let clickAction = '';
+            let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
 
-        // 1. 已發還
-        if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
-            uiClass = 'status-returned';
-            statusIcon = '<i class="fas fa-envelope-open-text"></i>';
-            statusText = '查看評語';
-            submission.topic = task.topic; 
-            const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            clickAction = `showTeacherFeedback('${submissionStr}')`;
-        }
-        // 2. 已繳交
-        else if (submission) {
-            uiClass = 'status-submitted';
-            statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
-            statusText = '<span style="color:#5e7067;">已繳交</span>';
-            submission.topic = task.topic;
-            submission.isPending = true; 
-            const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            clickAction = `showTeacherFeedback('${submissionStr}')`;
-        }
-        // 3. 未繳交
-        else {
-            uiClass = 'status-pending';
-            statusIcon = '<i class="fas fa-history"></i>'; 
-            statusText = '未繳交';
-            clickAction = `goToHistoryForAssignment('${task.topic}')`;
-        }
+            if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
+                uiClass = 'status-returned';
+                statusIcon = '<i class="fas fa-envelope-open-text"></i>';
+                statusText = '查看評語';
+                submission.topic = task.topic; 
+                const submissionStr = encodeURIComponent(JSON.stringify(submission));
+                clickAction = `showTeacherFeedback('${submissionStr}')`;
+            }
+            else if (submission) {
+                uiClass = 'status-submitted';
+                statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
+                statusText = '<span style="color:#5e7067;">已繳交</span>';
+                submission.topic = task.topic;
+                submission.isPending = true; 
+                const submissionStr = encodeURIComponent(JSON.stringify(submission));
+                clickAction = `showTeacherFeedback('${submissionStr}')`;
+            }
+            else {
+                uiClass = 'status-pending';
+                statusIcon = '<i class="fas fa-pen-fancy"></i>'; 
+                statusText = '未繳交';
+                clickAction = `goToHistoryForAssignment('${task.topic}')`;
+            }
 
-        html += `
-        <div class="task-card ${uiClass}" onclick="${clickAction}" style="animation: fadeIn 0.3s ease;">
-            <div class="task-info">
-                <div class="task-topic">${task.topic}</div>
-                <div class="task-meta">
-                    <span class="task-type-tag">${task.type}</span>
-                    <span>${dateDisplay}</span>
+            html += `
+            <div class="task-card ${uiClass}" onclick="${clickAction}">
+                <div class="task-info">
+                    <div class="task-topic">${task.topic}</div>
+                    <div class="task-meta">
+                        <span class="task-type-tag">${task.type}</span>
+                        <span>${dateDisplay}</span>
+                    </div>
                 </div>
-            </div>
-            <div class="task-status">
-                ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
-            </div>
-        </div>`;
+                <div class="task-status">
+                    ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
+                </div>
+            </div>`;
+        }
     }
     
+    // 3. 寫入 HTML
     listDiv.innerHTML = html;
 }
 	// === 新增：從未繳交課業跳轉至歷史紀錄 ===
