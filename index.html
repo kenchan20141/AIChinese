@@ -4028,25 +4028,68 @@ select:focus, select:hover {
    ======================================================= */
 
 /* 1. 外層容器：變成全螢幕視窗，負責處理滾動 */
+/* === 修訂：學生雲端中心佈局 (解決問題二：滾動與爆版) === */
+
+/* 1. 外層容器：鎖定視窗，避免雙重滾動 */
 #studentCloudModal {
     position: fixed !important;
-    top: 0;
-    left: 0;
-    width: 100% !important;
-    height: 100% !important;
-    background-color: #fdfcf8 !important; /* 設定背景色，避免透明 */
-    z-index: 10050 !important; /* 確保在最上層 */
+    top: 0; left: 0;
+    width: 100% !important; height: 100% !important;
+    background-color: #f5f5f3 !important;
+    z-index: 10050 !important;
     padding: 0 !important;
+    overflow: hidden !important; /* ★ 關鍵：禁止外層滾動 */
+    display: none;
+}
+
+/* 2. 內容區域：使用 Flexbox 佈局，撐滿高度 */
+#studentCloudModal .modal-content {
+    width: 100% !important;
+    max-width: 800px !important;
+    height: 100% !important;
+    margin: 0 auto !important;
+    padding: 80px 20px 20px 20px !important; /* 頂部留白給關閉鍵 */
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    box-sizing: border-box;
     
-    /* 關鍵：讓容器自己產生滾動條，而不是內容 */
-    overflow-y: auto !important; 
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch; /* 讓 iOS 滾動更順滑 */
-    
-    /* 佈局重置：移除置中，改為自然流動 */
-    display: none; /* 預設隱藏，由 JS 控制 */
-    align-items: flex-start !important;
-    justify-content: flex-start !important;
+    display: flex;          /* ★ 啟用 Flex */
+    flex-direction: column; /* ★ 垂直排列 */
+}
+
+/* 3. 面板區域：自動填滿剩餘空間 */
+#studentCloudPanel {
+    flex: 1;                /* ★ 自動佔據剩餘高度 */
+    display: flex; 
+    flex-direction: column;
+    overflow: hidden;       /* ★ 內部元素溢出隱藏 */
+    margin-top: 10px !important;
+}
+
+/* 4. 列表區域：開啟滾動 (解決問題二) */
+#assignmentList {
+    flex: 1;                /* ★ 自動填滿 #studentCloudPanel 的剩餘空間 */
+    overflow-y: auto;       /* ★ 內容過多時顯示滾動條 */
+    max-height: none !important; /* ★ 移除舊的高度限制 */
+    padding-bottom: 60px;   /* ★ 底部留白，方便手機點擊最下方項目 */
+    padding-right: 5px;
+    -webkit-overflow-scrolling: touch; /* ★ iOS 慣性滾動 */
+}
+
+/* 5. 確保通知容器不會阻擋操作 (針對問題三的樣式輔助) */
+.sansi-notification-container {
+    position: fixed;
+    top: 25px;
+    right: 20px;
+    z-index: 35000;
+    display: flex;
+    flex-direction: column; /* 垂直排列 */
+    gap: 15px;
+    pointer-events: none;
+    max-height: 80vh;       /* 防止通知太多蓋住整個畫面 */
+    overflow: hidden;       /* 超出不顯示，避免破壞版面 */
 }
 
 /* 2. 內容區域：撐滿寬度，移除圓角 */
@@ -5796,74 +5839,53 @@ function initNotificationListeners() {
 }
 
 /**
- * 修改 showSansiNotif 以標記類型
- */
-/**
- * 整合修訂版：顯示持久性、結構化排版的通知
- * 包含：類型標記、已讀記憶、點擊消失、以及防重複機制
+ * 修訂版：顯示通知 (解決問題三：新通知壓在舊通知上方)
  */
 function showSansiNotif(type, topic, uniqueId) {
-    // 1. 防重複機制：檢查畫面上是否已經存在同一個 ID 的通知
+    // 1. 防重複機制
     if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return;
 
     const container = document.getElementById('notifContainer');
-    if (!container) return; // 安全檢查
+    if (!container) return;
 
     const notif = document.createElement('div');
-    
-    // 2. 設定屬性（包含 data-type 方便老師刪除課業時同步撤回）
     notif.setAttribute('data-notif-id', uniqueId);
     notif.setAttribute('data-type', type); 
     
     const isNew = type === 'new';
     notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
     
-    // 3. 定義結構化內容
     const badgeText = isNew ? '新課業發佈' : '批改已發還';
-    const iconClass = isNew ? 'fa-feather-alt' : 'fa-clipboard-check';
     const descText = isNew 
         ? '老師為你的班級指派了新任務，請適時進入系統完成練習。' 
         : '你提交的課業已有新的老師評語及評分，請即時檢閱。';
 
-    // 4. 插入結構化 HTML
     notif.innerHTML = `
         <div class="notif-badge">${badgeText}</div>
         <div class="notif-header">
             <div class="notif-topic">《${topic}》</div>
         </div>
-        <div class="notif-desc">
-            ${descText}
-        </div>
+        <div class="notif-desc">${descText}</div>
         <div class="notif-footer">
-            <span>點擊前往查看詳情</span>
-            <i class="fas fa-chevron-right" style="font-size: 0.7rem;"></i>
+            <span>點擊查看</span> <i class="fas fa-chevron-right"></i>
         </div>
     `;
 
-    // 5. 點擊事件：處理持久性邏輯（記錄已讀、動畫、跳轉）
     notif.onclick = () => {
-        // A. 記錄到 localStorage 的已讀清單，防止重新整理後再次出現
         if (!notifiedIds.includes(uniqueId)) {
             notifiedIds.push(uniqueId);
             localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
         }
-
-        // B. 執行退場動畫並移除元素
         notif.classList.add('fade-out');
-        setTimeout(() => {
-            notif.remove();
-            updateNotifBadge(); // 移除後即時檢查並更新側邊欄紅點
-        }, 500);
-
-        // C. UI 互動：打開學生雲端中心
+        setTimeout(() => { notif.remove(); updateNotifBadge(); }, 500);
         openStudentLoginModal();
     };
 
-    // 6. 渲染到畫面並更新紅點
-    container.appendChild(notif);
+    // ★★★ 關鍵修改：使用 prepend 讓新通知插入到最上方 (解決問題三) ★★★
+    container.prepend(notif);
+    
     updateNotifBadge();
 }
-
 
 
 // 更新紅點：只有當畫面上確實存在通知卡片時才顯示紅點
@@ -14326,79 +14348,69 @@ function finishLogin(grade, cls, number, name) {
 }
 
 
-// === 全域變數：儲存監聽器參照，以便關閉時移除 ===
+// === 全域變數：儲存監聽器參照 ===
 let currentAssignmentRef = null;
 
-// === 最終極速版 V9：實時監聽 (Real-time) + 自動清洗 + 強制排序 ===
+// === 修訂版 V10：實時監聽 + 並行讀取 (解決卡頓與不刷新) ===
 function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
-    
-    // 1. 【秒開】先顯示本地緩存 (避免白畫面)
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-        // 顯示舊資料，並標記「同步中...」
-        renderAssignmentList(JSON.parse(cachedData), true); 
-    } else {
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#888;"><i class="fas fa-spinner fa-spin"></i> 建立連線中...</div>';
-    }
+    // 1. 顯示載入中狀態 (保留舊內容，加上 loading icon)
+    listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#2A9689;"><i class="fas fa-circle-notch fa-spin"></i> 正在同步雲端資料...</div>';
 
-    // 2. 【清理舊連線】避免重複監聽導致效能問題
+    // 2. 清理舊連線 (防止重複監聽導致記憶體洩漏)
     if (currentAssignmentRef) {
-        currentAssignmentRef.off(); // 斷開舊的連線
+        currentAssignmentRef.off();
     }
 
-    // 3. 【建立實時連線】使用 .on() 而不是 .once()
-    // 這行代碼的意思是：「只要資料庫有任何變動（新增/修改/刪除），立刻執行這個函式」
+    // 3. 建立實時連線
     currentAssignmentRef = database.ref(`assignments/${grade}/${cls}`);
     
     currentAssignmentRef.on('value', async (snapshot) => {
         const assignmentsData = snapshot.val();
 
-        // 4. 【即時刪除處理】如果老師刪光了，這裡會立刻收到 null
+        // 情況 A: 老師刪光了所有作業
         if (!assignmentsData) {
             listDiv.innerHTML = '<div style="text-align:center; padding:40px; color:#aaa;"><i class="far fa-folder-open" style="font-size:40px; margin-bottom:10px;"></i><br>目前沒有任何課業</div>';
-            localStorage.removeItem(cacheKey); // 立刻清除緩存
             return;
         }
 
         try {
-            // 5. 【獲取提交狀態】
-            // 為了確保狀態準確，每次課業變動時，我們也重新拉一次提交紀錄
-            const submissionsSnap = await database.ref(`assignments_submissions`).once('value');
-            const allSubmissionsData = submissionsSnap.val() || {};
-
-            // 6. 【資料重組】
-            // map 只會遍歷 assignmentsData (Firebase 傳來的最新名單)
-            // 所以「被刪除的課業」根本不會進入這個 tasksArray，從而實現自動消失
-            const tasksArray = Object.entries(assignmentsData).map(([key, task]) => {
-                const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
+            // ★★★ 優化重點：並行讀取 (Parallel Fetching) ★★★
+            // 相比於等待 await 一個接一個讀取，Promise.all 可以同時發出所有請求
+            
+            const keys = Object.keys(assignmentsData);
+            
+            // 建立一組 Promise 請求
+            const promises = keys.map(async (key) => {
+                const task = assignmentsData[key];
+                // 讀取該學生的提交狀態
+                const subSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
+                const submission = subSnap.exists() ? subSnap.val() : null;
+                
                 return { key, task, submission };
             });
 
-            // 7. 【強制排序】新課業(大 timestamp) 排在最上面
+            // 等待所有請求完成
+            const tasksArray = await Promise.all(promises);
+
+            // ★★★ 優化重點：排序 (解決問題三：新課業在最上) ★★★
+            // 根據 timestamp 降序排列 (新的時間戳較大，排前面)
             tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
 
-            // 8. 【更新緩存與介面】
-            localStorage.setItem(cacheKey, JSON.stringify(tasksArray));
-            
-            // 呼叫渲染，傳入 false 代表「同步完成」，移除 loading 圖示
-            renderAssignmentList(tasksArray, false); 
+            // 渲染列表
+            renderAssignmentList(tasksArray, false);
 
         } catch (error) {
-            console.error("處理數據失敗:", error);
-            // 發生錯誤時保留緩存顯示，但移除 loading
-            if (cachedData) renderAssignmentList(JSON.parse(cachedData), false);
+            console.error("數據同步錯誤:", error);
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">數據同步發生錯誤，請稍後再試。</div>';
         }
     }, (error) => {
-        console.error("監聽失敗:", error);
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線中斷，請檢查網絡。</div>';
+        console.error("Firebase 監聽失敗:", error);
     });
 }
-
 	
 // === 渲染函式 (負責 UI 顯示) ===
 function renderAssignmentList(dataArray, isSyncing) {
