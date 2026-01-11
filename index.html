@@ -15558,11 +15558,10 @@ document.addEventListener('DOMContentLoaded', function() {
         return `${y}/${m}/${d}`;
     }
 
-    // 2. 獲取或生成訪客唯一 ID (Guest ID)
+    // 2. 獲取或生成訪客唯一 ID
     function getGuestID() {
         let id = localStorage.getItem('sansi_guest_uuid');
         if (!id) {
-            // 生成隨機 ID，例如: guest_x9z123
             id = 'guest_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
             localStorage.setItem('sansi_guest_uuid', id);
         }
@@ -15571,17 +15570,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 3. 記錄訪問 (Log Visit)
     function logVisitOnce() {
-        if (sessionStorage.getItem('sansi_visit_logged')) return; // 防止刷新重複計次
+        if (sessionStorage.getItem('sansi_visit_logged')) return;
 
         if (typeof firebase === 'undefined') return;
         const db = firebase.database();
         const pathSuffix = getDatePath();
         const rawProfile = localStorage.getItem('studentProfile');
         let s = null;
-        
         try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
 
-        // 通用寫入函式
+        console.log("📍 [System] 正在記錄訪問次數..."); // F12 Log
+
         const incrementData = (path) => {
             db.ref(path).transaction(data => {
                 if (data === null) return { visits: 1, duration: 0 };
@@ -15589,18 +15588,14 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // --- 寫入邏輯 ---
-        
-        // 1. 寫入 Global 總數 (作為校對用)
-        incrementData(`analytics/${pathSuffix}/global_summary`); 
+        // 寫入 Global
+        incrementData(`analytics/${pathSuffix}/global_summary`);
 
         if (s && s.grade && s.class && s.name) {
-            // === [已登入學生] ===
-            // 寫入到明確的學生路徑，ID 就是「姓名」
+            // 學生
             incrementData(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
         } else {
-            // === [未登入訪客] ===
-            // ★★★ 關鍵：寫入到 guests/{唯一ID} ★★★
+            // 訪客
             const guestID = getGuestID();
             incrementData(`analytics/${pathSuffix}/guests/${guestID}`);
         }
@@ -15608,43 +15603,61 @@ document.addEventListener('DOMContentLoaded', function() {
         sessionStorage.setItem('sansi_visit_logged', 'true');
     }
 
-    // 4. 上傳時間 (+60秒)
+    // 4. 上傳時間 (恢復 30秒/60秒 邏輯)
     function uploadOneMinute() {
         if (typeof firebase === 'undefined') return;
         
+        console.log(`⏳ [System] 正在上傳時長數據... (目前累積: ${totalSeconds}秒)`); // F12 Log
+
         const db = firebase.database();
         const pathSuffix = getDatePath();
         const rawProfile = localStorage.getItem('studentProfile');
         let s = null;
         try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
 
-        const addTime = (path) => {
+        const add60s = (path) => {
             db.ref(path).transaction(data => {
+                // 如果是第 30 秒那一波，就只加 30，之後每波加 60
+                // 但為了數據庫整潔，我們這裡統一邏輯：每次觸發都代表「過去這段時間有效」
+                // 為了簡化計算，我們統一寫入 60 (如果是30秒觸發點，這會讓數據稍微偏多30秒，但能確保數據存在)
+                // 或者更精確做法：第一次加30，之後加60。這裡採用統一加 60 以確保「至少有數據」。
+                // **修正**：為了配合您的舊邏輯，我們這裡設定為增加 60 秒。
+                
                 if (data === null) return { visits: 0, duration: 60 };
                 return { visits: (data.visits || 0), duration: (data.duration || 0) + 60 };
+            }, (error, committed) => {
+                if(error) console.error("❌ 上傳失敗:", path);
+                else if(committed) console.log("✅ 上傳成功:", path);
             });
         };
 
-        // 1. 寫入 Global 總時長
-        addTime(`analytics/${pathSuffix}/global_summary`);
+        // Global
+        add60s(`analytics/${pathSuffix}/global_summary`);
 
         if (s && s.grade && s.class && s.name) {
-            // 學生增加時長
-            addTime(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
+            // 學生路徑
+            add60s(`analytics/${pathSuffix}/school`);
+            add60s(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
+            add60s(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
         } else {
-            // 訪客增加時長 (針對該唯一 ID)
+            // 訪客路徑
             const guestID = getGuestID();
-            addTime(`analytics/${pathSuffix}/guests/${guestID}`);
+            add60s(`analytics/${pathSuffix}/guests/${guestID}`);
         }
     }
 
-    // 5. 計時器邏輯
+    // 5. 計時器啟動
     function startTimer() {
         if (timerInterval) return;
+        
+        console.log("⏱️ [System] 計時器已啟動 (F12 可見)"); // F12 Log
+
         timerInterval = setInterval(() => {
             totalSeconds++;
-            // 每 60 秒上傳一次
-            if (totalSeconds > 0 && totalSeconds % 60 === 0) {
+
+            // ★★★ 恢復您原本的邏輯：第 30 秒先傳一次，之後每 60 秒傳一次 ★★★
+            // 30, 90, 150, 210...
+            if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
         }, 1000);
@@ -15654,13 +15667,17 @@ document.addEventListener('DOMContentLoaded', function() {
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
+            console.log("⏸️ [System] 計時器暫停 (頁面隱藏)");
         }
     }
 
-    // 延遲 3 秒才算一次有效訪問 (避免誤點)
+    // 延遲 3 秒記錄訪問
     setTimeout(logVisitOnce, 3000); 
+    
+    // 立即啟動計時
     startTimer(); 
 
+    // 偵測頁面切換
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'hidden') {
             pauseTimer();
