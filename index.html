@@ -14024,19 +14024,15 @@ async function verifyStudentStatus(localProfile) {
 }
 
 // 4. 【核心新增】全校搜尋模式 (處理轉班)
+// 【核心新增】全校搜尋模式 (處理轉班與畢業)
 async function findStudentNewLocation(studentName) {
-    // 顯示提示，讓用戶知道系統正在進行大量運算
     const statusIcon = document.getElementById('syncStatusIcon');
     if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-cog fa-spin" style="color: orange;"></i> 正在搜尋...';
 
     try {
-        // 【優化】嘗試只讀取 'profile' 節點，而不是整個學生資料
-        // 注意：這依賴於 Firebase 結構，如果無法僅讀取 profile，
-        // 建議在 Firebase Rules 或結構上做優化（例如建立獨立的 user-index）
-        // 這裡我們暫時維持讀取 students，但加上 try-catch 和超時保護
+        console.log("啟動全校搜尋...");
         
-        console.log("啟動全校搜尋... (這可能會花一點時間)");
-        
+        // 1. 先去正式的學生名單 (students) 找
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
         
@@ -14045,14 +14041,11 @@ async function findStudentNewLocation(studentName) {
         let newClass = '';
         let newInfo = null;
 
-        // 遍歷所有年級和班級
         if (allData) {
             for (const grade in allData) {
                 for (const cls in allData[grade]) {
                     const studentsInClass = allData[grade][cls];
-                    // 檢查該班級是否有這位學生
                     if (studentsInClass && studentsInClass[studentName]) {
-                        // 確保找到的是該本人的資料 (比對 UID 或 電郵會更安全，這裡比對名字)
                         found = true;
                         newGrade = grade;
                         newClass = cls;
@@ -14065,28 +14058,41 @@ async function findStudentNewLocation(studentName) {
         }
 
         if (found && newInfo) {
-            // === 找到新班級！執行轉班更新 ===
+            // === 情況 A: 找到新班級 (正常升班) ===
             const newProfile = {
                 name: studentName,
                 grade: newGrade,
                 class: newClass,
                 number: newInfo.number,
-                email: newInfo.email // 補上電郵
+                email: newInfo.email
             };
-
             localStorage.setItem('studentProfile', JSON.stringify(newProfile));
             alert(`系統偵測到您的班級已變更！\n\n已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
             
             updateWelcomeMessage(newProfile);
             loadAssignments(newGrade, newClass);
-            
-            if(statusIcon) statusIcon.innerHTML = ''; // 清除圖示
+            if(statusIcon) statusIcon.innerHTML = ''; 
 
         } else {
-            // 找不到人
+            // === 情況 B: 正式名單沒找到，去「待分班區」找 ===
+            // 這主要針對剛從中三升上來的學生，老師還沒分班
+            const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
+            
+            if (pendingSnap.exists()) {
+                alert("校方正在進行中四分班作業。\n\n您的資料目前在「待分班名單」中，暫時無法登入。\n請等待老師完成分班後再試。");
+                if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-clock" style="color: orange;"></i> 待分班';
+                // 這裡不登出，保持等待狀態
+                return;
+            }
+
+            // === 情況 C: 都找不到 (表示已被刪除，例如中六畢業) ===
             console.warn("全校搜尋未果");
-            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-question-circle" style="color: grey;"></i>';
-            // 不自動登出，避免因為網絡慢讀取不到數據而導致用戶被踢出
+            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-user-slash" style="color: red;"></i>';
+            
+            alert("⚠️ 系統找不到您的資料！\n\n可能原因：\n1. 您已畢業（中六學生資料已刪除）。\n2. 您的帳號已被老師移除。\n\n系統將自動登出。");
+            
+            // 執行登出清理
+            handleStudentLogout();
         }
 
     } catch (error) {
@@ -14095,6 +14101,7 @@ async function findStudentNewLocation(studentName) {
     }
 }
 
+	
 // 1. 初始化班號選項 (請放在 initDSECalendar 或 DOMContentLoaded 內執行，或是直接放在 script 最後)
 function initClassNumbers() {
     const select = document.getElementById('studentNumber');
