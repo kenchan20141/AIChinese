@@ -3974,12 +3974,15 @@ select:focus, select:hover {
 }
 
 /* 3. 調整登入後的面板，讓它佔滿剩餘空間 */
+/* 請加入或修訂這段 CSS */
 #studentCloudPanel {
-    flex-grow: 1;           /* 自動填滿剩餘高度 */
-    display: flex;          /* 使用 Flexbox */
-    flex-direction: column; /* 垂直排列 */
-    margin-top: 10px !important; 
-    overflow: hidden;       /* 防止外層滾動 */
+    display: none; /* 預設隱藏，登入後由 JS 控制顯示 */
+    margin-top: 15px;
+    /* 以下是新增的關鍵樣式 */
+    flex-grow: 1;
+    flex-direction: column;
+    overflow: hidden; /* 防止外層出現雙重滾動條 */
+    height: 100%; /* 確保佔滿高度 */
 }
 
 /* 4. 關鍵優化：讓課業列表自動延伸，並在內部滾動 */
@@ -15286,7 +15289,7 @@ ${promptData}
 
     <div style="border-top: 1px dashed #ccc; margin: 15px 0; padding-top:10px;">
         <h4 style="margin-top:0; color:#2A9689;"><i class="fas fa-tasks"></i> 你的課業狀態</h4>
-        <div id="assignmentList" style="max-height: 250px; overflow-y:auto; padding-right:5px;">
+       <div id="assignmentList" style="flex-grow: 1; overflow-y: auto; padding-right: 5px; min-height: 0;">
             載入中...
         </div>
     </div>
@@ -15426,10 +15429,28 @@ window.monitorPendingAssignments = function() {
         const results = await Promise.all(checkPromises);
 
         // 更新全域狀態：只要有一個是 false，就代表有待辦事項
-        window.hasPendingWork = results.includes(false);
+        const hasPending = results.includes(false);
+        
+        // 檢測狀態是否改變（原本沒功課變有功課，或反之）
+        const statusChanged = window.hasPendingWork !== hasPending;
+        window.hasPendingWork = hasPending;
 
-        // 觸發 UI 更新
+        // 1. 觸發紅點 UI 更新
         refreshGlobalBadge();
+
+        // 2. ★★★ 關鍵新增：即時熱更新列表 ★★★
+        // 如果「學生雲端中心」目前是打開的，立即重新載入列表，讓學生馬上看到新功課
+        const cloudModal = document.getElementById('studentCloudModal');
+        if (cloudModal && cloudModal.style.display === 'block') {
+            console.log("偵測到課業變動，正在熱更新列表...");
+            loadAssignments(s.grade, s.class);
+        }
+        
+        // 3. (選用) 如果紅點亮起且視窗未打開，可以播放一個提示音效或顯示 Toast
+        if (statusChanged && hasPending && (!cloudModal || cloudModal.style.display !== 'block')) {
+            // 你可以在這裡加入提示邏輯
+            console.log("收到新課業通知！"); 
+        }
     });
 };
 
