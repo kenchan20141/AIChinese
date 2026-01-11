@@ -14299,6 +14299,7 @@ function finishLogin(grade, cls, number, name) {
 
 // === 讀取老師派發的課業 ===
 // === 修訂版 V6：極速載入課業列表 (緩存優先 + 並行讀取 + 倒序排列) ===
+// === 修訂版 V7：極速載入 + 智能同步 (自動清洗已刪除課業) ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14306,18 +14307,18 @@ async function loadAssignments(grade, cls) {
 
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // 1. 【秒開關鍵】優先顯示本地緩存
-    // 使用者不用等 Firebase 回應，馬上就能看到上次的紀錄
+    // 1. 【極速預覽】先顯示本地緩存 (即使包含已被刪除的舊課業，也暫時顯示，確保秒開)
     const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
-        renderAssignmentList(JSON.parse(cachedData), true); // true 代表顯示「正在檢查更新」的小圖示
+        // 傳入 true 顯示「同步中」圖示，讓學生知道現在看到的可能不是最新的
+        renderAssignmentList(JSON.parse(cachedData), true); 
     } else {
         listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
     try {
-        // 2. 【效能優化】並行抓取 (Parallel Fetching)
-        // 同時發出兩個請求，而不是等完一個再發下一個，大幅減少等待時間
+        // 2. 【獲取真理】從 Firebase 抓取最新的課業狀態
+        // 使用 Promise.all 並行抓取，速度最快
         const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
             database.ref(`assignments/${grade}/${cls}`).once('value'),
             database.ref(`assignments_submissions`).once('value') 
@@ -14326,42 +14327,49 @@ async function loadAssignments(grade, cls) {
         const assignmentsData = assignmentsSnap.val();
         const allSubmissionsData = allSubmissionsSnap.val() || {};
 
+        // 3. 【關鍵修正：處理「老師刪光所有課業」的情況】
+        // 如果 Firebase 回傳 null (代表該班級沒有任何課業)，必須強制清空緩存
         if (!assignmentsData) {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
-            localStorage.removeItem(cacheKey); // 清除舊緩存
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#666;">目前沒有新課業</div>';
+            localStorage.removeItem(cacheKey); // ★ 核心：殺死本地舊資料，防止幽靈課業殘留
             return;
         }
 
-        // 3. 【排序優化】資料處理與排序 (新的在上面)
-        // 將 Object 轉為 Array 並加入提交狀態
+        // 4. 【資料清洗】重組數據 (只保留 Firebase 存在的課業)
+        // 這裡只會處理 assignmentsData 裡有的 key，如果老師刪除了某個 key，這裡就不會出現
+        // 因此被刪除的課業會在這裡被自動過濾掉
         const tasksArray = Object.entries(assignmentsData).map(([key, task]) => {
-            // 直接從大數據中查找該學生的提交，避免 N+1次 查詢
             const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
             return { key, task, submission };
         });
 
-        // ★★★ 關鍵排序：按時間戳倒序 (b - a) ★★★
+        // 5. 【倒序排列】新的在上面
         tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
 
-        // 4. 更新緩存並渲染 (只有當資料有變動時才刷新畫面，避免閃爍)
+        // 6. 【覆蓋更新】將清洗過的新列表存入緩存
+        // 這樣下次進來時，localStorage 裡就是乾淨的、沒有被刪除課業的列表了
         const newCacheStr = JSON.stringify(tasksArray);
+        
+        // 只有當資料真的有變動（例如有新課業、或有課業被刪除）才刷新畫面
         if (newCacheStr !== cachedData) {
             localStorage.setItem(cacheKey, newCacheStr);
-            renderAssignmentList(tasksArray, false); // false 代表同步完成，隱藏讀取圖示
+            renderAssignmentList(tasksArray, false); // 刷新畫面，移除「同步中」圖示
         } else {
-            // 就算資料沒變，也要把「正在檢查更新」的圖示拿掉
+            // 資料沒變，也要移除「同步中」圖示
             renderAssignmentList(tasksArray, false); 
         }
 
     } catch (error) {
-        console.error("載入失敗", error);
-        // 如果連線失敗但有緩存，使用者至少還能看到舊資料，不會白屏
-        if (!cachedData) {
+        console.error("同步失敗", error);
+        // 如果連線失敗，至少緩存還在，學生還能看舊資料 (這是離線功能的優點)
+        // 可以選擇加一個提示
+        if (cachedData) {
+            // 保持現有顯示，但可能提示一下網絡不穩
+        } else {
             listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線逾時，請檢查網絡。</div>';
         }
     }
 }
-
 
 	
 function renderAssignmentList(dataArray, isSyncing) {
