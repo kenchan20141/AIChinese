@@ -122,48 +122,36 @@ form-action 'self';
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 
-  // V7: 加入時間戳記，強制瀏覽器抓新檔案
-  const cacheBuster = "?v=" + new Date().getTime(); 
-
   window.addEventListener('load', async function() {
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
           
-          // 絕對路徑
-          path: "https://kenchan20141.github.io/AIChinese/",
+          // === 關鍵修正：移除動態時間戳，避免每次產生新的 Worker ===
+          serviceWorkerPath: "OneSignalSDKWorker.js",
           
-          // ★★★ 關鍵修改：檔名後面加上亂數參數 ★★★
-          // 這會強迫瀏覽器重新下載檔案，不再用舊的緩存
-          serviceWorkerPath: "OneSignalSDKWorker.js" + cacheBuster,
-          
+          // 確保 Scope 正確
           serviceWorkerParam: { scope: "/AIChinese/" },
 
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: false } 
         });
         
-        console.log("OneSignal 初始化成功 (強制更新版)！");
+        console.log("OneSignal 初始化成功 (修正版)！");
 
-        // 強制檢查與補強註冊
-        if (OneSignal.User.PushSubscription.optedIn) {
-             console.log("用戶已訂閱，檢查 Worker 狀態...");
-             if ('serviceWorker' in navigator) {
-                // 同樣加上版本號
-                navigator.serviceWorker.register('https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js' + cacheBuster, {
-                    scope: '/AIChinese/'
-                }).then(reg => {
-                    console.log('✅ 新版 Worker 強制覆蓋成功:', reg);
-                });
-             }
-        } else {
-             OneSignal.User.PushSubscription.optIn();
-        }
-
+        // === 標籤設定 (保留你的邏輯) ===
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            OneSignal.User.addTags({ grade: String(s.grade), class: String(s.class), userType: 'student' });
+            // 延遲一點點確保 User ID 已建立
+            setTimeout(() => {
+                OneSignal.User.addTags({ 
+                    grade: String(s.grade), 
+                    class: String(s.class), 
+                    userType: 'student' 
+                });
+                console.log("標籤已更新");
+            }, 1000);
         }
 
       } catch (err) {
@@ -15438,6 +15426,109 @@ setTimeout(() => {
 }, 1500);
 
 </script>
+
+
+
+<!-- === [新增] 神思大數據收集模組 === -->
+<!-- === [強力偵錯版] 神思大數據收集模組 === -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let pageStartTime = Date.now();
+    let isPageActive = true;
+
+    // 格式化日期 YYYY/MM/DD
+    function getDatePath() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}/${m}/${d}`;
+    }
+
+    // 上傳核心邏輯
+    function uploadStats() {
+        if (!isPageActive) return;
+        
+        // 計算停留秒數 (測試階段：拿掉2秒限制，設為0即可上傳)
+        const duration = Math.round((Date.now() - pageStartTime) / 1000);
+        const datePath = getDatePath();
+        
+        // ★★★ 關鍵修改：強制讀取最新的學生資料 ★★★
+        const rawProfile = localStorage.getItem('studentProfile');
+        let s = null;
+        if (rawProfile) {
+            try {
+                s = JSON.parse(rawProfile);
+            } catch (e) {
+                console.error("學生資料解析失敗", e);
+            }
+        }
+
+        // 確保 Firebase 存在
+        if (typeof firebase === 'undefined') return;
+        const db = firebase.database();
+
+        // 1. 寫入 Global (所有人)
+        runTransaction(db, `analytics/${datePath}/global`, duration);
+
+        // 2. 寫入 學生個別資料 (如果資料存在)
+        if (s && s.grade && s.class && s.name) {
+            console.log("正在上傳學生數據:", s.name); // 可以在 Console 看到
+            
+            // A. 全校
+            runTransaction(db, `analytics/${datePath}/school`, duration);
+            
+            // B. 班級 (例如: analytics/2026/01/11/classes/6A)
+            runTransaction(db, `analytics/${datePath}/classes/${s.grade}${s.class}`, duration);
+            
+            // C. 個人 (例如: analytics/2026/01/11/students/6/A/陳大文)
+            // 注意路徑：我們修正為 students/年級/班級/姓名，方便老師後台讀取
+            runTransaction(db, `analytics/${datePath}/students/${s.grade}/${s.class}/${s.name}`, duration);
+        } else {
+            console.warn("未偵測到學生身分，僅上傳 Global");
+        }
+
+        isPageActive = false;
+    }
+
+    function runTransaction(db, path, duration) {
+        // 使用原子操作累加
+        db.ref(path).transaction((currentData) => {
+            if (currentData === null) {
+                return { visits: 1, duration: duration };
+            } else {
+                return {
+                    visits: (currentData.visits || 0) + 1,
+                    duration: (currentData.duration || 0) + duration
+                };
+            }
+        });
+    }
+
+    // 觸發條件
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+            uploadStats();
+        } else {
+            // 切換回來時重置
+            pageStartTime = Date.now();
+            isPageActive = true;
+        }
+    });
+    
+    // 手機版備用
+    window.addEventListener('pagehide', function() {
+        uploadStats();
+    });
+});
+</script>
+
+
+
+
+	
+
+
 	
 
 </body>
