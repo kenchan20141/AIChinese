@@ -122,42 +122,29 @@ form-action 'self';
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 
-  // V7: 加入時間戳記，強制瀏覽器抓新檔案
-  const cacheBuster = "?v=" + new Date().getTime(); 
-
   window.addEventListener('load', async function() {
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
           appId: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
-          
-          // 絕對路徑
+          // 設定 SDK 檔案的基礎路徑
           path: "https://kenchan20141.github.io/AIChinese/",
           
-          // ★★★ 關鍵修改：檔名後面加上亂數參數 ★★★
-          // 這會強迫瀏覽器重新下載檔案，不再用舊的緩存
-          serviceWorkerPath: "OneSignalSDKWorker.js" + cacheBuster,
+          // ★★★ 修正 1: 移除 cacheBuster 亂數，保持檔名固定 ★★★
+          serviceWorkerPath: "OneSignalSDKWorker.js",
           
           serviceWorkerParam: { scope: "/AIChinese/" },
-
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: false } 
         });
         
-        console.log("OneSignal 初始化成功 (強制更新版)！");
+        console.log("OneSignal 初始化成功");
 
-        // 強制檢查與補強註冊
-        if (OneSignal.User.PushSubscription.optedIn) {
-             console.log("用戶已訂閱，檢查 Worker 狀態...");
-             if ('serviceWorker' in navigator) {
-                // 同樣加上版本號
-                navigator.serviceWorker.register('https://kenchan20141.github.io/AIChinese/OneSignalSDKWorker.js' + cacheBuster, {
-                    scope: '/AIChinese/'
-                }).then(reg => {
-                    console.log('✅ 新版 Worker 強制覆蓋成功:', reg);
-                });
-             }
-        } else {
+        // ★★★ 修正 2: 移除手動 navigator.serviceWorker.register ★★★
+        // OneSignal init 內部已經會處理註冊，重複註冊會導致衝突
+
+        // 檢查訂閱狀態
+        if (!OneSignal.User.PushSubscription.optedIn) {
              OneSignal.User.PushSubscription.optIn();
         }
 
