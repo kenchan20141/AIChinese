@@ -15451,13 +15451,13 @@ setTimeout(() => {
 
 
 <!-- === [新增] 神思大數據收集模組 === -->
-<!-- === [最終靜音版] 神思大數據收集模組 (F12 僅顯示關鍵動作) === -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 當前這一段「尚未上傳」的累積秒數
-    let currentSessionSeconds = 0;
-    
-    // 格式化日期 YYYY/MM/DD
+    // 累積停留秒數
+    let totalSeconds = 0;
+    // 計時器狀態
+    let timerInterval = null;
+
     function getDatePath() {
         const now = new Date();
         const y = now.getFullYear();
@@ -15466,7 +15466,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return `${y}/${m}/${d}`;
     }
 
-    // 1. 記錄訪問次數 (Visits) - 確保每次打開瀏覽器只計 1 次
+    // 1. 記錄訪問次數
     function logVisitOnce() {
         if (sessionStorage.getItem('sansi_visit_logged')) return;
 
@@ -15492,13 +15492,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         sessionStorage.setItem('sansi_visit_logged', 'true');
-        // 只顯示一次，保持乾淨
-        // console.log("✅ [System] 訪問次數已記錄 (Visits +1)");
     }
 
-    // 2. 上傳時間核心函數
-    function uploadToFirebase(secondsToAdd) {
-        if (typeof firebase === 'undefined' || secondsToAdd <= 0) return;
+    // 2. 上傳時間 (+60秒)
+    function uploadOneMinute() {
+        if (typeof firebase === 'undefined') return;
         
         const db = firebase.database();
         const pathSuffix = getDatePath();
@@ -15506,66 +15504,59 @@ document.addEventListener('DOMContentLoaded', function() {
         let s = null;
         if (rawProfile) { try { s = JSON.parse(rawProfile); } catch (e) {} }
 
-        const addTime = (path) => {
+        const add60s = (path) => {
             db.ref(path).transaction(data => {
-                if (data === null) return { visits: 0, duration: secondsToAdd };
-                return { visits: (data.visits || 0), duration: (data.duration || 0) + secondsToAdd };
+                if (data === null) return { visits: 0, duration: 60 };
+                return { visits: (data.visits || 0), duration: (data.duration || 0) + 60 };
             });
         };
 
-        addTime(`analytics/${pathSuffix}/global`);
+        // 平行寫入四個路徑
+        add60s(`analytics/${pathSuffix}/global`);
         if (s && s.grade && s.class && s.name) {
-            addTime(`analytics/${pathSuffix}/school`);
-            addTime(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
-            addTime(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
+            add60s(`analytics/${pathSuffix}/school`);
+            add60s(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
+            add60s(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
         }
-        
-        // 只有在上傳成功時才顯示這一行
-        console.log(`🚀 [Auto-Save] 已自動存檔: +${secondsToAdd} 秒`);
+
+        console.log(`🚀 [Checkpoint] 停留滿 30 秒區間，已寫入 +60 秒 (目前累積停留: ${totalSeconds}秒)`);
     }
 
-    // 3. 計時器邏輯 (每秒執行，但不顯示 Log)
-    setInterval(() => {
-        currentSessionSeconds++;
+    // 3. 啟動計時器
+    function startTimer() {
+        if (timerInterval) return;
 
-        // 滿 60 秒 -> 強制上傳 (整點存檔)
-        if (currentSessionSeconds >= 60) {
-            uploadToFirebase(60);       // 上傳 60 秒
-            currentSessionSeconds = 0;  // 歸零
-        }
-    }, 1000); 
+        // ★★★ 新增：顯示開始計時 ★★★
+        const startTime = new Date().toLocaleTimeString();
+        console.log(`⏱️ [System] 計時器已啟動 - 開始時間: ${startTime}`);
 
-    // 4. 離場處理邏輯 (切換分頁或關閉)
-    function handleExit() {
-        if (currentSessionSeconds === 0) return;
+        timerInterval = setInterval(() => {
+            totalSeconds++;
 
-        // 邏輯 B: 離場時，檢查餘額
-        if (currentSessionSeconds >= 30) {
-            // 超過 30 秒但未滿 60 秒 -> 補足為 60 秒並上傳
-            console.log(`🛑 [Exit] 離場結算：停留 ${currentSessionSeconds} 秒 (>=30s)，補足為 60 秒存檔。`);
-            uploadToFirebase(60); 
-        } else {
-            // 少於 30 秒 -> 捨棄
-            console.log(`🛑 [Exit] 離場結算：停留 ${currentSessionSeconds} 秒 (<30s)，忽略不計。`);
-        }
-
-        // 歸零，避免重複計算
-        currentSessionSeconds = 0;
+            // Checkpoint 檢查: 30, 90, 150...
+            if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
+                uploadOneMinute();
+            }
+        }, 1000);
     }
 
-    // === 初始化與監聽 ===
+    function pauseTimer() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            console.log("⏸️ [System] 計時器暫停 (切換分頁)");
+        }
+    }
+
     setTimeout(logVisitOnce, 3000); 
+    startTimer(); 
 
-    // 監聽可見度變化
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'hidden') {
-            handleExit();
+            pauseTimer();
+        } else {
+            startTimer();
         }
-    });
-
-    // 監聽關閉瀏覽器
-    window.addEventListener('pagehide', function() {
-        handleExit();
     });
 });
 </script>
