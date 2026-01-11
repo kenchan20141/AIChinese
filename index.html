@@ -14298,8 +14298,7 @@ function finishLogin(grade, cls, number, name) {
 }
 
 
-// === 讀取老師派發的課業 ===
-// === 修訂版 V5：讀取課業列表 (未繳交 -> 跳轉至歷史紀錄) ===
+// === 修訂版 V6：修復卡死與更新問題 ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14307,47 +14306,55 @@ async function loadAssignments(grade, cls) {
 
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // 1. 優先顯示本地緩存 (秒開)
+    // 1. 優先顯示本地緩存 (秒開)，並顯示「正在同步」圖示
     const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
+        // 這裡傳入 true，會顯示「正在檢查最新課業...」
         renderAssignmentList(JSON.parse(cachedData), true);
     } else {
         listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
     try {
-        // 2. [優化重點] 並行抓取：課業清單 + 學生所有提交紀錄
-        // 不要一項一項抓，改為抓取整個 submissions 分支
+        // 2. 並行抓取：課業清單 + 學生所有提交紀錄
         const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
             database.ref(`assignments/${grade}/${cls}`).once('value'),
-            database.ref(`assignments_submissions`).once('value') // 一次性抓取
+            database.ref(`assignments_submissions`).once('value')
         ]);
 
         const assignmentsData = assignmentsSnap.val();
         const allSubmissionsData = allSubmissionsSnap.val() || {};
 
         if (!assignmentsData) {
+            // 如果老師刪光了所有課業，這裡要清空緩存並更新畫面
+            localStorage.removeItem(cacheKey);
             listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
             return;
         }
 
-        // 3. 在本地記憶體比對，不發起額外請求
+        // 3. 整理數據
         const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
         const results = tasksArray.map(([key, task]) => {
-            // 從剛才抓到的大物件中直接找該學生的資料
             const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
             return { key, task, submission };
         });
 
-        // 4. 更新緩存並渲染
+        // 4. 更新緩存
         const newCacheStr = JSON.stringify(results);
-        if (newCacheStr !== cachedData) {
-            localStorage.setItem(cacheKey, newCacheStr);
-            renderAssignmentList(results, false);
-        }
+        localStorage.setItem(cacheKey, newCacheStr);
+
+        // ★★★ 關鍵修正：無論資料是否與緩存相同，都強制重新渲染 ★★★
+        // 傳入 false，代表同步完成，這會移除「正在檢查最新課業...」的字樣
+        renderAssignmentList(results, false);
 
     } catch (error) {
         console.error("載入失敗", error);
+        // 發生錯誤時，也要移除 loading 狀態，避免卡死
+        if (cachedData) {
+            renderAssignmentList(JSON.parse(cachedData), false);
+        } else {
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">載入失敗，請檢查網絡。</div>';
+        }
     }
 }
 
