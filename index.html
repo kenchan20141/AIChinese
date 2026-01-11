@@ -14298,7 +14298,7 @@ function finishLogin(grade, cls, number, name) {
 
 
 // === 讀取老師派發的課業 ===
-// === 修訂版 V5：讀取課業列表 (未繳交 -> 跳轉至歷史紀錄) ===
+// === 修訂版 V6：極速載入課業列表 (緩存優先 + 並行讀取 + 倒序排列) ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14306,20 +14306,21 @@ async function loadAssignments(grade, cls) {
 
     const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
     
-    // 1. 優先顯示本地緩存 (秒開)
+    // 1. 【秒開關鍵】優先顯示本地緩存
+    // 使用者不用等 Firebase 回應，馬上就能看到上次的紀錄
     const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
-        renderAssignmentList(JSON.parse(cachedData), true);
+        renderAssignmentList(JSON.parse(cachedData), true); // true 代表顯示「正在檢查更新」的小圖示
     } else {
         listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
     }
 
     try {
-        // 2. [優化重點] 並行抓取：課業清單 + 學生所有提交紀錄
-        // 不要一項一項抓，改為抓取整個 submissions 分支
+        // 2. 【效能優化】並行抓取 (Parallel Fetching)
+        // 同時發出兩個請求，而不是等完一個再發下一個，大幅減少等待時間
         const [assignmentsSnap, allSubmissionsSnap] = await Promise.all([
             database.ref(`assignments/${grade}/${cls}`).once('value'),
-            database.ref(`assignments_submissions`).once('value') // 一次性抓取
+            database.ref(`assignments_submissions`).once('value') 
         ]);
 
         const assignmentsData = assignmentsSnap.val();
@@ -14327,48 +14328,59 @@ async function loadAssignments(grade, cls) {
 
         if (!assignmentsData) {
             listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
+            localStorage.removeItem(cacheKey); // 清除舊緩存
             return;
         }
 
-        // 3. 在本地記憶體比對，不發起額外請求
-        const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
-        const results = tasksArray.map(([key, task]) => {
-            // 從剛才抓到的大物件中直接找該學生的資料
+        // 3. 【排序優化】資料處理與排序 (新的在上面)
+        // 將 Object 轉為 Array 並加入提交狀態
+        const tasksArray = Object.entries(assignmentsData).map(([key, task]) => {
+            // 直接從大數據中查找該學生的提交，避免 N+1次 查詢
             const submission = (allSubmissionsData[key] && allSubmissionsData[key][s.name]) ? allSubmissionsData[key][s.name] : null;
             return { key, task, submission };
         });
 
-        // 4. 更新緩存並渲染
-        const newCacheStr = JSON.stringify(results);
+        // ★★★ 關鍵排序：按時間戳倒序 (b - a) ★★★
+        tasksArray.sort((a, b) => b.task.timestamp - a.task.timestamp);
+
+        // 4. 更新緩存並渲染 (只有當資料有變動時才刷新畫面，避免閃爍)
+        const newCacheStr = JSON.stringify(tasksArray);
         if (newCacheStr !== cachedData) {
             localStorage.setItem(cacheKey, newCacheStr);
-            renderAssignmentList(results, false);
+            renderAssignmentList(tasksArray, false); // false 代表同步完成，隱藏讀取圖示
+        } else {
+            // 就算資料沒變，也要把「正在檢查更新」的圖示拿掉
+            renderAssignmentList(tasksArray, false); 
         }
 
     } catch (error) {
         console.error("載入失敗", error);
+        // 如果連線失敗但有緩存，使用者至少還能看到舊資料，不會白屏
+        if (!cachedData) {
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">連線逾時，請檢查網絡。</div>';
+        }
     }
 }
 
 
 	
-// === 輔助函數：渲染列表 HTML (避免代碼重複) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
 
-    // 如果正在同步，顯示一個低調的提示條
+    // 如果正在後台同步，顯示一個低調的呼吸燈提示，讓使用者知道系統還在運作
     if (isSyncing) {
-        html += `<div style="text-align:center; font-size:0.8rem; color:#aaa; margin-bottom:10px; animation: pulse 1.5s infinite;">
-                    <i class="fas fa-sync-alt fa-spin"></i> 正在檢查最新課業...
+        html += `<div style="text-align:center; font-size:0.8rem; color:#2A9689; margin-bottom:10px; background:rgba(42, 150, 137, 0.1); padding:5px; border-radius:4px;">
+                    <i class="fas fa-circle-notch fa-spin"></i> 正在同步最新狀態...
                  </div>`;
     }
 
+    // 遍歷已排序的陣列 (dataArray 已經是新的在上面了)
     for (const item of dataArray) {
         const task = item.task;
         const submission = item.submission;
         
-        // 狀態判斷邏輯
+        // --- 狀態判斷邏輯 (保持不變) ---
         let uiClass = '';
         let statusIcon = '';
         let statusText = '';
@@ -14403,7 +14415,7 @@ function renderAssignmentList(dataArray, isSyncing) {
         }
 
         html += `
-        <div class="task-card ${uiClass}" onclick="${clickAction}">
+        <div class="task-card ${uiClass}" onclick="${clickAction}" style="animation: fadeIn 0.3s ease;">
             <div class="task-info">
                 <div class="task-topic">${task.topic}</div>
                 <div class="task-meta">
