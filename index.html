@@ -14161,10 +14161,41 @@ async function handleSchoolLogin() {
     }
 }
 
-	// === 新增：統一處理登入後的邏輯 ===
+
+// === 新增：全校電郵搜尋函式 ===
+async function findProfileByEmail(targetEmail) {
+    try {
+        // 讀取全校學生資料 (注意：若學生人數非常多，建議未來改用 Firebase Index)
+        const snapshot = await database.ref('students').once('value');
+        const allData = snapshot.val();
+        
+        if (!allData) return null;
+
+        // 遍歷所有年級、班級、學生
+        for (const grade in allData) {
+            for (const cls in allData[grade]) {
+                const studentsInClass = allData[grade][cls];
+                for (const name in studentsInClass) {
+                    const profile = studentsInClass[name].profile;
+                    // 如果找到電郵相符的紀錄
+                    if (profile && profile.email === targetEmail) {
+                        return profile; // 回傳該學生的原始資料
+                    }
+                }
+            }
+        }
+        return null; // 沒找到，代表是新用戶
+    } catch (error) {
+        console.error("搜尋電郵失敗:", error);
+        return null;
+    }
+}
+
+	
+
+// === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
 async function processLoginResult(user, btn, originalContent) {
-    // 從 sessionStorage 取回暫存資料 (如果是 Popup 模式，直接讀取變數亦可，但統一讀取較保險)
-    // 如果是 Popup 模式當下變數還在，如果是 Redirect 模式則依賴 Storage
+    // 1. 獲取用戶輸入的資料 (從暫存或DOM)
     let manualName, grade, cls, number;
     
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
@@ -14175,7 +14206,6 @@ async function processLoginResult(user, btn, originalContent) {
         cls = data.cls;
         number = data.number;
     } else {
-        // 如果找不到暫存資料 (極少見)，嘗試重新讀取 DOM (僅限 Popup 不刷新的情況)
         manualName = document.getElementById('studentNameInput')?.value.trim();
         grade = document.getElementById('studentGrade')?.value;
         cls = document.getElementById('studentClass')?.value;
@@ -14190,20 +14220,51 @@ async function processLoginResult(user, btn, originalContent) {
 
     const email = user.email;
 
-    // 檢查電郵網域
+    // 2. 檢查電郵網域
     if (!email.endsWith('@ccckyc.edu.hk')) {
         await auth.signOut();
         alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
-        sessionStorage.removeItem('sansi_temp_student_data'); // 清除暫存
+        sessionStorage.removeItem('sansi_temp_student_data'); 
         if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
         return;
     }
 
-    // 執行綁定
-    await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
-    
-    // 成功後清除暫存
-    sessionStorage.removeItem('sansi_temp_student_data');
+    // ★★★ 關鍵新增：檢查該電郵是否已經註冊過 ★★★
+    const existingProfile = await findProfileByEmail(email);
+
+    if (existingProfile) {
+        // === 情況 A：帳號已存在 (防止重複註冊) ===
+        const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
+        const newLocation = `${grade}${cls}`;
+
+        if (oldLocation !== newLocation) {
+            alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號 (${existingProfile.name})。\n系統將忽略您剛才選擇的 ${newLocation}班，直接登入原有帳號。`);
+        } else {
+            // 如果輸入的班級跟原本一樣，就不彈警告，直接登入
+            console.log("登入舊帳號");
+        }
+
+        // 強制使用資料庫裡的舊資料，而不是用戶剛剛輸入的
+        localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
+        
+        // 清除暫存與 UI 狀態
+        sessionStorage.removeItem('sansi_temp_student_data');
+        document.getElementById('studentIdentityForm').style.display = 'none';
+        document.getElementById('studentCloudPanel').style.display = 'block';
+        
+        // 執行登入後續動作
+        updateWelcomeMessage(existingProfile);
+        loadAssignments(existingProfile.grade, existingProfile.class);
+        monitorPendingAssignments(); // 啟動紅點監聽
+
+        // 這裡不需要再呼叫 bindStudentIdentity，因為資料已經在雲端了
+
+    } else {
+        // === 情況 B：真的是新用戶 (執行註冊綁定) ===
+        console.log("新用戶註冊...");
+        await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
+        sessionStorage.removeItem('sansi_temp_student_data');
+    }
 }
 
 // === 新增：學生登出處理函式 ===
