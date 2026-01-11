@@ -15545,6 +15545,7 @@ setTimeout(() => {
 
 <!-- === [新增] 神思大數據收集模組 === -->
 <script>
+
 document.addEventListener('DOMContentLoaded', function() {
     // 累積停留秒數
     let totalSeconds = 0;
@@ -15577,11 +15578,19 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
+        // ★★★ 修正重點：明確區分寫入路徑 ★★★
+        
+        // 1. 寫入 Global (作為總數備份，Teacher 端可用來校對)
         addVisit(`analytics/${pathSuffix}/global`);
+
         if (s && s.grade && s.class && s.name) {
-            addVisit(`analytics/${pathSuffix}/school`);
-            addVisit(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
-            addVisit(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
+            // === 已登入學生 ===
+            addVisit(`analytics/${pathSuffix}/school`); // 全校學生統計
+            addVisit(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`); // 班級統計
+            addVisit(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`); // 個人統計
+        } else {
+            // === 未登入訪客 (新增此節點) ===
+            addVisit(`analytics/${pathSuffix}/guests`);
         }
 
         sessionStorage.setItem('sansi_visit_logged', 'true');
@@ -15604,29 +15613,23 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // 平行寫入四個路徑
-        add60s(`analytics/${pathSuffix}/global`);
+        // ★★★ 修正重點：時間也同步區分 ★★★
+        add60s(`analytics/${pathSuffix}/global`); // 總時長
+
         if (s && s.grade && s.class && s.name) {
             add60s(`analytics/${pathSuffix}/school`);
             add60s(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
             add60s(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
+        } else {
+            add60s(`analytics/${pathSuffix}/guests`); // 訪客時長
         }
-        
-        // 已移除上傳成功的 console.log
     }
 
-    // 3. 啟動計時器
+    // 3. 啟動計時器 (保持不變)
     function startTimer() {
         if (timerInterval) return;
-
-        // ★★★ 保留：顯示開始計時 ★★★
-        const startTime = new Date().toLocaleTimeString();
-        console.log(`⏱️ [System] 計時器已啟動 - 開始時間: ${startTime}`);
-
         timerInterval = setInterval(() => {
             totalSeconds++;
-
-            // Checkpoint 檢查: 30, 90, 150...
             if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
@@ -15637,7 +15640,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
-            // 已移除暫停的 console.log
         }
     }
 
