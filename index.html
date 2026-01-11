@@ -13970,43 +13970,102 @@ async function verifyStudentStatus(localProfile) {
     const oldPath = `students/${localProfile.grade}/${localProfile.class}/${localProfile.name}/profile`;
 
     try {
-        // 1. 只讀取，絕對不寫入！
+        // ★★★ 關鍵：只讀取，不寫入！ ★★★
         const snapshot = await database.ref(oldPath).once('value');
         const cloudData = snapshot.val();
 
         if (cloudData) {
-            // === 情況一：資料存在 (正常) ===
-            // 只有確定資料存在後，才可以執行更新 (例如同步班號)
+            // 資料存在，確認為有效帳號
             if (cloudData.number != localProfile.number) {
-                console.log("偵測到班號更新，同步中...");
+                // 同步班號更新
                 localProfile.number = cloudData.number;
                 localStorage.setItem('studentProfile', JSON.stringify(localProfile));
                 updateWelcomeMessage(localProfile);
             }
-            
-            // (選擇性) 在這裡才可以安全地更新最後登入時間，因為確定節點存在
-            // database.ref(oldPath).update({ last_login: new Date().toLocaleString('zh-HK') });
-
             if(statusIcon) statusIcon.innerHTML = ''; 
         } else {
-            // === 情況二：雲端找不到此人 (資料庫被清空，或轉班) ===
-            console.warn("原路徑找不到資料，啟動全校搜尋以確認身份...");
+            // 資料不存在，這代表：
+            // 1. 老師已經幫他升班了 (人去了 4B)
+            // 2. 或者他被刪除了 (畢業了)
+            // 3. 或者資料庫被清空了
+            console.warn("原路徑找不到資料，啟動全校搜尋...");
             if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-search fa-spin" style="color: orange;"></i>'; 
             
-            // 轉交給搜尋函式處理，這裡絕對不進行任何寫入！
+            // 轉交給搜尋函式，這裡絕對不 update last_login，否則會創造幽靈帳號！
             await findStudentNewLocation(localProfile.name);
         }
     } catch (error) {
         console.error("同步檢查失敗:", error);
-        if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: red;"></i>';
-        
-        // 如果權限被拒，代表帳號可能被刪，執行登出
-        if (error.code === 'PERMISSION_DENIED') {
-            handleStudentLogout();
-        }
+        // 如果權限不足，通常代表帳號被刪除，直接登出
+        if (error.code === 'PERMISSION_DENIED') handleStudentLogout();
     }
 }
 
+// === 2. 全校搜尋函式 (處理升班與刪除) ===
+async function findStudentNewLocation(studentName) {
+    const statusIcon = document.getElementById('syncStatusIcon');
+    
+    try {
+        // 先在正式名單找
+        const snapshot = await database.ref('students').once('value');
+        const allData = snapshot.val();
+        
+        let found = false;
+        let newGrade = '', newClass = '', newInfo = null;
+
+        if (allData) {
+            for (const g in allData) {
+                for (const c in allData[g]) {
+                    if (allData[g][c][studentName]) {
+                        found = true;
+                        newGrade = g; newClass = c;
+                        newInfo = allData[g][c][studentName].profile;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+        }
+
+        if (found && newInfo) {
+            // A. 找到了 (例如在 4B 找到他)
+            const newProfile = {
+                name: studentName, grade: newGrade, class: newClass,
+                number: newInfo.number, email: newInfo.email
+            };
+            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+            alert(`👋 歡迎回來！\n系統偵測到您已升班，已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
+            
+            updateWelcomeMessage(newProfile);
+            loadAssignments(newGrade, newClass);
+            
+            // ★★★ 自動補傳機制 ★★★
+            // 因為他換了新家，為了保險起見，我們觸發一次同步，把他本地的 History 上傳到新家
+            syncHistoryToFirebase(true); // true = 靜默模式
+            
+            if(statusIcon) statusIcon.innerHTML = ''; 
+
+        } else {
+            // B. 正式名單沒找到，去「待分班區」找 (S3 -> S4)
+            const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
+            
+            if (pendingSnap.exists()) {
+                alert("⏳ 您的資料目前在「待分班名單」中 (中三升中四)。\n請等待老師完成分班作業後再登入。");
+                return; // 保持等待，不登出
+            }
+
+            // C. 都找不到 -> 舊帳號失效 (例如被升班後的 3A 原地消失)
+            console.warn("資料庫無此人，判定為舊資料殘留。");
+            
+            // ★★★ 關鍵：強制登出並銷毀本地舊身分 ★★★
+            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊班級資料已失效，請重新登入並註冊您的新班級。");
+            handleStudentLogout(); 
+        }
+
+    } catch (error) {
+        console.error("搜尋錯誤:", error);
+    }
+}
 // 4. 【核心新增】全校搜尋模式 (處理轉班)
 // 【核心新增】全校搜尋模式 (處理轉班與畢業)
 async function findStudentNewLocation(studentName) {
