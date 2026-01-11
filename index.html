@@ -5250,29 +5250,6 @@ select:focus, select:hover {
 #assignmentList .task-card::before {
     background-color: var(--theme-color) !important;
 }
-
-	/* === 通知卡片顏色動態化 === */
-.sansi-notification {
-    /* 預設顏色，如果 JS 沒傳入變數會用這個 */
-    --notif-color: #8fa398; 
-}
-
-/* 強制通知卡片上方的色條使用變數顏色 */
-.sansi-notification::before {
-    background-color: var(--notif-color) !important;
-}
-
-/* 讓通知卡片內的圖示也跟著變色 */
-.sansi-notification .notif-icon {
-    color: var(--notif-color) !important;
-}
-
-/* 讓通知卡片內的標籤背景也跟著變色 */
-.sansi-notification .notif-badge {
-    background-color: var(--notif-color) !important;
-    color: #fff !important; /* 確保文字是白色 */
-    opacity: 0.8;
-}
 	
 </style>
 
@@ -5746,23 +5723,14 @@ let activeListeners = {
 };
 let isNotificationInitialized = false; // 防止重複執行
 
-// === 神思通知系統邏輯 (顏色同步修訂版) ===
-
-// 1. 定義與列表完全一致的色盤
-const NOTIF_PALETTE = [
-    '#8fa398', '#94a7b5', '#b6a6ca', '#d69a92', '#c7b299'
-];
-
-let notifiedIds = JSON.parse(localStorage.getItem('sansi_read_notifications') || '[]');
-let activeListeners = { assignments: null, submissions: {} };
-let isNotificationInitialized = false;
-
 function initNotificationListeners() {
+    // 1. 防止重複啟動
     if (isNotificationInitialized) return;
     
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return; 
+    if (!s) return; // 未登入則不執行
 
+    // 建立通知容器 (如果不存在)
     if (!document.getElementById('notifContainer')) {
         const div = document.createElement('div');
         div.id = 'notifContainer';
@@ -5771,10 +5739,12 @@ function initNotificationListeners() {
     }
 
     isNotificationInitialized = true;
-    console.log("通知監聽系統已啟動 (顏色同步版)");
+    console.log("通知監聽系統已啟動 (高效能模式)");
 
+    // --- 1. 監聽班級課業列表 (主監聽器) ---
     const assignmentPath = `assignments/${s.grade}/${s.class}`;
     
+    // 如果之前有監聽，先移除
     if (activeListeners.assignments) {
         database.ref(assignmentPath).off();
     }
@@ -5782,38 +5752,34 @@ function initNotificationListeners() {
     activeListeners.assignments = database.ref(assignmentPath);
     activeListeners.assignments.on('value', (snapshot) => {
         const assignmentsData = snapshot.val() || {};
-        
-        // ★★★ 關鍵步驟：模擬課業列表的排序 (最新在最前) ★★★
-        // 這樣才能確保算出來的 index 與課業列表一致
-        const sortedKeys = Object.keys(assignmentsData).sort((a, b) => {
-            return assignmentsData[b].timestamp - assignmentsData[a].timestamp;
-        });
+        const assignmentKeys = Object.keys(assignmentsData);
 
-        sortedKeys.forEach((key, index) => {
-            // ★★★ 計算該課業的專屬顏色 ★★★
-            const assignedColor = NOTIF_PALETTE[index % NOTIF_PALETTE.length];
-
-            // A. 處理新課業通知 (傳入顏色)
+        // A. 處理新課業通知
+        assignmentKeys.forEach(key => {
+            // 如果不在已讀列表中，發送通知
             if (!notifiedIds.includes(key)) {
-                showSansiNotif('new', assignmentsData[key].topic, key, assignedColor);
+                showSansiNotif('new', assignmentsData[key].topic, key);
             }
 
-            // B. 傳遞顏色給提交狀態監聽器
-            monitorSubmissionStatus(key, s.name, assignmentsData[key].topic, assignedColor);
+            // B. [關鍵優化] 為每一份存在的作業，精準監聽「該學生的提交狀態」
+            // 這樣就不用下載全校的資料庫，大幅提升速度
+            monitorSubmissionStatus(key, s.name, assignmentsData[key].topic);
         });
 
-        // 清理與移除失效通知... (保持原有邏輯)
+        // C. 清理舊監聽器 (如果作業被老師刪除了，就不再監聽該作業的提交狀態)
         Object.keys(activeListeners.submissions).forEach(monitoredKey => {
-            if (!sortedKeys.includes(monitoredKey)) {
+            if (!assignmentKeys.includes(monitoredKey)) {
+                // 作業已不存在，移除監聽
                 database.ref(`assignments_submissions/${monitoredKey}/${s.name}`).off();
                 delete activeListeners.submissions[monitoredKey];
             }
         });
-        
+
+        // D. 同步移除畫面上已失效的通知卡片 (例如老師刪除了作業)
         const activeNotifs = document.querySelectorAll('.sansi-notification[data-type="new"]');
         activeNotifs.forEach(node => {
             const id = node.getAttribute('data-notif-id');
-            if (!sortedKeys.includes(id)) {
+            if (!assignmentKeys.includes(id)) {
                 node.classList.add('fade-out');
                 setTimeout(() => { node.remove(); updateNotifBadge(); }, 500);
             }
@@ -5823,33 +5789,41 @@ function initNotificationListeners() {
     });
 }
 
-// 輔助函式：針對單份作業監聽「已發還」狀態 (接收 color 參數)
-function monitorSubmissionStatus(assignmentId, studentName, topicTitle, assignedColor) {
+// 輔助函式：針對單份作業監聽「已發還」狀態
+function monitorSubmissionStatus(assignmentId, studentName, topicTitle) {
+    // 如果已經在監聽這份作業，就跳過
     if (activeListeners.submissions[assignmentId]) return;
 
     const submissionPath = `assignments_submissions/${assignmentId}/${studentName}`;
     const subRef = database.ref(submissionPath);
+
+    // 儲存參照以便稍後可以移除
     activeListeners.submissions[assignmentId] = subRef;
 
     subRef.on('value', (snapshot) => {
         const myWork = snapshot.val();
         
+        // 檢查是否有「已發還」標記
         if (myWork && myWork.teacherFeedback && myWork.teacherFeedback.status === 'returned') {
+            // 產生唯一的評語 ID (利用時間戳)
             const feedbackId = "fb_" + assignmentId + "_" + myWork.teacherFeedback.timestamp;
             
+            // 如果這個評語還沒被讀過，顯示通知
             if (!notifiedIds.includes(feedbackId)) {
-                // 傳入顏色
-                showSansiNotif('returned', myWork.title || topicTitle || "課業", feedbackId, assignedColor);
+                showSansiNotif('returned', myWork.title || topicTitle || "課業", feedbackId);
             }
         }
+        
+        // 如果狀態變成不是 returned (例如老師撤回)，可以在這裡處理通知撤回 (選用)
+        // 目前保留簡單邏輯即可
     });
 }
 
 /**
- * 顯示通知卡片 (接收 themeColor 參數並應用)
+ * 顯示通知卡片 (維持原本的 UI 邏輯)
  */
-function showSansiNotif(type, topic, uniqueId, themeColor) {
-    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return; 
+function showSansiNotif(type, topic, uniqueId) {
+    if (document.querySelector(`[data-notif-id="${uniqueId}"]`)) return; // 防重複
 
     const container = document.getElementById('notifContainer');
     if (!container) return;
@@ -5857,9 +5831,6 @@ function showSansiNotif(type, topic, uniqueId, themeColor) {
     const notif = document.createElement('div');
     notif.setAttribute('data-notif-id', uniqueId);
     notif.setAttribute('data-type', type); 
-    
-    // ★★★ 關鍵：將計算好的顏色設為 CSS 變數 ★★★
-    notif.style.setProperty('--notif-color', themeColor);
     
     const isNew = type === 'new';
     notif.className = `sansi-notification ${isNew ? 'notif-new' : 'notif-returned'}`;
@@ -5872,32 +5843,35 @@ function showSansiNotif(type, topic, uniqueId, themeColor) {
     notif.innerHTML = `
         <div class="notif-badge">${badgeText}</div>
         <div class="notif-header">
-            <!-- 這裡我們也可以讓標題變色，但我建議標題保持深色，比較易讀 -->
             <div class="notif-topic">《${topic}》</div>
         </div>
         <div class="notif-desc">${descText}</div>
         <div class="notif-footer">
             <span>點擊前往查看詳情</span>
-            <i class="fas fa-chevron-right notif-icon" style="font-size: 0.7rem;"></i>
+            <i class="fas fa-chevron-right" style="font-size: 0.7rem;"></i>
         </div>
     `;
 
     notif.onclick = () => {
+        // 記錄已讀
         if (!notifiedIds.includes(uniqueId)) {
             notifiedIds.push(uniqueId);
             localStorage.setItem('sansi_read_notifications', JSON.stringify(notifiedIds));
         }
+        // 移除卡片
         notif.classList.add('fade-out');
         setTimeout(() => {
             notif.remove();
             updateNotifBadge();
         }, 500);
+        // 打開雲端中心
         openStudentLoginModal();
     };
 
     container.appendChild(notif);
     updateNotifBadge();
 }
+
 // 更新側邊欄紅點
 function updateNotifBadge() {
     const container = document.getElementById('notifContainer');
@@ -14471,18 +14445,18 @@ async function loadAssignments(grade, cls) {
 
 	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
-// === 輔助函數：渲染列表 HTML (修訂版：標題文字顏色與上方色條一致) ===
+// === 輔助函數：渲染列表 HTML (修訂版：僅改變上方色條顏色) ===
 function renderAssignmentList(dataArray, isSyncing) {
     const listDiv = document.getElementById('assignmentList');
     let html = '';
 
-    // 定義莫蘭迪色系調色盤 (5色循環) - 這是顏色基準
+    // 定義莫蘭迪色系調色盤 (5色循環)
     const morandiPalette = [
-        '#8fa398', // 灰綠
-        '#94a7b5', // 霧霾藍
-        '#b6a6ca', // 香芋紫
-        '#d69a92', // 豆沙紅
-        '#c7b299'  // 奶茶棕
+        '#8fa398', // 灰綠 (Sage)
+        '#94a7b5', // 霧霾藍 (Dusty Blue)
+        '#b6a6ca', // 香芋紫 (Taro)
+        '#d69a92', // 豆沙紅 (Bean Red)
+        '#c7b299'  // 奶茶棕 (Latte)
     ];
 
     if (isSyncing) {
@@ -14495,9 +14469,10 @@ function renderAssignmentList(dataArray, isSyncing) {
         const task = item.task;
         const submission = item.submission;
         
-        // 根據索引分配顏色 (這是關鍵)
+        // 根據索引分配顏色
         const themeColor = morandiPalette[index % morandiPalette.length];
 
+        // 狀態判斷邏輯
         let uiClass = '';
         let statusIcon = '';
         let statusText = '';
@@ -14524,17 +14499,19 @@ function renderAssignmentList(dataArray, isSyncing) {
         else {
             uiClass = 'status-pending';
             statusIcon = '<i class="fas fa-pen"></i>'; 
-            statusText = '前往作答';
+            statusText = '未繳交';
             clickAction = `goToHistoryForAssignment('${task.topic}')`;
         }
 
+        // ★★★ 關鍵修改處 ★★★
+        // 1. style="--theme-color: ${themeColor};" -> 將顏色變數傳給 CSS (控制上方色條)
+        // 2. 移除了 border-left 樣式
         html += `
         <div class="task-card ${uiClass}" onclick="${clickAction}" style="--theme-color: ${themeColor};">
             <div class="task-info">
-                <!-- ★★★ 修改處：讓標題顏色使用 var(--theme-color) ★★★ -->
-                <div class="task-topic" style="color: var(--theme-color) !important;">${task.topic}</div>
-                
+                <div class="task-topic">${task.topic}</div>
                 <div class="task-meta">
+                    <!-- 標籤背景色也同步使用該主題色 -->
                     <span class="task-type-tag" style="background-color: ${themeColor}; color: white; border:none;">${task.type}</span>
                     <span><i class="far fa-clock"></i> ${dateDisplay}</span>
                 </div>
