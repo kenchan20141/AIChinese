@@ -13967,37 +13967,60 @@ async function verifyStudentStatus(localProfile) {
     const statusIcon = document.getElementById('syncStatusIcon');
     if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-sync fa-spin"></i>'; 
 
-    const oldPath = `students/${localProfile.grade}/${localProfile.class}/${localProfile.name}/profile`;
+    // 路徑：students/Grade/Class/Name/profile
+    const path = `students/${localProfile.grade}/${localProfile.class}/${localProfile.name}/profile`;
 
     try {
-        // ★★★ 關鍵：只讀取，不寫入！ ★★★
-        const snapshot = await database.ref(oldPath).once('value');
+        const snapshot = await database.ref(path).once('value');
         const cloudData = snapshot.val();
 
         if (cloudData) {
-            // 資料存在，確認為有效帳號
-            if (cloudData.number != localProfile.number) {
-                // 同步班號更新
+            // A. 資料存在，檢查班號是否為空
+            if (!cloudData.number || cloudData.number === "") {
+                // ★★★ 觸發：班號輸入請求 ★★★
+                promptForNewClassNumber(localProfile, path);
+            } 
+            else if (cloudData.number != localProfile.number) {
+                // 班號存在但不一樣 (例如老師手動改了)，同步本地
                 localProfile.number = cloudData.number;
                 localStorage.setItem('studentProfile', JSON.stringify(localProfile));
                 updateWelcomeMessage(localProfile);
             }
             if(statusIcon) statusIcon.innerHTML = ''; 
         } else {
-            // 資料不存在，這代表：
-            // 1. 老師已經幫他升班了 (人去了 4B)
-            // 2. 或者他被刪除了 (畢業了)
-            // 3. 或者資料庫被清空了
+            // B. 資料不存在 (可能升班了)，執行全校搜尋
             console.warn("原路徑找不到資料，啟動全校搜尋...");
-            if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-search fa-spin" style="color: orange;"></i>'; 
-            
-            // 轉交給搜尋函式，這裡絕對不 update last_login，否則會創造幽靈帳號！
-            await findStudentNewLocation(localProfile.name);
+            findStudentNewLocation(localProfile.name);
         }
     } catch (error) {
         console.error("同步檢查失敗:", error);
-        // 如果權限不足，通常代表帳號被刪除，直接登出
-        if (error.code === 'PERMISSION_DENIED') handleStudentLogout();
+    }
+}
+
+// === 新增：班號輸入介面 ===
+function promptForNewClassNumber(profile, firebasePath) {
+    // 使用簡單的 prompt 或自訂 Modal
+    // 這裡為了代碼簡潔，示範用 prompt，建議您改用您的 Modal 風格
+    let newNum = prompt(`👋 新學年好！\n\n系統已重置班號。\n請輸入您在 ${profile.grade}${profile.class} 班的新班號 (1-35)：`);
+    
+    // 簡單驗證
+    if (newNum && !isNaN(newNum) && parseInt(newNum) > 0 && parseInt(newNum) < 40) {
+        // 寫入 Firebase
+        database.ref(firebasePath).update({ number: newNum }).then(() => {
+            alert("✅ 班號已更新！");
+            
+            // 更新本地存儲
+            profile.number = newNum;
+            localStorage.setItem('studentProfile', JSON.stringify(profile));
+            updateWelcomeMessage(profile);
+        }).catch(err => {
+            alert("更新失敗，請檢查網路或權限。\n" + err.message);
+        });
+    } else {
+        if (newNum !== null) { // 如果不是按取消
+            alert("班號格式錯誤，請重新登入輸入。");
+            // 可以選擇登出他，強迫他下次再試
+        }
     }
 }
 
