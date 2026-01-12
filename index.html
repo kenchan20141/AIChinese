@@ -5252,6 +5252,115 @@ select:focus, select:hover {
 #assignmentList .task-card::before {
     background-color: var(--theme-color) !important;
 }
+
+	/* =======================================================
+   === [新增] 修復改寫範例樣式 & 畫布聊天室樣式 ===
+   ======================================================= */
+
+/* 1. 改寫內容專用樣式 (解決字體、行距不一致及生成顯示問題) */
+.rewrite-content {
+    font-family: 'Noto Serif TC', serif !important;
+    font-size: 1.1rem !important;
+    line-height: 1.9 !important;
+    color: #2c3e50 !important;
+    white-space: pre-wrap !important; /* 確保換行被保留 */
+    text-align: justify !important;
+    background-color: #fff !important;
+    padding: 20px !important;
+    border-radius: 8px !important;
+    border: 1px solid #e0e0e0 !important;
+    margin-top: 10px;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
+}
+
+/* 2. 結果畫布內的聊天室容器 */
+.canvas-chat-container {
+    margin-top: 50px;
+    padding-top: 25px;
+    border-top: 3px dashed #2A9689; /* 分隔線 */
+    animation: fadeIn 0.5s ease;
+    background-color: #fcfdfd;
+    padding-bottom: 20px;
+}
+
+/* 聊天室標題 */
+.canvas-chat-header {
+    color: #2A9689;
+    font-size: 1.3rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* 聊天紀錄區域 */
+.canvas-chat-history {
+    background-color: #f0f4f8;
+    border: 1px solid #d1d9e6;
+    border-radius: 12px;
+    padding: 20px;
+    height: 300px; /* 固定高度 */
+    overflow-y: auto;
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* 輸入區域 */
+.canvas-input-area {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.canvas-input-area textarea {
+    flex: 1;
+    min-height: 50px;
+    padding: 12px;
+    border: 2px solid #ccc;
+    border-radius: 8px;
+    resize: vertical;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+    font-family: 'Noto Serif TC', serif;
+}
+
+.canvas-input-area textarea:focus {
+    border-color: #2A9689;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(42, 150, 137, 0.2);
+}
+
+/* 發送按鈕 */
+.canvas-send-btn {
+    background-color: #2A9689;
+    color: white;
+    border: none;
+    width: 55px;
+    height: 55px;
+    border-radius: 50%; /* 圓形 */
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.canvas-send-btn:hover {
+    background-color: #238074;
+    transform: scale(1.1);
+}
+
+.canvas-send-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
 	
 </style>
 
@@ -7710,6 +7819,120 @@ const READING_API_URL = "https://gen.pollinations.ai/v1/chat/completions";
 const READING_MODEL = "deepseek";
 
 
+// =======================================================
+// === [新增] 畫布聊天室核心邏輯 ===
+// =======================================================
+
+let canvasChatHistory = []; 
+let currentContextType = ""; 
+let currentContextContent = ""; 
+let currentContextReview = ""; 
+
+function getCanvasChatHTML(type) {
+    currentContextType = type;
+    canvasChatHistory = []; 
+    return `
+    <div class="canvas-chat-container">
+        <div class="canvas-chat-header">
+            <i class="fas fa-comments"></i> 閱卷員追問區
+        </div>
+        <div class="canvas-chat-history" id="canvasChatHistoryBox">
+            <div class="message-bubble ai-message">你好！對於剛才的點評或改寫，有甚麼想進一步了解的嗎？歡迎追問！😊</div>
+        </div>
+        <div class="canvas-input-area">
+            <textarea id="canvasChatInput" class="no-modal-editor" placeholder="在此輸入你的問題... (例如：為何這裡要這樣改？)"></textarea>
+            <button id="canvasChatSendBtn" class="canvas-send-btn" onclick="sendCanvasMessage()" title="發送">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>`;
+}
+
+async function sendCanvasMessage() {
+    const inputEl = document.getElementById("canvasChatInput");
+    const historyBox = document.getElementById("canvasChatHistoryBox");
+    const sendBtn = document.getElementById("canvasChatSendBtn");
+    
+    const userText = sanitizeHTML(inputEl.value.trim());
+    if (!userText) return;
+
+    const userBubble = document.createElement("div");
+    userBubble.className = "message-bubble user-message";
+    userBubble.innerHTML = userText.replace(/\n/g, '<br>');
+    historyBox.appendChild(userBubble);
+    
+    inputEl.value = "";
+    sendBtn.disabled = true;
+    historyBox.scrollTop = historyBox.scrollHeight;
+
+    const aiBubble = document.createElement("div");
+    aiBubble.className = "message-bubble ai-message";
+    aiBubble.innerHTML = `<i class="fas fa-spinner fa-spin"></i> 正在思考...`;
+    historyBox.appendChild(aiBubble);
+    historyBox.scrollTop = historyBox.scrollHeight;
+
+    const historyText = canvasChatHistory.map(h => `${h.role}: ${h.content}`).join("\n");
+    
+    let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
+    let activeReviewer = "中文老師";
+    
+    if (currentContextType.includes("narrative")) {
+        const tone = document.getElementById("writingTone")?.value;
+        if (tone === "chen") {
+            toneNote = "你現在是陳SIR。請用輕鬆隨意、幽默的語氣回應，**必須使用大量Emoji** 🤪✨，偶爾用網絡用語。";
+        }
+        if (currentContextType.includes("writing")) activeReviewer = currentReviewerName;
+    } else if (currentContextType.includes("argument")) {
+        const tone = document.getElementById("argumentOutlineTone")?.value || document.getElementById("argumentWritingTone")?.value;
+        if (tone === "chen") {
+            toneNote = "你現在是陳SIR。請用輕鬆隨意、幽默的語氣回應，**必須使用大量Emoji** 😎🔥。";
+        }
+        if (currentContextType.includes("writing")) activeReviewer = currentReviewerName;
+    }
+
+    const prompt = `
+    你是一位${activeReviewer}。
+    
+    【背景資料】
+    學生剛剛提交了一份作業，你已經給出了點評。
+    學生的原文/大綱內容：
+    ${currentContextContent}
+    ---
+    你之前的點評內容：
+    ${currentContextReview}
+    ---
+    【對話紀錄】
+    ${historyText}
+    【學生最新問題】
+    ${userText}
+    【任務】
+    請針對學生的問題進行回應。
+    1. 必須緊扣你之前的點評觀點。
+    2. 解釋要具體，不要空泛，最好舉例說明。
+    3. 語氣要求：${toneNote}
+    4. 字數控制在 200 字以內。
+    `;
+
+    try {
+        const response = await callReadingAPI(prompt);
+        let formattedResponse = response.replace(/\n/g, '<br>');
+        formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        aiBubble.innerHTML = formattedResponse;
+        canvasChatHistory.push({ role: "Student", content: userText });
+        canvasChatHistory.push({ role: "Teacher", content: response });
+    } catch (error) {
+        aiBubble.innerHTML = "抱歉，連線發生錯誤，請重試。";
+        console.error(error);
+    } finally {
+        sendBtn.disabled = false;
+        historyBox.scrollTop = historyBox.scrollHeight;
+    }
+}
+
+
+
+	
+
 // ======= 請在這裡加入以下程式碼 =======
 const narrativeReviewerPreferences = {
     'chen_sir': '評分取向 (敘事抒情)：對扣題要求尚算嚴謹。極度看重「立意」、「取材」、「詳略」和「文學性」。多用修辭不一定是高分因素，更看重文句是否自然、有留白空間。',
@@ -8914,7 +9137,6 @@ localStorage.removeItem("argumentOutlineData");
 }
 
 	// 替換舊的 submitArgumentOutline 函式
-// 替換舊的 submitArgumentOutline 函式 (議論 - V3)
 async function submitArgumentOutline() {
     const submitBtn = document.getElementById('submitArgumentOutlineBtn');
     submitBtn.disabled = true;
@@ -8922,46 +9144,58 @@ async function submitArgumentOutline() {
 
     try {
         const topic = localStorage.getItem("argumentCurrentTopic");
-        if (!topic) {
-            alert("請先設定題目");
-            return;
-        }
+        if (!topic) { alert("請先設定題目"); return; }
+        
         const table = document.getElementById("argumentOutlineTable");
         const rows = table.rows;
         let outlineContent = [];
+        let outlineRawText = "";
+
         for (let i = 1; i < rows.length; i++) {
             const part = rows[i].cells[0].innerText;
             const pointTextarea = rows[i].cells[1].querySelector("textarea");
             const evidenceTextarea = rows[i].cells[2].querySelector("textarea");
             const point = pointTextarea ? pointTextarea.value.trim() : "";
             const evidence = evidenceTextarea ? evidenceTextarea.value.trim() : "";
-            if (!point || !evidence) {
-                alert("請填寫所有大綱表格");
-                return;
-            }
+            if (!point || !evidence) { alert("請填寫所有大綱表格"); return; }
             outlineContent.push({ part, point, evidence });
+            outlineRawText += `[${part}] 論點：${point} / 論據：${evidence}\n`;
         }
 
         const tone = document.getElementById("argumentOutlineTone").value;
-        let toneNote = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
+        
+        // ★★★ 語氣指令 ★★★
+        let toneInstruction = "請用嚴肅正經的語氣進行點評和建議。";
+        if (tone === "chen") {
+            toneInstruction = `
+            【重要語氣指令】：
+            1. 在「=== 點評及建議 ===」和「=== 改寫說明 ===」部分：你必須扮演陳SIR，使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😂, 🤔, ✨, 🔥)。
+            2. 在「=== 改寫後的大綱 ===」部分：為了確保學習參考價值，這部分**必須保持絕對嚴肅、學術的風格**，僅提供高質素的內容，**嚴禁使用 Emoji**。`;
+        }
 
         const note = categories["議論"].outlineCommentNote;
-        const prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。要求：
-1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
-2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「論點」和「論據及論證」。使用「[part]」標記每個結構段的開始，然後在下一行「論點：」後跟內容，再下一行「論據及論證：」後跟內容。
-3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
-4. 請確保內容簡潔明了，不可以顯示「--- ###」。不要使用Markdown表格。
-題目：${topic}
-用戶輸入的大綱：
-| 部份 | 論點 | 論據及論證 |
-|------|------|------------|
-${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} |`).join("\n")}
-教學筆記：${note}
-點評及建議語氣：${toneNote}`;
+        const prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。
+        ${toneInstruction}
+        要求：
+        1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
+        2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「論點」和「論據及論證」。使用「[part]」標記每個結構段的開始，然後在下一行「論點：」後跟內容，再下一行「論據及論證：」後跟內容。
+        3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
+        4. 請確保內容簡潔明了，不可以顯示「--- ###」。不要使用Markdown表格。
+        題目：${topic}
+        用戶輸入的大綱：
+        | 部份 | 論點 | 論據及論證 |
+        |------|------|------------|
+        ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} |`).join("\n")}
+        教學筆記：${note}`;
 
         showLoading("陳SIR 正在審視大綱...");
 
         const response = await callAPI(prompt, 0);
+        
+        currentContextContent = outlineRawText;
+        currentContextReview = response;
+
+        // 解析 Response
         const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
         const commentIndex = sections.indexOf("點評及建議");
         const rewriteIndex = sections.indexOf("改寫後的大綱");
@@ -9004,10 +9238,10 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
             }
             return rewrites;
         }
+        
         const comments = parseCommentPart(commentPart);
         const rewrites = parseRewritePart(rewritePart);
 
-        // 1. 點評表格
         let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="argumentCommentTable"><tr><th style="width:10%">部份</th><th style="width:15%">論點</th><th style="width:20%">論據及論證</th><th style="width:27.5%">點評</th><th style="width:27.5%">建議</th></tr>`;
         outlineContent.forEach(item => {
             const comment = comments[item.part]?.comment || "未生成點評";
@@ -9016,7 +9250,6 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
         });
         commentTableHTML += "</table></div>";
 
-        // 2. 改寫表格 (調整比例)
         let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="argumentRewriteTable"><tr><th style="width:15%">部份</th><th style="width:40%">論點</th><th style="width:45%">論據及論證</th></tr>`;
         outlineContent.forEach(item => {
             const rewrite = rewrites[item.part] || { point: "未生成論點", evidence: "未生成論據及論證" };
@@ -9039,39 +9272,29 @@ ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} 
             explanationHTML += `</div></div>`;
         }
 
-       openResultCanvas("議論文大綱建議");
+        openResultCanvas("議論文大綱建議");
         const resultContainer = document.getElementById("resultCanvasBody");
-        const fullAiResultHtml = commentTableHTML + rewriteTableHTML + explanationHTML;
+        const fullAiResultHtml = commentTableHTML + rewriteTableHTML + explanationHTML + getCanvasChatHTML('argument_outline');
         resultContainer.innerHTML = fullAiResultHtml;
         resultContainer.style.width = "100%";
         
         document.getElementById('save-argument-outline-html-btn').style.display = 'flex'; 
         
-        // ★★★ 修正開始：簡化歷史紀錄的輸入內容 ★★★
-        // 因為右邊的點評表格已經有完整的「論點」和「論據」，這裡只存題目即可，避免重複
         let userInputHistoryStr = `題目：${topic}`;
-
-        // 儲存到歷史紀錄
         saveToHistory(
             "議論", 
             "大綱點評", 
             topic, 
-            userInputHistoryStr, // 現在只存題目
-            fullAiResultHtml     // AI 結果畫布 (內含完整的輸入+點評表格)
+            userInputHistoryStr, 
+            fullAiResultHtml 
         );
-        // ★★★ 修正結束 ★★★
 
     } catch (error) {
         console.error("提交議論大綱時出錯:", error);
-        if (error.message === "所有 API 密鑰均無法使用") {
-            alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-        } else {
-            alert("點評生成失敗，請重試");
-        }
-        document.getElementById("argumentOutlineResult").innerHTML = "";
+        alert("點評生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
-		hideLoading();
+        hideLoading();
     }
 }
 
@@ -9080,14 +9303,13 @@ async function submitArgumentWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
+    // 隱藏舊版聊天室
     const gradingResultDiv = document.getElementById("argumentGradingResult");
     const chatHistoryDiv = document.getElementById("argumentChatHistory");
     const chatInputContainer = document.getElementById("argumentChatInputContainer");
-
-    gradingResultDiv.innerHTML = "";
-    chatHistoryDiv.innerHTML = "";
-    chatHistoryDiv.style.display = "none";
-    chatInputContainer.style.display = "none";
+    if(gradingResultDiv) gradingResultDiv.innerHTML = "";
+    if(chatHistoryDiv) chatHistoryDiv.style.display = "none";
+    if(chatInputContainer) chatInputContainer.style.display = "none";
     argumentChatHistoryData = [];
 
     try {
@@ -9118,13 +9340,18 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-        // 使用變數動態顯示閱卷員名字
-showLoading(`${currentReviewerName} 正在細閱文章...`);
+        showLoading(`${currentReviewerName} 正在細閱文章...`);
 
         if (isFullReview) {
-            // =================================================================
-            // === 【全新修訂】議論文評分指令 (V5 - 評分主導模式) ===
-            // =================================================================
+            // ★★★ 語氣指令：點評要 Emoji，改寫要嚴肅 ★★★
+            let toneInstruction = "請使用嚴肅正經的語氣。";
+            if (tone === "chen") {
+                toneInstruction = `
+                【重要語氣指令】：
+                1. 對於 <critique> (點評) 和 <suggestions> (建議) 部分：必須使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😎, 🔥, 👎, 🧐)，就像陳SIR在跟學生面對面說話一樣。
+                2. 對於 <rewrite_example> (改寫範例) 部分：必須切換回**嚴肅、學術的風格**，這部分是示範給學生看的範文，**嚴禁使用 Emoji**。`;
+            }
+
             const argumentScoreFirstPrompt = `你將扮演一位極其嚴謹且客觀的中文科AI評卷員。你的工作流程被嚴格限定為「先評分，後解釋」。
 
 ### 你的工作流程與思維框架 (必須嚴格遵守，不得顛倒)
@@ -9132,17 +9359,14 @@ showLoading(`${currentReviewerName} 正在細閱文章...`);
 1.  **首要任務：量化評分**: 你的第一個動作是，根據下方提供的詳細「評分準則」，對文章的各個維度進行獨立的、客觀的數字評分 (0-10分)。你必須將所有分數結果，完整地填寫在 <grading_json> 標籤內。**此步驟必須在撰寫任何文字評語之前完成。**
 
 2.  **次要任務：撰寫理據**: 在你完成 <grading_json> 的所有評分後，你的第二個動作是，根據你剛剛給出的分數，去撰寫 <critique>, <suggestions>, 和 <rewrite_example> 的內容。你的所有文字評語，都**必須**是為了**解釋和支撐**你已經給出的分數。
-    -   **範例**：如果你在 <grading_json> 中給予「扣題」3分的低分，那麼你的 <critique> 就必須具體解釋這篇文章的論點是如何偏離題目《${topic}》的。
 
 ### 核心評分準則 (用於步驟一的量化評分)
-- **偏題的定義**: 若文章論述的核心概念與題目關鍵詞 **字面不同** (例如：題目《論禮貌》寫成《論禮物》)，則視為「偏題」。
 - **偏題的後果**: 一旦判定為「偏題」，在評分時，「扣題」分數 **絕不能高於4分**，「內容」和「結構」的總分也 **不能高於4分**。
 
 ---
 ### 你的輸出格式 (必須嚴格遵守此結構與順序)
 
 <grading_json>
-[**分數量化步驟**：根據「核心評分準則」，客觀地為以下所有項目評分。]
 {
 "content": [0-10的整數],
 "expression": [0-10的整數],
@@ -9165,135 +9389,101 @@ showLoading(`${currentReviewerName} 正在細閱文章...`);
 <rewrite_example>
 [提供一段約150字內的高質素改寫範例，展示更高分的作品應有的水準。]
 </rewrite_example>`;
-            // =================================================================
-            // === 修訂結束 ===
-            // =================================================================
 
-            if (tone === "chen") {
-                prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請用輕鬆隨意的語氣進行點評和建議，一定要多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。請嚴格按照以下「先評分，後解釋」的流程，對學生的議論文進行點評。
-${argumentScoreFirstPrompt}
----
-### 待點評的資料
-題目：${topic}
-文章：${content}
-教學筆記：${note}
-閱卷員評分取向：${reviewerNote}`;
-            } else {
-                prompt = `你是一位嚴格的中文科閱卷員。請嚴格按照以下「先評分，後解釋」的流程，對學生的議論文進行點評。
-${argumentScoreFirstPrompt}
----
-### 待點評的資料
-題目：${topic}
-文章：${content}
-教學筆記：${note}
-閱卷員評分取向：${reviewerNote}`;
-            }
+            prompt = `${toneInstruction}
+            請嚴格按照以下「先評分，後解釋」的流程，對學生的議論文進行點評。
+            ${argumentScoreFirstPrompt}
+            ---
+            ### 待點評的資料
+            題目：${topic}
+            文章：${content}
+            教學筆記：${note}
+            閱卷員評分取向：${reviewerNote}`;
 
             const response = await callReadingAPI(prompt);
+            
+            // 設定聊天室上下文
+            currentContextContent = content;
+            currentContextReview = response;
+
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
             document.getElementById('save-argument-writing-html-btn').style.display = 'flex';
 
-            const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
-            const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-            const rewriteMatch = response.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
-            let initialReviewHTML = "";
-            if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
-            if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-            if (rewriteMatch?.[1]) initialReviewHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteMatch[1].trim().replace(/\n/g, '<br>')}</p></div></div>`;
-            currentArgumentReview = initialReviewHTML;
+            // ★★★ 關鍵步驟：在結果畫布底部追加聊天室 ★★★
+            const resultBody = document.getElementById("resultCanvasBody");
+            resultBody.innerHTML += getCanvasChatHTML('argument_writing');
 
         } else {
-            // (聚焦式點評的邏輯不變)
+            // ==========================
+            // 聚焦式點評 (改用 Canvas 顯示並加入 Chat)
+            // ==========================
             const scopeDefinitions = `
-- **謀篇**: **首要任務（最高指令）：** 進行嚴格的扣題審查。你必須嚴謹地對比題目《${topic}》與文章的字面內容。**禁止**進行任何聯想或引申來建立關係。如果文章的核心內容與題目關鍵詞在字面上不符或邏-輯上偏離，你的點評**必須**明確指出這一點，並以此為基礎分析，**絕不能**為了點評而強行將內容解釋為扣題。完成此審查後，才可繼續評估文章的整體結構佈局、段落之間的邏輯關係（如起承轉合、駁論立論）是否清晰，以及論點的推進層次是否分明。
-- **論點**: **首要任務（最高指令）：** 進行嚴格的扣題審查。你必須嚴謹地對比題目《${topic}》與文章的字面內容。**禁止**進行任何聯想或引申來建立關係。如果文章的核心內容與題目關鍵詞在字面上不符或邏-輯上偏離，你的點評**必須**明確指出這一點，並以此為基礎分析，**絕不能**為了點評而強行將內容解釋為扣題。完成此審查後，才可繼續評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻、不落俗套。
-- **論據**: **首要任務（最高指令）：** 進行嚴格的扣題審查。你必須嚴謹地對比題目《${topic}》與文章的字面內容。**禁止**進行任何聯想或引申來建立關係。如果文章的核心內容與題目關鍵詞在字面上不符或邏-輯上偏離，你的點評**必須**明確指出這一點，並以此為基礎分析，**絕不能**為了點評而強行將內容解釋為扣題。完成此審查後，才可繼續檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實，並且能否有力地支持相應的論點。
-- **論證**: **首要任務（最高指令）：** 進行嚴格的扣題審查。你必須嚴謹地對比題目《${topic}》與文章的字面內容。**禁止**進行任何聯想或引申來建立關係。如果文章的核心內容與題目關鍵詞在字面上不符或邏-輯上偏離，你的點評**必須**明確指出這一點，並以此為基礎分析，**絕不能**為了點評而強行將內容解釋為扣題。完成此審查後，才可繼續分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密，是否存在概念不清、推論不當等問題。
-- **文筆**: **首要任務（最高指令）：** 進行嚴格的扣題審查。你必須嚴謹地對比題目《${topic}》與文章的字面內容。**禁止**進行任何聯想或引申來建立關係。如果文章的核心內容與題目關鍵詞在字面上不符或邏-輯上偏離，你的點評**必須**明確指出這一點，並以此為基礎分析，**絕不能**為了點評而強行將內容解釋為扣題。完成此審查後，才可繼續評論文章的語言運用是否精準、流暢，遣詞造句是否得體，句式是否有變化，以及是否有效地運用修辭來增強表達效果。
+- **謀篇**: 嚴謹地對比題目《${topic}》與文章的字面內容。如果文章的核心內容與題目關鍵詞在字面上不符或邏輯上偏離，必須明確指出。評估文章的整體結構佈局、段落之間的邏輯關係。
+- **論點**: 嚴謹地對比題目《${topic}》與文章的字面內容。評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻。
+- **論據**: 嚴謹地對比題目《${topic}》與文章的字面內容。檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實。
+- **論證**: 嚴謹地對比題目《${topic}》與文章的字面內容。分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密。
+- **文筆**: 嚴謹地對比題目《${topic}》與文章的字面內容。評論文章的語言運用是否精準、流暢，遣詞造句是否得體。
 `;
 
             let scopeInstruction = `
 你是一名高度專業的寫作分析員，你的任務極其專一。
-
 ---
-### **黃金法則 (ABSOLUTE CORE DIRECTIVE)**
-你必須嚴格遵守此法則，不得有任何例外：
+### **黃金法則**
 1.  **絕對聚焦**: 你的點評和建議中的 **每一個字**，都必須 **僅僅** 與用戶選擇的以下範疇相關：**【${selectedScopes.join("、")}】**。
-2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。例如，如果用戶選擇了「論據」，你絕對不能評論「文筆」、「謀篇」或「論點」。
+2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。
 3.  **後果**: 如果你的回應中包含了任何未被選定的範疇，整個回應將被視為失敗。
 
-### **各範疇的定義 (你的分析框架)**
+### **各範疇的定義**
 ${scopeDefinitions}
----
-`;
+---`;
 
+            let toneInstruction = "請使用嚴肅正經的語氣。";
             if (tone === "chen") {
-                prompt = `你將扮演「陳SIR」，一位眼光獨到、要求嚴格但風格幽默的中文老師。請用輕鬆隨意的語氣進行點評和建議，一定多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。
-${scopeInstruction}
-### **你的任務與輸出格式**
-你的輸出必須包含以下兩個XML標籤，不得有其他內容。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法。
-
-<critique>
-[根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
-</critique>
-<suggestions>
-[在建議部分，同樣要遵循「黃金法則」。如果所選範疇表現優秀，你可以說「在這方面處理得很好，沒什麼好建議了，繼續保持吧！😎」。]
-</suggestions>
----
-### **待點評的資料**
-題目：${topic}
-文章：${content}`;
-            } else {
-                prompt = `你是一位要求嚴格、具備專業眼光的中文科閱卷員。
-${scopeInstruction}
-### **你的任務與輸出格式**
-你的輸出必須包含以下兩個XML標籤，不得有其他內容。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法。
-
-<critique>
-[根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
-</critique>
-<suggestions>
-[針對點評中提出的問題，提出具體的改善建議，同樣要遵循「黃金法則」。若所選範疇表現極佳，可註明「在此範疇的表現出色，建議保持現有水準。」]
-</suggestions>
----
-### **待點評的資料**
-題目：${topic}
-文章：${content}`;
+                toneInstruction = `請用輕鬆隨意的語氣進行點評和建議，**必須使用大量Emoji** (如 😎, 🔥, 👎)，就像陳SIR在跟學生面對面說話一樣。`;
             }
+
+            prompt = `${toneInstruction}
+            ${scopeInstruction}
+            ### **你的任務與輸出格式**
+            你的輸出必須包含以下兩個XML標籤，不得有其他內容。
+            <critique>
+            [根據「黃金法則」，給出1-2點核心評論。]
+            </critique>
+            <suggestions>
+            [針對點評中提出的問題，提出具體的改善建議。]
+            </suggestions>
+            ---
+            ### **待點評的資料**
+            題目：${topic}
+            文章：${content}`;
 
             const response = await callAPI(prompt, 0);
+            
+            currentContextContent = content;
+            currentContextReview = response;
+
             const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
             const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-            let initialReviewHTML = "";
+            let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
             if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
             if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-            if (!initialReviewHTML) {
-                initialReviewHTML = "抱歉，無法根據您選擇的範疇生成點評，請重試。";
+            if (!critiqueMatch && !suggestionsMatch) {
+                initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
             }
-            
-            gradingResultDiv.innerHTML = initialReviewHTML;
 
-			                // === 請在這裡貼上儲存代碼 ===
-                saveToHistory("議論", "文章點評", topic, `題目：${topic}\n\n文章：${content}`, initialReviewHTML);
-                // ==========================
-
-            currentArgumentReview = initialReviewHTML;
-            argumentChatHistoryData.push({ sender: 'ai', message: currentArgumentReview });
+            // 顯示結果到 Canvas
+            openResultCanvas("聚焦點評結果");
+            const resultBody = document.getElementById("resultCanvasBody");
+            resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('argument_writing');
             document.getElementById('save-argument-writing-html-btn').style.display = 'none';
         }
-
-        chatHistoryDiv.style.display = "flex";
-        chatInputContainer.style.display = "flex";
 
     } catch (error) {
         console.error("提交文章時出錯:", error);
         alert(error.message.includes("API") ? "今日 API 調用次數已用完或API無法連接，請明天再試" : "點評生成失敗，請重試");
-        gradingResultDiv.innerHTML = "";
     } finally {
         submitBtn.disabled = false;
-		hideLoading();
+        hideLoading();
     }
 }
 
@@ -10001,14 +10191,13 @@ async function submitWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
+    // 強制隱藏舊版頁面上的聊天室元素
     const writingGradingResultDiv = document.getElementById("writingGradingResult");
     const writingChatHistoryDiv = document.getElementById("writingChatHistory");
     const writingChatInputContainerDiv = document.getElementById("writingChatInputContainer");
-    
-    writingGradingResultDiv.innerHTML = "";
-    writingChatHistoryDiv.innerHTML = "";
-    writingChatHistoryDiv.style.display = "none";
-    writingChatInputContainerDiv.style.display = "none";
+    if(writingGradingResultDiv) writingGradingResultDiv.innerHTML = "";
+    if(writingChatHistoryDiv) writingChatHistoryDiv.style.display = "none";
+    if(writingChatInputContainerDiv) writingChatInputContainerDiv.style.display = "none";
     writingChatHistoryData = [];
 
     try {
@@ -10032,59 +10221,83 @@ async function submitWriting() {
         let prompt = "";
         const tone = document.getElementById("writingTone").value;
 
-        if (writingType === "大綱" || writingType === "敘事物象") {
-            // (大綱和敘事物象的邏輯不變)
-             if (writingType === "大綱") {
-                const toneNoteForOutline = tone === "chen" ? "請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。" : "請用嚴肅正經的語氣進行點評和建議。";
-                const structure = document.getElementById("structure").value;
-                const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
-                content = parts.map((part, index) => {
-                    const focusId = structure + "Focus" + (index + 1);
-                    const plotId = structure + "Plot" + (index + 1);
-                    const focus = document.getElementById(focusId)?.value.trim() || "";
-                    const plot = document.getElementById(plotId)?.value.trim() || "";
-                    if (!focus || !plot) throw new Error("請填寫所有大綱表格");
-                    return { part, focus, plot };
-                });
-                const note = categories["大綱"].commentNote;
-                prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。要求：
-1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
-2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「結構段重點」和「情節大要」。使用「[part]」標記每個結構段的開始，然後在下一行「結構段重點：」後跟內容，再下一行「情節大要：」後跟內容。
-3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
-4. 請確保內容簡潔明了，不可以顯示「--- ###」。
-題目：${topic}
-大綱結構：${structure === "fourPart" ? "起承轉合" : "三線（起、一線、二線、三線、合）"}
-用戶輸入的大綱：
-| 部份 | 結構段重點 | 情節大要 |
-|------|------------|----------|
-${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\n")}
-教學筆記：${note}
-點評及建議語氣：${toneNoteForOutline}`;
+        // ==========================================
+        // 模式一：大綱點評 (加入 Emoji 分離邏輯 & 畫布聊天)
+        // ==========================================
+        if (writingType === "大綱") {
+            const structure = document.getElementById("structure").value;
+            const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
+            
+            // 構建用於 Context 的大綱文字
+            let outlineRawText = ""; 
+            
+            const outlineData = parts.map((part, index) => {
+                const focusId = structure + "Focus" + (index + 1);
+                const plotId = structure + "Plot" + (index + 1);
+                const focus = document.getElementById(focusId)?.value.trim() || "";
+                const plot = document.getElementById(plotId)?.value.trim() || "";
+                if (!focus || !plot) throw new Error("請填寫所有大綱表格");
                 
-                showLoading("陳SIR 正在點評..."); 
-                const response = await callAPI(prompt, 0);
-                displayOutlineComment(response, content);
+                outlineRawText += `[${part}] 重點：${focus} \n 情節：${plot}\n`;
+                return { part, focus, plot };
+            });
 
-                // ★★★ 修正開始：簡化歷史紀錄的輸入內容 ★★★
-                const structureName = structure === "fourPart" ? "起承轉合" : "三線";
-                
-                // 既然結果表格已包含大綱細節，這裡只記錄題目和結構名稱，保持簡潔
-                let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
+            const note = categories["大綱"].commentNote;
+            
+            // ★★★ 語氣指令：點評要 Emoji，改寫要嚴肅 ★★★
+            let toneInstruction = "請用嚴肅正經的語氣進行點評和建議。";
+            if (tone === "chen") {
+                toneInstruction = `
+                【重要語氣指令】：
+                1. 在「=== 點評及建議 ===」和「=== 改寫說明 ===」部分：你必須扮演陳SIR，使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😂, 🤔, ✨, 🔥)，語氣要像朋友聊天。
+                2. 在「=== 改寫後的大綱 ===」部分：為了確保學習參考價值，這部分**必須保持絕對嚴肅、學術的風格**，僅提供高質素的內容，**嚴禁使用 Emoji**。`;
+            }
 
-                // 儲存
-                saveToHistory(
-                    "敘事抒情", 
-                    "大綱點評", 
-                    topic, 
-                    userContentForHistory, // 這裡現在只有題目和結構
-                    document.getElementById("resultCanvasBody").innerHTML // AI 結果畫布 (內含完整的輸入+點評表格)
-                );
-                // ★★★ 修正結束 ★★★
-                // ★★★ 修正結束 ★★★
-            } else { // 敘事物象
-                content = document.getElementById("narrativeElements").value.trim();
-                const note = categories["敘事物象"].commentNote;
-                prompt = `請根據以下題目和取材/故事背景生成五十個不重複且相關的物象。要求：
+            prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。
+            ${toneInstruction}
+
+            要求：
+            1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
+            2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「結構段重點」和「情節大要」。使用「[part]」標記每個結構段的開始，然後在下一行「結構段重點：」後跟內容，再下一行「情節大要：」後跟內容。
+            3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
+            4. 請確保內容簡潔明了，不可以顯示「--- ###」。
+            
+            題目：${topic}
+            大綱結構：${structure === "fourPart" ? "起承轉合" : "三線（起、一線、二線、三線、合）"}
+            用戶輸入的大綱：
+            | 部份 | 結構段重點 | 情節大要 |
+            |------|------------|----------|
+            ${outlineData.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\n")}
+            教學筆記：${note}`;
+            
+            showLoading("陳SIR 正在點評大綱..."); 
+            const response = await callAPI(prompt, 0);
+            
+            // 設定聊天室上下文
+            currentContextContent = outlineRawText;
+            currentContextReview = response;
+
+            displayOutlineComment(response, outlineData);
+
+            // 儲存到歷史紀錄
+            const structureName = structure === "fourPart" ? "起承轉合" : "三線";
+            let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
+            
+            saveToHistory(
+                "敘事抒情", 
+                "大綱點評", 
+                topic, 
+                userContentForHistory, 
+                document.getElementById("resultCanvasBody").innerHTML
+            );
+        } 
+        // ==========================================
+        // 模式二：敘事物象 (保持不變)
+        // ==========================================
+        else if (writingType === "敘事物象") {
+            content = document.getElementById("narrativeElements").value.trim();
+            const note = categories["敘事物象"].commentNote;
+            prompt = `請根據以下題目和取材/故事背景生成五十個不重複且相關的物象。要求：
 1. 物象必須與題目和取材/故事背景緊密相關。
 2. 物象應多樣化且生動，能夠增強故事的真實感和情感表達。
 3. 請以列表形式呈現，每個物象佔一行。
@@ -10092,35 +10305,33 @@ ${content.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\
 題目：${topic}
 取材/故事背景：${content || "無具體背景，根據題目生成"}
 教學筆記：${note}`;
-                document.getElementById("commentResult").innerHTML = "陳SIR正在點評...";
-                const response = await callAPI(prompt, 0);
-                const elements = response.split("\n").map(item => item.trim()).filter(item => item);
-               let elementsHTML = "<h3>生成的物象（50項）：</h3><ul>";
-elements.forEach(element => elementsHTML += `<li>${element}</li>`);
-elementsHTML += "</ul>";
-openResultCanvas("生成的敘事物象");
-document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
-// --- 新增：儲存敘事物象 ---
-  saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
-				 
-            }
-            document.getElementById('save-writing-html-btn').style.display = 'flex';
-
-        } else { // 片段描寫 (文章點評)
+            
+            showLoading("陳SIR 正在生成物象...");
+            const response = await callAPI(prompt, 0);
+            const elements = response.split("\n").map(item => item.trim()).filter(item => item);
+            let elementsHTML = "<h3>生成的物象（50項）：</h3><ul>";
+            elements.forEach(element => elementsHTML += `<li>${element}</li>`);
+            elementsHTML += "</ul>";
+            openResultCanvas("生成的敘事物象");
+            document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
+            saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
+        } 
+        // ==========================================
+        // 模式三：文章點評 (加入 Emoji 分離邏輯 & 畫布聊天)
+        // ==========================================
+        else { 
             content = document.getElementById("writingContent").value.trim();
             if (!content) {
                 alert("請先輸入寫作內容");
                 submitBtn.disabled = false;
                 return;
             }
-            currentWritingArticle = content;
-
+            
             const selectedScopes = Array.from(document.querySelectorAll('input[name="reviewScope"]:checked')).map(cb => cb.value);
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
             if (isFullReview) {
-    // 改用全屏漏斗動畫，並動態顯示閱卷員名字
-    showLoading(`${currentReviewerName} 正在點評...`); 
+                showLoading(`${currentReviewerName} 正在點評...`); 
 
                 const focus = localStorage.getItem("currentFocus");
                 const plot = localStorage.getItem("currentPlot");
@@ -10128,9 +10339,15 @@ document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
                 const reviewer = document.getElementById('writingReviewer').value;
                 const reviewerNote = narrativeReviewerPreferences[reviewer] || "評分取向：平衡看待所有標準。";
                 
-                // =====================================================================
-                // === 【全新修訂】敘事抒情文評分指令 (V3 - 評分主導模式) ===
-                // =====================================================================
+                // ★★★ 語氣指令：點評要 Emoji，改寫要嚴肅 ★★★
+                let toneInstruction = "請使用嚴肅正經的語氣。";
+                if (tone === "chen") {
+                    toneInstruction = `
+                    【重要語氣指令】：
+                    1. 對於 <critique> (點評) 和 <suggestions> (建議) 部分：必須使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😎, 🔥, 👎, 🧐)，就像陳SIR在跟學生面對面說話一樣。
+                    2. 對於 <rewrite_example> (改寫範例) 部分：必須切換回**嚴肅、優美、高分的文學風格**，這部分是示範給學生看的範文，**嚴禁使用 Emoji**，也請勿使用口語。`;
+                }
+
                 const narrativeScoreFirstPrompt = `你將扮演一位極其嚴謹且客觀的中文科AI評卷員。你的工作流程被嚴格限定為「先評分，後解釋」。
 
 ### 你的工作流程 (必須嚴格遵守，不得顛倒)
@@ -10138,7 +10355,6 @@ document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
 1.  **首要任務：量化評分**: 你的第一個動作是，根據下方提供的詳細「評分準則」，對文章的各個維度進行獨立的、客觀的數字評分 (0-10分)。你必須將所有分數結果，完整地填寫在 <grading_json> 標籤內。**此步驟必須在撰寫任何文字評語之前完成。**
 
 2.  **次要任務：撰寫理據**: 在你完成 <grading_json> 的所有評分後，你的第二個動作是，根據你剛剛給出的分數，去撰寫 <critique>, <suggestions>, 和 <rewrite_example> 的內容。你的所有文字評語，都**必須**是為了**解釋和支撐**你已經給出的分數。
-    -   **範例**：如果你在 <grading_json> 中給予「立意」8分的高分，那麼你的 <critique> 就必須具體解釋這篇文章的立意為何深刻、在哪個方面超越了普通水平。反之，如果你給了低分，就必須指出其立意膚淺或陳腐之處。
 
 ### 核心評分準則 (用於步驟一的量化評分)
 - **偏題的後果**: 如果文章內容與題目無關，在評分時，「扣題」分數 **絕不能高於4分**，「內容」和「結構」的總分也 **不能高於4分**。
@@ -10170,83 +10386,70 @@ document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
 <rewrite_example>
 [提供一段約150字內的高質素改寫範例，展示更高分的作品應有的水準。]
 </rewrite_example>`;
-                // =====================================================================
-                // === 修訂結束 ===
-                // =====================================================================
-                
-                if (tone === "chen") {
-                     prompt = `你將扮演「陳SIR」，一位風格幽默、要求極高的中文老師。請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。請嚴格按照以下「先評分，後解釋」的流程，對學生的敘事抒情文進行點評。
-${narrativeScoreFirstPrompt}
----
-### 待點評的資料
-題目：${topic}
-結構段重點：${focus}
-情節大要：${plot}
-寫作內容：${content}
-教學筆記：${note}
-閱卷員評分取向：${reviewerNote}`;
-                } else {
-                    prompt = `你是一位嚴格的中文科閱卷員。請嚴格按照以下「先評分，後解釋」的流程，對學生的敘事抒情文進行點評。
-${narrativeScoreFirstPrompt}
----
-### 待點評的資料
-題目：${topic}
-結構段重點：${focus}
-情節大要：${plot}
-寫作內容：${content}
-教學筆記：${note}
-閱卷員評分取向：${reviewerNote}`;
-                }
+
+                prompt = `${toneInstruction}
+                請嚴格按照以下「先評分，後解釋」的流程，對學生的敘事抒情文進行點評。
+                ${narrativeScoreFirstPrompt}
+                ---
+                ### 待點評的資料
+                題目：${topic}
+                結構段重點：${focus}
+                情節大要：${plot}
+                寫作內容：${content}
+                教學筆記：${note}
+                閱卷員評分取向：${reviewerNote}`;
                 
                 const [originalApiResponse, llama3ApiResponse] = await Promise.all([callAPI(prompt, 0), callLlama3API(prompt, 0)]);
+                
+                // 設定聊天室上下文
+                currentContextContent = content;
+                currentContextReview = originalApiResponse; 
+
+                // 生成評分報告
                 await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
                 
-                const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/);
-                const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-                const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
-                let initialReviewHTML = "";
-                if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
-                if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-                if (rewriteMatch?.[1]) initialReviewHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteMatch[1].trim().replace(/\n/g, '<br>')}</p></div></div>`;
-                currentWritingReview = initialReviewHTML; 
-                document.getElementById('save-writing-html-btn').style.display = 'flex';
+                // ★★★ 關鍵步驟：在結果畫布底部追加聊天室 ★★★
+                const resultBody = document.getElementById("resultCanvasBody");
+                resultBody.innerHTML += getCanvasChatHTML('narrative_writing');
 
             } else {
-                // (聚焦式點評的邏輯)
-                writingGradingResultDiv.innerHTML = `${currentReviewerName}正在點評...`;
+                // ==========================
+                // 聚焦式點評 (改用 Canvas 顯示並加入 Chat)
+                // ==========================
+                showLoading(`${currentReviewerName} 正在點評...`); 
 
-                // 【新增】為敘事抒情文的聚焦式點評定義各範疇的具體任務
+                // 定義範疇
                 const scopeDefinitions = `
 - **扣題**: 嚴謹地對比題目《${topic}》及文章內容，點評文章在情節和主旨上是否緊密圍繞題目關鍵詞展開。
-- **立意**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評估文章的主題思想是否深刻、新穎，能否從個人經歷昇華至更普世的感悟或哲理。
-- **取材**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再檢視所選取的事例、情節是否典型、生動、具體，能否有效支撐立意。
-- **詳略**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再分析文章的敘事節奏，核心情節是否得到充分的細節描寫，次要或過渡性內容是否做到簡潔交代。
-- **文筆**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評論文章的語言運用是否精準、生動，遣詞造句是否流暢，句式是否有變化，以及是否有效地運用描寫或修辭手法來增強文章的感染力。
+- **立意**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評估文章的主題思想是否深刻、新穎。
+- **取材**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再檢視所選取的事例、情節是否典型、生動、具體。
+- **詳略**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再分析文章的敘事節奏，核心情節是否得到充分的細節描寫。
+- **文筆**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評論文章的語言運用是否精準、生動，遣詞造句是否流暢。
 `;
 
-                // 【修訂】將範疇定義整合進指令中
                 let scopeInstruction = `
 你是一名高度專業的寫作分析員，你的任務極其專一。
-
 ---
-### **黃金法則 (ABSOLUTE CORE DIRECTIVE)**
+### **黃金法則**
 你必須嚴格遵守此法則，不得有任何例外：
 1.  **絕對聚焦**: 你的點評和建議中的 **每一個字**，都必須 **僅僅** 與用戶選擇的以下範疇相關：**【${selectedScopes.join("、")}】**。
-2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。例如，如果用戶選擇了「立意」，你絕對不能評論「文筆」、「取材」或「詳略」。
+2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。
 3.  **後果**: 如果你的回應中包含了任何未被選定的範疇，整個回應將被視為失敗。
 
-### **各範疇的定義 (你的分析框架)**
+### **各範疇的定義**
 ${scopeDefinitions}
----
-`;
+---`;
 
+                // 語氣指令
+                let toneInstruction = "請使用嚴肅正經的語氣。";
                 if (tone === "chen") {
-                    prompt = `你將扮演「陳SIR」，一位眼光獨到、要求嚴格但風格幽默的中文老師。請用輕鬆隨意的語氣進行點評和建議，多用EMOJI，偶爾使用網絡用語，用語要日常生活化一點。如果用戶表現良好，請大加讚賞；如果用戶表現不好，可以善意地揶揄一下，但要注意尺度，不能傷害用戶的自尊心。揶揄時，可運用生活化的比喻。
+                    toneInstruction = `請用輕鬆隨意的語氣進行點評和建議，**必須使用大量Emoji** (如 😎, 🔥, 👎)，就像陳SIR在跟學生面對面說話一樣。`;
+                }
+
+                prompt = `${toneInstruction}
 ${scopeInstruction}
 ### **你的任務與輸出格式**
 你的輸出必須包含以下兩個XML標籤，不得有其他內容。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法。
-
 <critique>
 [根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
 </critique>
@@ -10257,52 +10460,38 @@ ${scopeInstruction}
 ### **待點評的資料**
 題目：${topic}
 寫作內容：${content}`;
-                } else {
-                    prompt = `你是一位要求嚴格、具備專業眼光的中文科閱卷員。
-${scopeInstruction}
-### **你的任務與輸出格式**
-你的輸出必須包含以下兩個XML標籤，不得有其他內容。
-【重要禁令】：在<critique>, <suggestions>的文字內容中，絕對禁止使用任何Markdown語法。
-
-<critique>
-[根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
-</critique>
-<suggestions>
-[針對點評中提出的問題，提出具體的改善建議，同樣要遵循「黃金法則」。若所選範疇表現極佳，可註明「在此範疇的表現出色，建議保持現有水準。」]
-</suggestions>
----
-### **待點評的資料**
-題目：${topic}
-寫作內容：${content}`;
-                }
 
                 const response = await callAPI(prompt, 0);
+                
+                // 設定上下文
+                currentContextContent = content;
+                currentContextReview = response;
+
                 const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
                 const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-                let initialReviewHTML = "";
+                let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
+                
                 if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
                 if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-                if (!initialReviewHTML) {
-                    initialReviewHTML = "抱歉，無法根據您選擇的範疇生成點評，請重試。";
-                }
                 
-                writingGradingResultDiv.innerHTML = initialReviewHTML;
-                currentWritingReview = initialReviewHTML;
-                writingChatHistoryData.push({ sender: 'ai', message: currentWritingReview });
-                document.getElementById('save-writing-html-btn').style.display = 'none';
-            }
+                if (!critiqueMatch && !suggestionsMatch) {
+                    initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
+                }
 
-            writingChatHistoryDiv.style.display = "flex";
-            writingChatInputContainerDiv.style.display = "flex";
+                // 顯示結果到 Canvas
+                openResultCanvas("聚焦點評結果");
+                const resultBody = document.getElementById("resultCanvasBody");
+                resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('narrative_writing');
+                
+                document.getElementById('save-writing-html-btn').style.display = 'none'; // 聚焦點評暫不支援完整 HTML 下載
+            }
         }
     } catch (error) {
         console.error("提交寫作時出錯:", error);
         alert(error.message.includes("API") ? "今日 API 調用次數已用完或API無法連接，請明天再試" : (error.message || "點評生成失敗，請重試"));
-        writingGradingResultDiv.innerHTML = "";
-        document.getElementById("commentResult").innerHTML = "";
     } finally {
         submitBtn.disabled = false;
-		hideLoading();
+        hideLoading();
     }
 }
 
@@ -10356,7 +10545,6 @@ function displayOutlineComment(response, content) {
     const comments = parseCommentPart(commentPart);
     const rewrites = parseRewritePart(rewritePart);
 
-    // 1. 點評表格 (5欄，保持緊湊)
     let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th style="width:10%;">部份</th><th style="width:15%;">結構段重點</th><th style="width:20%;">情節大要</th><th style="width:27.5%;">點評</th><th style="width:27.5%;">建議</th></tr>`;
     content.forEach(item => {
         const comment = comments[item.part]?.comment || "未生成點評";
@@ -10365,10 +10553,7 @@ function displayOutlineComment(response, content) {
     });
     commentTableHTML += "</table></div>";
 
-    // 2. 改寫表格 (3欄，調整比例)
-    // 調整為 15% - 25% - 60%，配合 CSS min-width: 280px，不會太寬也不會太窄
-    // 將 40% 和 45% 調整為 42.5% 或其他您喜歡的比例
-let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th style="width:15%;">部份</th><th style="width:42.5%;">結構段重點</th><th style="width:42.5%;">情節大要</th></tr>`;
+    let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="rewriteTable"><tr><th style="width:15%;">部份</th><th style="width:42.5%;">結構段重點</th><th style="width:42.5%;">情節大要</th></tr>`;
     content.forEach(item => {
         const rewrite = rewrites[item.part] || { focus: "未生成結構段重點", plot: "未生成情節大要" };
         rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.focus || "未生成結構段重點"}</td><td>${rewrite.plot || "未生成情節大要"}</td></tr>`;
@@ -10390,11 +10575,9 @@ let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-containe
         explanationHTML += `</div></div>`;
     }
     
-    // 強制設定寬度為100%
-  // 修改後：
-openResultCanvas("敘事大綱點評結果");
-const resultContainer = document.getElementById("resultCanvasBody");
-resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML;
+    openResultCanvas("敘事大綱點評結果");
+    const resultContainer = document.getElementById("resultCanvasBody");
+    resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML + getCanvasChatHTML('narrative_outline');
 }
 
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存問題)
@@ -12403,7 +12586,6 @@ ${basePrompt}
  * @param {string} fullTextContent - 用戶提交的完整文章內容
  */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
-    // 1. 先找出閱卷員的名字
     let reviewerName = "陳SIR"; 
     let reviewerSelect;
     
@@ -12418,11 +12600,9 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         reviewerName = reviewerName.replace(/\s*\(預設\)\s*/, ''); 
     }
 
-    // 2. 【關鍵修正】確定名字後，才打開畫布
     openResultCanvas(reviewerName + " 評核報告");
     const resultContainer = document.getElementById("resultCanvasBody");
 
-    // 3. 處理舊的雷達圖實例
     const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
     if (window[instanceName]) {
         window[instanceName].destroy();
@@ -12535,7 +12715,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
 
-    // 接下來的 AI 點評語氣調整與 HTML 生成
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
@@ -12570,31 +12749,35 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     if (rewriteMatch && rewriteMatch[1]) {
-        const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '').replace(/\n/g, '<br>');
-        finalHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteContent}</p></div></div>`;
+        const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
+        // ★★★ 修正處：使用新的 CSS Class ★★★
+        finalHTML += `<div class="rewrite-explanation-container">
+            <div class="rewrite-explanation-card">
+                <h3>改寫範例</h3>
+                <div class="rewrite-content">${rewriteContent}</div>
+            </div>
+        </div>`;
     }
 
-     // 最後注入 HTML 並初始化雷達圖
     resultContainer.innerHTML = finalHTML;
 
     if (scoresForDisplay) {
         initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }
 
-    // ★★★ 修訂：儲存到歷史紀錄 (傳入 scoresForDisplay) ★★★
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
-    // 這裡傳入了第 6 個參數 scoresForDisplay
     saveToHistory(
         uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
         "文章點評", 
         topic || "無題目", 
         `題目：${topic}\n\n文章：${fullTextContent}`, 
         htmlContent,
-        scoresForDisplay // 傳入原始分數物件
+        scoresForDisplay 
     );
 }
+
 
 // =======================================================
 // === 評等系統邏輯結束 ===
