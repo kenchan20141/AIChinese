@@ -5873,6 +5873,14 @@ transform: scale(1.15);
 
 <script>
 
+
+// === 分頁控制變數 ===
+let allAssignmentTasks = []; // 暫存該班級所有功課的 Metadata (不含內容，很小)
+let currentLoadedCount = 0;  // 目前已顯示的數量
+const BATCH_SIZE = 5;        // 每次載入幾份 (預設 5)
+
+	
+
 	// === 神思通知系統邏輯 ===
 
 // === 神思通知系統邏輯 (高效能修正版) ===
@@ -15053,100 +15061,150 @@ function finishLogin(grade, cls, number, name) {
 
 
 // === 修訂版 V8：背景熱更新 (秒開緩存 + 強制同步) ===
-// === 修訂版 V9：精準讀取 (只讀自己，不讀全校) ===
+// === 修訂版 V10：分頁讀取 (流量救星) ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    const cacheKey = `assignment_cache_${s.grade}_${s.class}_${s.name}`;
-    const cachedData = localStorage.getItem(cacheKey);
+    // 重置分頁狀態
+    allAssignmentTasks = [];
+    currentLoadedCount = 0;
+    listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
 
-    // --- 步驟 1：UI 搶先渲染 (顯示緩存) ---
-    if (cachedData) {
-        renderAssignmentList(JSON.parse(cachedData), true);
-    } else {
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
-    }
+    // 移除舊的「載入更多」按鈕 (如果有的話)
+    const oldBtn = document.getElementById('loadMoreAssignmentsBtn');
+    if (oldBtn) oldBtn.remove();
 
     try {
-        // 1. 只讀取「該班級」的功課列表 (不讀全校)
+        // 1. 讀取該班級的「功課清單」 (Metadata)
+        // 這一步流量很小，因為 assignments/{grade}/{class} 下面只有題目和日期，沒有大量文字
         const assignmentsSnap = await database.ref(`assignments/${grade}/${cls}`).once('value');
         const assignmentsData = assignmentsSnap.val();
 
         if (!assignmentsData) {
-            localStorage.removeItem(cacheKey);
             listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
             return;
         }
 
         // 2. 將功課轉換為陣列並按時間倒序排列 (最新的在上面)
-        const tasksArray = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
+        allAssignmentTasks = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
 
-        // 3. 【關鍵修改】並行查詢：只讀取「該學生」針對這些功課的提交狀態
-        // 我們不再讀取整個 assignments_submissions，而是針對每一份功課 ID + 學生姓名去查
-        const results = await Promise.all(tasksArray.map(async ([key, task]) => {
-            // 精準路徑：assignments_submissions / 功課ID / 學生姓名
-            const subPath = `assignments_submissions/${key}/${s.name}`;
-            const subSnap = await database.ref(subPath).once('value');
-            const submission = subSnap.val(); // 如果沒交，這裡是 null
-            
-            return { key, task, submission };
-        }));
+        // 3. 清空列表，準備載入第一批
+        listDiv.innerHTML = '';
 
-        // 更新緩存
-        const newCacheStr = JSON.stringify(results);
-        localStorage.setItem(cacheKey, newCacheStr);
-
-        // --- 步驟 4：刷新 UI ---
-        renderAssignmentList(results, false);
+        // 4. 載入第一批 (Top 5)
+        await loadNextBatchAssignments();
 
     } catch (error) {
-        console.error("同步數據失敗", error);
-        
-        if (cachedData) {
-            renderAssignmentList(JSON.parse(cachedData), false);
-            const errDiv = document.createElement('div');
-            errDiv.style.cssText = "text-align:center; font-size:0.8rem; color:red; margin-bottom:5px;";
-            errDiv.innerHTML = "<i class='fas fa-exclamation-triangle'></i> 網絡不穩，無法更新最新狀態";
-            listDiv.insertBefore(errDiv, listDiv.firstChild);
-        } else {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">載入失敗，請檢查網絡。</div>';
-        }
+        console.error("載入失敗", error);
+        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">載入失敗，請檢查網絡。</div>';
     }
 }
 
 
+	// === 核心：分批載入詳細數據 ===
+async function loadNextBatchAssignments() {
+    const listDiv = document.getElementById('assignmentList');
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    
+    // 1. 檢查是否還有更多資料
+    if (currentLoadedCount >= allAssignmentTasks.length) {
+        return; 
+    }
+
+    // 2. 顯示局部 Loading (放在列表底部)
+    let loadingDiv = document.createElement('div');
+    loadingDiv.id = 'batchLoading';
+    loadingDiv.style.cssText = "text-align:center; padding:10px; color:#aaa; font-size:0.9em;";
+    loadingDiv.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> 讀取中...';
+    listDiv.appendChild(loadingDiv);
+
+    // 3. 切片：取出接下來的 5 份 (例如 0-5, 5-10)
+    const nextBatch = allAssignmentTasks.slice(currentLoadedCount, currentLoadedCount + BATCH_SIZE);
+
+    try {
+        // 4. 並行查詢：只下載這 5 份的提交狀態 (HTML 內容)
+        const results = await Promise.all(nextBatch.map(async ([key, task]) => {
+            const subPath = `assignments_submissions/${key}/${s.name}`;
+            const subSnap = await database.ref(subPath).once('value');
+            const submission = subSnap.val(); 
+            return { key, task, submission };
+        }));
+
+        // 移除 Loading
+        if (loadingDiv) loadingDiv.remove();
+
+        // 5. 渲染這 5 份 (傳入 true 代表 append)
+        renderAssignmentList(results, false, true); // 注意：需修改 renderAssignmentList 支援 append
+
+        // 6. 更新計數器
+        currentLoadedCount += nextBatch.length;
+
+        // 7. 檢查是否需要顯示「載入更多」按鈕
+        manageLoadMoreButton();
+
+    } catch (error) {
+        console.error("分批讀取錯誤", error);
+        if (loadingDiv) loadingDiv.innerHTML = "讀取失敗，請重試";
+    }
+}
+
+// === 管理「載入更多」按鈕的顯示 ===
+function manageLoadMoreButton() {
+    const listDiv = document.getElementById('assignmentList');
+    
+    // 先移除舊按鈕
+    const existingBtn = document.getElementById('loadMoreAssignmentsBtn');
+    if (existingBtn) existingBtn.remove();
+
+    // 如果還有剩餘資料，就加回按鈕
+    if (currentLoadedCount < allAssignmentTasks.length) {
+        const remaining = allAssignmentTasks.length - currentLoadedCount;
+        
+        const btn = document.createElement('button');
+        btn.id = 'loadMoreAssignmentsBtn';
+        // 使用莫蘭迪灰色系樣式
+        btn.style.cssText = "width:100%; padding:10px; margin-top:10px; background:#e0e0e0; color:#555; border:none; border-radius:8px; cursor:pointer; font-weight:bold;";
+        btn.innerHTML = `顯示較舊的課業 (${remaining})`;
+        
+        btn.onclick = function() {
+            this.disabled = true; // 防止連點
+            loadNextBatchAssignments();
+        };
+
+        listDiv.appendChild(btn);
+    }
+}
+
 	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
-// === 輔助函數：渲染列表 HTML (修訂版：僅改變上方色條顏色) ===
-function renderAssignmentList(dataArray, isSyncing) {
+// 參數: isSyncing (舊參數), isAppend (新參數: true=附加到底部, false=清空重畫)
+function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
     const listDiv = document.getElementById('assignmentList');
-    let html = '';
+    
+    // 如果不是 Append 模式，才清空列表
+    if (!isAppend) {
+        listDiv.innerHTML = '';
+    }
 
-    // 定義莫蘭迪色系調色盤 (5色循環)
-    const morandiPalette = [
-        '#8fa398', // 灰綠 (Sage)
-        '#94a7b5', // 霧霾藍 (Dusty Blue)
-        '#b6a6ca', // 香芋紫 (Taro)
-        '#d69a92', // 豆沙紅 (Bean Red)
-        '#c7b299'  // 奶茶棕 (Latte)
-    ];
+    let html = '';
+    const morandiPalette = ['#8fa398', '#94a7b5', '#b6a6ca', '#d69a92', '#c7b299'];
 
     if (isSyncing) {
-        html += `<div style="text-align:center; font-size:0.8rem; color:#aaa; margin-bottom:10px; animation: pulse 1.5s infinite;">
-                    <i class="fas fa-sync-alt fa-spin"></i> 正在檢查最新課業...
-                 </div>`;
+        // 這是舊的同步提示，現在可能比較少用到
+        listDiv.innerHTML += `<div style="...">...</div>`;
+        return;
     }
 
     dataArray.forEach((item, index) => {
         const task = item.task;
         const submission = item.submission;
-        
-        // 根據索引分配顏色
+        // 為了讓顏色連續，使用全域計數器或當前批次的索引
+        // 這裡簡單用 (currentLoadedCount - 本批次長度 + index) 比較複雜
+        // 建議直接用隨機或簡單索引即可
         const themeColor = morandiPalette[index % morandiPalette.length];
 
-        // 狀態判斷邏輯
         let uiClass = '';
         let statusIcon = '';
         let statusText = '';
@@ -15177,15 +15235,15 @@ function renderAssignmentList(dataArray, isSyncing) {
             clickAction = `goToHistoryForAssignment('${task.topic}')`;
         }
 
-        // ★★★ 關鍵修改處 ★★★
-        // 1. style="--theme-color: ${themeColor};" -> 將顏色變數傳給 CSS (控制上方色條)
-        // 2. 移除了 border-left 樣式
-        html += `
-        <div class="task-card ${uiClass}" onclick="${clickAction}" style="--theme-color: ${themeColor};">
+        // 建立 DOM 元素而不是純字串，這樣可以直接 appendChild
+        const cardDiv = document.createElement('div');
+        cardDiv.className = `task-card ${uiClass}`;
+        cardDiv.onclick = function() { eval(clickAction); }; // 或直接綁定函式
+        cardDiv.style.setProperty('--theme-color', themeColor);
+        cardDiv.innerHTML = `
             <div class="task-info">
                <div class="task-topic" style="color: ${themeColor};">${task.topic}</div>
                 <div class="task-meta">
-                    <!-- 標籤背景色也同步使用該主題色 -->
                     <span class="task-type-tag" style="background-color: ${themeColor}; color: white; border:none;">${task.type}</span>
                     <span><i class="far fa-clock"></i> ${dateDisplay}</span>
                 </div>
@@ -15193,10 +15251,10 @@ function renderAssignmentList(dataArray, isSyncing) {
             <div class="task-status">
                 ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
             </div>
-        </div>`;
+        `;
+        
+        listDiv.appendChild(cardDiv);
     });
-    
-    listDiv.innerHTML = html;
 }
 	// === 新增：從未繳交課業跳轉至歷史紀錄 ===
 // === 新增：從未繳交課業跳轉至歷史紀錄 (無提示版) ===
