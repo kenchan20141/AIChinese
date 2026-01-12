@@ -15253,7 +15253,7 @@ function showTeacherFeedback(submissionStr) {
     // 3. 構建整體內容 HTML
     let contentHTML = teacherFeedbackHTML;
 
-    // ★★★ 關鍵修改：如果有學生內容，加入分隔線 ★★★
+    // 如果有學生內容，加入分隔線
     if (record.userContent || record.aiContent) {
         contentHTML += `<div class="feedback-separator"></div>`;
     }
@@ -15287,12 +15287,12 @@ function showTeacherFeedback(submissionStr) {
         }
         parsedHTML += '</div>';
         
-        // 這裡移除了原本左上角的絕對定位標籤，讓畫面更乾淨，因為上方已有分隔線提示
         contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
                             ${parsedHTML}
                         </div>`;
     }
 
+    // 加入 AI 分析結果 (這裡通常包含 HTML 結構，但不包含活的 Canvas)
     if (record.aiContent) {
         contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
     }
@@ -15306,11 +15306,91 @@ function showTeacherFeedback(submissionStr) {
     modalTitle.innerHTML = `<span style="color:#2A9689; font-weight:bold;">${record.topic || "課業紀錄"}</span>`;
     
     if (modalDate) {
-        modalDate.style.display = 'none'; // 隱藏日期
+        modalDate.style.display = 'none'; 
     }
 
     modalContent.innerHTML = contentHTML;
     historyModal.style.display = 'flex';
+
+    // 6. ★★★ [核心修復] 雷達圖重繪邏輯 ★★★
+    // 使用 setTimeout 確保 DOM 渲染完成後再繪圖
+    setTimeout(() => {
+        // 檢查是否有分數數據
+        if (record.scoreData && record.scoreData.radar) {
+            
+            // A. 嘗試在 AI 輸出區域尋找現有的 Canvas
+            let canvasEl = modalContent.querySelector('canvas');
+
+            // B. 如果找不到 (例如舊資料的 aiContent 裡沒有 Canvas 標籤)，則動態建立一個
+            if (!canvasEl) {
+                const aiOutputArea = modalContent.querySelector('.ai-output-area');
+                if (aiOutputArea) {
+                    // 建立圖表容器
+                    const chartWrapper = document.createElement('div');
+                    chartWrapper.style.width = '100%';
+                    chartWrapper.style.maxWidth = '500px';
+                    chartWrapper.style.height = '350px';
+                    chartWrapper.style.margin = '20px auto';
+                    chartWrapper.style.position = 'relative';
+                    
+                    // 建立 Canvas
+                    const newCanvas = document.createElement('canvas');
+                    chartWrapper.appendChild(newCanvas);
+                    
+                    // 將圖表插入到 AI 內容的最上方
+                    aiOutputArea.insertBefore(chartWrapper, aiOutputArea.firstChild);
+                    
+                    canvasEl = newCanvas;
+                }
+            }
+
+            // C. 執行 Chart.js 繪圖
+            if (canvasEl) {
+                const radarData = [
+                    record.scoreData.radar.立意 || 0,
+                    record.scoreData.radar.取材 || 0,
+                    record.scoreData.radar.扣題 || 0,
+                    record.scoreData.radar.詳略 || 0,
+                    record.scoreData.radar.詞彙 || 0,
+                    record.scoreData.radar.文學性 || 0
+                ];
+
+                new Chart(canvasEl.getContext('2d'), {
+                    type: 'radar',
+                    data: {
+                        labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+                        datasets: [{
+                            label: '能力評估',
+                            data: radarData,
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 2,
+                            pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                            pointBorderColor: '#fff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false, // 關鍵：允許填滿高度
+                        scales: {
+                            r: {
+                                angleLines: { display: true },
+                                suggestedMin: 0,
+                                suggestedMax: 10,
+                                pointLabels: {
+                                    font: { size: 14, family: "'Noto Serif TC', serif" }
+                                },
+                                ticks: { stepSize: 2, display: false }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+    }, 100); // 延遲 100ms 確保 HTML 已注入
 }
 // === 執行未繳交課業動作 (簡化版) ===
 function doAssignment(type, topic) {
