@@ -13503,9 +13503,29 @@ function captureContainerHTML(containerId) {
 }
 
 // 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
-// 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步 (支援 scoreData)
+// 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步 (支援 scoreData，並過濾聊天室)
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
+        // ============================================================
+        // ★★★ 核心修訂：在上傳前移除聊天室/追問區 HTML ★★★
+        // ============================================================
+        if (aiContent && typeof aiContent === 'string') {
+            // 建立一個暫時的 DOM 元素來處理 HTML 字串
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = aiContent;
+            
+            // 尋找並移除聊天室容器 (.canvas-chat-container)
+            // 這會連同「閱卷員追問區」標題、對話紀錄和輸入框一併移除
+            const chatContainer = tempDiv.querySelector('.canvas-chat-container');
+            if (chatContainer) {
+                chatContainer.remove();
+            }
+            
+            // 將處理乾淨的 HTML 重新賦值給 aiContent
+            aiContent = tempDiv.innerHTML;
+        }
+        // ============================================================
+
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
@@ -13515,14 +13535,14 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             subFunction: subFunction,
             title: title || "無標題",
             userContent: userContent,
-            aiContent: aiContent,
-            scoreData: scoreData, // ★ 新增：儲存原始分數數據 (JSON)
+            aiContent: aiContent, // 這裡是已經過濾掉聊天室的內容
+            scoreData: scoreData, 
             timestamp: new Date().getTime(),
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
         };
 
         store.add(record);
-        console.log("本地紀錄已儲存 (含數據)");
+        console.log("本地紀錄已儲存 (已過濾追問區)");
         
         // 檢查是否已綁定身份，如果是，則自動同步
         const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -13534,7 +13554,6 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         console.error("儲存紀錄失敗:", error);
     }
 }
-
 // 2. 修改 syncHistoryToFirebase：支援靜默模式 (silent mode)
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
