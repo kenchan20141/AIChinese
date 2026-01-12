@@ -5257,13 +5257,13 @@ select:focus, select:hover {
    === [新增] 修復改寫範例樣式 & 畫布聊天室樣式 ===
    ======================================================= */
 
-/* 1. 改寫內容專用樣式 (解決字體、行距不一致及生成顯示問題) */
+/* 1. 改寫內容專用樣式 (已修正字體大小與行距) */
 .rewrite-content {
     font-family: 'Noto Serif TC', serif !important;
-    font-size: 1.1rem !important;
-    line-height: 1.9 !important;
+    font-size: 1rem !important; /* 修正：由 1.1rem 改為 1rem，與點評一致 */
+    line-height: 1.8 !important; /* 修正：微調行距 */
     color: #2c3e50 !important;
-    white-space: pre-wrap !important; /* 確保換行被保留 */
+    white-space: pre-wrap !important;
     text-align: justify !important;
     background-color: #fff !important;
     padding: 20px !important;
@@ -5273,11 +5273,11 @@ select:focus, select:hover {
     box-shadow: inset 0 0 10px rgba(0,0,0,0.02);
 }
 
-/* 2. 結果畫布內的聊天室容器 */
+/* 2. 結果畫布內的聊天室容器 (保持不變) */
 .canvas-chat-container {
     margin-top: 50px;
     padding-top: 25px;
-    border-top: 3px dashed #2A9689; /* 分隔線 */
+    border-top: 3px dashed #2A9689;
     animation: fadeIn 0.5s ease;
     background-color: #fcfdfd;
     padding-bottom: 20px;
@@ -9303,7 +9303,6 @@ async function submitArgumentWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
-    // 隱藏舊版聊天室
     const gradingResultDiv = document.getElementById("argumentGradingResult");
     const chatHistoryDiv = document.getElementById("argumentChatHistory");
     const chatInputContainer = document.getElementById("argumentChatInputContainer");
@@ -9343,8 +9342,7 @@ async function submitArgumentWriting() {
         showLoading(`${currentReviewerName} 正在細閱文章...`);
 
         if (isFullReview) {
-            // ★★★ 語氣指令：點評要 Emoji，改寫要嚴肅 ★★★
-            let toneInstruction = "請使用嚴肅正經的語氣。";
+            let toneInstruction = "";
             if (tone === "chen") {
                 toneInstruction = `
                 【重要語氣指令】：
@@ -9402,16 +9400,12 @@ async function submitArgumentWriting() {
 
             const response = await callReadingAPI(prompt);
             
-            // 設定聊天室上下文
             currentContextContent = content;
             currentContextReview = response;
 
+            // ★★★ 修正：無需再手動添加 getCanvasChatHTML，因為 displayFullCommentWithGrading 已經整合了 ★★★
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
             document.getElementById('save-argument-writing-html-btn').style.display = 'flex';
-
-            // ★★★ 關鍵步驟：在結果畫布底部追加聊天室 ★★★
-            const resultBody = document.getElementById("resultCanvasBody");
-            resultBody.innerHTML += getCanvasChatHTML('argument_writing');
 
         } else {
             // ==========================
@@ -9471,9 +9465,10 @@ ${scopeDefinitions}
                 initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
             }
 
-            // 顯示結果到 Canvas
             openResultCanvas("聚焦點評結果");
             const resultBody = document.getElementById("resultCanvasBody");
+            
+            // ★★★ 手動追加 Chat ★★★
             resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('argument_writing');
             document.getElementById('save-argument-writing-html-btn').style.display = 'none';
         }
@@ -9486,7 +9481,6 @@ ${scopeDefinitions}
         hideLoading();
     }
 }
-
 
 
 // 【新增】用於儲存解題指引對話的上下文
@@ -10191,7 +10185,6 @@ async function submitWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
-    // 強制隱藏舊版頁面上的聊天室元素
     const writingGradingResultDiv = document.getElementById("writingGradingResult");
     const writingChatHistoryDiv = document.getElementById("writingChatHistory");
     const writingChatInputContainerDiv = document.getElementById("writingChatInputContainer");
@@ -10221,14 +10214,13 @@ async function submitWriting() {
         let prompt = "";
         const tone = document.getElementById("writingTone").value;
 
-        // ==========================================
-        // 模式一：大綱點評 (加入 Emoji 分離邏輯 & 畫布聊天)
-        // ==========================================
+        // ==========================
+        // 模式一：大綱點評
+        // ==========================
         if (writingType === "大綱") {
             const structure = document.getElementById("structure").value;
             const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
             
-            // 構建用於 Context 的大綱文字
             let outlineRawText = ""; 
             
             const outlineData = parts.map((part, index) => {
@@ -10244,7 +10236,6 @@ async function submitWriting() {
 
             const note = categories["大綱"].commentNote;
             
-            // ★★★ 語氣指令：點評要 Emoji，改寫要嚴肅 ★★★
             let toneInstruction = "請用嚴肅正經的語氣進行點評和建議。";
             if (tone === "chen") {
                 toneInstruction = `
@@ -10273,13 +10264,12 @@ async function submitWriting() {
             showLoading("陳SIR 正在點評大綱..."); 
             const response = await callAPI(prompt, 0);
             
-            // 設定聊天室上下文
             currentContextContent = outlineRawText;
             currentContextReview = response;
 
             displayOutlineComment(response, outlineData);
 
-            // 儲存到歷史紀錄
+            // 儲存
             const structureName = structure === "fourPart" ? "起承轉合" : "三線";
             let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
             
@@ -10291,9 +10281,9 @@ async function submitWriting() {
                 document.getElementById("resultCanvasBody").innerHTML
             );
         } 
-        // ==========================================
-        // 模式二：敘事物象 (保持不變)
-        // ==========================================
+        // ==========================
+        // 模式二：敘事物象
+        // ==========================
         else if (writingType === "敘事物象") {
             content = document.getElementById("narrativeElements").value.trim();
             const note = categories["敘事物象"].commentNote;
@@ -10316,9 +10306,9 @@ async function submitWriting() {
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
         } 
-        // ==========================================
-        // 模式三：文章點評 (加入 Emoji 分離邏輯 & 畫布聊天)
-        // ==========================================
+        // ==========================
+        // 模式三：文章點評
+        // ==========================
         else { 
             content = document.getElementById("writingContent").value.trim();
             if (!content) {
@@ -10339,7 +10329,6 @@ async function submitWriting() {
                 const reviewer = document.getElementById('writingReviewer').value;
                 const reviewerNote = narrativeReviewerPreferences[reviewer] || "評分取向：平衡看待所有標準。";
                 
-                // ★★★ 語氣指令：點評要 Emoji，改寫要嚴肅 ★★★
                 let toneInstruction = "請使用嚴肅正經的語氣。";
                 if (tone === "chen") {
                     toneInstruction = `
@@ -10406,11 +10395,10 @@ async function submitWriting() {
                 currentContextReview = originalApiResponse; 
 
                 // 生成評分報告
+                // ★★★ 修正：無需再手動添加 getCanvasChatHTML，因為 displayFullCommentWithGrading 已經整合了 ★★★
                 await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
                 
-                // ★★★ 關鍵步驟：在結果畫布底部追加聊天室 ★★★
-                const resultBody = document.getElementById("resultCanvasBody");
-                resultBody.innerHTML += getCanvasChatHTML('narrative_writing');
+                document.getElementById('save-writing-html-btn').style.display = 'flex';
 
             } else {
                 // ==========================
@@ -10418,7 +10406,6 @@ async function submitWriting() {
                 // ==========================
                 showLoading(`${currentReviewerName} 正在點評...`); 
 
-                // 定義範疇
                 const scopeDefinitions = `
 - **扣題**: 嚴謹地對比題目《${topic}》及文章內容，點評文章在情節和主旨上是否緊密圍繞題目關鍵詞展開。
 - **立意**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評估文章的主題思想是否深刻、新穎。
@@ -10440,7 +10427,6 @@ async function submitWriting() {
 ${scopeDefinitions}
 ---`;
 
-                // 語氣指令
                 let toneInstruction = "請使用嚴肅正經的語氣。";
                 if (tone === "chen") {
                     toneInstruction = `請用輕鬆隨意的語氣進行點評和建議，**必須使用大量Emoji** (如 😎, 🔥, 👎)，就像陳SIR在跟學生面對面說話一樣。`;
@@ -10463,7 +10449,6 @@ ${scopeInstruction}
 
                 const response = await callAPI(prompt, 0);
                 
-                // 設定上下文
                 currentContextContent = content;
                 currentContextReview = response;
 
@@ -10478,12 +10463,13 @@ ${scopeInstruction}
                     initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
                 }
 
-                // 顯示結果到 Canvas
                 openResultCanvas("聚焦點評結果");
                 const resultBody = document.getElementById("resultCanvasBody");
+                
+                // ★★★ 手動追加 Chat，因為不走 displayFullCommentWithGrading ★★★
                 resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('narrative_writing');
                 
-                document.getElementById('save-writing-html-btn').style.display = 'none'; // 聚焦點評暫不支援完整 HTML 下載
+                document.getElementById('save-writing-html-btn').style.display = 'none'; 
             }
         }
     } catch (error) {
@@ -12586,6 +12572,7 @@ ${basePrompt}
  * @param {string} fullTextContent - 用戶提交的完整文章內容
  */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
+    // 1. 先找出閱卷員的名字
     let reviewerName = "陳SIR"; 
     let reviewerSelect;
     
@@ -12600,9 +12587,11 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         reviewerName = reviewerName.replace(/\s*\(預設\)\s*/, ''); 
     }
 
+    // 2. 打開畫布
     openResultCanvas(reviewerName + " 評核報告");
     const resultContainer = document.getElementById("resultCanvasBody");
 
+    // 3. 清理舊的雷達圖實例 (防止記憶體洩漏)
     const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
     if (window[instanceName]) {
         window[instanceName].destroy();
@@ -12619,6 +12608,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
     const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/);
     
+    // --- 分數解析邏輯 (保持您的原邏輯) ---
     if (uniqueIdPrefix === 'narrative') {
         const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/) : null;
         if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
@@ -12715,6 +12705,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
 
+    // --- AI 點評語氣調整 ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
@@ -12737,11 +12728,13 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalCritiqueText = originalCritiqueText;
     }
 
+    // --- 組合 HTML ---
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix);
     } else {
         finalHTML += "<p>評等資料不完整。</p>";
     }
+    
     if (finalCritiqueText) {
         finalHTML += createBulletedListHTML("點評", finalCritiqueText);
     }
@@ -12750,7 +12743,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     }
     if (rewriteMatch && rewriteMatch[1]) {
         const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
-        // ★★★ 修正處：使用新的 CSS Class ★★★
+        // 使用修正後的 CSS class
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -12759,13 +12752,24 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         </div>`;
     }
 
+    // ★★★ 關鍵修正：在這裡直接追加聊天室 HTML，而不是在函數外部追加 ★★★
+    // 這樣在 resultContainer.innerHTML = finalHTML 執行時，所有東西都準備好了
+    finalHTML += getCanvasChatHTML(uniqueIdPrefix + '_writing');
+
+    // ★★★ 一次性注入 HTML ★★★
     resultContainer.innerHTML = finalHTML;
 
+    // ★★★ 在 HTML 注入完成後，才初始化圖表，這樣 Canvas 元素才存在 ★★★
     if (scoresForDisplay) {
-        initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
+        // 使用 setTimeout 確保 DOM 渲染完成後才畫圖 (保險起見)
+        setTimeout(() => {
+            initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
+        }, 50);
     }
 
+    // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
+    // 此時 resultCanvasBody 已經包含了聊天室HTML，所以歷史紀錄裡也會有，這是正常的
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
     saveToHistory(
