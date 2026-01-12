@@ -13633,42 +13633,36 @@ async function syncHistoryToFirebase(isSilent = false) {
         if (!isSilent) alert("請先綁定身份");
         return;
     }
-    
+
+    // 如果不是靜默模式（例如手動點擊），才顯示按鈕狀態變化
     let btn = null;
     let originalText = "";
     if (!isSilent && event && event.target) {
         btn = event.target;
         originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同步中...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
         btn.disabled = true;
     }
-    
+
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.getAll();
-        
-        request.onsuccess = async function(e) {
-            const localRecords = e.target.result;
+
+        request.onsuccess = function(e) {
+            const records = e.target.result;
             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
             
-            // 1. 先獲取雲端現有數據
-            const cloudSnapshot = await database.ref(path).once('value');
-            const cloudRecords = cloudSnapshot.val() || [];
-            
-            // 2. 執行智能合併
-            const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
-            
-            // 3. 上傳合併後的數據
-            database.ref(path).set(mergedRecords, (error) => {
+            database.ref(path).set(records, (error) => {
                 if (error) {
-                    console.error("同步失敗:", error);
-                    if (!isSilent) alert("同步失敗：" + error.message);
+                    console.error("自動同步失敗:", error);
+                    if (!isSilent && btn) alert("上傳失敗：" + error.message);
                 } else {
-                    console.log("智能同步成功，已合併 " + mergedRecords.length + " 條紀錄");
-                    if (!isSilent) alert("✅ 成功同步並合併所有紀錄");
+                    console.log("自動同步成功");
+                    if (!isSilent && btn) alert("✅ 成功同步所有紀錄給老師！");
                 }
+                
                 if (!isSilent && btn) {
                     btn.innerHTML = originalText;
                     btn.disabled = false;
@@ -13683,79 +13677,6 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
     }
 }
-
-	function mergeHistoryRecords(localRecords, cloudRecords) {
-    const mergedMap = new Map();
-    
-    // 1. 先將雲端數據加入合併映射
-    cloudRecords.forEach(record => {
-        // 建立唯一識別鍵（類別+子功能+標題+時間戳前三碼）
-        const key = `${record.category}|${record.subFunction}|${record.title}|${record.timestamp.toString().slice(0, 3)}`;
-        mergedMap.set(key, record);
-    });
-    
-    // 2. 處理本地數據：只新增雲端沒有的紀錄
-    localRecords.forEach(record => {
-        const key = `${record.category}|${record.subFunction}|${record.title}|${record.timestamp.toString().slice(0, 3)}`;
-        
-        // 檢查是否已存在（通過唯一鍵）
-        if (!mergedMap.has(key)) {
-            // 完全新紀錄，直接加入
-            mergedMap.set(key, record);
-        } else {
-            // 3. 衝突處理：選擇最新的版本
-            const existingRecord = mergedMap.get(key);
-            // 比較時間戳，保留較新的紀錄
-            if (record.timestamp > existingRecord.timestamp) {
-                mergedMap.set(key, record);
-            }
-        }
-    });
-    
-    // 4. 轉換回陣列並按時間倒序排列（最新在前）
-    return Array.from(mergedMap.values())
-        .sort((a, b) => b.timestamp - a.timestamp);
-}
-
-// 更新「雲端同步」按鈕的顯示狀態
-function updateCloudSyncState() {
-    const btn = document.getElementById('sideMenuCloudBtn');
-    if (!btn) return;
-    
-    // 檢查本地是否有新紀錄未同步
-    const dbRequest = indexedDB.open(DB_NAME, DB_VERSION);
-    dbRequest.onsuccess = function(e) {
-        const db = e.target.result;
-        const tx = db.transaction([STORE_NAME], 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        const countRequest = store.count();
-        
-        countRequest.onsuccess = function() {
-            const localCount = countRequest.result;
-            
-            // 獲取最後同步時間
-            const lastSync = localStorage.getItem('lastSyncTime');
-            const needsSync = !lastSync || (Date.now() - parseInt(lastSync) > 300000); // 5分鐘
-            
-            // 視覺提示：有新紀錄或需要同步時顯示紅點
-            showRedBadge(localCount > 0 && needsSync);
-        };
-    };
-}
-
-// 在 DOMContentLoaded 後初始化
-document.addEventListener('DOMContentLoaded', updateCloudSyncState);
-// 每次保存歷史紀錄後更新狀態
-const originalSaveToHistory = window.saveToHistory;
-window.saveToHistory = function(...args) {
-    originalSaveToHistory(...args);
-    updateCloudSyncState();
-};
-
-
-
-
-	
 
 // ================= UI 導航邏輯 =================
 
