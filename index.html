@@ -10336,14 +10336,12 @@ async function submitWritingGuide() {
 
 	
 // ==========================================
-// === [學生端] 寫作提交函數 (完整修訂版) ===
+// === 修訂：寫作提交函數 (含敘事物象 UI 美化) ===
 // ==========================================
 async function submitWriting() {
     const submitBtn = document.getElementById('submitWritingBtn');
     submitBtn.disabled = true;
-    
-    // 隱藏所有舊的儲存按鈕
-    if (typeof hideAllSaveHtmlButtons === 'function') hideAllSaveHtmlButtons();
+    hideAllSaveHtmlButtons();
 
     // 強制隱藏舊版頁面上的聊天室元素
     const writingGradingResultDiv = document.getElementById("writingGradingResult");
@@ -10352,12 +10350,9 @@ async function submitWriting() {
     if(writingGradingResultDiv) writingGradingResultDiv.innerHTML = "";
     if(writingChatHistoryDiv) writingChatHistoryDiv.style.display = "none";
     if(writingChatInputContainerDiv) writingChatInputContainerDiv.style.display = "none";
-    
-    // 重置聊天歷史
     writingChatHistoryData = [];
 
     try {
-        // 1. 獲取閱卷員名稱
         const reviewerSelect = document.getElementById('writingReviewer');
         if (reviewerSelect) {
             const selectedReviewerText = reviewerSelect.options[reviewerSelect.selectedIndex].text;
@@ -10366,7 +10361,6 @@ async function submitWriting() {
             currentReviewerName = "陳SIR";
         }
 
-        // 2. 獲取題目與類型
         const writingType = document.getElementById("writingType").value;
         const topic = localStorage.getItem("currentTopic");
         if (!topic) {
@@ -10380,7 +10374,7 @@ async function submitWriting() {
         const tone = document.getElementById("writingTone").value;
 
         // ==========================================
-        // 情況 A：大綱點評 (維持原樣，但建議也存 JSON，此處保留 HTML 以防改動過大)
+        // 模式一：大綱點評
         // ==========================================
         if (writingType === "大綱") {
             const structure = document.getElementById("structure").value;
@@ -10403,10 +10397,28 @@ async function submitWriting() {
             
             let toneInstruction = "請用嚴肅正經的語氣進行點評和建議。";
             if (tone === "chen") {
-                toneInstruction = `【重要語氣指令】：在「點評及建議」部分使用輕鬆幽默口吻及大量 Emoji，在「改寫後的大綱」部分保持嚴肅。`;
+                toneInstruction = `
+                【重要語氣指令】：
+                1. 在「=== 點評及建議 ===」和「=== 改寫說明 ===」部分：你必須扮演陳SIR，使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😂, 🤔, ✨, 🔥)，表示揶揄時會用🤌這個EMOJI，語氣要像朋友聊天。
+                2. 在「=== 改寫後的大綱 ===」部分：為了確保學習參考價值，這部分**必須保持絕對嚴肅、學術的風格**，僅提供高質素的內容，**嚴禁使用 Emoji**。`;
             }
 
-            prompt = `請根據以下大綱內容進行點評和建議... (省略 Prompt 細節以節省空間，保持您原有的 Prompt) ... 題目：${topic} ... 內容：${JSON.stringify(outlineData)}`;
+            prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。
+            ${toneInstruction}
+
+            要求：
+            1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
+            2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「結構段重點」和「情節大要」。使用「[part]」標記每個結構段的開始，然後在下一行「結構段重點：」後跟內容，再下一行「情節大要：」後跟內容。
+            3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
+            4. 請確保內容簡潔明了，不可以顯示「--- ###」。
+            
+            題目：${topic}
+            大綱結構：${structure === "fourPart" ? "起承轉合" : "三線（起、一線、二線、三線、合）"}
+            用戶輸入的大綱：
+            | 部份 | 結構段重點 | 情節大要 |
+            |------|------------|----------|
+            ${outlineData.map(item => `| ${item.part} | ${item.focus} | ${item.plot} |`).join("\n")}
+            教學筆記：${note}`;
             
             showLoading("陳SIR 正在點評大綱..."); 
             const response = await callAPI(prompt, 0);
@@ -10416,10 +10428,10 @@ async function submitWriting() {
 
             displayOutlineComment(response, outlineData);
 
-            // 大綱目前仍存 HTML，若要改 JSON 需額外處理，這裡暫時維持 HTML 存檔以確保穩定
             const structureName = structure === "fourPart" ? "起承轉合" : "三線";
             let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
             
+            // 儲存 HTML 時已經包含了聊天室結構 (由 displayOutlineComment 生成)，這裡直接儲存
             saveToHistory(
                 "敘事抒情", 
                 "大綱點評", 
@@ -10429,34 +10441,56 @@ async function submitWriting() {
             );
         } 
         // ==========================================
-        // 情況 B：敘事物象 (維持 HTML 存檔)
+        // 模式二：敘事物象 (★ UI 美化修訂 ★)
         // ==========================================
         else if (writingType === "敘事物象") {
             content = document.getElementById("narrativeElements").value.trim();
             const note = categories["敘事物象"].commentNote;
-            prompt = `請根據以下題目和取材... (保持原有 Prompt) ...`;
+            prompt = `請根據以下題目和取材/故事背景生成五十個不重複且相關的物象。要求：
+1. 物象必須與題目和取材/故事背景緊密相關。
+2. 物象應多樣化且生動，能夠增強故事的真實感和情感表達。
+3. 請以列表形式呈現，每個物象佔一行。
+4. 請確保物象不重複且排版整齊。
+題目：${topic}
+取材/故事背景：${content || "無具體背景，根據題目生成"}
+教學筆記：${note}`;
             
             showLoading("陳SIR 正在生成物象...");
             const response = await callAPI(prompt, 0);
             
+            // ★★★ 設定聊天室上下文 ★★★
             currentContextContent = `題目：${topic}\n背景：${content}`;
             currentContextReview = response;
 
-            // 處理回傳數據
-            const elements = response.split("\n").map(item => item.replace(/^\d+\.|^-\s*/, '').trim()).filter(item => item);
-            let elementsHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>生成的物象：</h3><div class="vocab-grid">`;
-            elements.forEach(element => { elementsHTML += `<div class="vocab-item">${element}</div>`; });
+            // 清理並分割數據
+            const elements = response.split("\n")
+                                     .map(item => item.replace(/^\d+\.|^-\s*/, '').trim())
+                                     .filter(item => item);
+            
+            // ★★★ 使用 .vocab-grid 網格樣式 (與閱讀指引一致) ★★★
+            let elementsHTML = `<div class="rewrite-explanation-container">
+                <div class="rewrite-explanation-card">
+                    <h3>生成的物象（${elements.length}項）：</h3>
+                    <div class="vocab-grid">`;
+            
+            elements.forEach(element => {
+                elementsHTML += `<div class="vocab-item">${element}</div>`;
+            });
+            
             elementsHTML += `</div></div></div>`; 
+
+            // ★★★ 加入聊天室介面 ★★★
             elementsHTML += getCanvasChatHTML('narrative_elements');
 
             openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             
+            // 儲存時移除聊天室 HTML (以免歷史紀錄過長)
             const historyHTML = elementsHTML.split('<div class="canvas-chat-container">')[0];
             saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, historyHTML);
         } 
         // ==========================================
-        // 情況 C：文章點評 (★ 核心修訂：存 JSON ★)
+        // 模式三：文章點評 (保持不變)
         // ==========================================
         else { 
             content = document.getElementById("writingContent").value.trim();
@@ -10469,7 +10503,6 @@ async function submitWriting() {
             const selectedScopes = Array.from(document.querySelectorAll('input[name="reviewScope"]:checked')).map(cb => cb.value);
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-            // 只有「全部」模式才存 JSON，聚焦點評維持 HTML
             if (isFullReview) {
                 showLoading(`${currentReviewerName} 正在點評...`); 
 
@@ -10481,81 +10514,142 @@ async function submitWriting() {
                 
                 let toneInstruction = "請使用嚴肅正經的語氣。";
                 if (tone === "chen") {
-                    toneInstruction = `【重要語氣指令】：點評建議部分輕鬆幽默多 Emoji，改寫範例部分嚴肅優美。`;
+                    toneInstruction = `
+                    【重要語氣指令】：
+                    1. 對於 <critique> (點評) 和 <suggestions> (建議) 部分：必須使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😎, 🔥, 👎, 🧐)，表示揶揄時會用🤌這個EMOJI，就像陳SIR在跟學生面對面說話一樣。
+                    2. 對於 <rewrite_example> (改寫範例) 部分：必須切換回**嚴肅、優美、高分的文學風格**，這部分是示範給學生看的範文，**嚴禁使用 Emoji**，也請勿使用口語。`;
                 }
 
-                // 呼叫 API (Prompt 保持您原有的複雜版本)
-                const narrativeScoreFirstPrompt = `你將扮演一位極其嚴謹且客觀的中文科AI評卷員... (保持原有 Prompt) ...`;
-                
-                prompt = `${toneInstruction} ... ${narrativeScoreFirstPrompt} ... 題目：${topic} ... 文章：${content} ...`;
+                const narrativeScoreFirstPrompt = `你將扮演一位極其嚴謹且客觀的中文科AI評卷員。你的工作流程被嚴格限定為「先評分，後解釋」。
+
+### 你的工作流程 (必須嚴格遵守，不得顛倒)
+
+1.  **首要任務：量化評分**: 你的第一個動作是，根據下方提供的詳細「評分準則」，對文章的各個維度進行獨立的、客觀的數字評分 (0-10分)。你必須將所有分數結果，完整地填寫在 <grading_json> 標籤內。**此步驟必須在撰寫任何文字評語之前完成。**
+
+2.  **次要任務：撰寫理據**: 在你完成 <grading_json> 的所有評分後，你的第二個動作是，根據你剛剛給出的分數，去撰寫 <critique>, <suggestions>, 和 <rewrite_example> 的內容。你的所有文字評語，都**必須**是為了**解釋和支撐**你已經給出的分數。
+
+### 核心評分準則 (用於步驟一的量化評分)
+- **偏題的後果**: 如果文章內容與題目無關，在評分時，「扣題」分數 **絕不能高於4分**，「內容」和「結構」的總分也 **不能高於4分**。
+
+---
+### 你的輸出格式 (必須嚴格遵守此結構與順序)
+
+<grading_json>
+[**分數量化步驟**：根據「核心評分準則」，客觀地為以下所有項目評分。]
+{
+"content": [0-10的整數],
+"expression": [0-10的整數],
+"structure": [0-10的整數],
+"radar": {
+"立意": [0-10], "取材": [0-10], "扣題": [0-10],
+"詳略": [0-10], "詞彙": [0-10], "文學性": [0-10]
+}
+}
+</grading_json>
+
+<critique>
+[根據你在 <grading_json> 中給出的分數，以數字編號列點方式，撰寫2-3點核心評論來解釋這些分數的由來。**格式嚴格要求**：1. 必須使用流暢的**完整句子**。2. **嚴禁**使用冒號小標題（如「立意方面：...」）。3. **嚴禁**使用括號作總結或公式化表述（如「（個人經歷+反思）」）。請直接將評價融入完整的段落文字中。]
+</critique>
+
+<suggestions>
+[針對 <critique> 中指出的問題，提出具體的改善建議。**格式嚴格要求**：1. 必須使用**完整句子**。2. **嚴禁**使用冒號小標題。3. **嚴禁**使用括號表述。請用自然流暢的語言給予指導。]
+</suggestions>
+
+<rewrite_example>
+[提供一段約150字內的高質素改寫範例，展示更高分的作品應有的水準。]
+</rewrite_example>`;
+
+                prompt = `${toneInstruction}
+                請嚴格按照以下「先評分，後解釋」的流程，對學生的敘事抒情文進行點評。
+                ${narrativeScoreFirstPrompt}
+                ---
+                ### 待點評的資料
+                題目：${topic}
+                結構段重點：${focus}
+                情節大要：${plot}
+                寫作內容：${content}
+                教學筆記：${note}
+                閱卷員評分取向：${reviewerNote}`;
                 
                 const [originalApiResponse, llama3ApiResponse] = await Promise.all([callAPI(prompt, 0), callLlama3API(prompt, 0)]);
                 
+                // 設定聊天室上下文
                 currentContextContent = content;
                 currentContextReview = originalApiResponse; 
 
-                // 1. 生成當前頁面的 HTML (這一步是為了讓學生當下看到結果)
+                // 生成評分報告 (displayFullCommentWithGrading 內部會自動加入一個聊天室)
                 await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
                 
                 document.getElementById('save-writing-html-btn').style.display = 'flex';
 
-                // =================================================
-                // ★★★ 核心新增：解析數據並構建 JSON 儲存物件 ★★★
-                // =================================================
-                
-                // 重新解析剛剛 displayFullCommentWithGrading 內部做過的事情，以便存檔
-                // (為了代碼乾淨，這裡簡化重複解析過程，直接提取 DOM 或重用變數)
-                // 更好的做法是讓 displayFullCommentWithGrading 返回數據，但為了不改動太多函式簽名，我們這裡簡單重做解析：
+            } else {
+                // 聚焦式點評 (改用 Canvas 顯示並加入 Chat)
+                showLoading(`${currentReviewerName} 正在點評...`); 
 
-                const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
-                const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
-                const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
-                const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
-                
-                let scoresToSave = null;
-                // 簡單解析分數 (這裡假設最終採用了 original 或 llama3 的較高分，為了簡化，我們取 original 的解析結果，
-                // 實際應用建議從 displayFullCommentWithGrading 獲取最終分數物件)
-                if (originalGradingMatch) {
-                    try { scoresToSave = JSON.parse(originalGradingMatch[1]); } catch(e){}
+                const scopeDefinitions = `
+- **扣題**: 嚴謹地對比題目《${topic}》及文章內容，點評文章在情節和主旨上是否緊密圍繞題目關鍵詞展開。
+- **立意**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評估文章的主題思想是否深刻、新穎。
+- **取材**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再檢視所選取的事例、情節是否典型、生動、具體。
+- **詳略**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再分析文章的敘事節奏，核心情節是否得到充分的細節描寫。
+- **文筆**: 先嚴謹地對比題目《${topic}》及文章內容，點評是否扣題，繼而再評論文章的語言運用是否精準、生動，遣詞造句是否流暢。
+`;
+
+                let scopeInstruction = `
+你是一名高度專業的寫作分析員，你的任務極其專一。
+---
+### **黃金法則**
+你必須嚴格遵守此法則，不得有任何例外：
+1.  **絕對聚焦**: 你的點評和建議中的 **每一個字**，都必須 **僅僅** 與用戶選擇的以下範疇相關：**【${selectedScopes.join("、")}】**。
+2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。
+3.  **後果**: 如果你的回應中包含了任何未被選定的範疇，整個回應將被視為失敗。
+
+### **各範疇的定義**
+${scopeDefinitions}
+---`;
+
+                let toneInstruction = "請使用嚴肅正經的語氣。";
+                if (tone === "chen") {
+                    toneInstruction = `請用幽默詼諧、適時揶揄的語氣進行點評和建議，**必須使用大量Emoji** (如 😎, 🔥, 👎)，表示揶揄時會用🤌這個EMOJI，就像陳SIR在跟學生面對面說話一樣。`;
                 }
 
-                // 構建純數據物件 (JSON)
-                const structuredData = {
-                    type: "narrative_review",
-                    version: 1, 
-                    scores: {
-                        content: scoresToSave ? scoresToSave.content : 0,
-                        expression: scoresToSave ? scoresToSave.expression : 0,
-                        structure: scoresToSave ? scoresToSave.structure : 0,
-                        punctuation: 5,
-                        typo: 1
-                    },
-                    radar: scoresToSave ? scoresToSave.radar : {}, 
-                    critique: critiqueMatch ? critiqueMatch[1].trim() : "未生成點評",
-                    suggestion: suggestionsMatch ? suggestionsMatch[1].trim() : "",
-                    rewrite: rewriteMatch ? rewriteMatch[1].trim().replace(/\*/g, '') : ""
-                };
+                prompt = `${toneInstruction}
+${scopeInstruction}
+### **你的任務與輸出格式**
+你的輸出必須包含以下兩個XML標籤，不得有其他內容。
+<critique>
+[根據「黃金法則」，給出1-2點核心評論。記住，你的每一點評論都必須嚴格對應用戶選擇的範疇。]
+</critique>
+<suggestions>
+[在建議部分，同樣要遵循「黃金法則」。如果所選範疇表現優秀，你可以說「在這方面處理得很好，沒什麼好建議了，繼續保持吧！😎」。]
+</suggestions>
+---
+### **待點評的資料**
+題目：${topic}
+寫作內容：${content}`;
 
-                // ★★★ 存檔：傳入 JSON 物件 ★★★
-                saveToHistory(
-                    "敘事抒情", 
-                    "文章點評", 
-                    topic || "無題目", 
-                    `題目：${topic}\n\n文章：${content}`, 
-                    structuredData, // <--- 傳入 JSON
-                    scoresToSave    // 保留舊格式兼容
-                );
-
-            } else {
-                // 聚焦式點評 (維持 HTML 存檔)
-                // ... (保留原有的聚焦式點評代碼) ...
-                showLoading(`${currentReviewerName} 正在點評...`);
-                // ... (API呼叫) ...
                 const response = await callAPI(prompt, 0);
-                // ... (顯示結果) ...
-                // 儲存 HTML
-                const htmlContent = captureContainerHTML('resultCanvasBody');
-                saveToHistory("敘事抒情", "文章點評", topic, `題目：${topic}\n文章：${content}`, htmlContent);
+                
+                currentContextContent = content;
+                currentContextReview = response;
+
+                const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
+                const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+                let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
+                
+                if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
+                if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
+                
+                if (!critiqueMatch && !suggestionsMatch) {
+                    initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
+                }
+
+                openResultCanvas("聚焦點評結果");
+                const resultBody = document.getElementById("resultCanvasBody");
+                
+                // ★★★ 手動追加 Chat ★★★
+                resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('narrative_writing');
+                
+                document.getElementById('save-writing-html-btn').style.display = 'none'; 
             }
         }
     } catch (error) {
@@ -13916,9 +14010,6 @@ async function clearAllHistory() {
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
 // === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
-// ==========================================
-// === [學生端] 查看詳情函數 (支援 JSON 與 HTML) ===
-// ==========================================
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -13929,7 +14020,7 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 1. 計算主題色 (用於標題顏色)
+                // 1. 計算主題色
                 let themeIndex = 1;
                 if (HISTORY_STRUCTURE[record.category]) {
                     const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
@@ -13940,7 +14031,7 @@ async function viewHistoryDetail(id) {
                 const themeClass = `history-theme-context-${themeIndex}`;
                 const colorVar = `var(--m-color-${themeIndex})`;
 
-                // 2. 設定標題 UI
+                // 2. 設定標題
                 document.getElementById('historyModalTitle').innerHTML = 
                     `<i class="fas fa-book-open" style="color:${colorVar}"></i> 
                      <span style="color:#333">${record.category}</span> 
@@ -13950,114 +14041,121 @@ async function viewHistoryDetail(id) {
                 const dateElement = document.getElementById('historyModalDate');
                 if (dateElement) dateElement.style.display = "none"; 
                 
-                // 3. 準備內容 HTML
+                // ★★★ 這裡定義 contentHTML ★★★
                 let contentHTML = '';
 
-                // --- A. 顯示使用者輸入 (User Content) ---
-                // 如果是「學習報告」，通常不需要顯示 User Content
+                // 3. 處理使用者輸入內容 (如果是「學習報告」，則跳過)
                 if (record.category !== "學習報告" && record.userContent) {
-                    // 使用 renderParsedUserContent (請確保此函式已存在於共用代碼區)
-                    // 如果沒有，可以用簡單的 replace 處理
-                    if (typeof renderParsedUserContent === 'function') {
-                        contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
-                            ${renderParsedUserContent(record.userContent, themeIndex)}
-                        </div>`;
-                    } else {
-                        contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; white-space: pre-wrap; line-height:1.8;">${record.userContent}</div>`;
+                    const rawText = record.userContent;
+                    const lines = rawText.split('\n');
+                    let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
+                    let currentLabel = '輸入內容'; 
+                    let currentContent = [];
+                    const labelRegex = /^(.{2,10}?)[：:](.*)$/;
+
+                    lines.forEach((line) => {
+                        const match = line.match(labelRegex);
+                        if (match) {
+                            if (currentContent.length > 0) {
+                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                            }
+                            currentLabel = match[1].trim(); 
+                            const restOfLine = match[2].trim();
+                            currentContent = restOfLine ? [restOfLine] : []; 
+                        } else {
+                            if (line.trim() !== "") currentContent.push(line);
+                        }
+                    });
+
+                    if (currentContent.length > 0 || lines.length === 0) { 
+                         const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
+                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
                     }
+                    parsedHTML += '</div>';
+                    
+                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
                 }
 
-                // --- B. 顯示 AI 生成內容 (核心判斷邏輯) ---
+                // 4. 顯示 AI 生成內容
                 if (record.aiContent) {
-                    // ★★★ 情況 1：新版 JSON 數據 ★★★
-                    if (typeof record.aiContent === 'object') {
-                        // 產生一個唯一的 ID 給 Canvas 使用
-                        const uniqueChartId = "hist_" + record.id;
-                        
-                        contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">`;
-                        // 呼叫共用渲染引擎 (需確保 renderAssessmentUI 已在全域定義)
-                        contentHTML += renderAssessmentUI(record.aiContent, uniqueChartId);
-                        contentHTML += `</div>`;
-                    } 
-                    // ★★★ 情況 2：舊版 HTML 字串 ★★★
-                    else {
-                        contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
-                    }
+                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
                 }
-
-                // --- C. 顯示繳交按鈕 (若適用) ---
+                
+                // 5. 顯示繳交按鈕 (若適用)
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
                         <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
-                            <button class="btn-action btn-morandi" onclick="openSubmitSelector(${record.id})">
+                            <button class="btn-action btn-morandi" 
+                                    onclick="openSubmitSelector(${record.id})">
                                 <i class="fas fa-paper-plane"></i> 繳交
                             </button>
                         </div>
                     `;
                 }
 
-                // 4. 將組合好的 HTML 注入 Modal
+                // 6. 將組合好的 HTML 注入 Modal
                 const modalContent = document.getElementById('historyModalContent');
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
 
                 // ==========================================
-                // ★★★ 5. 觸發繪圖 (新舊兼容) ★★★
+                // ★★★ 雷達圖即時重繪邏輯 (Chart.js) ★★★
                 // ==========================================
-                setTimeout(() => {
-                    // A. 優先嘗試新版繪圖邏輯 (尋找 .dynamic-radar-canvas)
-                    if (typeof initDynamicCharts === 'function') {
-                        initDynamicCharts();
-                    }
+                // 檢查這條紀錄是否有分數數據 (scoreData)
+                if (record.scoreData && record.scoreData.radar) {
+                    // 1. 在剛剛注入的 HTML 中找到 Canvas 元素
+                    // 我們在 captureContainerHTML 中加了 class="history-radar-canvas"
+                    const canvasEl = modalContent.querySelector('canvas');
+                    
+                    if (canvasEl) {
+                        // 2. 準備數據
+                        const radarData = [
+                            record.scoreData.radar.立意 || 0,
+                            record.scoreData.radar.取材 || 0,
+                            record.scoreData.radar.扣題 || 0,
+                            record.scoreData.radar.詳略 || 0,
+                            record.scoreData.radar.詞彙 || 0,
+                            record.scoreData.radar.文學性 || 0
+                        ];
 
-                    // B. 舊版兼容邏輯 (針對舊 HTML 數據)
-                    // 如果 aiContent 是字串，且有 scoreData，且畫面上有舊版 canvas (沒有 class dynamic-radar-canvas)
-                    if (typeof record.aiContent === 'string' && record.scoreData && record.scoreData.radar) {
-                        const oldCanvas = modalContent.querySelector('canvas:not(.dynamic-radar-canvas)');
-                        
-                        if (oldCanvas && !oldCanvas.chartInstance) {
-                            const radarData = [
-                                record.scoreData.radar.立意 || 0,
-                                record.scoreData.radar.取材 || 0,
-                                record.scoreData.radar.扣題 || 0,
-                                record.scoreData.radar.詳略 || 0,
-                                record.scoreData.radar.詞彙 || 0,
-                                record.scoreData.radar.文學性 || 0
-                            ];
-
-                            // 繪製舊版圖表
-                            new Chart(oldCanvas.getContext('2d'), {
-                                type: 'radar',
-                                data: {
-                                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                    datasets: [{
-                                        label: '能力評估',
-                                        data: radarData,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                        borderColor: 'rgba(54, 162, 235, 1)',
-                                        borderWidth: 2,
-                                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                        pointBorderColor: '#fff'
-                                    }]
+                        // 3. 使用 Chart.js 繪圖
+                        new Chart(canvasEl.getContext('2d'), {
+                            type: 'radar',
+                            data: {
+                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+                                datasets: [{
+                                    label: '能力評估',
+                                    data: radarData,
+                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 2,
+                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                                    pointBorderColor: '#fff'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false, // 關鍵：允許填滿高度
+                                scales: {
+                                    r: {
+                                        angleLines: { display: true },
+                                        suggestedMin: 0,
+                                        suggestedMax: 10,
+                                        pointLabels: {
+                                            font: { size: 14, family: "'Noto Serif TC', serif" }
+                                        },
+                                        ticks: { stepSize: 2, display: false }
+                                    }
                                 },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        r: {
-                                            angleLines: { display: true },
-                                            suggestedMin: 0, suggestedMax: 10,
-                                            pointLabels: { font: { size: 14, family: "'Noto Serif TC', serif" } },
-                                            ticks: { stepSize: 2, display: false }
-                                        }
-                                    },
-                                    plugins: { legend: { display: false } }
+                                plugins: {
+                                    legend: { display: false }
                                 }
-                            });
-                        }
+                            }
+                        });
                     }
-                }, 150); // 給予 150ms 讓 DOM 渲染完成
+                }
+                // ==========================================
             }
         };
     } catch (e) { console.error(e); }
@@ -16335,178 +16433,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // 將 logVisitOnce 暴露給全域，讓登入函式可以強制呼叫
     window.forceLogVisit = logVisitOnce;
 });
-
-
-
-
-// ==========================================
-// === [共用核心] JSON 數據渲染引擎 ===
-// ==========================================
-
-/**
- * 1. 將 JSON 數據轉換為 HTML (評分表 + 雷達圖容器)
- * @param {object} data - 包含 scores, radar, critique 等的 JSON 物件
- * @param {string} uniqueId - 用於區分 Canvas ID 的唯一標識
- */
-function renderAssessmentUI(data, uniqueId) {
-    if (!data || !data.scores) return "<div style='padding:20px; color:#999;'>（此紀錄無結構化數據）</div>";
-
-    const s = data.scores;
-    // 計算顯示分數 (權重：內容x4, 表達x3, 結構x2, 標點x1, 錯字+1)
-    const c_disp = (s.content || 0) * 4;
-    const e_disp = (s.expression || 0) * 3;
-    const s_disp = (s.structure || 0) * 2;
-    // 假設標點和錯字在 JSON 裡沒有存，則用預設值 (你可根據需要調整)
-    const p_disp = s.punctuation !== undefined ? s.punctuation * 1 : 5; 
-    const t_disp = s.typo !== undefined ? s.typo : 1;
-    
-    const totalScore = Math.min(c_disp + e_disp + s_disp + p_disp + t_disp, 100);
-    
-    // 這裡需要你的 determineGrade 函式 (確保兩端都有定義這個函式)
-    const grade = (typeof determineGrade === 'function') ? determineGrade(totalScore) : "?";
-
-    // 1. 構建評分表 HTML
-    let html = `
-    <div class="grading-container" style="margin-top:0; border:none; padding:0;">
-        <div class="grading-grid">
-            <!-- 左側：評分條 -->
-            <div class="grading-scores" style="padding:15px;">
-                <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px;">評等詳情</h3>
-                ${renderScoreItem("內容 (40)", s.content, 10, c_disp)}
-                ${renderScoreItem("表達 (30)", s.expression, 10, e_disp)}
-                ${renderScoreItem("結構 (20)", s.structure, 10, s_disp)}
-                ${renderScoreItem("標點 (10)", p_disp, 10, p_disp)}
-                ${renderScoreItem("錯別字 (+3)", t_disp, 3, t_disp)}
-                
-                <div class="total-score-container" style="margin-top:15px; padding-top:10px; border-top:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:1.1em; color:#555;">總分: ${totalScore} / 100</span>
-                    <span style="font-size:2em; font-weight:bold; color:#d9534f;">${grade}</span>
-                </div>
-            </div>
-
-            <!-- 右側：雷達圖容器 -->
-            <div class="grading-radar" style="padding:15px; display:flex; flex-direction:column; align-items:center;">
-                <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px; width:100%;">能力分佈</h3>
-                <!-- 關鍵：這裡不寫死 ID，而是給 class 和 data 屬性 -->
-                <div class="radar-chart-container" style="position:relative; width:100%; height:300px;">
-                    <canvas id="radar_${uniqueId}" class="dynamic-radar-canvas" 
-                            data-radar='${JSON.stringify(data.radar || {})}'></canvas>
-                </div>
-            </div>
-        </div>
-    </div>`;
-
-    // 2. 構建文字點評 HTML (使用既有的 createBulletedListHTML，如果老師端沒有此函式需補上)
-    const renderList = (title, content) => {
-        if (!content) return "";
-        // 簡單的 HTML 生成，確保老師端也能用
-        return `
-        <div class="rewrite-explanation-container" style="margin-top:20px;">
-            <div class="rewrite-explanation-card" style="background:#fff; border:1px solid #eee; padding:15px; border-radius:8px;">
-                <h3 style="margin-top:0; color:#2A9689;">${title}</h3>
-                <div style="line-height:1.6; color:#444;">${Array.isArray(content) ? content.join('<br>') : content.replace(/\n/g, '<br>')}</div>
-            </div>
-        </div>`;
-    };
-
-    if (data.critique) html += renderList("點評", data.critique);
-    if (data.suggestion) html += renderList("建議", data.suggestion);
-    
-    if (data.rewrite) {
-        html += `
-        <div class="rewrite-explanation-container" style="margin-top:20px;">
-            <div class="rewrite-explanation-card" style="background:#fff; border:1px solid #eee; padding:15px; border-radius:8px;">
-                <h3 style="margin-top:0; color:#2A9689;">改寫範例</h3>
-                <div class="rewrite-content" style="background:#f9f9f9; padding:10px; border-radius:5px; line-height:1.8;">
-                    ${data.rewrite.replace(/\n/g, '<br>').replace(/\*/g, '')}
-                </div>
-            </div>
-        </div>`;
-    }
-
-    return html;
-}
-
-// 2. 輔助：渲染單條分數 Bar
-function renderScoreItem(label, val, max, displayVal) {
-    const pct = (val / max) * 100;
-    return `
-    <div class="score-item" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <label style="font-weight:bold; color:#666;">${label}</label>
-        <div class="slider-container" style="flex-grow:1; display:flex; align-items:center; gap:8px; margin-left:10px;">
-            <div class="progress-bar-container" style="flex-grow:1; height:8px; background:#eee; border-radius:4px; overflow:hidden;">
-                <div class="progress-bar-fill" style="width: ${pct}%; height:100%; background:#007bff;"></div>
-            </div>
-            <span class="score-display" style="font-weight:bold; color:#007bff; width:25px; text-align:right;">${displayVal}</span>
-        </div>
-    </div>`;
-}
-
-/**
- * 3. [核心] 自動繪製頁面上所有的動態雷達圖
- * 無論是老師端還是學生端，只要呼叫這個函式，圖表就會出來
- */
-function initDynamicCharts() {
-    const canvases = document.querySelectorAll('.dynamic-radar-canvas');
-    canvases.forEach(canvas => {
-        // 防止重複繪製
-        if (canvas.getAttribute('data-drawn') === 'true') return;
-
-        const rawData = canvas.getAttribute('data-radar');
-        if (!rawData) return;
-
-        try {
-            const radarData = JSON.parse(rawData);
-            const dataValues = [
-                radarData.立意 || 0, radarData.取材 || 0, radarData.扣題 || 0,
-                radarData.詳略 || 0, radarData.詞彙 || 0, radarData.文學性 || 0
-            ];
-
-            const ctx = canvas.getContext('2d');
-            new Chart(ctx, {
-                type: 'radar',
-                data: {
-                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                    datasets: [{
-                        label: '能力評估',
-                        data: dataValues,
-                        backgroundColor: 'rgba(94, 112, 103, 0.4)', // 莫蘭迪綠半透明
-                        borderColor: '#5e7067',
-                        borderWidth: 2,
-                        pointBackgroundColor: '#5e7067',
-                        pointBorderColor: '#fff'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false, // 關鍵：自適應高度
-                    scales: {
-                        r: {
-                            angleLines: { display: true },
-                            suggestedMin: 0, suggestedMax: 10,
-                            pointLabels: { font: { size: 12, family: "'Noto Serif TC', serif" } },
-                            ticks: { stepSize: 2, display: false } // 簡約風格
-                        }
-                    },
-                    plugins: { legend: { display: false } }
-                }
-            });
-            // 標記已繪製
-            canvas.setAttribute('data-drawn', 'true');
-        } catch (e) {
-            console.error("圖表繪製失敗:", e);
-        }
-    });
-}
-
-
-
-
-
-
-
-
-	
 </script>
 
 	
