@@ -9303,6 +9303,7 @@ async function submitArgumentWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
+    // 隱藏舊版聊天室
     const gradingResultDiv = document.getElementById("argumentGradingResult");
     const chatHistoryDiv = document.getElementById("argumentChatHistory");
     const chatInputContainer = document.getElementById("argumentChatInputContainer");
@@ -9342,7 +9343,8 @@ async function submitArgumentWriting() {
         showLoading(`${currentReviewerName} 正在細閱文章...`);
 
         if (isFullReview) {
-            let toneInstruction = "";
+            // ★★★ 語氣指令 ★★★
+            let toneInstruction = "請使用嚴肅正經的語氣。";
             if (tone === "chen") {
                 toneInstruction = `
                 【重要語氣指令】：
@@ -9362,7 +9364,7 @@ async function submitArgumentWriting() {
 - **偏題的後果**: 一旦判定為「偏題」，在評分時，「扣題」分數 **絕不能高於4分**，「內容」和「結構」的總分也 **不能高於4分**。
 
 ---
-### 你的輸出格式 (必須嚴格遵守此結構與順序)
+### 你的輸出格式 (你的回答必須嚴格包含以下所有標籤，缺一不可)
 
 <grading_json>
 {
@@ -9385,7 +9387,7 @@ async function submitArgumentWriting() {
 </suggestions>
 
 <rewrite_example>
-[提供一段約150字內的高質素改寫範例，展示更高分的作品應有的水準。]
+[這部分是**必須**的。請選取文章中論證較薄弱或表達不佳的一個段落，提供一段約150字內的高質素改寫範例，展示更高分的作品應有的水準。]
 </rewrite_example>`;
 
             prompt = `${toneInstruction}
@@ -9403,33 +9405,25 @@ async function submitArgumentWriting() {
             currentContextContent = content;
             currentContextReview = response;
 
-            // ★★★ 修正：無需再手動添加 getCanvasChatHTML，因為 displayFullCommentWithGrading 已經整合了 ★★★
+            // 呼叫顯示函數
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
             document.getElementById('save-argument-writing-html-btn').style.display = 'flex';
 
+            // 追加聊天室
+            const resultBody = document.getElementById("resultCanvasBody");
+            resultBody.innerHTML += getCanvasChatHTML('argument_writing');
+
         } else {
-            // ==========================
-            // 聚焦式點評 (改用 Canvas 顯示並加入 Chat)
-            // ==========================
+            // (聚焦式點評邏輯 - 不變)
             const scopeDefinitions = `
-- **謀篇**: 嚴謹地對比題目《${topic}》與文章的字面內容。如果文章的核心內容與題目關鍵詞在字面上不符或邏輯上偏離，必須明確指出。評估文章的整體結構佈局、段落之間的邏輯關係。
-- **論點**: 嚴謹地對比題目《${topic}》與文章的字面內容。評估文章的核心論點及各分論點是否清晰、明確、具有說服力，以及思想是否深刻。
-- **論據**: 嚴謹地對比題目《${topic}》與文章的字面內容。檢視文章所引用的事例、數據、名言等證據是否真實、恰當、充實。
-- **論證**: 嚴謹地對比題目《${topic}》與文章的字面內容。分析從論據到論點的推理過程是否合乎邏輯、嚴謹周密。
-- **文筆**: 嚴謹地對比題目《${topic}》與文章的字面內容。評論文章的語言運用是否精準、流暢，遣詞造句是否得體。
+- **謀篇**: 嚴謹地對比題目《${topic}》與文章的字面內容。
+- **論點**: 嚴謹地對比題目《${topic}》與文章的字面內容。
+- **論據**: 嚴謹地對比題目《${topic}》與文章的字面內容。
+- **論證**: 嚴謹地對比題目《${topic}》與文章的字面內容。
+- **文筆**: 嚴謹地對比題目《${topic}》與文章的字面內容。
 `;
-
-            let scopeInstruction = `
-你是一名高度專業的寫作分析員，你的任務極其專一。
----
-### **黃金法則**
-1.  **絕對聚焦**: 你的點評和建議中的 **每一個字**，都必須 **僅僅** 與用戶選擇的以下範疇相關：**【${selectedScopes.join("、")}】**。
-2.  **明確禁止**: 你被 **嚴格禁止** 提及任何其他寫作方面。
-3.  **後果**: 如果你的回應中包含了任何未被選定的範疇，整個回應將被視為失敗。
-
-### **各範疇的定義**
-${scopeDefinitions}
----`;
+            let scopeInstruction = `你是一名高度專業的寫作分析員，你的任務極其專一。
+            **黃金法則**: 你的點評和建議中的 **每一個字**，都必須 **僅僅** 與用戶選擇的範疇相關：**【${selectedScopes.join("、")}】**。`;
 
             let toneInstruction = "請使用嚴肅正經的語氣。";
             if (tone === "chen") {
@@ -9446,6 +9440,9 @@ ${scopeDefinitions}
             <suggestions>
             [針對點評中提出的問題，提出具體的改善建議。]
             </suggestions>
+            ---
+            ### **各範疇的定義**
+            ${scopeDefinitions}
             ---
             ### **待點評的資料**
             題目：${topic}
@@ -9467,8 +9464,6 @@ ${scopeDefinitions}
 
             openResultCanvas("聚焦點評結果");
             const resultBody = document.getElementById("resultCanvasBody");
-            
-            // ★★★ 手動追加 Chat ★★★
             resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('argument_writing');
             document.getElementById('save-argument-writing-html-btn').style.display = 'none';
         }
@@ -12591,7 +12586,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     openResultCanvas(reviewerName + " 評核報告");
     const resultContainer = document.getElementById("resultCanvasBody");
 
-    // 3. 清理舊的雷達圖實例 (防止記憶體洩漏)
+    // 3. 處理舊的雷達圖實例
     const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
     if (window[instanceName]) {
         window[instanceName].destroy();
@@ -12603,14 +12598,14 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     let scoresForDisplay = null;
     let finalGradeForDisplay = "評級中"; 
 
-    const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/);
-    const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-    const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/);
-    const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/);
+    // 使用 i 標誌來忽略大小寫，增強容錯率
+    const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
+    const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
+    const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
+    const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     
-    // --- 分數解析邏輯 (保持您的原邏輯) ---
     if (uniqueIdPrefix === 'narrative') {
-        const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/) : null;
+        const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
         if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
              try {
                 const originalScores = JSON.parse(originalGradingMatch[1].trim());
@@ -12705,7 +12700,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
 
-    // --- AI 點評語氣調整 ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
@@ -12728,22 +12722,21 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalCritiqueText = originalCritiqueText;
     }
 
-    // --- 組合 HTML ---
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix);
     } else {
         finalHTML += "<p>評等資料不完整。</p>";
     }
-    
     if (finalCritiqueText) {
         finalHTML += createBulletedListHTML("點評", finalCritiqueText);
     }
     if (suggestionsMatch && suggestionsMatch[1]) {
         finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
+    
+    // ★★★ 關鍵修正：確保這裡正確生成改寫範例 HTML，並使用正確的 class ★★★
     if (rewriteMatch && rewriteMatch[1]) {
         const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
-        // 使用修正後的 CSS class
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -12752,16 +12745,11 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         </div>`;
     }
 
-    // ★★★ 關鍵修正：在這裡直接追加聊天室 HTML，而不是在函數外部追加 ★★★
-    // 這樣在 resultContainer.innerHTML = finalHTML 執行時，所有東西都準備好了
-    finalHTML += getCanvasChatHTML(uniqueIdPrefix + '_writing');
-
-    // ★★★ 一次性注入 HTML ★★★
+    // 注入 HTML
     resultContainer.innerHTML = finalHTML;
 
-    // ★★★ 在 HTML 注入完成後，才初始化圖表，這樣 Canvas 元素才存在 ★★★
+    // ★★★ 關鍵：初始化雷達圖 (在 DOM 存在後執行) ★★★
     if (scoresForDisplay) {
-        // 使用 setTimeout 確保 DOM 渲染完成後才畫圖 (保險起見)
         setTimeout(() => {
             initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
         }, 50);
@@ -12769,7 +12757,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
 
     // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
-    // 此時 resultCanvasBody 已經包含了聊天室HTML，所以歷史紀錄裡也會有，這是正常的
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
     saveToHistory(
