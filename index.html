@@ -9303,7 +9303,6 @@ async function submitArgumentWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
-    // 隱藏舊版聊天室
     const gradingResultDiv = document.getElementById("argumentGradingResult");
     const chatHistoryDiv = document.getElementById("argumentChatHistory");
     const chatInputContainer = document.getElementById("argumentChatInputContainer");
@@ -9343,7 +9342,6 @@ async function submitArgumentWriting() {
         showLoading(`${currentReviewerName} 正在細閱文章...`);
 
         if (isFullReview) {
-            // ★★★ 語氣指令 ★★★
             let toneInstruction = "請使用嚴肅正經的語氣。";
             if (tone === "chen") {
                 toneInstruction = `
@@ -9364,7 +9362,7 @@ async function submitArgumentWriting() {
 - **偏題的後果**: 一旦判定為「偏題」，在評分時，「扣題」分數 **絕不能高於4分**，「內容」和「結構」的總分也 **不能高於4分**。
 
 ---
-### 你的輸出格式 (你的回答必須嚴格包含以下所有標籤，缺一不可)
+### 你的輸出格式 (必須嚴格遵守此結構與順序)
 
 <grading_json>
 {
@@ -9405,13 +9403,12 @@ async function submitArgumentWriting() {
             currentContextContent = content;
             currentContextReview = response;
 
-            // 呼叫顯示函數
+            // 生成評分報告 (displayFullCommentWithGrading 內部會自動加入一個聊天室)
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
+            
+            // ★★★ 已移除多餘的 append ChatHTML 代碼 ★★★
+            
             document.getElementById('save-argument-writing-html-btn').style.display = 'flex';
-
-            // 追加聊天室
-            const resultBody = document.getElementById("resultCanvasBody");
-            resultBody.innerHTML += getCanvasChatHTML('argument_writing');
 
         } else {
             // (聚焦式點評邏輯 - 不變)
@@ -9441,9 +9438,6 @@ async function submitArgumentWriting() {
             [針對點評中提出的問題，提出具體的改善建議。]
             </suggestions>
             ---
-            ### **各範疇的定義**
-            ${scopeDefinitions}
-            ---
             ### **待點評的資料**
             題目：${topic}
             文章：${content}`;
@@ -9464,6 +9458,8 @@ async function submitArgumentWriting() {
 
             openResultCanvas("聚焦點評結果");
             const resultBody = document.getElementById("resultCanvasBody");
+            
+            // ★★★ 手動追加 Chat ★★★
             resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('argument_writing');
             document.getElementById('save-argument-writing-html-btn').style.display = 'none';
         }
@@ -10180,6 +10176,7 @@ async function submitWriting() {
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
 
+    // 強制隱藏舊版頁面上的聊天室元素
     const writingGradingResultDiv = document.getElementById("writingGradingResult");
     const writingChatHistoryDiv = document.getElementById("writingChatHistory");
     const writingChatInputContainerDiv = document.getElementById("writingChatInputContainer");
@@ -10209,9 +10206,9 @@ async function submitWriting() {
         let prompt = "";
         const tone = document.getElementById("writingTone").value;
 
-        // ==========================
+        // ==========================================
         // 模式一：大綱點評
-        // ==========================
+        // ==========================================
         if (writingType === "大綱") {
             const structure = document.getElementById("structure").value;
             const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
@@ -10264,7 +10261,6 @@ async function submitWriting() {
 
             displayOutlineComment(response, outlineData);
 
-            // 儲存
             const structureName = structure === "fourPart" ? "起承轉合" : "三線";
             let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
             
@@ -10276,9 +10272,9 @@ async function submitWriting() {
                 document.getElementById("resultCanvasBody").innerHTML
             );
         } 
-        // ==========================
+        // ==========================================
         // 模式二：敘事物象
-        // ==========================
+        // ==========================================
         else if (writingType === "敘事物象") {
             content = document.getElementById("narrativeElements").value.trim();
             const note = categories["敘事物象"].commentNote;
@@ -10301,9 +10297,9 @@ async function submitWriting() {
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
         } 
-        // ==========================
-        // 模式三：文章點評
-        // ==========================
+        // ==========================================
+        // 模式三：文章點評 (已修復重複對話視窗問題)
+        // ==========================================
         else { 
             content = document.getElementById("writingContent").value.trim();
             if (!content) {
@@ -10389,16 +10385,15 @@ async function submitWriting() {
                 currentContextContent = content;
                 currentContextReview = originalApiResponse; 
 
-                // 生成評分報告
-                // ★★★ 修正：無需再手動添加 getCanvasChatHTML，因為 displayFullCommentWithGrading 已經整合了 ★★★
+                // 生成評分報告 (displayFullCommentWithGrading 內部會自動加入一個聊天室)
                 await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
+                
+                // ★★★ 已移除多餘的 append ChatHTML 代碼 ★★★
                 
                 document.getElementById('save-writing-html-btn').style.display = 'flex';
 
             } else {
-                // ==========================
                 // 聚焦式點評 (改用 Canvas 顯示並加入 Chat)
-                // ==========================
                 showLoading(`${currentReviewerName} 正在點評...`); 
 
                 const scopeDefinitions = `
@@ -10461,7 +10456,7 @@ ${scopeInstruction}
                 openResultCanvas("聚焦點評結果");
                 const resultBody = document.getElementById("resultCanvasBody");
                 
-                // ★★★ 手動追加 Chat，因為不走 displayFullCommentWithGrading ★★★
+                // ★★★ 手動追加 Chat (因為這里不走 displayFullCommentWithGrading) ★★★
                 resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('narrative_writing');
                 
                 document.getElementById('save-writing-html-btn').style.display = 'none'; 
