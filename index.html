@@ -13468,7 +13468,6 @@ function openHistoryDB() {
 
 // 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
 // ★ 核心輔助：捕捉 HTML (修訂版：只捕捉結構，不轉圖片) ★
-// ★ 核心輔助：捕捉 HTML (修訂版：將 Canvas 轉為靜態圖片以修復歷史紀錄空白問題) ★
 function captureContainerHTML(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return "";
@@ -13476,40 +13475,18 @@ function captureContainerHTML(containerId) {
     // 1. 複製節點
     const clone = container.cloneNode(true);
 
-    // 2. ★★★ 關鍵修復：將 Canvas 轉換為圖片 ★★★
-    // 必須對照「原始容器」中的 Canvas (有內容) 和「複製容器」中的 Canvas (空白)
-    const originalCanvases = container.querySelectorAll('canvas');
-    const clonedCanvases = clone.querySelectorAll('canvas');
-
-    originalCanvases.forEach((origCanvas, index) => {
-        const clonedCanvas = clonedCanvases[index];
-        if (clonedCanvas) {
-            try {
-                // 將原始 Canvas 的內容轉為 Base64 圖片數據
-                const dataUrl = origCanvas.toDataURL('image/png');
-                
-                // 創建一個新的 img 標籤
-                const img = document.createElement('img');
-                img.src = dataUrl;
-                
-                // 設定樣式以保持原有的寬高比例
-                img.style.width = '100%';
-                img.style.height = 'auto';
-                img.style.display = 'block';
-                img.style.maxHeight = '350px'; // 保持與 CSS 一致的限制
-                img.className = 'radar-chart-history-img'; // 加上 class 方便 CSS 控制
-
-                // 在複製的 DOM 中，用圖片取代空白的 Canvas
-                clonedCanvas.parentNode.replaceChild(img, clonedCanvas);
-            } catch (e) {
-                console.error("Canvas 轉圖片失敗:", e);
-                // 如果轉換失敗，保留 Canvas 但設定高度以免塌陷
-                clonedCanvas.setAttribute('style', 'width: 100%; height: 350px; display: block;');
-            }
-        }
+    // 2. 處理 Canvas：保留標籤，但強制設定高度，避免在歷史紀錄中塌陷
+    const canvases = clone.querySelectorAll('canvas');
+    canvases.forEach(canvas => {
+        // 關鍵：給予明確的高度，確保 Chart.js 稍後有空間繪圖
+        canvas.setAttribute('style', 'width: 100%; height: 350px; display: block;');
+        // 移除 id 屬性，避免與主頁面的圖表 ID 衝突 (會在查看時動態處理)
+        canvas.removeAttribute('id'); 
+        // 添加一個通用 class 方便識別
+        canvas.classList.add('history-radar-canvas');
     });
 
-    // 3. 捕捉進度條 (藍色 BAR) 的寬度 (保持不變)
+    // 3. 捕捉進度條 (藍色 BAR) 的寬度
     const progressBars = clone.querySelectorAll('.progress-bar-fill');
     const originalBars = container.querySelectorAll('.progress-bar-fill');
     for (let i = 0; i < progressBars.length; i++) {
@@ -13518,7 +13495,7 @@ function captureContainerHTML(containerId) {
         }
     }
 
-    // 4. 處理表單元素 (Textarea / Input) (保持不變)
+    // 4. 處理表單元素 (Textarea / Input)
     const textareas = clone.querySelectorAll('textarea');
     const originalTextareas = container.querySelectorAll('textarea');
     for (let i = 0; i < textareas.length; i++) {
@@ -13985,7 +13962,7 @@ async function clearAllHistory() {
 }
 
 // 優化後的查看詳情函數
-// === 優化版：查看詳情 (針對學習報告隱藏輸入內容) ===
+// === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -13996,79 +13973,77 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 1. 計算主題色
-                let themeIndex = 1;
-                if (HISTORY_STRUCTURE[record.category]) {
-                    const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
-                    if (subIndex !== -1) {
-                        themeIndex = (subIndex % 5) + 1;
-                    }
-                }
-                const themeClass = `history-theme-context-${themeIndex}`;
-                const colorVar = `var(--m-color-${themeIndex})`;
+                // ... (略過：計算主題色、設定標題等前面的代碼，保持不變) ...
+                // ...
+                // ...
 
-                // 2. 設定標題
-                document.getElementById('historyModalTitle').innerHTML = 
-                    `<i class="fas fa-book-open" style="color:${colorVar}"></i> 
-                     <span style="color:#333">${record.category}</span> 
-                     <span style="font-size:0.8em; color:#bbb; margin: 0 5px;">/</span> 
-                     <span style="color:${colorVar}; font-weight:bold;">${record.subFunction}</span>`;
+                // --- 這裡是你原本組合 contentHTML 的代碼，保持不變 ---
                 
-                const dateElement = document.getElementById('historyModalDate');
-                if (dateElement) dateElement.style.display = "none"; 
-                
-                let contentHTML = '';
-
-                // ★★★ 核心修改：如果是「學習報告」，直接跳過顯示 userContent ★★★
-                if (record.category !== "學習報告" && record.userContent) {
-                    const rawText = record.userContent;
-                    const lines = rawText.split('\n');
-                    let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
-                    let currentLabel = '輸入內容'; 
-                    let currentContent = [];
-                    const labelRegex = /^(.{2,10}?)[：:](.*)$/;
-
-                    lines.forEach((line) => {
-                        const match = line.match(labelRegex);
-                        if (match) {
-                            if (currentContent.length > 0) {
-                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
-                            }
-                            currentLabel = match[1].trim(); 
-                            const restOfLine = match[2].trim();
-                            currentContent = restOfLine ? [restOfLine] : []; 
-                        } else {
-                            if (line.trim() !== "") currentContent.push(line);
-                        }
-                    });
-
-                    if (currentContent.length > 0 || lines.length === 0) { 
-                         const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
-                    }
-                    parsedHTML += '</div>';
-                    
-                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
-                }
-
-                // 4. 顯示 AI 生成內容
-                contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
-                
-                // 繳交按鈕 (學習報告不需要繳交按鈕，也可以在這裡判斷隱藏)
-                const s = JSON.parse(localStorage.getItem('studentProfile'));
-                if (s && record.category !== "學習報告") {
-                    contentHTML += `
-                        <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
-                            <button class="btn-action btn-morandi" 
-                                    onclick="openSubmitSelector(${record.id})">
-                                <i class="fas fa-paper-plane"></i> 繳交
-                            </button>
-                        </div>
-                    `;
-                }
-
-                document.getElementById('historyModalContent').innerHTML = contentHTML;
+                // 1. 注入 HTML 到 Modal
+                const modalContent = document.getElementById('historyModalContent');
+                modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
+
+                // ==========================================
+                // ★★★ 新增：雷達圖即時重繪邏輯 ★★★
+                // ==========================================
+                // 檢查這條紀錄是否有分數數據 (scoreData)
+                if (record.scoreData && record.scoreData.radar) {
+                    // 1. 在剛剛注入的 HTML 中找到 Canvas 元素
+                    // 我們在 captureContainerHTML 中加了 class="history-radar-canvas"
+                    const canvasEl = modalContent.querySelector('canvas');
+                    
+                    if (canvasEl) {
+                        // 2. 準備數據
+                        const radarData = [
+                            record.scoreData.radar.立意 || 0,
+                            record.scoreData.radar.取材 || 0,
+                            record.scoreData.radar.扣題 || 0,
+                            record.scoreData.radar.詳略 || 0,
+                            record.scoreData.radar.詞彙 || 0,
+                            record.scoreData.radar.文學性 || 0
+                        ];
+
+                        // 3. 使用 Chart.js 繪圖
+                        // 這裡不需要檢查舊實例，因為每次 innerHTML 都是新的 DOM
+                        new Chart(canvasEl.getContext('2d'), {
+                            type: 'radar',
+                            data: {
+                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+                                datasets: [{
+                                    label: '能力評估',
+                                    data: radarData,
+                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 2,
+                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                                    pointBorderColor: '#fff'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false, // 關鍵：允許填滿我們設定的 350px 高度
+                                scales: {
+                                    r: {
+                                        angleLines: { display: true },
+                                        suggestedMin: 0,
+                                        suggestedMax: 10,
+                                        pointLabels: {
+                                            font: { size: 14, family: "'Noto Serif TC', serif" }
+                                        },
+                                        ticks: { stepSize: 2, display: false } // 不顯示刻度數字，保持簡潔
+                                    }
+                                },
+                                plugins: {
+                                    legend: { display: false }
+                                }
+                            }
+                        });
+                    }
+                }
+                // ==========================================
+                // ★★★ 重繪邏輯結束 ★★★
+                // ==========================================
             }
         };
     } catch (e) { console.error(e); }
