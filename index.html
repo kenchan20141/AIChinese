@@ -11573,6 +11573,17 @@ document.getElementById("expandContent").value = content.substring(0, 180);
 }
 }
 
+// ★★★ 請將補回的代碼貼在這裡 ★★★
+async function submitExpand() {
+    const expandFunction = document.getElementById("expandFunction").value;
+    if (expandFunction === "comment") {
+        await submitExpandComment();
+    } else {
+        await submitExpandGuide();
+    }
+}
+
+
 // 提交整合拓展內容
 async function submitExpandComment() {
     const submitBtn = document.getElementById('submitExpandBtn');
@@ -11658,8 +11669,8 @@ async function submitExpandComment() {
 }
 
 
-
-// 提交點評功能 (已修訂)
+	
+// 【修訂後】提交整合拓展指引
 async function submitExpandGuide() {
     const submitBtn = document.getElementById('submitExpandGuideBtn');
     submitBtn.disabled = true;
@@ -11676,15 +11687,23 @@ async function submitExpandGuide() {
             return; 
         }
 
-        // ... (Prompt 保持不變) ...
         const note = categories["整合拓展"].guideNote;
-        const prompt = `請根據以下內容生成指引問題... (省略 prompt)`;
+        const prompt = `請根據以下內容生成指引問題。要求：
+1. 生成三道問題以引導用家思考如何根據表格資料做好整合拓展
+2. 問題應圍繞主題句和抄錄資料的邏輯關係，引導用家思考如何闡釋和拓展
+3. 輸出分為一個部分：### 指引問題
+4. 指引問題以問題形式呈現，每個問題佔一行
+題目：${title}
+主題句：${theme}
+抄錄資料：${data}
+整合拓展：${expand}
+教學筆記：${note}`;
 
         showLoading("陳SIR 正在思考指引...");
         
+        // 呼叫 API
         const guide = await callAPI(prompt);
-        
-        // 設定聊天室上下文
+       // 設定聊天室上下文
         currentContextContent = `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`;
         currentContextReview = guide;
 
@@ -11729,95 +11748,6 @@ async function submitExpandGuide() {
     } catch (error) {
         console.error("提交整合拓展指引時出錯:", error);
         alert("指引生成失敗，請重試");
-    } finally {
-        submitBtn.disabled = false; 
-        hideLoading();
-    }
-}
-	
-// 【修訂後】提交整合拓展指引
-async function submitExpandGuide() {
-    const submitBtn = document.getElementById('submitExpandGuideBtn');
-    submitBtn.disabled = true;
-    hideAllSaveHtmlButtons();
-
-    try {
-        const title = document.getElementById("expandGuideTitle").value.trim();
-        const theme = document.getElementById("expandGuideTheme").value.trim();
-        const data = document.getElementById("expandGuideData").value.trim();
-        const expand = document.getElementById("expandGuideExpand").value.trim();
-        
-        if (!title || !theme || !data || !expand) {
-            alert("請填寫所有輸入");
-            return; 
-        }
-
-        const note = categories["整合拓展"].guideNote;
-        const prompt = `請根據以下內容生成指引問題。要求：
-1. 生成三道問題以引導用家思考如何根據表格資料做好整合拓展
-2. 問題應圍繞主題句和抄錄資料的邏輯關係，引導用家思考如何闡釋和拓展
-3. 輸出分為一個部分：### 指引問題
-4. 指引問題以問題形式呈現，每個問題佔一行
-題目：${title}
-主題句：${theme}
-抄錄資料：${data}
-整合拓展：${expand}
-教學筆記：${note}`;
-
-        showLoading("陳SIR 正在思考指引...");
-        
-        // 呼叫 API
-        const guide = await callAPI(prompt);
-        const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
-
-        let guideHTML = "<h3>陳SIR指引：</h3>";
-
-        guideParts.forEach(part => {
-            const lines = part.split("\n").filter(line => line.trim());
-            const sectionTitle = lines.shift() || "指引問題";
-            const questions = lines;
-
-            guideHTML += `<div class="rewrite-explanation-container">
-            <div class="rewrite-explanation-card">
-            <h3>${sectionTitle}</h3>`;
-
-            questions.slice(0, 3).forEach((question, index) => {
-                const match = question.match(/^(\d+)\.?\s*(.*)$/);
-                const number = match ? match[1] : index + 1;
-                const text = match ? match[2].trim() : question;
-
-                guideHTML += `<div class="explanation-point">
-                <div class="explanation-number">${number}</div>
-                <div class="explanation-text">${text}</div>
-                </div>`;
-            });
-
-            guideHTML += `</div></div>`;
-        });
-
-        // === 改用彈出視窗顯示結果 ===
-        openResultCanvas("整合拓展指引");
-        const resultContainer = document.getElementById("resultCanvasBody");
-        resultContainer.innerHTML = guideHTML;
-        
-        // 加入儲存按鈕
-        resultContainer.innerHTML += `
-            <div class="result-wrapper" style="margin-top: 20px;">
-                <button class="btn-save-html" title="儲存為HTML檔案" onclick="savePageAsHTML('神思-整合拓展-指引.html')" style="display: flex;">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                </button>
-            </div>`;
-
-        // 儲存歷史紀錄
-        saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, guideHTML);
-
-    } catch (error) {
-        console.error("提交整合拓展指引時出錯:", error);
-        if (error.message === "所有 API 密鑰均無法使用") {
-            alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-        } else {
-            alert("指引生成失敗，請重試");
-        }
     } finally {
         submitBtn.disabled = false; 
         hideLoading();
