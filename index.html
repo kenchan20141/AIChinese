@@ -13958,7 +13958,6 @@ async function clearAllHistory() {
 
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (針對學習報告隱藏輸入內容) ===
-// === 優化版：查看詳情 (針對學習報告隱藏輸入內容 + 修復雷達圖與分數條) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -13969,7 +13968,7 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 1. 計算主題色 (UI 樣式)
+                // 1. 計算主題色
                 let themeIndex = 1;
                 if (HISTORY_STRUCTURE[record.category]) {
                     const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
@@ -13992,7 +13991,7 @@ async function viewHistoryDetail(id) {
                 
                 let contentHTML = '';
 
-                // 3. 顯示用戶輸入內容 (如果是學習報告則跳過)
+                // ★★★ 核心修改：如果是「學習報告」，直接跳過顯示 userContent ★★★
                 if (record.category !== "學習報告" && record.userContent) {
                     const rawText = record.userContent;
                     const lines = rawText.split('\n');
@@ -14027,7 +14026,7 @@ async function viewHistoryDetail(id) {
                 // 4. 顯示 AI 生成內容
                 contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
                 
-                // 5. 繳交按鈕邏輯
+                // 繳交按鈕 (學習報告不需要繳交按鈕，也可以在這裡判斷隱藏)
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
@@ -14040,92 +14039,12 @@ async function viewHistoryDetail(id) {
                     `;
                 }
 
-                // 6. 寫入內容
                 document.getElementById('historyModalContent').innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
-
-                // ========================================================
-                // ★★★ 修復核心：重新渲染雷達圖與評分條 ★★★
-                // ========================================================
-                if (record.scoreData) {
-                    // 稍微延遲以確保 DOM 已經渲染完成
-                    setTimeout(() => {
-                        // 判斷前綴 (narrative 或 argument)
-                        let prefix = '';
-                        if (record.category === '敘事抒情') prefix = 'narrative';
-                        else if (record.category === '議論') prefix = 'argument';
-
-                        if (prefix) {
-                            // 計算總分以獲得等級 (用於顯示)
-                            // 注意：這裡假設 content 是 0-10 分
-                            const totalScore = (record.scoreData.content * 4) + 
-                                               (record.scoreData.expression * 3) + 
-                                               (record.scoreData.structure * 2) + 5 + 1; // 加上標點與錯別字預設分
-                            const finalGrade = determineGrade(Math.min(totalScore, 100));
-
-                            // 呼叫評分系統初始化函式，這會：
-                            // 1. 更新進度條寬度
-                            // 2. 更新分數文字
-                            // 3. 重新繪製 Canvas 雷達圖
-                            initializeGradingSystem(prefix, record.scoreData, finalGrade);
-                        }
-                        
-                        // 特殊處理：學習報告的綜合分析圖表
-                        if (record.category === '學習報告' && record.subFunction === '綜合分析') {
-                            // 學習報告的數據結構不同，是 { "敘事抒情": {...}, "議論": {...} }
-                            const reportStats = record.scoreData;
-                            ["敘事抒情", "議論"].forEach(cat => {
-                                if (reportStats[cat]) {
-                                    const uniqueId = cat === "敘事抒情" ? "reportNarrative" : "reportArgument";
-                                    const ctxEl = document.getElementById(`${uniqueId}Chart`);
-                                    if (ctxEl) {
-                                        // 銷毀舊圖表 (如果有)
-                                        const chartInstanceName = `${uniqueId}ChartInstance`;
-                                        if (window[chartInstanceName]) {
-                                            window[chartInstanceName].destroy();
-                                        }
-                                        
-                                        // 重新繪圖
-                                        window[chartInstanceName] = new Chart(ctxEl.getContext('2d'), {
-                                            type: 'radar',
-                                            data: {
-                                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                                datasets: [{
-                                                    label: '平均能力',
-                                                    data: reportStats[cat].radar,
-                                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                                    borderColor: 'rgba(54, 162, 235, 1)',
-                                                    borderWidth: 2,
-                                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                                    pointBorderColor: '#fff'
-                                                }]
-                                            },
-                                            options: {
-                                                responsive: true,
-                                                maintainAspectRatio: false,
-                                                scales: {
-                                                    r: {
-                                                        angleLines: { display: true },
-                                                        suggestedMin: 0, suggestedMax: 10,
-                                                        pointLabels: { font: { size: 12, family: "'Noto Serif TC', serif" } },
-                                                        ticks: { stepSize: 2, display: false }
-                                                    }
-                                                },
-                                                plugins: { legend: { display: false } }
-                                            }
-                                        });
-                                    }
-                                }
-                            });
-                        }
-
-                    }, 100); // 延遲 100ms 確保 modal 顯示完畢
-                }
             }
         };
     } catch (e) { console.error(e); }
 }
-
 	
 function closeHistoryModal() {
     document.getElementById('historyModal').style.display = 'none';
