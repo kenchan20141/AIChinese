@@ -13978,35 +13978,55 @@ function renderFilteredRecords(records) {
 	
 // 9. 刪除與清空 (保持類似)
 async function deleteHistoryItem(id) {
-    if (!confirm("確定要刪除這條紀錄嗎？")) return;
+    if (!confirm("確定要刪除這條紀錄嗎？\n(注意：雲端備份也會同步刪除)")) return;
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
-        store = transaction.objectStore(STORE_NAME);
+        const store = transaction.objectStore(STORE_NAME); // 注意這裡要加 const 或 let，避免全域污染
         store.delete(id);
+        
         transaction.oncomplete = function() {
-            enterHistoryList(currentSubFunctionFilter); // 重新整理當前列表
-        };
-    } catch (e) { console.error(e); }
-}
-
-async function clearAllHistory() {
-    if (!confirm("警告：確定要清空所有歷史紀錄嗎？")) return;
-    try {
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        store = transaction.objectStore(STORE_NAME);
-        store.clear();
-        transaction.oncomplete = function() {
-            if(document.getElementById('historyLevel3').style.display === 'flex') {
-                enterHistoryList(currentSubFunctionFilter);
-            } else {
-                alert("紀錄已清空");
+            // 1. 重新整理當前列表 (UI)
+            enterHistoryList(currentSubFunctionFilter); 
+            
+            // 2. ★★★ 新增：立即觸發靜默同步，讓雲端也刪除這筆資料 ★★★
+            // 檢查是否有登入，有登入才同步
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (s) {
+                console.log("正在同步刪除動作至雲端...");
+                syncHistoryToFirebase(true); // true 代表靜默模式，不彈出 "上傳成功" 視窗
             }
         };
     } catch (e) { console.error(e); }
 }
 
+async function clearAllHistory() {
+    if (!confirm("警告：確定要清空所有歷史紀錄嗎？\n(此動作無法復原，且雲端備份也會被清空)")) return;
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME); // 注意這裡要加 const 或 let
+        store.clear();
+        
+        transaction.oncomplete = function() {
+            // 1. 更新 UI
+            if(document.getElementById('historyLevel3').style.display === 'flex') {
+                enterHistoryList(currentSubFunctionFilter);
+            } else {
+                alert("紀錄已清空");
+            }
+
+            // 2. ★★★ 新增：立即觸發靜默同步，清空雲端資料 ★★★
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (s) {
+                console.log("正在同步清空動作至雲端...");
+                // 當本地是空的，syncHistoryToFirebase 會上傳一個空陣列或 null，
+                // Firebase 的 .set() 收到 null 會直接刪除該路徑下的資料，達到清空效果。
+                syncHistoryToFirebase(true); 
+            }
+        };
+    } catch (e) { console.error(e); }
+}
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
 // === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
