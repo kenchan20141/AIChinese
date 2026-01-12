@@ -13468,7 +13468,7 @@ function openHistoryDB() {
 
 // 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
 // ★ 核心輔助：捕捉 HTML (修訂版：只捕捉結構，不轉圖片) ★
-// ★ 核心輔助：捕捉 HTML (修訂版：修復雷達圖高度消失問題) ★
+// ★ 核心輔助：捕捉 HTML (修訂版：將 Canvas 轉為靜態圖片以修復歷史紀錄空白問題) ★
 function captureContainerHTML(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return "";
@@ -13476,35 +13476,63 @@ function captureContainerHTML(containerId) {
     // 1. 複製節點
     const clone = container.cloneNode(true);
 
-    // 2. ★★★ 修復：為 Canvas 設定明確的像素高度 ★★★
-    // 原本的寫法移除了 style，導致 aspect-ratio 失效或高度歸零
-    const canvases = clone.querySelectorAll('canvas');
-    canvases.forEach(canvas => {
-        // 清空內容，等待下次載入時重繪
-        // 強制設定高度為 350px，確保容器被撐開
-        canvas.setAttribute('style', 'width: 100%; height: 350px; display: block;');
+    // 2. ★★★ 關鍵修復：將 Canvas 轉換為圖片 ★★★
+    // 必須對照「原始容器」中的 Canvas (有內容) 和「複製容器」中的 Canvas (空白)
+    const originalCanvases = container.querySelectorAll('canvas');
+    const clonedCanvases = clone.querySelectorAll('canvas');
+
+    originalCanvases.forEach((origCanvas, index) => {
+        const clonedCanvas = clonedCanvases[index];
+        if (clonedCanvas) {
+            try {
+                // 將原始 Canvas 的內容轉為 Base64 圖片數據
+                const dataUrl = origCanvas.toDataURL('image/png');
+                
+                // 創建一個新的 img 標籤
+                const img = document.createElement('img');
+                img.src = dataUrl;
+                
+                // 設定樣式以保持原有的寬高比例
+                img.style.width = '100%';
+                img.style.height = 'auto';
+                img.style.display = 'block';
+                img.style.maxHeight = '350px'; // 保持與 CSS 一致的限制
+                img.className = 'radar-chart-history-img'; // 加上 class 方便 CSS 控制
+
+                // 在複製的 DOM 中，用圖片取代空白的 Canvas
+                clonedCanvas.parentNode.replaceChild(img, clonedCanvas);
+            } catch (e) {
+                console.error("Canvas 轉圖片失敗:", e);
+                // 如果轉換失敗，保留 Canvas 但設定高度以免塌陷
+                clonedCanvas.setAttribute('style', 'width: 100%; height: 350px; display: block;');
+            }
+        }
     });
 
-    // 3. ★★★ 修復：捕捉進度條 (藍色 BAR) 的寬度 ★★★
-    // 這樣即使是在學生端查看歷史，藍色 BAR 也會顯示
+    // 3. 捕捉進度條 (藍色 BAR) 的寬度 (保持不變)
     const progressBars = clone.querySelectorAll('.progress-bar-fill');
     const originalBars = container.querySelectorAll('.progress-bar-fill');
     for (let i = 0; i < progressBars.length; i++) {
-        // 將當前的 computed width 寫死到 style 屬性中
-        progressBars[i].style.width = originalBars[i].style.width;
+        if (originalBars[i]) {
+            progressBars[i].style.width = originalBars[i].style.width;
+        }
     }
 
-    // 4. 處理表單元素 (Textarea / Input)
+    // 4. 處理表單元素 (Textarea / Input) (保持不變)
     const textareas = clone.querySelectorAll('textarea');
     const originalTextareas = container.querySelectorAll('textarea');
     for (let i = 0; i < textareas.length; i++) {
-        textareas[i].textContent = originalTextareas[i].value;
+        if (originalTextareas[i]) {
+            textareas[i].textContent = originalTextareas[i].value;
+        }
     }
 
     const inputs = clone.querySelectorAll('input');
     const originalInputs = container.querySelectorAll('input');
     for (let i = 0; i < inputs.length; i++) {
-        inputs[i].setAttribute('value', originalInputs[i].value);
+        if (originalInputs[i]) {
+            inputs[i].setAttribute('value', originalInputs[i].value);
+        }
     }
 
     return clone.innerHTML;
