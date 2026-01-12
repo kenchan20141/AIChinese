@@ -13935,6 +13935,7 @@ function closeStudentCloudModal() {
 // ==========================================
 
 // 修改原本的 checkStudentLogin
+// 修改原本的 checkStudentLogin
 async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     
@@ -13949,10 +13950,15 @@ async function checkStudentLogin() {
         // C. 載入課業列表
         loadAssignments(s.grade, s.class);
 
-		 // ★★★ 加入這行：啟動紅點監聽器 ★★★
+        // ★★★ 加入這行：啟動紅點監聽器 ★★★
         monitorPendingAssignments(); 
 
-        // D. 背景驗證與 Auth 檢查 (保持您原有的代碼)
+        // ★★★ 新增：強制觸發訪問記錄更新 (修正 Visits: 0 問題) ★★★
+        if (window.forceLogVisit) {
+            window.forceLogVisit();
+        }
+
+        // D. 背景驗證與 Auth 檢查
         const user = firebase.auth().currentUser;
         if (user) {
             try { await user.reload(); } catch (error) { /* error handling */ }
@@ -15621,6 +15627,7 @@ setTimeout(() => {
 
 
 <!-- === [新增] 神思大數據收集模組 (終極修正版：精準辨識訪客) === -->
+<!-- === [新增] 神思大數據收集模組 (身分切換修正版) === -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let totalSeconds = 0;
@@ -15645,10 +15652,8 @@ document.addEventListener('DOMContentLoaded', function() {
         return id;
     }
 
-    // 3. 記錄訪問 (Log Visit)
+    // 3. 記錄訪問 (Log Visit) - 核心修正邏輯
     function logVisitOnce() {
-        if (sessionStorage.getItem('sansi_visit_logged')) return;
-
         if (typeof firebase === 'undefined') return;
         const db = firebase.database();
         const pathSuffix = getDatePath();
@@ -15656,8 +15661,29 @@ document.addEventListener('DOMContentLoaded', function() {
         let s = null;
         try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
 
-        console.log("📍 [System] 正在記錄訪問次數..."); // F12 Log
+        // 定義當前身份的唯一標識
+        let currentIdentityID = '';
+        let isStudent = false;
 
+        if (s && s.grade && s.class && s.name) {
+            currentIdentityID = `student_${s.grade}${s.class}_${s.name}`;
+            isStudent = true;
+        } else {
+            currentIdentityID = `guest_${getGuestID()}`;
+            isStudent = false;
+        }
+
+        // 檢查是否已經為「這個身份」記錄過訪問
+        const lastLoggedID = sessionStorage.getItem('sansi_logged_identity_id');
+
+        // 如果當前身份和上次記錄的一樣，則不重複記錄，直接退出
+        if (currentIdentityID === lastLoggedID) {
+            return;
+        }
+
+        console.log(`📍 [System] 偵測到新身份訪問 (${isStudent ? '學生' : '訪客'}), 正在記錄...`);
+
+        // 輔助寫入函數
         const incrementData = (path) => {
             db.ref(path).transaction(data => {
                 if (data === null) return { visits: 1, duration: 0 };
@@ -15665,26 +15691,36 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // 寫入 Global
-        incrementData(`analytics/${pathSuffix}/global_summary`);
-
-        if (s && s.grade && s.class && s.name) {
-            // 學生
+        // A. 寫入特定路徑 (讓該學生/訪客的 visits 變成 1)
+        if (isStudent) {
+            // 學生路徑
             incrementData(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
+            incrementData(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`); // 班級總結
+            incrementData(`analytics/${pathSuffix}/school`); // 全校學生總結
         } else {
-            // 訪客
-            const guestID = getGuestID();
-            incrementData(`analytics/${pathSuffix}/guests/${guestID}`);
+            // 訪客路徑
+            incrementData(`analytics/${pathSuffix}/guests/${getGuestID()}`);
         }
 
-        sessionStorage.setItem('sansi_visit_logged', 'true');
+        // B. 寫入 Global Summary (全網總計)
+        // 邏輯：只有在「本次 Session 完全沒記錄過 Global」時才加 1
+        // 這樣可以避免同一個人從訪客變學生時，Global 變成 2 次 (雖然這也不算錯，但通常希望 Global 還是以 Session 為單位)
+        if (!sessionStorage.getItem('sansi_global_visit_logged')) {
+            incrementData(`analytics/${pathSuffix}/global_summary`);
+            sessionStorage.setItem('sansi_global_visit_logged', 'true');
+        }
+
+        // C. 更新 Session 狀態，標記這個身份已經記錄過了
+        sessionStorage.setItem('sansi_logged_identity_id', currentIdentityID);
     }
 
-    // 4. 上傳時間 (恢復 30秒/60秒 邏輯)
+    // 4. 上傳時間
     function uploadOneMinute() {
         if (typeof firebase === 'undefined') return;
         
-        console.log(`⏳ [System] 正在上傳時長數據... (目前累積: ${totalSeconds}秒)`); // F12 Log
+        // 每次上傳時間前，再次檢查身份是否切換 (例如剛登入)
+        // 如果剛登入，logVisitOnce 會補上 visits: 1
+        logVisitOnce(); 
 
         const db = firebase.database();
         const pathSuffix = getDatePath();
@@ -15694,17 +15730,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const add60s = (path) => {
             db.ref(path).transaction(data => {
-                // 如果是第 30 秒那一波，就只加 30，之後每波加 60
-                // 但為了數據庫整潔，我們這裡統一邏輯：每次觸發都代表「過去這段時間有效」
-                // 為了簡化計算，我們統一寫入 60 (如果是30秒觸發點，這會讓數據稍微偏多30秒，但能確保數據存在)
-                // 或者更精確做法：第一次加30，之後加60。這裡採用統一加 60 以確保「至少有數據」。
-                // **修正**：為了配合您的舊邏輯，我們這裡設定為增加 60 秒。
-                
                 if (data === null) return { visits: 0, duration: 60 };
                 return { visits: (data.visits || 0), duration: (data.duration || 0) + 60 };
-            }, (error, committed) => {
-                if(error) console.error("❌ 上傳失敗:", path);
-                else if(committed) console.log("✅ 上傳成功:", path);
             });
         };
 
@@ -15727,13 +15754,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function startTimer() {
         if (timerInterval) return;
         
-        console.log("⏱️ [System] 計時器已啟動 (F12 可見)"); // F12 Log
+        console.log("⏱️ [System] 計時器已啟動"); 
 
         timerInterval = setInterval(() => {
             totalSeconds++;
-
-            // ★★★ 恢復您原本的邏輯：第 30 秒先傳一次，之後每 60 秒傳一次 ★★★
-            // 30, 90, 150, 210...
+            // 第 30 秒先傳一次，之後每 60 秒傳一次
             if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
@@ -15744,11 +15769,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
-            console.log("⏸️ [System] 計時器暫停 (頁面隱藏)");
         }
     }
 
-    // 延遲 3 秒記錄訪問
+    // 延遲 3 秒記錄首次訪問
     setTimeout(logVisitOnce, 3000); 
     
     // 立即啟動計時
@@ -15762,36 +15786,10 @@ document.addEventListener('DOMContentLoaded', function() {
             startTimer();
         }
     });
-});
-
-
-// === 雲端按鈕 3秒凍結保護機制 ===
-document.addEventListener('DOMContentLoaded', function() {
-    const cloudBtn = document.getElementById('sideMenuCloudBtn');
     
-    if (cloudBtn) {
-        // 1. 頁面一載入，立即加上凍結樣式
-        cloudBtn.classList.add('btn-frozen');
-        
-        // 選用：如果您想在凍結時更改文字提示 (例如顯示 "連線中...")
-        // const originalTitle = cloudBtn.getAttribute('title');
-        // cloudBtn.setAttribute('title', '系統連線中，請稍候...');
-
-        // 2. 設定 3 秒倒數
-        setTimeout(() => {
-            // 3. 移除凍結樣式，恢復原狀
-            cloudBtn.classList.remove('btn-frozen');
-            
-            // 恢復原本的提示文字 (如果上面有修改的話)
-            // if (originalTitle) cloudBtn.setAttribute('title', originalTitle);
-            
-            console.log("雲端按鈕已解鎖");
-        }, 3000); // 3000 毫秒 = 3 秒
-    }
+    // 將 logVisitOnce 暴露給全域，讓登入函式可以強制呼叫
+    window.forceLogVisit = logVisitOnce;
 });
-
-
-	
 </script>
 
 	
