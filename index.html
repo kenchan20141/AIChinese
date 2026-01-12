@@ -4,7 +4,7 @@
 
 <meta http-equiv="Content-Security-Policy" content="
 default-src 'self'; 
-script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com; 
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.comfunction captureContainerH https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com; 
 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://onesignal.com; 
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com https://*.googleusercontent.com;
@@ -12574,17 +12574,26 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫範例</h3><p>${rewriteContent}</p></div></div>`;
     }
 
-    // 最後注入 HTML 並初始化雷達圖
+     // 最後注入 HTML 並初始化雷達圖
     resultContainer.innerHTML = finalHTML;
 
     if (scoresForDisplay) {
         initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }
 
-    // 儲存到歷史紀錄
+    // ★★★ 修訂：儲存到歷史紀錄 (傳入 scoresForDisplay) ★★★
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
-    saveToHistory(uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${fullTextContent}`, htmlContent);
+    
+    // 這裡傳入了第 6 個參數 scoresForDisplay
+    saveToHistory(
+        uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
+        "文章點評", 
+        topic || "無題目", 
+        `題目：${topic}\n\n文章：${fullTextContent}`, 
+        htmlContent,
+        scoresForDisplay // 傳入原始分數物件
+    );
 }
 
 // =======================================================
@@ -13043,6 +13052,7 @@ function openHistoryDB() {
 }
 
 // 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
+// ★ 核心輔助：捕捉 HTML (修訂版：只捕捉結構，不轉圖片) ★
 function captureContainerHTML(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return "";
@@ -13050,37 +13060,36 @@ function captureContainerHTML(containerId) {
     // 1. 複製節點，避免影響畫面
     const clone = container.cloneNode(true);
 
-    // 2. 處理 Canvas (雷達圖)
-    // 我們必須從 *原始* 容器中獲取 Canvas，因為 clone 中的 canvas 是空的
-    const originalCanvases = container.querySelectorAll('canvas');
-    const clonedCanvases = clone.querySelectorAll('canvas');
-
-    originalCanvases.forEach((originalCanvas, index) => {
-        if (clonedCanvases[index]) {
-            try {
-                // 將 Canvas 轉為圖片 Data URL
-                const imgUrl = originalCanvas.toDataURL('image/png');
-                const img = document.createElement('img');
-                img.src = imgUrl;
-                img.className = 'radar-chart-history-img'; // 添加樣式類
-                
-                // 替換 clone 中的 canvas
-                clonedCanvases[index].parentNode.replaceChild(img, clonedCanvases[index]);
-            } catch (e) {
-                console.error("Canvas 轉換失敗:", e);
-            }
-        }
+    // 2. 移除所有動態生成的圖表實例引用或可能會造成干擾的屬性
+    // 我們保持 <canvas> 標籤存在，但在歷史紀錄中它是空的，等待老師端重新繪製
+    const canvases = clone.querySelectorAll('canvas');
+    canvases.forEach(canvas => {
+        // 清空 canvas 的內容與 style，確保它只是一個佔位符
+        // 老師端讀取時，會根據數據重新在這個 canvas 上畫圖
+        canvas.removeAttribute('style'); // 移除可能導致重疊的行內樣式
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
     });
 
-    // 3. 處理可能存在的 input/textarea (確保值被保留)
-    // 雖然歷史紀錄主要存 AI 回應，但若有包含用家輸入框，需保留
-    // 這裡主要針對顯示用的 HTML，通常不需要處理輸入框，除非有點評表格包含 textarea
-    
+    // 3. 處理表單元素 (確保 textarea 和 input 的值被寫入 HTML 屬性中)
+    const textareas = clone.querySelectorAll('textarea');
+    const originalTextareas = container.querySelectorAll('textarea');
+    for (let i = 0; i < textareas.length; i++) {
+        textareas[i].textContent = originalTextareas[i].value;
+    }
+
+    const inputs = clone.querySelectorAll('input');
+    const originalInputs = container.querySelectorAll('input');
+    for (let i = 0; i < inputs.length; i++) {
+        inputs[i].setAttribute('value', originalInputs[i].value);
+    }
+
     return clone.innerHTML;
 }
 
 // 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
-async function saveToHistory(category, subFunction, title, userContent, aiContent) {
+// 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步 (支援 scoreData)
+async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -13092,18 +13101,17 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             title: title || "無標題",
             userContent: userContent,
             aiContent: aiContent,
+            scoreData: scoreData, // ★ 新增：儲存原始分數數據 (JSON)
             timestamp: new Date().getTime(),
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
         };
 
         store.add(record);
-        console.log("本地紀錄已儲存");
+        console.log("本地紀錄已儲存 (含數據)");
         
-        // ★★★ 新增：自動同步邏輯 ★★★
         // 檢查是否已綁定身份，如果是，則自動同步
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            // 傳入 true 表示「靜默模式」，不彈出 alert
             syncHistoryToFirebase(true); 
         }
 
@@ -15030,7 +15038,7 @@ function viewPastReports() {
 }
 
 // ==========================================
-// === 全新功能：生成智能學習報告 (V6 - 視覺修正版) ===
+// === 全新功能：生成智能學習報告 (V7 - 數據化存檔版) ===
 // ==========================================
 
 async function generateHistoryReport() {
@@ -15120,12 +15128,12 @@ async function generateHistoryReport() {
                         expression: Math.round(s.scores.expression / s.count),
                         structure: Math.round(s.scores.structure / s.count),
                         radar: [
-                            (s.radar.立意 / s.count).toFixed(1),
-                            (s.radar.取材 / s.count).toFixed(1),
-                            (s.radar.扣題 / s.count).toFixed(1),
-                            (s.radar.詳略 / s.count).toFixed(1),
-                            (s.radar.詞彙 / s.count).toFixed(1),
-                            (s.radar.文學性 / s.count).toFixed(1)
+                            parseFloat((s.radar.立意 / s.count).toFixed(1)),
+                            parseFloat((s.radar.取材 / s.count).toFixed(1)),
+                            parseFloat((s.radar.扣題 / s.count).toFixed(1)),
+                            parseFloat((s.radar.詳略 / s.count).toFixed(1)),
+                            parseFloat((s.radar.詞彙 / s.count).toFixed(1)),
+                            parseFloat((s.radar.文學性 / s.count).toFixed(1))
                         ]
                     };
                     const totalScore = (finalStats[cat].content * 4) + (finalStats[cat].expression * 3) + (finalStats[cat].structure * 2) + 8; // +5+3
@@ -15160,7 +15168,7 @@ async function generateHistoryReport() {
 
             showLoading("陳SIR 正在生成學習報告...");
 
-            // ★★★ Prompt 修改：使用新的 HTML 結構 ★★★
+            // Prompt 結構
              const prompt = `你現在扮演一位資深的中文科老師「陳SIR」。請根據學生以下的歷史紀錄，生成一份「學習概況報告」。
 
 ### 學生歷史紀錄摘要：
@@ -15216,7 +15224,7 @@ ${promptData}
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = reportHTML;
 
-            // 插入圖表 (保持不變)
+            // 插入圖表結構
             ["敘事抒情", "議論"].forEach(cat => {
                 const badgeClass = cat === "敘事抒情" ? ".badge-narrative" : ".badge-argument";
                 const aiHeader = tempDiv.querySelector(badgeClass);
@@ -15264,8 +15272,9 @@ ${promptData}
 
             resultBody.innerHTML = finalOutput + tempDiv.innerHTML;
 
-            // === 5. 渲染圖表並存檔 ===
+            // === 5. 渲染圖表並存檔 (重點修訂) ===
             setTimeout(() => {
+                // 這裡保留原本的圖表渲染邏輯，讓學生當下看得到
                 ["敘事抒情", "議論"].forEach(cat => {
                     if (finalStats[cat]) {
                         const uniqueId = cat === "敘事抒情" ? "reportNarrative" : "reportArgument";
@@ -15303,17 +15312,19 @@ ${promptData}
                     }
                 });
 
-                // 存檔 (userContent 設為空字串或簡單描述，因為我們已經在 viewHistoryDetail 中隱藏了它)
+                // ★★★ 存檔 (傳入 finalStats 作為原始數據) ★★★
                 setTimeout(() => {
+                    // captureContainerHTML 已經在外部修改為不轉圖片
                     const htmlToSave = captureContainerHTML('resultCanvasBody');
                     saveToHistory(
                         "學習報告", 
                         "綜合分析", 
                         `學習報告 (${today})`, 
                         `系統自動生成之學習歷程分析。\n綜合評級：${overallLevel}`, 
-                        htmlToSave
+                        htmlToSave,
+                        finalStats // ★★★ 關鍵：傳入報告的原始統計數據，讓老師端可以動態繪圖
                     );
-                    console.log("報告已自動存檔並同步。");
+                    console.log("報告已自動存檔並同步 (含數據)。");
                 }, 500);
 
             }, 100);
@@ -15342,7 +15353,6 @@ ${promptData}
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-chart-pie"></i>'; }
     }
 }
-	
 	
 	
 </script>
