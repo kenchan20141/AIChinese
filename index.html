@@ -13963,6 +13963,7 @@ async function clearAllHistory() {
 
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
+// === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -13973,19 +13974,87 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // ... (略過：計算主題色、設定標題等前面的代碼，保持不變) ...
-                // ...
-                // ...
+                // 1. 計算主題色
+                let themeIndex = 1;
+                if (HISTORY_STRUCTURE[record.category]) {
+                    const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
+                    if (subIndex !== -1) {
+                        themeIndex = (subIndex % 5) + 1;
+                    }
+                }
+                const themeClass = `history-theme-context-${themeIndex}`;
+                const colorVar = `var(--m-color-${themeIndex})`;
 
-                // --- 這裡是你原本組合 contentHTML 的代碼，保持不變 ---
+                // 2. 設定標題
+                document.getElementById('historyModalTitle').innerHTML = 
+                    `<i class="fas fa-book-open" style="color:${colorVar}"></i> 
+                     <span style="color:#333">${record.category}</span> 
+                     <span style="font-size:0.8em; color:#bbb; margin: 0 5px;">/</span> 
+                     <span style="color:${colorVar}; font-weight:bold;">${record.subFunction}</span>`;
                 
-                // 1. 注入 HTML 到 Modal
+                const dateElement = document.getElementById('historyModalDate');
+                if (dateElement) dateElement.style.display = "none"; 
+                
+                // ★★★ 這裡定義 contentHTML ★★★
+                let contentHTML = '';
+
+                // 3. 處理使用者輸入內容 (如果是「學習報告」，則跳過)
+                if (record.category !== "學習報告" && record.userContent) {
+                    const rawText = record.userContent;
+                    const lines = rawText.split('\n');
+                    let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
+                    let currentLabel = '輸入內容'; 
+                    let currentContent = [];
+                    const labelRegex = /^(.{2,10}?)[：:](.*)$/;
+
+                    lines.forEach((line) => {
+                        const match = line.match(labelRegex);
+                        if (match) {
+                            if (currentContent.length > 0) {
+                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                            }
+                            currentLabel = match[1].trim(); 
+                            const restOfLine = match[2].trim();
+                            currentContent = restOfLine ? [restOfLine] : []; 
+                        } else {
+                            if (line.trim() !== "") currentContent.push(line);
+                        }
+                    });
+
+                    if (currentContent.length > 0 || lines.length === 0) { 
+                         const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
+                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
+                    }
+                    parsedHTML += '</div>';
+                    
+                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
+                }
+
+                // 4. 顯示 AI 生成內容
+                if (record.aiContent) {
+                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
+                }
+                
+                // 5. 顯示繳交按鈕 (若適用)
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                if (s && record.category !== "學習報告") {
+                    contentHTML += `
+                        <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
+                            <button class="btn-action btn-morandi" 
+                                    onclick="openSubmitSelector(${record.id})">
+                                <i class="fas fa-paper-plane"></i> 繳交
+                            </button>
+                        </div>
+                    `;
+                }
+
+                // 6. 將組合好的 HTML 注入 Modal
                 const modalContent = document.getElementById('historyModalContent');
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
 
                 // ==========================================
-                // ★★★ 新增：雷達圖即時重繪邏輯 ★★★
+                // ★★★ 雷達圖即時重繪邏輯 (Chart.js) ★★★
                 // ==========================================
                 // 檢查這條紀錄是否有分數數據 (scoreData)
                 if (record.scoreData && record.scoreData.radar) {
@@ -14005,7 +14074,6 @@ async function viewHistoryDetail(id) {
                         ];
 
                         // 3. 使用 Chart.js 繪圖
-                        // 這裡不需要檢查舊實例，因為每次 innerHTML 都是新的 DOM
                         new Chart(canvasEl.getContext('2d'), {
                             type: 'radar',
                             data: {
@@ -14022,7 +14090,7 @@ async function viewHistoryDetail(id) {
                             },
                             options: {
                                 responsive: true,
-                                maintainAspectRatio: false, // 關鍵：允許填滿我們設定的 350px 高度
+                                maintainAspectRatio: false, // 關鍵：允許填滿高度
                                 scales: {
                                     r: {
                                         angleLines: { display: true },
@@ -14031,7 +14099,7 @@ async function viewHistoryDetail(id) {
                                         pointLabels: {
                                             font: { size: 14, family: "'Noto Serif TC', serif" }
                                         },
-                                        ticks: { stepSize: 2, display: false } // 不顯示刻度數字，保持簡潔
+                                        ticks: { stepSize: 2, display: false }
                                     }
                                 },
                                 plugins: {
@@ -14041,8 +14109,6 @@ async function viewHistoryDetail(id) {
                         });
                     }
                 }
-                // ==========================================
-                // ★★★ 重繪邏輯結束 ★★★
                 // ==========================================
             }
         };
