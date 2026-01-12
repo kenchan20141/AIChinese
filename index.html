@@ -7877,12 +7877,20 @@ async function sendCanvasMessage() {
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
     
+    // === 判斷當前上下文 ===
     if (currentContextType.includes("narrative")) {
         const tone = document.getElementById("writingTone")?.value;
         if (tone === "chen") {
             toneNote = "你現在是陳SIR。請用輕鬆隨意、幽默的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
         }
-        if (currentContextType.includes("writing")) activeReviewer = currentReviewerName;
+        
+        // 如果是寫作點評，使用選定的閱卷員名稱；如果是指引，默認為陳SIR
+        if (currentContextType.includes("writing")) {
+            activeReviewer = currentReviewerName;
+        } else {
+            activeReviewer = "陳SIR";
+        }
+
     } else if (currentContextType.includes("argument")) {
         const tone = document.getElementById("argumentOutlineTone")?.value || document.getElementById("argumentWritingTone")?.value;
         if (tone === "chen") {
@@ -7891,31 +7899,57 @@ async function sendCanvasMessage() {
         if (currentContextType.includes("writing")) activeReviewer = currentReviewerName;
     }
 
-    const prompt = `
-    你是一位${activeReviewer}。
+    // === 構建 Prompt ===
+    let promptContext = "";
     
-    【背景資料】
-    學生剛剛提交了一份作業，你已經給出了點評。
-    學生的原文/大綱內容：
-    ${currentContextContent}
-    ---
-    你之前的點評內容：
-    ${currentContextReview}
-    ---
-    【對話紀錄】
-    ${historyText}
-    【學生最新問題】
-    ${userText}
-    【任務】
-    請針對學生的問題進行回應。
-    1. 必須緊扣你之前的點評觀點。
-    2. 解釋要具體，不要空泛，最好舉例說明。
-    3. 語氣要求：${toneNote}
-    4. 字數控制在 200 字以內。
+    if (currentContextType === 'narrative_guide') {
+        promptContext = `
+        【背景資料】
+        你剛剛為學生分析了題目並提供了寫作指引。
+        學生的題目：
+        ${currentContextContent}
+        ---
+        你提供的指引內容（題眼分析及故事種子）：
+        ${currentContextReview}
+        ---
+        【對話紀錄】
+        ${historyText}
+        【學生最新問題】
+        ${userText}
+        【任務】
+        請針對學生的問題進行回應，引導他如何將這些指引應用到寫作中。
+        `;
+    } else {
+        // 預設 (點評類)
+        promptContext = `
+        【背景資料】
+        學生剛剛提交了一份作業，你已經給出了點評。
+        學生的原文/大綱內容：
+        ${currentContextContent}
+        ---
+        你之前的點評內容：
+        ${currentContextReview}
+        ---
+        【對話紀錄】
+        ${historyText}
+        【學生最新問題】
+        ${userText}
+        【任務】
+        請針對學生的問題進行回應，解釋你的點評理據。
+        `;
+    }
+
+    const fullPrompt = `
+    你是一位${activeReviewer}。
+    ${promptContext}
+    
+    1. 解釋要具體，不要空泛，最好舉例說明。
+    2. 語氣要求：${toneNote}
+    3. 字數控制在 200 字以內。
     `;
 
     try {
-        const response = await callReadingAPI(prompt);
+        const response = await callReadingAPI(fullPrompt);
         let formattedResponse = response.replace(/\n/g, '<br>');
         formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         aiBubble.innerHTML = formattedResponse;
@@ -9978,15 +10012,10 @@ document.getElementById("outlineTableArea").innerHTML = tableHTML;
 async function submitWritingGuide() {
     const submitBtn = document.getElementById('submitWritingGuideBtn');
     const inputTopic = document.getElementById('writingGuideTopicInput').value.trim();
+    
+    // 雖然改用畫布，但我們仍需要隱藏頁面上的舊元素，以免混亂
     const resultContainer = document.getElementById('writingGuideResultContainer');
-    const introDiv = document.getElementById('guideIntro');
-    const emotionsDiv = document.getElementById('guideEmotions'); // 雖然不顯示，但保留變數以免報錯
-    const seedsDiv = document.getElementById('guideSeeds');
-    const saveBtn = document.getElementById('save-guide-html-btn');
-
-    // 聊天室相關元素
-    const chatHistoryDiv = document.getElementById('writingGuideChatHistory');
-    const chatInputContainer = document.getElementById('writingGuideChatInputContainer');
+    if (resultContainer) resultContainer.style.display = "none";
 
     if (!inputTopic) {
         alert("請輸入題目！");
@@ -9996,21 +10025,10 @@ async function submitWritingGuide() {
     submitBtn.disabled = true;
     showLoading("陳SIR 正在拆解題目...");
     
-    // 清空並顯示結果容器
-    introDiv.innerHTML = "";
-    if(emotionsDiv) emotionsDiv.innerHTML = ""; // 清空藍色卡片區
-    seedsDiv.innerHTML = "";
-    resultContainer.style.display = "block";
-    saveBtn.style.display = 'none';
-
-    // 重置聊天室狀態
-    chatHistoryDiv.innerHTML = "";
-    chatHistoryDiv.style.display = "none";
-    chatInputContainer.style.display = "none";
-    writingGuideChatHistoryData = [];
+    // 設定全域變數，供畫布聊天室使用
+    currentContextContent = `題目：${inputTopic}`; 
     currentGuideTopic = inputTopic;
 
-    // === 修改後的 Prompt：移除了 [EMOTION] 的要求 ===
     const prompt = `你是一位深諳中國文學的寫作顧問。使用者輸入題目：「${inputTopic}」。
 
 請模仿以下【示例】的風格、深度和語氣，為這個題目撰寫「題眼分析」及「寫作方向」。
@@ -10044,43 +10062,50 @@ async function submitWritingGuide() {
 
     try {
         const response = await callAPI(prompt);
-        currentGuideAnalysis = response; // 儲存上下文
+        currentContextReview = response; // 儲存 AI 回應供聊天室使用
 
-        // === 修改後的解析邏輯：直接分割 INTRO 和 SEED ===
-        // 1. 解析 Intro (取 [INTRO] 後面，[SEED] 前面的內容)
+        // === 解析邏輯 ===
+        // 1. 解析 Intro
         let introContent = "";
         const introSplit = response.split('[INTRO]');
         if (introSplit.length > 1) {
             introContent = introSplit[1].split('[SEED]')[0].trim();
         }
 
-        // 2. 解析 Seeds (取 [SEED] 後面的內容)
+        // 2. 解析 Seeds
         const seedParts = response.split('[SEED]').slice(1).map(p => p.trim());
 
-        // 渲染 Intro (純文字分析)
+        // === 組裝 HTML ===
+        let finalHTML = `<h3>陳SIR 解題指引：${inputTopic}</h3>`;
+
+        // 加入題眼分析區塊
+        finalHTML += `
+        <div class="guide-section-header" style="border-left: 5px solid #4A90E2; color: #4A90E2;">
+            <h3><i class="fas fa-search"></i> 題眼分析</h3>
+        </div>`;
+        
         if (introContent) {
-            introDiv.innerHTML = `<p>${introContent.replace(/\n/g, '<br>')}</p>`;
+            finalHTML += `<div class="guide-intro-card"><p>${introContent.replace(/\n/g, '<br>')}</p></div>`;
         }
 
-        // 渲染 Seeds (綠色卡片)
+        // 加入寫作方向區塊
+        finalHTML += `
+        <div class="guide-section-header" style="border-left: 5px solid #28a745; color: #28a745; margin-top: 30px;">
+            <h3><i class="fas fa-compass"></i> 寫作方向</h3>
+        </div>`;
+
         if (seedParts.length > 0) {
-            let seedsHTML = "";
+            finalHTML += `<div class="guide-grid-3">`; // 開始 Grid 容器
+            
             seedParts.forEach(part => {
                 const lines = part.split('\n').filter(l => l.trim());
-                // 移除可能的 Markdown 符號
                 const title = (lines[0] || "故事種子").replace(/\*\*/g, '');
-                
-                // 剩下的部分皆為內容
                 const contentText = lines.slice(1).join('\n');
-                
                 let situation = "內容解析中...";
                 let contradiction = "內容解析中...";
-                
                 const cleanContent = contentText.replace(/\*\*/g, ''); 
                 
-                // 嘗試分割「情境」與「張力」
                 const parts = cleanContent.split(/(?:張力|矛盾)[:：]/);
-                
                 if (parts.length > 1) {
                     situation = parts[0].replace(/^(?:情境|情景)[:：]\s*/, '').trim();
                     contradiction = parts[1].trim();
@@ -10089,7 +10114,7 @@ async function submitWritingGuide() {
                     contradiction = "";
                 }
 
-                seedsHTML += `
+                finalHTML += `
                 <div class="guide-card seed-card">
                     <div class="seed-header">${title}</div>
                     <div class="seed-body">
@@ -10101,27 +10126,44 @@ async function submitWritingGuide() {
                     </div>
                 </div>`;
             });
-            seedsDiv.innerHTML = seedsHTML;
-
-// --- 新增：儲存解題指引 ---
-   const fullGuideHTML = `<div class="guide-intro-card">${introDiv.innerHTML}</div><div class="guide-grid-3">${seedsDiv.innerHTML}</div>`;
-saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, fullGuideHTML);
-			
+            
+            finalHTML += `</div>`; // 結束 Grid 容器
         }
-        
-        saveBtn.style.display = 'flex';
-        
-        // 顯示聊天介面
-        chatHistoryDiv.style.display = "flex";
-        chatInputContainer.style.display = "flex";
+
+        // === 加入畫布聊天室 (使用 narrative_guide 類型) ===
+        finalHTML += getCanvasChatHTML('narrative_guide');
+
+        // === 打開畫布並寫入內容 ===
+        openResultCanvas("解題指引");
+        const resultContainer = document.getElementById("resultCanvasBody");
+        resultContainer.innerHTML = finalHTML;
+
+        // === 顯示並設定儲存按鈕 ===
+        const saveBtn = document.getElementById('save-guide-html-btn');
+        if (saveBtn) {
+            saveBtn.style.display = 'flex';
+            // 將按鈕移動到畫布內或確保其功能正常（這裡假設 savePageAsHTML 會抓取當前頁面）
+            // 在您的架構中，savePageAsHTML 會抓取 resultCanvasBody，所以只需顯示按鈕即可，或者手動加一個按鈕進去
+            // 為求統一，我們在畫布底部加一個儲存按鈕
+            resultContainer.innerHTML += `
+            <div class="result-wrapper" style="margin-top: 20px;">
+                <button class="btn-save-html" title="儲存為HTML檔案" onclick="savePageAsHTML('神思-敘事抒情-解題指引.html')" style="display: flex;">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                </button>
+            </div>`;
+        }
+
+        // === 儲存歷史紀錄 ===
+        // 注意：這裡我們儲存的是不包含聊天室的 HTML，以免歷史紀錄過於雜亂
+        const historyHTML = finalHTML.split('<div class="canvas-chat-container">')[0]; 
+        saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, historyHTML);
 
     } catch (error) {
         console.error("解題指引生成失敗:", error);
-        introDiv.innerHTML = `<p style="color:red;">生成失敗，請稍後再試。<br>錯誤訊息: ${error.message}</p>`;
+        alert("生成失敗，請稍後再試。");
     } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = '提交分析';
-		hideLoading();
+        hideLoading();
     }
 }
 
@@ -11374,22 +11416,23 @@ submitBtn.disabled = false;
 
 // 【修訂後】提交整合拓展指引
 async function submitExpandGuide() {
-// 【修訂處】選取正確的按鈕 ID
-const submitBtn = document.getElementById('submitExpandGuideBtn');
-submitBtn.disabled = true; // 禁用按鈕
+    const submitBtn = document.getElementById('submitExpandGuideBtn');
+    submitBtn.disabled = true;
+    hideAllSaveHtmlButtons();
 
-try {
-const title = document.getElementById("expandGuideTitle").value.trim();
-const theme = document.getElementById("expandGuideTheme").value.trim();
-const data = document.getElementById("expandGuideData").value.trim();
-const expand = document.getElementById("expandGuideExpand").value.trim();
-if (!title || !theme || !data || !expand) {
-alert("請填寫所有輸入");
-return; // return 會觸發 finally
-}
+    try {
+        const title = document.getElementById("expandGuideTitle").value.trim();
+        const theme = document.getElementById("expandGuideTheme").value.trim();
+        const data = document.getElementById("expandGuideData").value.trim();
+        const expand = document.getElementById("expandGuideExpand").value.trim();
+        
+        if (!title || !theme || !data || !expand) {
+            alert("請填寫所有輸入");
+            return; 
+        }
 
-const note = categories["整合拓展"].guideNote;
-const prompt = `請根據以下內容生成指引問題。要求：
+        const note = categories["整合拓展"].guideNote;
+        const prompt = `請根據以下內容生成指引問題。要求：
 1. 生成三道問題以引導用家思考如何根據表格資料做好整合拓展
 2. 問題應圍繞主題句和抄錄資料的邏輯關係，引導用家思考如何闡釋和拓展
 3. 輸出分為一個部分：### 指引問題
@@ -11400,51 +11443,64 @@ const prompt = `請根據以下內容生成指引問題。要求：
 整合拓展：${expand}
 教學筆記：${note}`;
 
-showLoading("陳SIR 正在思考指引...");
-const guide = await callAPI(prompt);
-const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
+        showLoading("陳SIR 正在思考指引...");
+        
+        // 呼叫 API
+        const guide = await callAPI(prompt);
+        const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
 
-let guideHTML = "<h3>陳SIR指引：</h3>";
+        let guideHTML = "<h3>陳SIR指引：</h3>";
 
-guideParts.forEach(part => {
-const lines = part.split("\n").filter(line => line.trim());
-const title = lines.shift() || "指引問題";
-const questions = lines;
+        guideParts.forEach(part => {
+            const lines = part.split("\n").filter(line => line.trim());
+            const sectionTitle = lines.shift() || "指引問題";
+            const questions = lines;
 
-guideHTML += `<div class="rewrite-explanation-container">
-<div class="rewrite-explanation-card">
-<h3>${title}</h3>`;
+            guideHTML += `<div class="rewrite-explanation-container">
+            <div class="rewrite-explanation-card">
+            <h3>${sectionTitle}</h3>`;
 
-questions.slice(0, 3).forEach((question, index) => {
-const match = question.match(/^(\d+)\.?\s*(.*)$/);
-const number = match ? match[1] : index + 1;
-const text = match ? match[2].trim() : question;
+            questions.slice(0, 3).forEach((question, index) => {
+                const match = question.match(/^(\d+)\.?\s*(.*)$/);
+                const number = match ? match[1] : index + 1;
+                const text = match ? match[2].trim() : question;
 
-guideHTML += `<div class="explanation-point">
-<div class="explanation-number">${number}</div>
-<div class="explanation-text">${text}</div>
-</div>`;
-});
+                guideHTML += `<div class="explanation-point">
+                <div class="explanation-number">${number}</div>
+                <div class="explanation-text">${text}</div>
+                </div>`;
+            });
 
-guideHTML += `</div></div>`;
-});
+            guideHTML += `</div></div>`;
+        });
 
-document.getElementById("expandGuideResult").innerHTML = guideHTML;
-	// --- 新增：儲存整合拓展指引 ---
-    saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, guideHTML);
-document.getElementById('save-expand-guide-html-btn').style.display = 'flex'; // 顯示按鈕
-} catch (error) {
-console.error("提交整合拓展指引時出錯:", error);
-if (error.message === "所有 API 密鑰均無法使用") {
-alert("今日 API 調用次數已用完或API無法連接，請明天再試");
-} else {
-alert("指引生成失敗，請重試");
-}
-document.getElementById("expandGuideResult").innerHTML = "";
-} finally {
-submitBtn.disabled = false; // 重新啟用按鈕
-	hideLoading();
-}
+        // === 改用彈出視窗顯示結果 ===
+        openResultCanvas("整合拓展指引");
+        const resultContainer = document.getElementById("resultCanvasBody");
+        resultContainer.innerHTML = guideHTML;
+        
+        // 加入儲存按鈕
+        resultContainer.innerHTML += `
+            <div class="result-wrapper" style="margin-top: 20px;">
+                <button class="btn-save-html" title="儲存為HTML檔案" onclick="savePageAsHTML('神思-整合拓展-指引.html')" style="display: flex;">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                </button>
+            </div>`;
+
+        // 儲存歷史紀錄
+        saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, guideHTML);
+
+    } catch (error) {
+        console.error("提交整合拓展指引時出錯:", error);
+        if (error.message === "所有 API 密鑰均無法使用") {
+            alert("今日 API 調用次數已用完或API無法連接，請明天再試");
+        } else {
+            alert("指引生成失敗，請重試");
+        }
+    } finally {
+        submitBtn.disabled = false; 
+        hideLoading();
+    }
 }
 
 
