@@ -12035,83 +12035,120 @@ let radarChartInstance = null; // 全域變數，用於存放雷達圖實例
 * @param {string} uniqueIdPrefix - 用於區分不同功能區塊的唯一前綴
 * @returns {string} HTML 字符串
 */
-function createGradingSystemHTML(uniqueIdPrefix) {
-// 預設分數值 (原始分數 0-10)
-const defaultContentScore = 5;
-const defaultExpressionScore = 5;
-const defaultStructureScore = 5;
-const defaultPunctuationScore = 5;
-const defaultTypoScore = 1;
+/**
+* 建立評等系統的完整 HTML 結構 (修訂版：直接注入分數)
+* @param {string} uniqueIdPrefix - 用於區分不同功能區塊的唯一前綴
+* @param {object} scores - (新) AI 評分結果物件，若無則為 null
+* @param {string} grade - (新) 最終等級
+* @returns {string} HTML 字符串
+*/
+function createGradingSystemHTML(uniqueIdPrefix, scores = null, grade = "3") {
+    // 1. 獲取分數 (如果 scores 存在就用 scores，否則用預設值 5)
+    // 透過 || 運算符處理可能的 undefined，確保有數值
+    const c = scores ? (scores.content || 0) : 5;
+    const e = scores ? (scores.expression || 0) : 5;
+    const s = scores ? (scores.structure || 0) : 5;
+    
+    // 標點和錯別字目前 AI 沒評分，維持固定值
+    const p = 5; 
+    const t = 1; // 錯別字預設 1 分 (3分滿分)
 
-// 計算預設的顯示分數
-const defaultDisplayTotal = (defaultContentScore * 4) + (defaultExpressionScore * 3) + (defaultStructureScore * 2) + (defaultPunctuationScore * 1) + defaultTypoScore;
-const cappedDefaultTotal = Math.min(defaultDisplayTotal, 100);
+    // 2. 計算顯示用的總分與百分比寬度
+    const c_disp = c * 4;
+    const e_disp = e * 3;
+    const s_disp = s * 2;
+    const p_disp = p * 1;
+    const t_disp = t;
+    
+    const totalScore = c_disp + e_disp + s_disp + p_disp + t_disp;
+    const cappedTotal = Math.min(totalScore, 100);
 
-return `
-<div class="grading-container">
-<div class="grading-grid">
-<div class="grading-scores">
-<h3>評等</h3>
-<div class="score-item">
-<label>內容 (40)</label>
-<div class="slider-container">
-<!-- 【修訂一】替換為進度條 -->
-<div class="progress-bar-container"><div id="${uniqueIdPrefix}ContentScoreFill" class="progress-bar-fill"></div></div>
-<span id="${uniqueIdPrefix}ContentScoreDisplay" class="score-display">${defaultContentScore * 4}</span>
-</div>
-</div>
-<div class="score-item">
-<label>表達 (30)</label>
-<div class="slider-container">
-<div class="progress-bar-container"><div id="${uniqueIdPrefix}ExpressionScoreFill" class="progress-bar-fill"></div></div>
-<span id="${uniqueIdPrefix}ExpressionScoreDisplay" class="score-display">${defaultExpressionScore * 3}</span>
-</div>
-</div>
-<div class="score-item">
-<label>結構 (20)</label>
-<div class="slider-container">
-<div class="progress-bar-container"><div id="${uniqueIdPrefix}StructureScoreFill" class="progress-bar-fill"></div></div>
-<span id="${uniqueIdPrefix}StructureScoreDisplay" class="score-display">${defaultStructureScore * 2}</span>
-</div>
-</div>
-<div class="score-item">
-<label>標點字體 (10)</label>
-<div class="slider-container">
-<div class="progress-bar-container"><div id="${uniqueIdPrefix}PunctuationScoreFill" class="progress-bar-fill"></div></div>
-<span id="${uniqueIdPrefix}PunctuationScoreDisplay" class="score-display">${defaultPunctuationScore * 1}</span>
-</div>
-</div>
-<div class="score-item">
-<label>錯別字 (+3)</label>
-<div class="slider-container">
-<div class="progress-bar-container"><div id="${uniqueIdPrefix}TypoScoreFill" class="progress-bar-fill"></div></div>
-<span id="${uniqueIdPrefix}TypoScoreDisplay" class="score-display">${defaultTypoScore}</span>
-</div>
-</div>
-<!-- 隱藏的 input 用於儲存 AI 評分 -->
-<input type="hidden" id="${uniqueIdPrefix}ContentScore" value="${defaultContentScore}">
-<input type="hidden" id="${uniqueIdPrefix}ExpressionScore" value="${defaultExpressionScore}">
-<input type="hidden" id="${uniqueIdPrefix}StructureScore" value="${defaultStructureScore}">
-<input type="hidden" id="${uniqueIdPrefix}PunctuationScore" value="${defaultPunctuationScore}">
-<input type="hidden" id="${uniqueIdPrefix}TypoScore" value="${defaultTypoScore}">
+    // 3. 生成 HTML (直接將 width 和 value 寫死在 HTML 裡)
+    return `
+    <div class="grading-container">
+        <div class="grading-grid">
+            <div class="grading-scores">
+                <h3>評等</h3>
+                
+                <!-- 內容 -->
+                <div class="score-item">
+                    <label>內容 (40)</label>
+                    <div class="slider-container">
+                        <div class="progress-bar-container">
+                            <div id="${uniqueIdPrefix}ContentScoreFill" class="progress-bar-fill" style="width: ${c * 10}%"></div>
+                        </div>
+                        <span id="${uniqueIdPrefix}ContentScoreDisplay" class="score-display">${c_disp}</span>
+                    </div>
+                </div>
 
-<div class="total-score-container">
-<!-- 【修訂二】滿分改為 100 -->
-<span id="${uniqueIdPrefix}TotalScoreDisplay">總分: ${cappedDefaultTotal} / 100</span>
-<span id="${uniqueIdPrefix}FinalGrade">等級: 3</span>
-</div>
-</div>
-<div class="grading-radar">
-<h3>能力雷達圖</h3>
-<div class="radar-chart-container">
-<canvas id="${uniqueIdPrefix}RadarChart"></canvas>
-</div>
-</div>
-</div>
-</div>
-`;
+                <!-- 表達 -->
+                <div class="score-item">
+                    <label>表達 (30)</label>
+                    <div class="slider-container">
+                        <div class="progress-bar-container">
+                            <div id="${uniqueIdPrefix}ExpressionScoreFill" class="progress-bar-fill" style="width: ${e * 10}%"></div>
+                        </div>
+                        <span id="${uniqueIdPrefix}ExpressionScoreDisplay" class="score-display">${e_disp}</span>
+                    </div>
+                </div>
+
+                <!-- 結構 -->
+                <div class="score-item">
+                    <label>結構 (20)</label>
+                    <div class="slider-container">
+                        <div class="progress-bar-container">
+                            <div id="${uniqueIdPrefix}StructureScoreFill" class="progress-bar-fill" style="width: ${s * 10}%"></div>
+                        </div>
+                        <span id="${uniqueIdPrefix}StructureScoreDisplay" class="score-display">${s_disp}</span>
+                    </div>
+                </div>
+
+                <!-- 標點 -->
+                <div class="score-item">
+                    <label>標點字體 (10)</label>
+                    <div class="slider-container">
+                        <div class="progress-bar-container">
+                            <div id="${uniqueIdPrefix}PunctuationScoreFill" class="progress-bar-fill" style="width: ${p * 10}%"></div>
+                        </div>
+                        <span id="${uniqueIdPrefix}PunctuationScoreDisplay" class="score-display">${p_disp}</span>
+                    </div>
+                </div>
+
+                <!-- 錯別字 -->
+                <div class="score-item">
+                    <label>錯別字 (+3)</label>
+                    <div class="slider-container">
+                        <div class="progress-bar-container">
+                            <!-- 錯別字滿分是3，所以寬度計算不同 -->
+                            <div id="${uniqueIdPrefix}TypoScoreFill" class="progress-bar-fill" style="width: ${(t / 3) * 100}%"></div>
+                        </div>
+                        <span id="${uniqueIdPrefix}TypoScoreDisplay" class="score-display">${t_disp}</span>
+                    </div>
+                </div>
+
+                <!-- 隱藏的 input 用於數值儲存 (確保 value 是真實分數) -->
+                <input type="hidden" id="${uniqueIdPrefix}ContentScore" value="${c}">
+                <input type="hidden" id="${uniqueIdPrefix}ExpressionScore" value="${e}">
+                <input type="hidden" id="${uniqueIdPrefix}StructureScore" value="${s}">
+                <input type="hidden" id="${uniqueIdPrefix}PunctuationScore" value="${p}">
+                <input type="hidden" id="${uniqueIdPrefix}TypoScore" value="${t}">
+
+                <div class="total-score-container">
+                    <span id="${uniqueIdPrefix}TotalScoreDisplay">總分: ${cappedTotal} / 100</span>
+                    <span id="${uniqueIdPrefix}FinalGrade">等級: ${grade}</span>
+                </div>
+            </div>
+            
+            <div class="grading-radar">
+                <h3>能力雷達圖</h3>
+                <div class="radar-chart-container">
+                    <canvas id="${uniqueIdPrefix}RadarChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
 }
-
 
 /**
 * 初始化評等系統，包括設定分數和繪製初始圖表
@@ -12780,8 +12817,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 1. 先找出閱卷員的名字
     let reviewerName = "陳SIR"; 
     let reviewerSelect;
-    
-    // 判斷當前語氣設定
     let currentTone = "serious"; 
     
     if (uniqueIdPrefix === 'narrative') {
@@ -12815,7 +12850,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     let scoresForDisplay = null;
     let finalGradeForDisplay = "評級中"; 
 
-    // 使用 i 標誌來忽略大小寫
+    // 使用 i 標誌來忽略大小寫匹配標籤
     const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
@@ -12829,6 +12864,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 const originalScores = JSON.parse(originalGradingMatch[1].trim());
                 const llama3Scores = JSON.parse(llama3GradingMatch[1].trim());
                 
+                // 定義 V8 規則函式 (內部使用)
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
                     s.radar = s.radar || {};
@@ -12854,6 +12890,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                     return s;
                 };
                 
+                // 定義字數規則 (內部使用)
                 const applyWordCountRule = (scores, textContent) => {
                      let s = JSON.parse(JSON.stringify(scores));
                      const wordCount = textContent.length;
@@ -12867,7 +12904,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 let finalQwenScores = applyV8Rules(originalScores);
                 finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
-                finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
+                finalLlama3Scores = applyContentStructureRule(finalLlama3Scores); // 假設此函式已定義
 
                 const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
                 const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
@@ -12894,12 +12931,16 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
     
+    // 計算最終總分與等級
     if (scoresForDisplay) {
+        // 應用最終一致性規則 (扣題<=4 則其他不超4)
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
+        
         const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
 
+    // 字數不足降級處理
     if (scoresForDisplay) {
         const wordCount = fullTextContent.length;
         if (wordCount < 500) {
@@ -12918,7 +12959,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
 
-    // --- AI 點評語氣調整 (核心修訂) ---
+    // --- AI 點評語氣重寫 (Prompt 結構鎖定) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
@@ -12940,7 +12981,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         emojiInstruction = "語氣要專業嚴肅，絕對不要使用 Emoji。";
     }
 
-    // ★★★ Prompt 強力鎖定結構 ★★★
     const rewritePrompt = `請重寫以下點評內容。
     原文：${originalCritiqueText}
 
@@ -12952,14 +12992,17 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     `;
 
     try {
+        // 嘗試重寫點評
         finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5); 
     } catch (e) {
+        // 失敗則使用原文
         finalCritiqueText = originalCritiqueText;
     }
 
-    // --- 組合 HTML ---
+    // --- 組合 HTML (關鍵修訂：傳入分數) ---
     if (scoresForDisplay) {
-        finalHTML += createGradingSystemHTML(uniqueIdPrefix);
+        // ★★★ 關鍵修改：將計算好的 scores 和 grade 傳入，確保 HTML 生成時就有正確數據 ★★★
+        finalHTML += createGradingSystemHTML(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     } else {
         finalHTML += "<p>評等資料不完整。</p>";
     }
@@ -12973,7 +13016,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     if (rewriteMatch && rewriteMatch[1]) {
         const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
-        // 使用修正後的 CSS class
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -12989,15 +13031,19 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 注入 HTML
     resultContainer.innerHTML = finalHTML;
 
-    // 初始化雷達圖
+    // 初始化雷達圖 (雖然 HTML 已經有數據，但 Canvas 仍需 JS 繪製)
     if (scoresForDisplay) {
         setTimeout(() => {
+            // 注意：這裡仍然呼叫 initializeGradingSystem 是為了繪製雷達圖
+            // 以及確保隱藏的 input 被正確賦值 (如果 createGradingSystemHTML 漏掉的話)
             initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
         }, 50);
     }
 
     // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
+    
+    // 使用 captureContainerHTML 確保儲存時雷達圖不消失 (記得要用不轉圖片的修復版)
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
     saveToHistory(
