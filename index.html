@@ -13598,6 +13598,15 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         }
         // ============================================================
 
+
+// 檢查是否已綁定身份，如果是，則自動同步
+const s = JSON.parse(localStorage.getItem('studentProfile'));
+if (s) {
+    // 改用靜默模式的智能同步
+    syncHistoryToFirebase(true);
+}
+
+		
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
@@ -13633,51 +13642,193 @@ async function syncHistoryToFirebase(isSilent = false) {
         if (!isSilent) alert("請先綁定身份");
         return;
     }
-
-    // 如果不是靜默模式（例如手動點擊），才顯示按鈕狀態變化
-    let btn = null;
-    let originalText = "";
-    if (!isSilent && event && event.target) {
-        btn = event.target;
-        originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
+    
+    const btn = !isSilent && event?.target ? event.target : null;
+    const originalBtnHTML = btn?.innerHTML || '';
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 智能同步中...';
         btn.disabled = true;
     }
-
+    
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.getAll();
-
-        request.onsuccess = function(e) {
-            const records = e.target.result;
-            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-            
-            database.ref(path).set(records, (error) => {
-                if (error) {
-                    console.error("自動同步失敗:", error);
-                    if (!isSilent && btn) alert("上傳失敗：" + error.message);
-                } else {
-                    console.log("自動同步成功");
-                    if (!isSilent && btn) alert("✅ 成功同步所有紀錄給老師！");
-                }
-                
-                if (!isSilent && btn) {
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                }
-            });
-        };
+        
+        // 1. 取得本地紀錄
+        const localRecords = await new Promise(resolve => {
+            request.onsuccess = e => resolve(e.target.result);
+            request.onerror = () => resolve([]);
+        });
+        
+        // 2. 取得雲端紀錄
+        const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+        const cloudSnapshot = await database.ref(path).once('value');
+        const cloudRecords = cloudSnapshot.val() || [];
+        
+        // 3. 執行智能合併
+        const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
+        
+        // 4. 將合併結果寫回雲端
+        await database.ref(path).set(mergedRecords);
+        
+        // 5. 更新本地 IndexedDB 以保持一致性
+        await updateLocalHistoryWithMergedData(mergedRecords, db);
+        
+        console.log("智能合併完成，保留兩邊不衝突的紀錄");
+        if (!isSilent) alert("✅ 紀錄智能同步完成！合併了本地與雲端的歷史數據。");
+        
+        // 6. 更新 UI
+        const subFunction = currentSubFunctionFilter || "文章點評";
+        if (document.getElementById('historyLevel3')?.style.display === 'flex') {
+            enterHistoryList(subFunction);
+        }
     } catch (err) {
-        console.error(err);
-        if (!isSilent && btn) {
-            btn.innerHTML = originalText;
+        console.error("智能同步失敗:", err);
+        if (!isSilent) alert("❌ 同步失敗: " + err.message);
+    } finally {
+        if (btn) {
+            btn.innerHTML = originalBtnHTML;
             btn.disabled = false;
         }
     }
 }
 
+
+function mergeHistoryRecords(localRecords, cloudRecords) {
+    // 建立一個 Map 用於根據唯一識別碼合併紀錄
+    const mergedMap = new Map();
+    
+    // 設定一個時間邊界（例如一小時），用於判斷是否為同一份紀錄
+    const TIME_WINDOW_MS = 60 * 60 * 1000; // 一小時
+    
+    // 步驟1: 先將雲端資料加入合併結果
+    cloudRecords.forEach(record => {
+        const key = generateUniqueRecordKey(record);
+        mergedMap.set(key, {...record});
+    });
+    
+    // 步驟2: 尋找本地紀錄與雲端紀錄的對應關係
+    localRecords.forEach(localRecord => {
+        const localKey = generateUniqueRecordKey(localRecord);
+        
+        // 情況A: 完全匹配的唯一鍵 (可能是之前已同步過的資料)
+        if (mergedMap.has(localKey)) {
+            const cloudRecord = mergedMap.get(localKey);
+            // 保留較新的紀錄
+            if (localRecord.timestamp > cloudRecord.timestamp) {
+                mergedMap.set(localKey, {...localRecord});
+            }
+        } 
+        // 情況B: 可能是同一份紀錄，但因版本不同導致唯一鍵不同
+        else {
+            let merged = false;
+            for (const [key, cloudRecord] of mergedMap) {
+                // 檢查是否可能為同一份紀錄
+                const isSameTopic = localRecord.title?.trim() === cloudRecord.title?.trim();
+                const isSameCategory = localRecord.category === cloudRecord.category;
+                const timeDiff = Math.abs(localRecord.timestamp - cloudRecord.timestamp);
+                
+                // 如果標題、類別相同且時間相近，視為同一份紀錄
+                if (isSameTopic && isSameCategory && timeDiff < TIME_WINDOW_MS) {
+                    // 保留較新的版本
+                    const newerRecord = localRecord.timestamp > cloudRecord.timestamp ? localRecord : cloudRecord;
+                    mergedMap.set(key, {...newerRecord});
+                    merged = true;
+                    break;
+                }
+            }
+            
+            // 情況C: 完全沒有匹配，是新紀錄
+            if (!merged) {
+                mergedMap.set(localKey, {...localRecord});
+            }
+        }
+    });
+    
+    // 步驟3: 轉換回陣列並按時間排序（最新的在前面）
+    return Array.from(mergedMap.values())
+        .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function generateUniqueRecordKey(record) {
+    // 建立一個穩定的唯一識別碼
+    // 使用：類別+子功能+標題+日期（精確到天）
+    const datePart = new Date(record.timestamp).toISOString().split('T')[0];
+    return `${record.category}_${record.subFunction}_${record.title}_${datePart}`;
+}
+
+async function updateLocalHistoryWithMergedData(mergedRecords, db = null) {
+    // 如果沒有提供 db 實例，則重新開啟
+    const usingNewDB = !db;
+    if (!db) {
+        db = await openHistoryDB();
+    }
+    
+    try {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        // 1. 儲存需要保留的本地紀錄ID
+        const idsToKeep = new Set(mergedRecords.map(r => r.id).filter(id => id !== undefined));
+        
+        // 2. 刪除不需要的紀錄
+        const countRequest = store.count();
+        const totalRecords = await new Promise(resolve => {
+            countRequest.onsuccess = () => resolve(countRequest.result);
+            countRequest.onerror = () => resolve(0);
+        });
+        
+        // 只在有大量紀錄需要清理時才執行
+        if (totalRecords > idsToKeep.size + 10) {
+            const deletePromises = [];
+            
+            const cursorRequest = store.openCursor();
+            cursorRequest.onsuccess = function(event) {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (!idsToKeep.has(cursor.value.id)) {
+                        deletePromises.push(new Promise(resolve => {
+                            const deleteRequest = cursor.delete();
+                            deleteRequest.onsuccess = resolve;
+                            deleteRequest.onerror = resolve;
+                        }));
+                    }
+                    cursor.continue();
+                } else {
+                    // 等待所有刪除操作完成
+                    Promise.all(deletePromises).then(() => {
+                        console.log(`已清理 ${deletePromises.length} 條本地多餘紀錄`);
+                    });
+                }
+            };
+        }
+        
+        // 3. 確保所有合併的紀錄都存在於本地
+        const missingRecords = mergedRecords.filter(r => !idsToKeep.has(r.id));
+        for (const record of missingRecords) {
+            if (!record.id) {
+                // 為新紀錄生成本地ID
+                await new Promise(resolve => {
+                    const addRequest = store.add({...record});
+                    addRequest.onsuccess = resolve;
+                    addRequest.onerror = resolve;
+                });
+            }
+        }
+        
+    } finally {
+        if (usingNewDB && db) {
+            db.close();
+        }
+    }
+}
+
+
+
+
+	
 // ================= UI 導航邏輯 =================
 
 // 變數儲存當前導航狀態
