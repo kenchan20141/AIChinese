@@ -13772,13 +13772,24 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
         const transaction = localDb.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
+        // A. 清空本地：為了避免 ID 混亂，我們先清空，再重新分配 ID
         await new Promise((resolve, reject) => {
             const req = store.clear();
             req.onsuccess = resolve;
             req.onerror = reject;
         });
 
+        // B. 寫入合併後的資料
         for (const record of mergedRecords) {
+            // ★★★ 關鍵修復：移除舊的 id ★★★
+            // 這樣 IndexedDB 就會把它們當作新資料，並自動分配全新的、不重複的 ID (1, 2, 3, 4...)
+            // 這樣就不會因為本地是 ID:2，雲端也是 ID:2 而打架了
+            delete record.id; 
+            
+            // 為了保持資料乾淨，我們也可以順便移除 Firebase 產生的 key (如果有的話)
+            // (假設你在 Firebase 是用 push 產生的 key，通常不會在 record 物件內，但防呆無妨)
+            delete record.key; 
+
             store.put(record); 
         }
         
