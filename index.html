@@ -13669,6 +13669,56 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
 // === 智能同步邏輯 (最終解決版：智能標記) ===
 // ==========================================
 
+
+
+// ==========================================
+// === 即時自動同步監聽器 (防無限迴圈版) ===
+// ==========================================
+
+let autoSyncListenerRef = null;
+let isSyncingLock = false; // 鎖定狀態，防止無限迴圈
+
+function startAutoSyncListener() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+
+    // 先移除舊的監聽器，避免重複
+    if (autoSyncListenerRef) {
+        autoSyncListenerRef.off();
+    }
+
+    // 監聽路徑：該學生的歷史紀錄
+    // 注意：這裡有反引號 `
+    const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+    autoSyncListenerRef = database.ref(path);
+
+    // 監聽 'value' 事件 (任何新增、修改、刪除都會觸發)
+    autoSyncListenerRef.on('value', (snapshot) => {
+        
+        // 如果目前正在執行同步(由本地發起)，則忽略這次由雲端回傳的訊號
+        if (isSyncingLock) {
+            console.log("忽略自身寫入導致的更新訊號");
+            return;
+        }
+
+        console.log("⚡ 偵測到雲端資料變更 (可能是老師批改或刪除)，準備同步...");
+        
+        // 設定鎖定，避免稍後的寫入動作又觸發監聽器
+        isSyncingLock = true;
+
+        // 執行同步
+        syncHistoryToFirebase(true).then(() => {
+            // 同步完成後，延遲 2 秒再解鎖
+            // 這樣可以過濾掉 Firebase 寫入後的回彈訊號
+            setTimeout(() => {
+                isSyncingLock = false;
+            }, 2000);
+        });
+    });
+}
+
+
+	
 // 1. 主同步函式
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14679,6 +14729,7 @@ function closeStudentCloudModal() {
 
 // 修改原本的 checkStudentLogin
 // 修改原本的 checkStudentLogin
+// === 修改後：檢查登入狀態 (加入即時同步與監聽) ===
 async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     
@@ -14693,18 +14744,24 @@ async function checkStudentLogin() {
         // C. 載入課業列表
         loadAssignments(s.grade, s.class);
 
-        // ★★★ 加入這行：啟動紅點監聽器 ★★★
+        // D. 啟動紅點監聽
         monitorPendingAssignments(); 
 
-        // ★★★ 新增：強制觸發訪問記錄更新 (修正 Visits: 0 問題) ★★★
+        // ★★★ 關鍵新增 1：頁面載入後，立即執行一次同步 ★★★
+        // 確保本地資料與雲端一致 (例如老師剛剛刪除了作業)
+        syncHistoryToFirebase(true);
+
+        // ★★★ 關鍵新增 2：啟動即時監聽器 ★★★
+        // 如果學生一直開著網頁，老師刪除資料時，這裡會收到通知並自動更新
+        startAutoSyncListener();
+
         if (window.forceLogVisit) {
             window.forceLogVisit();
         }
 
-        // D. 背景驗證與 Auth 檢查
         const user = firebase.auth().currentUser;
         if (user) {
-            try { await user.reload(); } catch (error) { /* error handling */ }
+            try { await user.reload(); } catch (error) { }
         }
         verifyStudentStatus(s);
     }
@@ -15026,8 +15083,9 @@ async function findProfileByEmail(targetEmail) {
 	
 
 // === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
+// === 修改後：統一處理登入後的邏輯 (加入即時同步) ===
 async function processLoginResult(user, btn, originalContent) {
-    // 1. 獲取用戶輸入的資料 (從暫存或DOM)
+    // 1. 獲取用戶輸入的資料
     let manualName, grade, cls, number;
     
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
@@ -15051,11 +15109,10 @@ async function processLoginResult(user, btn, originalContent) {
     }
 
     const email = user.email;
-
-	  const debugUser = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
+    const debugUser = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
 
     // 2. 檢查電郵網域
-  if (!email.endsWith('@ccckyc.edu.hk') && email !== debugUser) {
+    if (!email.endsWith('@ccckyc.edu.hk') && email !== debugUser) {
         await auth.signOut();
         alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
         sessionStorage.removeItem('sansi_temp_student_data'); 
@@ -15063,41 +15120,44 @@ async function processLoginResult(user, btn, originalContent) {
         return;
     }
 
-    // ★★★ 關鍵新增：檢查該電郵是否已經註冊過 ★★★
+    // 3. 檢查帳號是否存在
     const existingProfile = await findProfileByEmail(email);
 
     if (existingProfile) {
-        // === 情況 A：帳號已存在 (防止重複註冊) ===
+        // A. 帳號已存在 (登入舊帳號)
         const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
         const newLocation = `${grade}${cls}`;
 
         if (oldLocation !== newLocation) {
             alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號 (${existingProfile.name})。\n系統將忽略您剛才選擇的 ${newLocation}班，直接登入原有帳號。`);
-        } else {
-            // 如果輸入的班級跟原本一樣，就不彈警告，直接登入
-            console.log("登入舊帳號");
         }
 
-        // 強制使用資料庫裡的舊資料，而不是用戶剛剛輸入的
         localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
         
-        // 清除暫存與 UI 狀態
         sessionStorage.removeItem('sansi_temp_student_data');
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         
-        // 執行登入後續動作
         updateWelcomeMessage(existingProfile);
         loadAssignments(existingProfile.grade, existingProfile.class);
-        monitorPendingAssignments(); // 啟動紅點監聽
+        monitorPendingAssignments();
 
-        // 這裡不需要再呼叫 bindStudentIdentity，因為資料已經在雲端了
+        // ★★★ 關鍵新增 1：登入成功當下，立即執行一次智能合併 ★★★
+        // 這會把「未登入時寫的 IndexedDB 資料」立刻上傳並合併，不用等下次生成
+        await syncHistoryToFirebase(true);
+        
+        // ★★★ 關鍵新增 2：啟動即時監聽器 (處理老師刪除動作) ★★★
+        startAutoSyncListener();
 
     } else {
-        // === 情況 B：真的是新用戶 (執行註冊綁定) ===
+        // B. 新用戶註冊
         console.log("新用戶註冊...");
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
+        
+        // 註冊後也同步一次 (以防萬一)
+        await syncHistoryToFirebase(true);
+        startAutoSyncListener();
     }
 }
 
