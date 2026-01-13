@@ -15287,7 +15287,7 @@ async function findProfileByEmail(targetEmail) {
 	
 
 // === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
-// === 修改後：統一處理登入後的邏輯 (加入即時同步) ===
+
 async function processLoginResult(user, btn, originalContent) {
     // 1. 獲取用戶輸入的資料
     let manualName, grade, cls, number;
@@ -15313,6 +15313,8 @@ async function processLoginResult(user, btn, originalContent) {
     }
 
     const email = user.email;
+    
+    // 用於 Debug 的後門 (同樣編碼處理)
     const debugUser = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
 
     // 2. 檢查電郵網域
@@ -15324,7 +15326,46 @@ async function processLoginResult(user, btn, originalContent) {
         return;
     }
 
-    // 3. 檢查帳號是否存在
+
+    const TEACHER_B64_LIST = [
+        "Y2trQGNjY2t5Yy5lZHUuaGs=", // 
+        "dGx5QGNjY2t5Yy5lZHUuaGs=", // 
+        "bHN0QGNjY2t5Yy5lZHUuaGs=", // 
+        "Y2tjQGNjY2t5Yy5lZHUuaGs=", // 
+        "c2tzQGNjY2t5Yy5lZHUuaGs=", // 
+        "eWhjQGNjY2t5Yy5lZHUuaGs=", // 
+        "d2ZjQGNjY2t5Yy5lZHUuaGs=", // 
+        "dGNjQGNjY2t5Yy5lZHUuaGs=", // 
+        "a2J5QGNjY2t5Yy5lZHUuaGs=", // 
+        "d3B5QGNjY2t5Yy5lZHUuaGs=", // 
+        "a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==" // 
+    ];
+
+    let isTeacher = false;
+    
+    // 遍歷並解碼比對
+    for (let b64 of TEACHER_B64_LIST) {
+        try {
+            if (atob(b64) === email) {
+                isTeacher = true;
+                break;
+            }
+        } catch(e) {
+            console.error("解碼錯誤", e);
+        }
+    }
+
+    if (isTeacher) {
+        console.log("身份識別：教師");
+        // 強制覆寫變數，無視下拉選單的選擇
+        grade = "System";
+        cls = "Test";
+        number = "99"; 
+        alert(`👋 老師您好！\n系統已識別您的身份，將自動進入「系統測試班」 (System/Test)。\n您的所有操作將不會影響真實學生數據。`);
+    }
+    // ★★★ 識別結束 ★★★
+
+    // 3. 檢查帳號是否存在 (後續邏輯保持不變)
     const existingProfile = await findProfileByEmail(email);
 
     if (existingProfile) {
@@ -15332,25 +15373,38 @@ async function processLoginResult(user, btn, originalContent) {
         const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
         const newLocation = `${grade}${cls}`;
 
+        // 注意：如果是老師，grade/cls 已經被強制改成 System/Test
+        // 所以如果老師第一次登入是 1A，第二次被強制轉去 System/Test，這裡會提示並切換
         if (oldLocation !== newLocation) {
-            alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號 (${existingProfile.name})。\n系統將忽略您剛才選擇的 ${newLocation}班，直接登入原有帳號。`);
+            // 如果是老師，不需要彈出警告，直接用新的 System/Test 覆蓋即可
+            // 如果是學生轉班，則保留原有邏輯
+            if (!isTeacher) {
+                alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號。\n系統將登入您的原有帳號。`);
+            }
         }
 
-        localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
+        // 如果是老師，我們希望強制更新他的 profile 為 System/Test
+        if (isTeacher && (existingProfile.grade !== "System" || existingProfile.class !== "Test")) {
+             console.log("將教師帳號遷移至測試區...");
+             await bindStudentIdentity("System", "Test", "99", manualName, email, user.uid);
+             // 重新獲取一次 profile
+             const newProfile = { grade: "System", class: "Test", number: "99", name: manualName, email: email };
+             localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+             updateWelcomeMessage(newProfile);
+             loadAssignments("System", "Test");
+        } else {
+             // 普通學生或已在測試區的老師
+             localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
+             updateWelcomeMessage(existingProfile);
+             loadAssignments(existingProfile.grade, existingProfile.class);
+        }
         
         sessionStorage.removeItem('sansi_temp_student_data');
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         
-        updateWelcomeMessage(existingProfile);
-        loadAssignments(existingProfile.grade, existingProfile.class);
         monitorPendingAssignments();
-
-        // ★★★ 關鍵新增 1：登入成功當下，立即執行一次智能合併 ★★★
-        // 這會把「未登入時寫的 IndexedDB 資料」立刻上傳並合併，不用等下次生成
         await syncHistoryToFirebase(true);
-        
-        // ★★★ 關鍵新增 2：啟動即時監聽器 (處理老師刪除動作) ★★★
         startAutoSyncListener();
 
     } else {
@@ -15359,7 +15413,6 @@ async function processLoginResult(user, btn, originalContent) {
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
         
-        // 註冊後也同步一次 (以防萬一)
         await syncHistoryToFirebase(true);
         startAutoSyncListener();
     }
