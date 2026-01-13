@@ -13502,7 +13502,15 @@ const HISTORY_STRUCTURE = {
     "整合拓展": ["點評", "指引"]
 };
 
-// 1. 初始化資料庫 (保持不變)
+// ==========================================
+// === 智能同步系統 (Smart Sync System) ===
+// ==========================================
+
+const DB_NAME = 'SansiDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'history';
+
+// 1. 開啟 IndexedDB (保持不變)
 function openHistoryDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -13511,8 +13519,6 @@ function openHistoryDB() {
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
                 store.createIndex('timestamp', 'timestamp', { unique: false });
-                store.createIndex('category', 'category', { unique: false });
-                store.createIndex('subFunction', 'subFunction', { unique: false });
             }
         };
         request.onsuccess = function(event) { resolve(event.target.result); };
@@ -13520,113 +13526,77 @@ function openHistoryDB() {
     });
 }
 
-// 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
-// ★ 核心輔助：捕捉 HTML (修訂版：只捕捉結構，不轉圖片) ★
-function captureContainerHTML(containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return "";
+// 2. 生成唯一識別碼 (用於判斷是否為同一份作業)
+function generateUniqueRecordKey(record) {
+    // 邏輯：同一天、同一個分類、同一個標題，視為同一份作業
+    // 這樣可以避免「雲端有一份舊的，本地有一份剛修改的」變成兩份
+    const datePart = new Date(record.timestamp).toISOString().split('T')[0];
+    return `${record.category}_${record.subFunction}_${record.title}_${datePart}`;
+}
 
-    // 1. 複製節點
-    const clone = container.cloneNode(true);
-
-    // 2. 處理 Canvas：保留標籤，但強制設定高度，避免在歷史紀錄中塌陷
-    const canvases = clone.querySelectorAll('canvas');
-    canvases.forEach(canvas => {
-        // 關鍵：給予明確的高度，確保 Chart.js 稍後有空間繪圖
-        canvas.setAttribute('style', 'width: 100%; height: 350px; display: block;');
-        // 移除 id 屬性，避免與主頁面的圖表 ID 衝突 (會在查看時動態處理)
-        canvas.removeAttribute('id'); 
-        // 添加一個通用 class 方便識別
-        canvas.classList.add('history-radar-canvas');
+// 3. 智能合併邏輯 (核心演算法)
+function mergeHistoryRecords(localRecords, cloudRecords) {
+    const mergedMap = new Map();
+    
+    // A. 先載入雲端資料 (作為基底)
+    cloudRecords.forEach(record => {
+        if (!record) return;
+        const key = generateUniqueRecordKey(record);
+        mergedMap.set(key, record);
     });
-
-    // 3. 捕捉進度條 (藍色 BAR) 的寬度
-    const progressBars = clone.querySelectorAll('.progress-bar-fill');
-    const originalBars = container.querySelectorAll('.progress-bar-fill');
-    for (let i = 0; i < progressBars.length; i++) {
-        if (originalBars[i]) {
-            progressBars[i].style.width = originalBars[i].style.width;
-        }
-    }
-
-    // 4. 處理表單元素 (Textarea / Input)
-    const textareas = clone.querySelectorAll('textarea');
-    const originalTextareas = container.querySelectorAll('textarea');
-    for (let i = 0; i < textareas.length; i++) {
-        if (originalTextareas[i]) {
-            textareas[i].textContent = originalTextareas[i].value;
-        }
-    }
-
-    const inputs = clone.querySelectorAll('input');
-    const originalInputs = container.querySelectorAll('input');
-    for (let i = 0; i < inputs.length; i++) {
-        if (originalInputs[i]) {
-            inputs[i].setAttribute('value', originalInputs[i].value);
-        }
-    }
-
-    return clone.innerHTML;
-}
-
-// 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
-async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
-    try {
-        // ============================================================
-        // ★★★ 核心修訂：在上傳前徹底移除聊天室/追問區 HTML ★★★
-        // ============================================================
-        if (aiContent && typeof aiContent === 'string') {
-            // 建立一個暫時的 DOM 元素來處理 HTML 字串
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = aiContent;
-            
-            // 1. 移除主要的聊天室容器 (.canvas-chat-container)
-            // 使用 querySelectorAll 確保移除頁面上所有可能的聊天室實例
-            const chatContainers = tempDiv.querySelectorAll('.canvas-chat-container');
-            chatContainers.forEach(el => el.remove());
-
-            // 2. 保險起見，移除聊天輸入區 (.canvas-input-area) 和 歷史區 (.canvas-chat-history)
-            // 防止有殘留的 HTML 結構
-            const inputAreas = tempDiv.querySelectorAll('.canvas-input-area');
-            inputAreas.forEach(el => el.remove());
-            
-            const historyBoxes = tempDiv.querySelectorAll('.canvas-chat-history');
-            historyBoxes.forEach(el => el.remove());
-            
-            // 將處理乾淨的 HTML 重新賦值給 aiContent
-            aiContent = tempDiv.innerHTML;
-        }
-        // ============================================================
-
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-
-        const record = {
-            category: category,
-            subFunction: subFunction,
-            title: title || "無標題",
-            userContent: userContent,
-            aiContent: aiContent, // 這裡是已經過濾掉聊天室的內容
-            scoreData: scoreData, 
-            timestamp: new Date().getTime(),
-            dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
-        };
-
-        store.add(record);
-        console.log("本地紀錄已儲存 (已過濾追問區)");
+    
+    // B. 再載入本地資料 (進行比對與覆蓋)
+    localRecords.forEach(localRecord => {
+        const key = generateUniqueRecordKey(localRecord);
         
-        // 檢查是否已綁定身份，如果是，則自動同步
-        const s = JSON.parse(localStorage.getItem('studentProfile'));
-        if (s) {
-            syncHistoryToFirebase(true); 
+        if (mergedMap.has(key)) {
+            const cloudRecord = mergedMap.get(key);
+            // 如果本地的時間戳比較新，就用本地的覆蓋雲端的 (保留最新編輯)
+            if (localRecord.timestamp > cloudRecord.timestamp) {
+                mergedMap.set(key, localRecord);
+            }
+            // 如果雲端的比較新，則保留雲端的 (Map 中原本就是雲端的，所以不動)
+        } else {
+            // 如果雲端沒有這筆資料 (這是新生成的)，直接加入
+            mergedMap.set(key, localRecord);
         }
-
-    } catch (error) {
-        console.error("儲存紀錄失敗:", error);
-    }
+    });
+    
+    // C. 轉回陣列並按時間倒序排列 (最新的在最上面)
+    return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
-// 2. 修改 syncHistoryToFirebase：支援靜默模式 (silent mode)
+
+// 4. 更新本地 IndexedDB (關鍵修復：讓用戶看到最新資料)
+async function updateLocalHistoryWithMergedData(mergedRecords) {
+    const db = await openHistoryDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    
+    return new Promise((resolve, reject) => {
+        // A. 清空本地舊資料 (因為 mergedRecords 已經是最完整的集合)
+        const clearRequest = store.clear();
+        
+        clearRequest.onsuccess = function() {
+            // B. 將合併後的資料逐一寫回本地
+            let processed = 0;
+            if (mergedRecords.length === 0) resolve();
+
+            mergedRecords.forEach(record => {
+                // 確保移除舊的 id，讓 IndexedDB 重新分配 (避免 keyPath 衝突)
+                const { id, ...recordData } = record; 
+                store.add(recordData);
+                processed++;
+                if (processed === mergedRecords.length) {
+                    resolve();
+                }
+            });
+        };
+        
+        clearRequest.onerror = (e) => reject(e);
+    });
+}
+
+// 5. 主同步函式 (支援靜默模式)
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) {
@@ -13634,47 +13604,101 @@ async function syncHistoryToFirebase(isSilent = false) {
         return;
     }
 
-    // 如果不是靜默模式（例如手動點擊），才顯示按鈕狀態變化
+    // UI 按鈕狀態處理
     let btn = null;
     let originalText = "";
-    if (!isSilent && event && event.target) {
-        btn = event.target;
-        originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
-        btn.disabled = true;
+    if (!isSilent && typeof event !== 'undefined' && event && event.target) {
+        btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+        if (btn) {
+            originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 智能同步中...';
+            btn.disabled = true;
+        }
     }
 
     try {
+        // --- 步驟 A: 讀取本地資料 ---
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
+        const localRecords = await new Promise(resolve => {
+            store.getAll().onsuccess = (e) => resolve(e.target.result);
+        });
 
-        request.onsuccess = function(e) {
-            const records = e.target.result;
-            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+        // --- 步驟 B: 讀取雲端資料 ---
+        const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+        const snapshot = await database.ref(path).once('value');
+        const cloudRecords = snapshot.val() || [];
+
+        // --- 步驟 C: 執行合併 ---
+        const finalRecords = mergeHistoryRecords(localRecords, cloudRecords);
+
+        // --- 步驟 D: 雙向更新 (這是您最需要的部分) ---
+        
+        // 1. 更新雲端
+        await database.ref(path).set(finalRecords);
+        
+        // 2. 更新本地 (這樣用戶切換頁面或重整後，看到的資料就是雲端的了)
+        await updateLocalHistoryWithMergedData(finalRecords);
+
+        console.log(`同步完成：本地(${localRecords.length}) + 雲端(${cloudRecords.length}) -> 合併後(${finalRecords.length})`);
+
+        if (!isSilent) {
+            alert(`✅ 智能同步成功！\n已合併本地與雲端共 ${finalRecords.length} 條紀錄。`);
             
-            database.ref(path).set(records, (error) => {
-                if (error) {
-                    console.error("自動同步失敗:", error);
-                    if (!isSilent && btn) alert("上傳失敗：" + error.message);
-                } else {
-                    console.log("自動同步成功");
-                    if (!isSilent && btn) alert("✅ 成功同步所有紀錄給老師！");
-                }
-                
-                if (!isSilent && btn) {
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                }
-            });
-        };
+            // --- 步驟 E: 即時刷新 UI (如果正在看列表) ---
+            // 檢查當前是否正在顯示歷史紀錄列表
+            if (document.getElementById('historyLevel3').style.display === 'flex' && typeof enterHistoryList === 'function') {
+                // 重新載入當前分類的列表，讓用戶立刻看到從雲端抓回來的舊資料
+                enterHistoryList(currentSubFunctionFilter, currentThemeIndex); 
+            }
+        }
+
     } catch (err) {
-        console.error(err);
+        console.error("同步失敗:", err);
+        if (!isSilent) alert("同步失敗：" + err.message);
+    } finally {
         if (!isSilent && btn) {
             btn.innerHTML = originalText;
             btn.disabled = false;
         }
+    }
+}
+
+// 6. 儲存單筆紀錄函式 (保持自動觸發靜默同步)
+async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
+    try {
+        // 過濾聊天室 HTML (保持您原有的邏輯)
+        if (aiContent && typeof aiContent === 'string') {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = aiContent;
+            const removeSelectors = ['.canvas-chat-container', '.canvas-input-area', '.canvas-chat-history'];
+            removeSelectors.forEach(sel => tempDiv.querySelectorAll(sel).forEach(el => el.remove()));
+            aiContent = tempDiv.innerHTML;
+        }
+
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        const record = {
+            category, subFunction, title: title || "無標題",
+            userContent, aiContent, scoreData,
+            timestamp: new Date().getTime(),
+            dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
+        };
+
+        store.add(record);
+        console.log("本地紀錄已儲存");
+        
+        // ★★★ 自動觸發同步：將這筆新紀錄推上雲端，同時拉回任何可能遺漏的雲端資料 ★★★
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (s) {
+            syncHistoryToFirebase(true); // 靜默同步
+        }
+
+    } catch (error) {
+        console.error("儲存紀錄失敗:", error);
     }
 }
 
