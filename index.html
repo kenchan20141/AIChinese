@@ -14466,8 +14466,10 @@ function handleTitleDblClick(element, id) {
 }
 
 
-// === Firebase 初始化 ===
-// === Firebase 初始化 ===
+<script>
+// ==========================================
+// 1. Firebase 初始化 (必須放在最前面！)
+// ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
   authDomain: "sansidata.firebaseapp.com",
@@ -14475,413 +14477,240 @@ const firebaseConfig = {
   storageBucket: "sansidata.firebasestorage.app",
   messagingSenderId: "580288358575",
   appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-  
-  // ★★★ 請務必確認有沒有這一行，且網址正確 ★★★
-  // 您可以在 Firebase Console -> Realtime Database 頁面最上方找到這個網址
-  // 通常是下面這個格式，但也可能是 https://sansidata-default-rtdb.firebaseio.com
-  databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
+  databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
 };
 
-// 檢查是否重複初始化
+// 防止重複初始化
 if (!firebase.apps.length) {
     try {
         firebase.initializeApp(firebaseConfig);
-        console.log("Firebase 初始化成功！"); // 按 F12 查看 Console
+        console.log("Firebase 初始化成功！");
     } catch (e) {
         console.error("Firebase 初始化失敗：", e);
-        alert("資料庫連線失敗，請檢查網路或 CSP 設定");
+        alert("資料庫連線失敗，請檢查網路設定");
     }
 } else {
-    firebase.app(); // 如果已經初始化，使用現有的
+    firebase.app(); 
 }
 
+// 定義全域變數 (供後續所有函數使用)
 const database = firebase.database();
+const auth = firebase.auth();
 
+// ==========================================
+// 2. 智能同步系統 (Smart Sync System)
+// ==========================================
+const DB_NAME = 'SansiDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'history';
 
+// 開啟 IndexedDB
+function openHistoryDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = function(event) {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                store.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+        };
+        request.onsuccess = function(event) { resolve(event.target.result); };
+        request.onerror = function(event) { reject(event.target.error); };
+    });
+}
 
-// 2. [發送端功能] 老師發送通知的函式
-// 為了安全，將 API KEY 拆分混淆，避免簡單的爬蟲直接抓取
-const _p1 = "os_v2_app_";
-const _p2 = "7bo2joflvzgf5dnzzh2gh7eycxk5kn45q25uwymlyhqbq746uburtgfhd3xfyyxullklptksmnddfdwgpechno4byssraz7yysuusrq";
-const _OS_KEY = _p1 + _p2;
+// 生成唯一識別碼 (用於合併去重)
+function generateUniqueRecordKey(record) {
+    // 邏輯：同一天、同一個分類、同一個標題，視為同一份作業
+    const datePart = new Date(record.timestamp).toISOString().split('T')[0];
+    return `${record.category}_${record.subFunction}_${record.title}_${datePart}`;
+}
 
-/**
- * 發送推播通知給指定班級 (請在老師發佈課業的代碼中調用此函式)
- * @param {string} targetGrade - 年級 (如 "4")
- * @param {string} targetClass - 班別 (如 "A")
- * @param {string} title - 通知標題
- * @param {string} message - 通知內容
- */
-async function sendClassNotification(targetGrade, targetClass, title, message) {
-    const options = {
-        method: 'POST',
-        headers: {
-            accept: 'application/json',
-            'Content-Type': 'application/json',
-            Authorization: 'Basic ' + _OS_KEY
-        },
-        body: JSON.stringify({
-            app_id: "f85da4b8-abae-4c5e-8db9-c9f463fc9815",
-            headings: { en: title, zh: title },
-            contents: { en: message, zh: message },
-            // 關鍵：只發送給符合 Grade 和 Class 的用戶
-            filters: [
-                { field: "tag", key: "grade", relation: "=", value: targetGrade },
-                { operator: "AND" },
-                { field: "tag", key: "class", relation: "=", value: targetClass }
-            ],
-            // 點擊通知後打開的網址 (即本頁面)
-            url: window.location.href
-        })
-    };
+// 核心合併邏輯
+function mergeHistoryRecords(localRecords, cloudRecords) {
+    const mergedMap = new Map();
+    
+    // A. 先載入雲端資料 (作為基底)
+    cloudRecords.forEach(record => {
+        if (!record) return;
+        const key = generateUniqueRecordKey(record);
+        mergedMap.set(key, record);
+    });
+    
+    // B. 再載入本地資料 (進行比對與覆蓋)
+    localRecords.forEach(localRecord => {
+        const key = generateUniqueRecordKey(localRecord);
+        if (mergedMap.has(key)) {
+            const cloudRecord = mergedMap.get(key);
+            // 如果本地的時間戳比較新，就保留本地的 (視為最新編輯)
+            if (localRecord.timestamp > cloudRecord.timestamp) {
+                mergedMap.set(key, localRecord);
+            }
+        } else {
+            // 雲端沒有，本地有 -> 新增
+            mergedMap.set(key, localRecord);
+        }
+    });
+    
+    // C. 轉回陣列並按時間倒序排列
+    return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+// 更新本地 IndexedDB (讓用戶看到最新資料)
+async function updateLocalHistoryWithMergedData(mergedRecords) {
+    const db = await openHistoryDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    
+    return new Promise((resolve, reject) => {
+        // A. 清空本地舊資料
+        const clearRequest = store.clear();
+        
+        clearRequest.onsuccess = function() {
+            // B. 寫入合併後的完整資料
+            let processed = 0;
+            if (mergedRecords.length === 0) resolve();
+
+            mergedRecords.forEach(record => {
+                const { id, ...recordData } = record; // 移除舊 ID，讓 DB 重新分配
+                store.add(recordData);
+                processed++;
+                if (processed === mergedRecords.length) resolve();
+            });
+        };
+        clearRequest.onerror = (e) => reject(e);
+    });
+}
+
+// 主同步函式 (支援靜默模式)
+async function syncHistoryToFirebase(isSilent = false) {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) {
+        if (!isSilent) alert("請先綁定身份");
+        return;
+    }
+
+    // UI 按鈕狀態處理
+    let btn = null;
+    let originalText = "";
+    if (!isSilent && typeof event !== 'undefined' && event && event.target) {
+        btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+        if (btn) {
+            originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 智能同步中...';
+            btn.disabled = true;
+        }
+    }
 
     try {
-        const response = await fetch('https://onesignal.com/api/v1/notifications', options);
-        const data = await response.json();
-        console.log('OneSignal 發送成功:', data);
+        // 1. 讀取本地資料
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const localRecords = await new Promise(resolve => {
+            store.getAll().onsuccess = (e) => resolve(e.target.result);
+        });
+
+        // 2. 讀取雲端資料
+        const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+        const snapshot = await database.ref(path).once('value');
+        const cloudRecords = snapshot.val() || [];
+
+        // 3. 執行合併
+        const finalRecords = mergeHistoryRecords(localRecords, cloudRecords);
+
+        // 4. 雙向更新
+        await database.ref(path).set(finalRecords); // 更新雲端
+        await updateLocalHistoryWithMergedData(finalRecords); // 更新本地
+
+        console.log(`同步完成：合併後共 ${finalRecords.length} 條紀錄`);
+
+        if (!isSilent) {
+            alert(`✅ 智能同步成功！\n已合併本地與雲端共 ${finalRecords.length} 條紀錄。`);
+            // 若正在檢視列表，即時刷新 UI
+            if (document.getElementById('historyLevel3').style.display === 'flex' && typeof enterHistoryList === 'function') {
+                enterHistoryList(currentSubFunctionFilter, currentThemeIndex); 
+            }
+        }
+
     } catch (err) {
-        console.error('OneSignal 發送失敗:', err);
-    }
-}
-
-/**
- * 發送推播通知給特定學生 (請在老師發還評語的代碼中調用此函式)
- * 注意：這需要 OneSignal 的 External User ID 功能，或利用 Tag 標記個別學生
- * 這裡演示利用 Tag 標記個別學生 (假設 Tag 包含 studentName)
- */
-async function sendStudentNotification(studentName, title, message) {
-    // 您需要在 bindStudentIdentity 中增加 studentName 的 Tag 才能使用此功能
-    // 這裡僅作示例
-}
-
-	
-
-// === 1. 修改打開「學生雲端中心」的函式 ===
-function openStudentLoginModal() {
-    const modal = document.getElementById('studentCloudModal');
-    if (modal) {
-        // 1. ★★★ 強制關閉其他兩個全螢幕介面 ★★★
-        document.getElementById('historyContainer').style.display = 'none';
-        document.getElementById('toolsContainer2').style.display = 'none';
-
-        // 2. 顯示視窗並鎖定捲動
-        modal.style.display = 'block'; 
-        document.body.style.overflow = 'hidden'; 
-        
-        // 3. 執行登入檢查
-        checkStudentLogin();
-
-        // 4. --- UI 按鈕狀態切換 ---
-        // 隱藏「雲端同步」按鈕 (因為已經在雲端介面了)
-        const cloudBtn = document.getElementById('sideMenuCloudBtn');
-        if (cloudBtn) cloudBtn.style.display = 'none';
-
-        // 顯示「返回主頁」按鈕
-        const homeBtn = document.getElementById('sideMenuHomeBtn');
-        if (homeBtn) homeBtn.style.display = 'flex';
-
-        // 隱藏左上角浮動的返回按鈕
-        const floatHomeBtn = document.getElementById('homeBtn');
-        if (floatHomeBtn) floatHomeBtn.style.display = 'none';
-
-        // 強制收起側邊選單
-        const sideMenu = document.getElementById('sideMenu');
-        if (sideMenu) {
-            sideMenu.classList.remove('active');
-            document.getElementById('sideMenuToggle').classList.remove('active');
+        console.error("同步失敗:", err);
+        if (!isSilent) alert("同步失敗：" + err.message);
+    } finally {
+        if (!isSilent && btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         }
     }
 }
 
-// === 2. 修改關閉「學生雲端中心」的函式 ===
-function closeStudentCloudModal() {
-    // 直接呼叫 returnToHome()，它會負責：
-    // 1. 播放退場動畫
-    // 2. 隱藏雲端視窗
-    // 3. 重新顯示主頁選單、標題、DSE倒數
-    // 4. 解鎖頁面捲動
-    returnToHome();
+// 儲存單筆紀錄函式 (自動觸發靜默同步)
+async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
+    try {
+        // 過濾聊天室 HTML
+        if (aiContent && typeof aiContent === 'string') {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = aiContent;
+            const removeSelectors = ['.canvas-chat-container', '.canvas-input-area', '.canvas-chat-history'];
+            removeSelectors.forEach(sel => tempDiv.querySelectorAll(sel).forEach(el => el.remove()));
+            aiContent = tempDiv.innerHTML;
+        }
+
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        const record = {
+            category, subFunction, title: title || "無標題",
+            userContent, aiContent, scoreData,
+            timestamp: new Date().getTime(),
+            dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
+        };
+
+        store.add(record);
+        console.log("本地紀錄已儲存");
+        
+        // ★★★ 觸發同步 ★★★
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (s) {
+            syncHistoryToFirebase(true); // 靜默同步
+        }
+
+    } catch (error) {
+        console.error("儲存紀錄失敗:", error);
+    }
 }
 
 // ==========================================
-// === 全新修訂：學生身份自動同步與轉班處理 ===
+// 3. 學生登入與身份管理邏輯
 // ==========================================
 
-// 修改原本的 checkStudentLogin
-// 修改原本的 checkStudentLogin
+// 檢查登入狀態
 async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     
     if (s) {
-        // A. UI 切換
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
-        
-        // B. 更新歡迎語
         updateWelcomeMessage(s);
-        
-        // C. 載入課業列表
         loadAssignments(s.grade, s.class);
-
-        // ★★★ 加入這行：啟動紅點監聽器 ★★★
-        monitorPendingAssignments(); 
-
-        // ★★★ 新增：強制觸發訪問記錄更新 (修正 Visits: 0 問題) ★★★
-        if (window.forceLogVisit) {
-            window.forceLogVisit();
-        }
-
-        // D. 背景驗證與 Auth 檢查
-        const user = firebase.auth().currentUser;
-        if (user) {
-            try { await user.reload(); } catch (error) { /* error handling */ }
-        }
-        verifyStudentStatus(s);
-    }
-}
-
-// 2. 輔助函式：更新歡迎文字
-function updateWelcomeMessage(profile) {
-    const numDisplay = profile.number ? `(${profile.number})` : '';
-    document.getElementById('welcomeText').innerHTML = 
-        `你好，${profile.grade}${profile.class} ${numDisplay} - ${profile.name} 
-         <span style="font-size:0.8em; color:#ccc; margin-left:5px;" id="syncStatusIcon"></span>`;
-}
-
-// 3. 【核心新增】驗證學生狀態 (同步資料 + 處理轉班 + 處理帳號失效)
-// === 1. 嚴格驗證函式 (防止寫入幽靈資料) ===
-async function verifyStudentStatus(localProfile) {
-    const statusIcon = document.getElementById('syncStatusIcon');
-    if(statusIcon) statusIcon.innerHTML = '<i class="fas fa-sync fa-spin"></i>'; 
-
-    // 路徑：students/Grade/Class/Name/profile
-    const path = `students/${localProfile.grade}/${localProfile.class}/${localProfile.name}/profile`;
-
-    try {
-        const snapshot = await database.ref(path).once('value');
-        const cloudData = snapshot.val();
-
-        if (cloudData) {
-            // A. 資料存在，檢查班號是否為空
-            if (!cloudData.number || cloudData.number === "") {
-                // ★★★ 觸發：班號輸入請求 ★★★
-                promptForNewClassNumber(localProfile, path);
-            } 
-            else if (cloudData.number != localProfile.number) {
-                // 班號存在但不一樣 (例如老師手動改了)，同步本地
-                localProfile.number = cloudData.number;
-                localStorage.setItem('studentProfile', JSON.stringify(localProfile));
-                updateWelcomeMessage(localProfile);
-            }
-            if(statusIcon) statusIcon.innerHTML = ''; 
-        } else {
-            // B. 資料不存在 (可能升班了)，執行全校搜尋
-            console.warn("原路徑找不到資料，啟動全校搜尋...");
-            findStudentNewLocation(localProfile.name);
-        }
-    } catch (error) {
-        console.error("同步檢查失敗:", error);
-    }
-}
-
-// === 新增：班號輸入介面 ===
-function promptForNewClassNumber(profile, firebasePath) {
-    // 使用簡單的 prompt 或自訂 Modal
-    // 這裡為了代碼簡潔，示範用 prompt，建議您改用您的 Modal 風格
-    let newNum = prompt(`👋 新學年好！\n\n系統已重置班號。\n請輸入您在 ${profile.grade}${profile.class} 班的新班號 (1-35)：`);
-    
-    // 簡單驗證
-    if (newNum && !isNaN(newNum) && parseInt(newNum) > 0 && parseInt(newNum) < 40) {
-        // 寫入 Firebase
-        database.ref(firebasePath).update({ number: newNum }).then(() => {
-            alert("✅ 班號已更新！");
-            
-            // 更新本地存儲
-            profile.number = newNum;
-            localStorage.setItem('studentProfile', JSON.stringify(profile));
-            updateWelcomeMessage(profile);
-        }).catch(err => {
-            alert("更新失敗，請檢查網路或權限。\n" + err.message);
-        });
-    } else {
-        if (newNum !== null) { // 如果不是按取消
-            alert("班號格式錯誤，請重新登入輸入。");
-            // 可以選擇登出他，強迫他下次再試
-        }
-    }
-}
-
-// === 2. 全校搜尋函式 (處理升班與刪除) ===
-async function findStudentNewLocation(studentName) {
-    const statusIcon = document.getElementById('syncStatusIcon');
-    
-    try {
-        // 先在正式名單找
-        const snapshot = await database.ref('students').once('value');
-        const allData = snapshot.val();
+        monitorPendingAssignments(); // 啟動紅點監聽
         
-        let found = false;
-        let newGrade = '', newClass = '', newInfo = null;
-
-        if (allData) {
-            for (const g in allData) {
-                for (const c in allData[g]) {
-                    if (allData[g][c][studentName]) {
-                        found = true;
-                        newGrade = g; newClass = c;
-                        newInfo = allData[g][c][studentName].profile;
-                        break;
-                    }
-                }
-                if (found) break;
-            }
-        }
-
-        if (found && newInfo) {
-            // A. 找到了 (例如在 4B 找到他)
-            const newProfile = {
-                name: studentName, grade: newGrade, class: newClass,
-                number: newInfo.number, email: newInfo.email
-            };
-            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
-            alert(`👋 歡迎回來！\n系統偵測到您已升班，已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
-            
-            updateWelcomeMessage(newProfile);
-            loadAssignments(newGrade, newClass);
-            
-            // ★★★ 自動補傳機制 ★★★
-            // 因為他換了新家，為了保險起見，我們觸發一次同步，把他本地的 History 上傳到新家
-            syncHistoryToFirebase(true); // true = 靜默模式
-            
-            if(statusIcon) statusIcon.innerHTML = ''; 
-
-        } else {
-            // B. 正式名單沒找到，去「待分班區」找 (S3 -> S4)
-            const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
-            
-            if (pendingSnap.exists()) {
-                alert("⏳ 您的資料目前在「待分班名單」中 (中三升中四)。\n請等待老師完成分班作業後再登入。");
-                return; // 保持等待，不登出
-            }
-
-            // C. 都找不到 -> 舊帳號失效 (例如被升班後的 3A 原地消失)
-            console.warn("資料庫無此人，判定為舊資料殘留。");
-            
-            // ★★★ 關鍵：強制登出並銷毀本地舊身分 ★★★
-            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊班級資料已失效，請重新登入並註冊您的新班級。");
-            handleStudentLogout(); 
-        }
-
-    } catch (error) {
-        console.error("搜尋錯誤:", error);
+        // 強制觸發訪問記錄
+        if (typeof forceLogVisit === 'function') forceLogVisit();
     }
 }
-// 4. 【核心新增】全校搜尋模式 (處理轉班)
-// 【核心新增】全校搜尋模式 (處理轉班與畢業)
-async function findStudentNewLocation(studentName) {
-    const statusIcon = document.getElementById('syncStatusIcon');
-    
-    try {
-        // 1. 搜尋正式名單
-        const snapshot = await database.ref('students').once('value');
-        const allData = snapshot.val();
-        
-        let found = false;
-        let newGrade = '';
-        let newClass = '';
-        let newInfo = null;
 
-        if (allData) {
-            for (const grade in allData) {
-                for (const cls in allData[grade]) {
-                    const studentsInClass = allData[grade][cls];
-                    if (studentsInClass && studentsInClass[studentName]) {
-                        found = true;
-                        newGrade = grade;
-                        newClass = cls;
-                        newInfo = studentsInClass[studentName].profile;
-                        break;
-                    }
-                }
-                if (found) break;
-            }
-        }
-
-        if (found && newInfo) {
-            // === 情況 A: 找到新班級 (自動修正本地資料) ===
-            // 這會發生在該學生已經被老師升班為 6A，但他本地還存著 5A 的時候
-            const newProfile = {
-                name: studentName,
-                grade: newGrade,
-                class: newClass,
-                number: newInfo.number,
-                email: newInfo.email
-            };
-            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
-            alert(`系統已將您的資料更新為新學年班別：${newGrade}${newClass} (${newInfo.number})`);
-            
-            updateWelcomeMessage(newProfile);
-            loadAssignments(newGrade, newClass);
-            if(statusIcon) statusIcon.innerHTML = ''; 
-
-        } else {
-            // 2. 搜尋待分班區 (pending_allocation)
-            const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
-            
-            if (pendingSnap.exists()) {
-                alert("您目前在「待分班名單」中 (例如中三升中四)。\n請等待老師完成分班作業後再登入。");
-                return; // 保持等待狀態，不登出也不寫入
-            }
-
-            // === 情況 C: 徹底找不到 (資料庫已清空，但學生本地還有舊資料) ===
-            // 這就是您擔心的情況！
-            console.warn("資料庫無此人，判定為舊學年殘留資料。");
-            
-            // ★★★ 關鍵動作：強制登出並銷毀本地資料 ★★★
-            // 這樣學生就會被踢回登入畫面，必須重新註冊為 6A
-            // 由於被踢出，系統就不會有機會寫入 "5A" 到資料庫
-            alert("系統資料庫已重置 (新學年開始)。\n\n您的舊身份 (5A) 已失效，請重新登入並註冊您的新班級。");
-            handleStudentLogout(); 
-        }
-
-    } catch (error) {
-        console.error("搜尋錯誤:", error);
-    }
-}
-	
-// 1. 初始化班號選項 (請放在 initDSECalendar 或 DOMContentLoaded 內執行，或是直接放在 script 最後)
-function initClassNumbers() {
-    const select = document.getElementById('studentNumber');
-    if (!select) return;
-    select.innerHTML = '';
-    for (let i = 1; i <= 32; i++) {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.innerText = i; // 顯示數字
-        select.appendChild(opt);
-    }
-}
-// 呼叫初始化
-document.addEventListener('DOMContentLoaded', initClassNumbers);
-
-
-// === Firebase 初始化後，宣告 Auth 實例 ===
-// 確保在 const database = firebase.database(); 附近加入這行：
-const auth = firebase.auth();
-
-// === 新增：學校電郵登入處理函式 ===
-// === 修改後：學校電郵登入處理函式 (支援手機 Redirect) ===
+// 處理學校電郵登入
 async function handleSchoolLogin() {
-    // 1. 獲取用戶輸入的資料
     const manualName = document.getElementById('studentNameInput').value.trim();
     const grade = document.getElementById('studentGrade').value;
     const cls = document.getElementById('studentClass').value;
     const number = document.getElementById('studentNumber').value;
     
-    // 2. 驗證姓名是否已填寫
     if (!manualName) {
-        alert("請務必填寫您的「中文姓名」才能進行註冊！");
-        document.getElementById('studentNameInput').focus();
+        alert("請務必填寫您的「中文姓名」！");
         return;
     }
 
@@ -14890,1564 +14719,248 @@ async function handleSchoolLogin() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
     btn.disabled = true;
 
-    // 3. 暫存資料 (以防萬一)
-    const tempStudentData = {
-        manualName: manualName,
-        grade: grade,
-        cls: cls,
-        number: number
-    };
+    // 暫存資料
+    const tempStudentData = { manualName, grade, cls, number };
     sessionStorage.setItem('sansi_temp_student_data', JSON.stringify(tempStudentData));
 
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
-        // ★★★ 關鍵修改：不分手機電腦，統一使用 Popup ★★★
-        // 這能確保頁面不刷新，資料與狀態得以保留
         const result = await auth.signInWithPopup(provider);
         await processLoginResult(result.user, btn, originalContent);
-
     } catch (error) {
         console.error("登入錯誤:", error);
-        
-        // 處理手機瀏覽器常見的 Popup 被阻擋問題
-        if (error.code === 'auth/popup-blocked') {
-            alert("⚠️ 登入視窗被瀏覽器阻擋了。\n\n請允許此網站顯示彈出式視窗，或嘗試使用其他瀏覽器 (如 Chrome)。");
-        } else if (error.code === 'auth/popup-closed-by-user') {
-            // 用戶自己關閉視窗，不做處理
-        } else {
-            alert("登入發生錯誤：" + error.message);
-        }
-        
+        alert("登入發生錯誤：" + error.message);
         btn.innerHTML = originalContent;
         btn.disabled = false;
     }
 }
 
-
-// === 新增：全校電郵搜尋函式 ===
+// 搜尋全校資料庫
 async function findProfileByEmail(targetEmail) {
     try {
-        // 讀取全校學生資料 (注意：若學生人數非常多，建議未來改用 Firebase Index)
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
-        
         if (!allData) return null;
 
-        // 遍歷所有年級、班級、學生
         for (const grade in allData) {
             for (const cls in allData[grade]) {
                 const studentsInClass = allData[grade][cls];
                 for (const name in studentsInClass) {
                     const profile = studentsInClass[name].profile;
-                    // 如果找到電郵相符的紀錄
                     if (profile && profile.email === targetEmail) {
-                        return profile; // 回傳該學生的原始資料
+                        return profile;
                     }
                 }
             }
         }
-        return null; // 沒找到，代表是新用戶
+        return null;
     } catch (error) {
-        console.error("搜尋電郵失敗:", error);
         return null;
     }
 }
 
-	
-
-// === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
+// 處理登入結果 (含合併邏輯)
 async function processLoginResult(user, btn, originalContent) {
-    // 1. 獲取用戶輸入的資料 (從暫存或DOM)
     let manualName, grade, cls, number;
-    
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
     if (storedData) {
         const data = JSON.parse(storedData);
-        manualName = data.manualName;
-        grade = data.grade;
-        cls = data.cls;
-        number = data.number;
+        manualName = data.manualName; grade = data.grade; cls = data.cls; number = data.number;
     } else {
-        manualName = document.getElementById('studentNameInput')?.value.trim();
-        grade = document.getElementById('studentGrade')?.value;
-        cls = document.getElementById('studentClass')?.value;
-        number = document.getElementById('studentNumber')?.value;
-    }
-
-    if (!manualName) {
-        alert("資料遺失，請重新輸入姓名後再試一次。");
-        if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
-        return;
+        alert("資料遺失，請重試。"); return;
     }
 
     const email = user.email;
-
-	  const debugUser = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
-
-    // 2. 檢查電郵網域
-  if (!email.endsWith('@ccckyc.edu.hk') && email !== debugUser) {
+    if (!email.endsWith('@ccckyc.edu.hk') && email !== 'kenchan20141@gmail.com') {
         await auth.signOut();
-        alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
-        sessionStorage.removeItem('sansi_temp_student_data'); 
+        alert("⛔ 驗證失敗！請使用學校電郵。");
         if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
         return;
     }
 
-    // ★★★ 關鍵新增：檢查該電郵是否已經註冊過 ★★★
+    // 檢查是否已註冊
     const existingProfile = await findProfileByEmail(email);
 
     if (existingProfile) {
-        // === 情況 A：帳號已存在 (防止重複註冊) ===
-        const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
-        const newLocation = `${grade}${cls}`;
-
-        if (oldLocation !== newLocation) {
-            alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號 (${existingProfile.name})。\n系統將忽略您剛才選擇的 ${newLocation}班，直接登入原有帳號。`);
-        } else {
-            // 如果輸入的班級跟原本一樣，就不彈警告，直接登入
-            console.log("登入舊帳號");
+        // 舊用戶：直接登入
+        const oldLoc = `${existingProfile.grade}${existingProfile.class}`;
+        const newLoc = `${grade}${cls}`;
+        if (oldLoc !== newLoc) {
+            alert(`⚠️ 偵測到此電郵已註冊於 ${oldLoc} 班，將自動切換至原有帳號。`);
         }
 
-        // 強制使用資料庫裡的舊資料，而不是用戶剛剛輸入的
         localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
-        
-        // 清除暫存與 UI 狀態
         sessionStorage.removeItem('sansi_temp_student_data');
+        
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         
-        // 執行登入後續動作
         updateWelcomeMessage(existingProfile);
         loadAssignments(existingProfile.grade, existingProfile.class);
-        monitorPendingAssignments(); // 啟動紅點監聽
+        monitorPendingAssignments();
 
-        // 這裡不需要再呼叫 bindStudentIdentity，因為資料已經在雲端了
+        // ★★★ 關鍵：登入後立即觸發智能合併，將未登入時的本地資料合併上去 ★★★
+        syncHistoryToFirebase(true);
 
     } else {
-        // === 情況 B：真的是新用戶 (執行註冊綁定) ===
-        console.log("新用戶註冊...");
+        // 新用戶：執行綁定
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
     }
 }
 
-// === 新增：學生登出處理函式 ===
-async function handleStudentLogout() {
-    if (!confirm("確定要登出學生帳號嗎？\n(登出後下次需要重新輸入姓名驗證)")) {
-        return;
-    }
+// 綁定身份
+async function bindStudentIdentity(grade, cls, number, name, email, uid) {
+    const path = `students/${grade}/${cls}/${name}/profile`;
+    try {
+        const updatePromise = database.ref(path).update({
+            name, grade, class: cls, number, email, uid,
+            last_login: new Date().toLocaleString('zh-HK'), status: 'active'
+        });
 
-	 // ★★★ [新增] OneSignal 標籤移除 ★★★
+        const profile = { grade, class: cls, number, name, email };
+        localStorage.setItem('studentProfile', JSON.stringify(profile));
+
+        // OneSignal Tag
+        if (window.OneSignalDeferred) {
+            window.OneSignalDeferred.push(function(OneSignal) {
+                OneSignal.User.addTags({ grade: String(grade), class: String(cls), userType: 'student' });
+            });
+        }
+
+        alert(`✅ 驗證成功！歡迎你，${name}。`);
+        document.getElementById('studentIdentityForm').style.display = 'none';
+        document.getElementById('studentCloudPanel').style.display = 'block';
+        updateWelcomeMessage(profile);
+        loadAssignments(grade, cls);
+        
+        // ★★★ 新用戶綁定後也同步一次 ★★★
+        syncHistoryToFirebase(true);
+        
+        await updatePromise;
+    } catch (error) {
+        console.error("資料庫寫入失敗:", error);
+    }
+}
+
+function updateWelcomeMessage(profile) {
+    const numDisplay = profile.number ? `(${profile.number})` : '';
+    document.getElementById('welcomeText').innerHTML = 
+        `你好，${profile.grade}${profile.class} ${numDisplay} - ${profile.name}`;
+}
+
+// 學生登出
+async function handleStudentLogout() {
+    if (!confirm("確定要登出嗎？")) return;
+
     if (window.OneSignalDeferred) {
         window.OneSignalDeferred.push(function(OneSignal) {
-            // 移除年級和班別標籤，停止接收該班通知
             OneSignal.User.removeTags(["grade", "class"]);
         });
     }
-    // ★★★ [新增結束] ★★★
-
-
-	 // ★★★ 新增：移除紅點監聽 ★★★
-    if (pendingMonitorRef) {
+    
+    if (typeof pendingMonitorRef !== 'undefined' && pendingMonitorRef) {
         pendingMonitorRef.off();
-        pendingMonitorRef = null;
     }
     const badge = document.getElementById('notifBadge');
     if(badge) badge.style.display = 'none';
-    // ★★★ 新增結束 ★★★
 
-    try {
-        // 1. Firebase 登出
-        await firebase.auth().signOut();
-    } catch (e) {
-        console.error("Firebase 登出錯誤 (可忽略):", e);
-    }
+    try { await firebase.auth().signOut(); } catch (e) {}
 
-    // 2. 清除本地學生資料
     localStorage.removeItem('studentProfile');
-    
-    // 3. 清除相關的課業緩存 (這裡使用萬用字元清除該使用者的緩存較難，暫時清除當前頁面狀態即可)
-    // 若您有特定的緩存命名規則，可在這裡一併移除
-
-    // 4. UI 界面重置
     document.getElementById('studentCloudPanel').style.display = 'none';
     document.getElementById('studentIdentityForm').style.display = 'block';
     
-    // 重置按鈕狀態
     const loginBtn = document.querySelector('#studentIdentityForm button');
     if (loginBtn) {
         loginBtn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入';
         loginBtn.disabled = false;
     }
-
-    // 重置輸入框 (選擇性)
     document.getElementById('studentNameInput').value = '';
-    
-    // 5. 提示訊息
     alert("已成功登出！");
 }
 
-	
-// === 綁定並儲存學生資料到 Database ===
-async function bindStudentIdentity(grade, cls, number, name, email, uid) {
-    const path = `students/${grade}/${cls}/${name}/profile`;
-
-    try {
-        // ... (Firebase 更新代碼保持不變) ...
-        const updatePromise = database.ref(path).update({
-            name: name, grade: grade, class: cls, number: number, email: email, uid: uid,
-            last_login: new Date().toLocaleString('zh-HK'), status: 'active'
-        });
-
-        // 建立本地資料物件
-        const profile = { grade, class: cls, number, name, email };
-        localStorage.setItem('studentProfile', JSON.stringify(profile));
-
-        // ★★★ [新增] OneSignal 標籤設定 (參考您的成功案例) ★★★
-        if (window.OneSignalDeferred) {
-            window.OneSignalDeferred.push(function(OneSignal) {
-                // 這是分類的關鍵：給瀏覽器貼上 "4A" 的標籤
-                OneSignal.User.addTags({
-                    grade: grade,
-                    class: cls,
-                    userType: 'student'
-                });
-                console.log("OneSignal 標籤已設定");
-            });
-        }
-        // ★★★ [新增結束] ★★★
-
-        // ... (原本的 UI 更新代碼) ...
-        alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
-        document.getElementById('studentIdentityForm').style.display = 'none';
-        document.getElementById('studentCloudPanel').style.display = 'block';
-        updateWelcomeMessage(profile);
-        loadAssignments(grade, cls);
-        await updatePromise;
-
-    } catch (error) {
-        console.error("資料庫寫入失敗:", error);
-    }
-}
-	
-// 3. 輔助函式：完成登入 (更新本地儲存)
-function finishLogin(grade, cls, number, name) {
-    const profile = { grade, class: cls, number, name };
-    localStorage.setItem('studentProfile', JSON.stringify(profile));
-    checkStudentLogin();
-    
-    // 重置按鈕
-    const btn = document.querySelector('#studentIdentityForm button');
-    if(btn) { btn.innerHTML = '綁定身份'; btn.disabled = false; }
-}
-
-
-// === 修訂版 V8：背景熱更新 (秒開緩存 + 強制同步) ===
-// === 修訂版 V10：分頁讀取 (流量救星) ===
-async function loadAssignments(grade, cls) {
-    const listDiv = document.getElementById('assignmentList');
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return;
-
-    // 重置分頁狀態
-    allAssignmentTasks = [];
-    currentLoadedCount = 0;
-    listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
-
-    // 移除舊的「載入更多」按鈕 (如果有的話)
-    const oldBtn = document.getElementById('loadMoreAssignmentsBtn');
-    if (oldBtn) oldBtn.remove();
-
-    try {
-        // 1. 讀取該班級的「功課清單」 (Metadata)
-        // 這一步流量很小，因為 assignments/{grade}/{class} 下面只有題目和日期，沒有大量文字
-        const assignmentsSnap = await database.ref(`assignments/${grade}/${cls}`).once('value');
-        const assignmentsData = assignmentsSnap.val();
-
-        if (!assignmentsData) {
-            listDiv.innerHTML = '<div style="text-align:center; padding:20px;">目前沒有新課業</div>';
-            return;
-        }
-
-        // 2. 將功課轉換為陣列並按時間倒序排列 (最新的在上面)
-        allAssignmentTasks = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
-
-        // 3. 清空列表，準備載入第一批
-        listDiv.innerHTML = '';
-
-        // 4. 載入第一批 (Top 5)
-        await loadNextBatchAssignments();
-
-    } catch (error) {
-        console.error("載入失敗", error);
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">載入失敗，請檢查網絡。</div>';
-    }
-}
-
-
-	// === 核心：分批載入詳細數據 ===
-async function loadNextBatchAssignments() {
-    const listDiv = document.getElementById('assignmentList');
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    
-    // 1. 檢查是否還有更多資料
-    if (currentLoadedCount >= allAssignmentTasks.length) {
-        return; 
-    }
-
-    // 2. 顯示局部 Loading (放在列表底部)
-    let loadingDiv = document.createElement('div');
-    loadingDiv.id = 'batchLoading';
-    loadingDiv.style.cssText = "text-align:center; padding:10px; color:#aaa; font-size:0.9em;";
-    loadingDiv.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> 讀取中...';
-    listDiv.appendChild(loadingDiv);
-
-    // 3. 切片：取出接下來的 5 份 (例如 0-5, 5-10)
-    const nextBatch = allAssignmentTasks.slice(currentLoadedCount, currentLoadedCount + BATCH_SIZE);
-
-    try {
-        // 4. 並行查詢：只下載這 5 份的提交狀態 (HTML 內容)
-        const results = await Promise.all(nextBatch.map(async ([key, task]) => {
-            const subPath = `assignments_submissions/${key}/${s.name}`;
-            const subSnap = await database.ref(subPath).once('value');
-            const submission = subSnap.val(); 
-            return { key, task, submission };
-        }));
-
-        // 移除 Loading
-        if (loadingDiv) loadingDiv.remove();
-
-        // 5. 渲染這 5 份 (傳入 true 代表 append)
-        renderAssignmentList(results, false, true); // 注意：需修改 renderAssignmentList 支援 append
-
-        // 6. 更新計數器
-        currentLoadedCount += nextBatch.length;
-
-        // 7. 檢查是否需要顯示「載入更多」按鈕
-        manageLoadMoreButton();
-
-    } catch (error) {
-        console.error("分批讀取錯誤", error);
-        if (loadingDiv) loadingDiv.innerHTML = "讀取失敗，請重試";
-    }
-}
-
-// === 管理「載入更多」按鈕的顯示 ===
-function manageLoadMoreButton() {
-    const listDiv = document.getElementById('assignmentList');
-    
-    // 先移除舊按鈕
-    const existingBtn = document.getElementById('loadMoreAssignmentsBtn');
-    if (existingBtn) existingBtn.remove();
-
-    // 如果還有剩餘資料，就加回按鈕
-    if (currentLoadedCount < allAssignmentTasks.length) {
-        const remaining = allAssignmentTasks.length - currentLoadedCount;
-        
-        const btn = document.createElement('button');
-        btn.id = 'loadMoreAssignmentsBtn';
-        // 使用莫蘭迪灰色系樣式
-        btn.style.cssText = "width:100%; padding:10px; margin-top:10px; background:#e0e0e0; color:#555; border:none; border-radius:8px; cursor:pointer; font-weight:bold;";
-        btn.innerHTML = `顯示較舊的課業 (${remaining})`;
-        
-        btn.onclick = function() {
-            this.disabled = true; // 防止連點
-            loadNextBatchAssignments();
-        };
-
-        listDiv.appendChild(btn);
-    }
-}
-
-	
-// === 輔助函數：渲染列表 HTML (避免代碼重複) ===
-// 參數: isSyncing (舊參數), isAppend (新參數: true=附加到底部, false=清空重畫)
-function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
-    const listDiv = document.getElementById('assignmentList');
-    
-    // 如果不是 Append 模式，才清空列表
-    if (!isAppend) {
-        listDiv.innerHTML = '';
-    }
-
-    let html = '';
-    const morandiPalette = ['#8fa398', '#94a7b5', '#b6a6ca', '#d69a92', '#c7b299'];
-
-    if (isSyncing) {
-        // 這是舊的同步提示，現在可能比較少用到
-        listDiv.innerHTML += `<div style="...">...</div>`;
-        return;
-    }
-
-    dataArray.forEach((item, index) => {
-        const task = item.task;
-        const submission = item.submission;
-        // 為了讓顏色連續，使用全域計數器或當前批次的索引
-        // 這裡簡單用 (currentLoadedCount - 本批次長度 + index) 比較複雜
-        // 建議直接用隨機或簡單索引即可
-        const themeColor = morandiPalette[index % morandiPalette.length];
-
-        let uiClass = '';
-        let statusIcon = '';
-        let statusText = '';
-        let clickAction = '';
-        let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
-
-        if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
-            uiClass = 'status-returned';
-            statusIcon = '<i class="fas fa-envelope-open-text"></i>';
-            statusText = '查看評語';
-            submission.topic = task.topic; 
-            const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            clickAction = `showTeacherFeedback('${submissionStr}')`;
-        }
-        else if (submission) {
-            uiClass = 'status-submitted';
-            statusIcon = '<i class="fas fa-check-circle" style="color:#5e7067;"></i>';
-            statusText = '<span style="color:#5e7067;">已繳交</span>';
-            submission.topic = task.topic;
-            submission.isPending = true; 
-            const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            clickAction = `showTeacherFeedback('${submissionStr}')`;
-        }
-        else {
-            uiClass = 'status-pending';
-            statusIcon = '<i class="fas fa-pen"></i>'; 
-            statusText = '未繳交';
-            clickAction = `goToHistoryForAssignment('${task.topic}')`;
-        }
-
-        // 建立 DOM 元素而不是純字串，這樣可以直接 appendChild
-        const cardDiv = document.createElement('div');
-        cardDiv.className = `task-card ${uiClass}`;
-        cardDiv.onclick = function() { eval(clickAction); }; // 或直接綁定函式
-        cardDiv.style.setProperty('--theme-color', themeColor);
-        cardDiv.innerHTML = `
-            <div class="task-info">
-               <div class="task-topic" style="color: ${themeColor};">${task.topic}</div>
-                <div class="task-meta">
-                    <span class="task-type-tag" style="background-color: ${themeColor}; color: white; border:none;">${task.type}</span>
-                    <span><i class="far fa-clock"></i> ${dateDisplay}</span>
-                </div>
-            </div>
-            <div class="task-status">
-                ${statusIcon} <span style="margin-left:5px;">${statusText}</span>
-            </div>
-        `;
-        
-        listDiv.appendChild(cardDiv);
-    });
-}
-	// === 新增：從未繳交課業跳轉至歷史紀錄 ===
-// === 新增：從未繳交課業跳轉至歷史紀錄 (無提示版) ===
-function goToHistoryForAssignment(topic) {
-    // 1. 關閉「學生雲端中心」彈窗
-    document.getElementById('studentCloudModal').style.display = 'none';
-    
-    // 2. 打開「歷史紀錄」容器 (這會自動顯示第一層的五個範疇卡片)
-    openHistoryContainer();
-    
-    // 3. 滾動到頁面頂部
-    window.scrollTo({ top: 0, behavior: 'instant' });
-}
-// === 顯示老師回饋 (彈窗) ===
-// === 最終修訂版：顯示老師回饋 (隱藏右上角日期 + 大地色系) ===
-function showTeacherFeedback(submissionStr) {
-    let record;
-    try {
-        record = JSON.parse(decodeURIComponent(submissionStr));
-    } catch (e) {
-        console.error("解析失敗", e);
-        return alert("資料讀取錯誤");
-    }
-
-    const feedback = record.teacherFeedback || {};
-    const isPending = record.isPending === true;
-
-    // 1. 決定主題顏色
-    let themeIndex = 1;
-    if (record.category && HISTORY_STRUCTURE[record.category]) {
-        const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
-        if (subIndex !== -1) {
-            themeIndex = (subIndex % 5) + 1;
-        }
-    }
-    const themeClass = `history-theme-context-${themeIndex}`;
-
-    // 2. 構建「老師回饋」區塊
-    let teacherFeedbackHTML = '';
-    
-    if (isPending) {
-        // 待批改
-        teacherFeedbackHTML = `
-            <div style="background:#f4f8f6; border:2px dashed #8fa398; border-radius:12px; padding:20px; text-align:center;">
-                <h3 style="color:#5e7067; margin-top:0;"><i class="fas fa-check-circle"></i> 作業已繳交</h3>
-                <p style="color:#666; margin-bottom:5px;">老師尚未批改這份作業。</p>
-                <small style="color:#999;">繳交日期：${record.submittedAt ? record.submittedAt.split(' ')[0] : '未知'}</small>
-            </div>
-        `;
-    } else {
-        // 已發還
-        const scoreDisplay = feedback.score ? `<div class="teacher-score-badge">${feedback.score}</div>` : '';
-        const dateObj = feedback.timestamp ? new Date(feedback.timestamp) : null;
-        const dateStr = dateObj ? dateObj.toLocaleDateString('zh-HK') : '未知';
-        const commentText = feedback.comment ? feedback.comment.trim() : "（沒有文字評語）";
-
-        teacherFeedbackHTML = `
-            <div class="teacher-feedback-section">
-                <div class="teacher-feedback-header">
-                    <div class="teacher-feedback-title">
-                        <i class="fas fa-chalkboard-teacher"></i> 老師回饋
-                    </div>
-                    ${scoreDisplay}
-                </div>
-                <div class="teacher-comment-content">${commentText}</div>
-                
-                <div style="text-align:right; margin-top:15px; font-size:0.85em; color:#a1887f;">
-                    <i class="far fa-calendar-alt"></i> 批改日期：${dateStr}
-                </div>
-            </div>
-        `;
-    }
-
-    // 3. 構建整體內容 HTML
-    let contentHTML = teacherFeedbackHTML;
-
-    // 如果有學生內容，加入分隔線
-    if (record.userContent || record.aiContent) {
-        contentHTML += `<div class="feedback-separator"></div>`;
-    }
-
-    // 4. 構建「學生原稿」區塊
-    if (record.userContent) {
-        const rawText = record.userContent;
-        const lines = rawText.split('\n');
-        let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
-        let currentLabel = '輸入內容'; 
-        let currentContent = [];
-        const labelRegex = /^(.{2,10}?)[：:](.*)$/;
-
-        lines.forEach((line) => {
-            const match = line.match(labelRegex);
-            if (match) {
-                if (currentContent.length > 0) {
-                    parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
-                }
-                currentLabel = match[1].trim(); 
-                const restOfLine = match[2].trim();
-                currentContent = restOfLine ? [restOfLine] : []; 
-            } else {
-                if (line.trim() !== "") currentContent.push(line);
-            }
-        });
-
-        if (currentContent.length > 0 || lines.length === 0) { 
-             const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-             parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
-        }
-        parsedHTML += '</div>';
-        
-        contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
-                            ${parsedHTML}
-                        </div>`;
-    }
-
-    // 加入 AI 分析結果 (這裡通常包含 HTML 結構，但不包含活的 Canvas)
-    if (record.aiContent) {
-        contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
-    }
-
-    // 5. 顯示 Modal
-    const historyModal = document.getElementById('historyModal');
-    const modalTitle = document.getElementById('historyModalTitle');
-    const modalContent = document.getElementById('historyModalContent');
-    const modalDate = document.getElementById('historyModalDate');
-
-    modalTitle.innerHTML = `<span style="color:#2A9689; font-weight:bold;">${record.topic || "課業紀錄"}</span>`;
-    
-    if (modalDate) {
-        modalDate.style.display = 'none'; 
-    }
-
-    modalContent.innerHTML = contentHTML;
-    historyModal.style.display = 'flex';
-
-    // 6. ★★★ [核心修復] 雷達圖重繪邏輯 ★★★
-    // 使用 setTimeout 確保 DOM 渲染完成後再繪圖
-    setTimeout(() => {
-        // 檢查是否有分數數據
-        if (record.scoreData && record.scoreData.radar) {
-            
-            // A. 嘗試在 AI 輸出區域尋找現有的 Canvas
-            let canvasEl = modalContent.querySelector('canvas');
-
-            // B. 如果找不到 (例如舊資料的 aiContent 裡沒有 Canvas 標籤)，則動態建立一個
-            if (!canvasEl) {
-                const aiOutputArea = modalContent.querySelector('.ai-output-area');
-                if (aiOutputArea) {
-                    // 建立圖表容器
-                    const chartWrapper = document.createElement('div');
-                    chartWrapper.style.width = '100%';
-                    chartWrapper.style.maxWidth = '500px';
-                    chartWrapper.style.height = '350px';
-                    chartWrapper.style.margin = '20px auto';
-                    chartWrapper.style.position = 'relative';
-                    
-                    // 建立 Canvas
-                    const newCanvas = document.createElement('canvas');
-                    chartWrapper.appendChild(newCanvas);
-                    
-                    // 將圖表插入到 AI 內容的最上方
-                    aiOutputArea.insertBefore(chartWrapper, aiOutputArea.firstChild);
-                    
-                    canvasEl = newCanvas;
-                }
-            }
-
-            // C. 執行 Chart.js 繪圖
-            if (canvasEl) {
-                const radarData = [
-                    record.scoreData.radar.立意 || 0,
-                    record.scoreData.radar.取材 || 0,
-                    record.scoreData.radar.扣題 || 0,
-                    record.scoreData.radar.詳略 || 0,
-                    record.scoreData.radar.詞彙 || 0,
-                    record.scoreData.radar.文學性 || 0
-                ];
-
-                new Chart(canvasEl.getContext('2d'), {
-                    type: 'radar',
-                    data: {
-                        labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                        datasets: [{
-                            label: '能力評估',
-                            data: radarData,
-                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                            borderColor: 'rgba(54, 162, 235, 1)',
-                            borderWidth: 2,
-                            pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                            pointBorderColor: '#fff'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false, // 關鍵：允許填滿高度
-                        scales: {
-                            r: {
-                                angleLines: { display: true },
-                                suggestedMin: 0,
-                                suggestedMax: 10,
-                                pointLabels: {
-                                    font: { size: 14, family: "'Noto Serif TC', serif" }
-                                },
-                                ticks: { stepSize: 2, display: false }
-                            }
-                        },
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
-            }
-        }
-    }, 100); // 延遲 100ms 確保 HTML 已注入
-}
-// === 執行未繳交課業動作 (簡化版) ===
-function doAssignment(type, topic) {
-    document.getElementById('studentCloudModal').style.display = 'none';
-    
-    // 跳轉邏輯 (與之前相同)
-    if (type === '敘事' || type === '敘事抒情') {
-        document.getElementById('writingBtn').click();
-        setTimeout(() => {
-            const select = document.getElementById('writingType');
-            if (select) { select.value = '片段描寫'; toggleWritingType(); }
-            const btn = document.querySelector('#topicSelectionArea .btn-custom');
-            if(btn) btn.click();
-            const titleInput = document.getElementById('customTitle') || document.getElementById('customTopic');
-            if (titleInput) {
-                titleInput.value = topic;
-                titleInput.focus();
-                alert(`題目「${topic}」已準備就緒，請開始寫作。`);
-            }
-        }, 800);
-    } else if (type === '議論') {
-        document.getElementById('argumentBtn').click();
-        setTimeout(() => {
-            const select = document.getElementById('argumentType');
-            if (select) { select.value = 'writing'; toggleArgumentType(); }
-            const btn = document.querySelector('#argumentTopicSelectionArea .btn-custom');
-            if(btn) btn.click();
-            const titleInput = document.getElementById('argumentCustomTopic');
-            if (titleInput) {
-                titleInput.value = topic;
-                setArgumentCustomTopic();
-                alert(`題目「${topic}」已鎖定。`);
-            }
-        }, 800);
-    }
-    // 可繼續擴充其他類型...
-}
-
-// === 核心：同步 IndexedDB 到 Firebase ===
-// 2. 修改 syncHistoryToFirebase：移除成功提示
-async function syncHistoryToFirebase(isSilent = false) {
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) {
-        if (!isSilent) alert("請先綁定身份");
-        return;
-    }
-
-    let btn = null;
-    let originalText = "";
-    
-    // 只有在非靜默模式（手動點擊）且存在事件對象時，才改變按鈕狀態
-    // 加入 typeof event 檢查以防止在某些自動調用情境下報錯
-    if (!isSilent && typeof event !== 'undefined' && event && event.target) {
-        btn = event.target;
-        // 如果點到的是圖示 (i 標籤)，則向上尋找 button 標籤
-        if (btn.tagName !== 'BUTTON') {
-            btn = btn.closest('button');
-        }
-        
-        if (btn) {
-            originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
-            btn.disabled = true;
-        }
-    }
-
-    try {
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = function(e) {
-            const records = e.target.result;
-            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-            
-            database.ref(path).set(records, (error) => {
-                if (error) {
-                    console.error("自動同步失敗:", error);
-                    // 只有失敗時，且非靜默模式才彈窗警告
-                    if (!isSilent) alert("上傳失敗：" + error.message);
-                } else {
-                    console.log("自動同步成功");
-                    // ★★★ 已移除 alert("✅ 成功同步所有紀錄給老師！"); ★★★
-                }
-                
-                // 無論成功或失敗，都要恢復按鈕狀態
-                if (!isSilent && btn) {
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                }
-            });
-        };
-        
-        request.onerror = function(e) {
-            console.error("IndexedDB 讀取錯誤", e);
-            if (!isSilent && btn) {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-            }
-        };
-
-    } catch (err) {
-        console.error(err);
-        if (!isSilent && btn) {
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-        }
-    }
-}
-
-
-// 1. 打開選擇視窗，列出該班級的有效作業
-// === 繳交邏輯 1: 打開選擇視窗 ===
-function openSubmitSelector(recordId) {
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return alert("請先在「雲端同步」中綁定身份！");
-
-    // 將紀錄 ID 存入隱藏欄位，稍後繳交時使用
-    document.getElementById('pendingRecordId').value = recordId;
-    document.getElementById('submitAssignmentModal').style.display = 'flex';
-    
-    const listDiv = document.getElementById('activeAssignmentList');
-    listDiv.innerHTML = '<div style="text-align:center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> 正在讀取老師的課業列表...</div>';
-
-    // 從 Firebase 讀取該班級的作業
-    database.ref(`assignments/${s.grade}/${s.class}`).once('value', (snapshot) => {
-        const data = snapshot.val();
-        listDiv.innerHTML = '';
-
-        if (!data) {
-            listDiv.innerHTML = '<p style="color:#999; text-align:center;">目前老師沒有派發任何課業。</p>';
-            return;
-        }
-
-        const keys = Object.keys(data).reverse(); // 新的在上面
-        
-        keys.forEach(key => {
-            const task = data[key];
-            const item = document.createElement('div');
-            item.style.cssText = "padding: 15px; margin-bottom: 10px; background: #fff; border: 2px solid #eee; border-radius: 10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between;";
-            
-            item.innerHTML = `
-                <div>
-                    <div style="font-weight:bold; color:#333; font-size: 1.1rem; margin-bottom: 5px;">${task.topic}</div>
-                    <div style="font-size:0.85em; color:#666;">
-                        <span style="background:#e0f7fa; color:#006064; padding:2px 8px; border-radius:4px; font-weight:bold;">${task.type}</span>
-                        ${new Date(task.timestamp).toLocaleDateString()}
-                    </div>
-                </div>
-                <div style="color: #2A9689; font-size: 1.2rem;"><i class="fas fa-upload"></i></div>
-            `;
-            
-            // 滑鼠效果
-            item.onmouseover = function() { 
-                this.style.borderColor = "#2A9689"; 
-                this.style.background = "#f0fdfc"; 
-                this.style.transform = "translateY(-2px)";
-            };
-            item.onmouseout = function() { 
-                this.style.borderColor = "#eee"; 
-                this.style.background = "#fff"; 
-                this.style.transform = "translateY(0)";
-            };
-            
-            // 點擊即繳交
-            item.onclick = function() { confirmAndSubmitAssignment(key, task.topic); };
-            
-            listDiv.appendChild(item);
-        });
-    });
-}
-
-// === 繳交邏輯 2: 確認並上傳 ===
-async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
-    const recordId = parseInt(document.getElementById('pendingRecordId').value);
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-
-    // 二次確認
-    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(注意：這將會覆蓋你之前對此功課的繳交內容)`)) return;
-
-    try {
-        // 從本地資料庫撈出該筆紀錄的完整資料
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(recordId);
-
-        request.onsuccess = function(e) {
-            const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // 上傳到 Firebase 的 assignments_submissions 路徑
-            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
-            
-            // 顯示載入中
-            const modalBody = document.getElementById('activeAssignmentList');
-            modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師...</div>';
-
-            database.ref(submitPath).set({
-                ...record, // 包含 title, userContent, aiContent
-                submittedAt: new Date().toLocaleString('zh-HK'),
-                studentName: s.name,
-                studentClass: s.class,
-                studentGrade: s.grade
-            }, (error) => {
-                if (error) {
-                    alert("繳交失敗：" + error.message);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                } else {
-                    // 成功特效與提示
-                    alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                }
-            });
-        };
-    } catch (err) {
-        console.error(err);
-        alert("系統錯誤，無法讀取紀錄。");
-    }
-}
-
-// 2. 執行繳交動作
-async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
-    const recordId = parseInt(document.getElementById('pendingRecordId').value);
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-
-    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(這將會覆蓋你之前對此功課的繳交)`)) return;
-
-    try {
-        // A. 從 IndexedDB 獲取該紀錄的完整內容
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(recordId);
-
-        request.onsuccess = function(e) {
-            const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // B. 寫入 Firebase 的 submissions 路徑
-            // 路徑：assignments_submissions/課業ID/學生姓名
-            // 這樣老師可以通過「課業ID」直接拉出所有人的這份功課
-            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
-            
-            database.ref(submitPath).set({
-                ...record, // 包含原本的所有內容 (title, userContent, aiContent...)
-                submittedAt: new Date().toLocaleString('zh-HK'),
-                studentName: s.name,
-                studentClass: s.class,
-                studentGrade: s.grade
-            }, (error) => {
-                if (error) {
-                    alert("繳交失敗：" + error.message);
-                } else {
-                    alert(`🎉 繳交成功！\n已將此紀錄呈交給老師。`);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                }
-            });
-        };
-    } catch (err) {
-        console.error(err);
-        alert("系統錯誤，無法讀取紀錄。");
-    }
-}
-
-
 // ==========================================
-// === 學習報告選單邏輯 (新增) ===
+// 4. 通知與紅點系統 (修復順序依賴)
 // ==========================================
-
-function openReportMenu() {
-    document.getElementById('reportMenuModal').style.display = 'flex';
-}
-
-function closeReportMenu(event) {
-    // 點擊背景才關閉，點擊內容不關閉
-    if (event.target.id === 'reportMenuModal') {
-        document.getElementById('reportMenuModal').style.display = 'none';
-    }
-}
-
-function viewPastReports() {
-    // 1. 關閉選單
-    document.getElementById('reportMenuModal').style.display = 'none';
-    
-    // 2. 直接導航到「學習報告」範疇 -> 「綜合分析」列表
-    // 假設我們在 HISTORY_STRUCTURE 定義了 "學習報告"
-    // 傳入 5 代表使用第 5 種主題色 (奶茶棕)
-    enterHistoryCategory('學習報告'); 
-    setTimeout(() => {
-        enterHistoryList('綜合分析', 5);
-    }, 100);
-}
-
-// ==========================================
-// === 全新功能：生成智能學習報告 (V7 - 數據化存檔版) ===
-// ==========================================
-
-async function generateHistoryReport() {
-    // 關閉選單
-    document.getElementById('reportMenuModal').style.display = 'none';
-
-    const btn = document.querySelector('button[title="學習報告"]');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    }
-
-    console.log("1. 開始生成深度報告...");
-
-    try {
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-
-        request.onsuccess = async function(event) {
-            const records = event.target.result;
-
-            if (!records || records.length === 0) {
-                alert("目前沒有足夠的歷史紀錄來生成報告，請先多做練習！");
-                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-chart-pie"></i>'; }
-                return;
-            }
-
-            // === 1. 數據聚合 (保持不變) ===
-            const stats = {
-                "敘事抒情": { count: 0, scores: { content: 0, expression: 0, structure: 0 }, radar: { 立意: 0, 取材: 0, 扣題: 0, 詳略: 0, 詞彙: 0, 文學性: 0 }, snippets: [] },
-                "議論": { count: 0, scores: { content: 0, expression: 0, structure: 0 }, radar: { 立意: 0, 取材: 0, 扣題: 0, 詳略: 0, 詞彙: 0, 文學性: 0 }, snippets: [] },
-                "閱讀": { snippets: [] },
-                "整合拓展": { snippets: [] }
-            };
-
-            const parser = new DOMParser();
-
-            records.forEach(r => {
-                if (!r.aiContent) return;
-                const cleanText = r.aiContent.replace(/<[^>]*>?/gm, ' ');
-                let snippet = "";
-                const critiqueIndex = cleanText.indexOf("點評");
-                const suggestionIndex = cleanText.indexOf("建議");
-                if (critiqueIndex !== -1) snippet += "[評]" + cleanText.substring(critiqueIndex + 3, critiqueIndex + 60).trim();
-                if (suggestionIndex !== -1) snippet += " [議]" + cleanText.substring(suggestionIndex + 3, suggestionIndex + 60).trim();
-                const summary = `日期:${r.dateStr}|題目:${r.title}|${snippet}`;
-                if (stats[r.category]) {
-                    stats[r.category].snippets.push(summary);
-                }
-                if (r.category === "敘事抒情" || r.category === "議論") {
-                    try {
-                        const doc = parser.parseFromString(r.aiContent, 'text/html');
-                        const contentInput = doc.querySelector('input[id*="ContentScore"]');
-                        const exprInput = doc.querySelector('input[id*="ExpressionScore"]');
-                        const structInput = doc.querySelector('input[id*="StructureScore"]');
-                        if (contentInput && exprInput && structInput) {
-                            stats[r.category].count++;
-                            const c = parseInt(contentInput.value || 5);
-                            const e = parseInt(exprInput.value || 5);
-                            const s = parseInt(structInput.value || 5);
-                            stats[r.category].scores.content += c;
-                            stats[r.category].scores.expression += e;
-                            stats[r.category].scores.structure += s;
-                            stats[r.category].radar.立意 += (c * 0.6 + s * 0.4);
-                            stats[r.category].radar.取材 += (c * 0.8 + e * 0.2);
-                            stats[r.category].radar.扣題 += (c * 0.7 + s * 0.3);
-                            stats[r.category].radar.詳略 += (s * 0.7 + c * 0.3);
-                            stats[r.category].radar.詞彙 += e;
-                            stats[r.category].radar.文學性 += e;
-                        }
-                    } catch (e) { }
-                }
-            });
-
-            // === 2. 計算平均值 & 綜合等級 ===
-            const finalStats = {};
-            let globalTotalScore = 0;
-            let globalCount = 0;
-
-            ["敘事抒情", "議論"].forEach(cat => {
-                const s = stats[cat];
-                if (s.count > 0) {
-                    finalStats[cat] = {
-                        content: Math.round(s.scores.content / s.count),
-                        expression: Math.round(s.scores.expression / s.count),
-                        structure: Math.round(s.scores.structure / s.count),
-                        radar: [
-                            parseFloat((s.radar.立意 / s.count).toFixed(1)),
-                            parseFloat((s.radar.取材 / s.count).toFixed(1)),
-                            parseFloat((s.radar.扣題 / s.count).toFixed(1)),
-                            parseFloat((s.radar.詳略 / s.count).toFixed(1)),
-                            parseFloat((s.radar.詞彙 / s.count).toFixed(1)),
-                            parseFloat((s.radar.文學性 / s.count).toFixed(1))
-                        ]
-                    };
-                    const totalScore = (finalStats[cat].content * 4) + (finalStats[cat].expression * 3) + (finalStats[cat].structure * 2) + 8; // +5+3
-                    finalStats[cat].total = Math.min(totalScore, 100);
-                    finalStats[cat].level = determineGrade(finalStats[cat].total);
-                    globalTotalScore += finalStats[cat].total * s.count;
-                    globalCount += s.count;
-                }
-            });
-
-            let overallLevel = "待定";
-            if (globalCount > 0) {
-                const avgGlobalScore = globalTotalScore / globalCount;
-                overallLevel = determineGrade(avgGlobalScore);
-            }
-
-            // === 3. 構建 Prompt ===
-            let promptData = "";
-            let hasData = false;
-            for (const [cat, data] of Object.entries(stats)) {
-                if (data.snippets.length > 0) {
-                    hasData = true;
-                    promptData += `\n【${cat}】(最近紀錄):\n${data.snippets.slice(-5).join('\n')}\n`;
-                }
-            }
-
-            if (!hasData) {
-                alert("找不到有效的文字紀錄。");
-                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-chart-pie"></i>'; }
-                return;
-            }
-
-            showLoading("陳SIR 正在生成學習報告...");
-
-            // Prompt 結構
-             const prompt = `你現在扮演一位資深的中文科老師「陳SIR」。請根據學生以下的歷史紀錄，生成一份「學習概況報告」。
-
-### 學生歷史紀錄摘要：
-${promptData}
-
-### 你的任務：
-綜合分析數據。**不要使用列點**，直接用流暢、溫暖、專業的段落文字分析。
-
-### 輸出格式要求 (嚴格遵守 HTML)：
-請直接輸出以下 HTML，不要用 Markdown。
-
-1. **整體評語** (注意：請將綜合評級 ${overallLevel} 填入下方指定位置)：
-   <div class="report-section">
-       <div class="report-category-badge badge-general">
-           <div class="badge-general-title"><i class="fas fa-user-graduate"></i> 整體學習概況</div>
-           <div class="overall-grade-tag">
-               <span class="overall-grade-label">綜合評級</span>
-               <span>${overallLevel}</span>
-           </div>
-       </div>
-       <div class="report-text-card">
-           <p>(約100字整體鼓勵性評語，請提及學生目前的綜合水平 ${overallLevel})</p>
-       </div>
-   </div>
-   
-   <!-- 分隔線 -->
-   <div class="report-separator"></div>
-
-2. **分範疇分析**：(針對有數據的範疇)
-   <div class="report-section">
-       <div class="report-category-badge badge-[narrative/argument/reading/expand]"><i class="fas fa-book"></i> [範疇名稱]</div>
-       <div class="report-text-card">
-           <p>(詳細分析該範疇的強項與弱項)</p>
-       </div>
-   </div>
-   *badge class: badge-narrative, badge-argument, badge-reading, badge-expand*
-
-3. **陳SIR寄語**：
-   <div class="report-quote-card">
-       <div class="report-quote-content">「(金句內容)」</div>
-       <div class="report-quote-author">—— 陳SIR</div>
-   </div>`;
-
-            // 呼叫 API
-            const reportHTML = await callReadingAPI(prompt);
-
-            // === 4. 組合與渲染 ===
-            openResultCanvas("學習歷程報告");
-            const resultBody = document.getElementById("resultCanvasBody");
-            const today = new Date().toLocaleDateString('zh-HK');
-            let finalOutput = `<div style="text-align:right; margin-bottom:20px; color:#aaa; font-size:0.9em;">報告日期：${today}</div>`;
-
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = reportHTML;
-
-            // 插入圖表結構
-            ["敘事抒情", "議論"].forEach(cat => {
-                const badgeClass = cat === "敘事抒情" ? ".badge-narrative" : ".badge-argument";
-                const aiHeader = tempDiv.querySelector(badgeClass);
-                
-                if (finalStats[cat] && aiHeader) {
-                    const sectionDiv = aiHeader.closest('.report-section');
-                    const textCard = sectionDiv.querySelector('.report-text-card');
-                    const aiText = textCard ? textCard.innerHTML : "";
-                    const uniqueId = cat === "敘事抒情" ? "reportNarrative" : "reportArgument";
-
-                    const chartHTML = `
-                    <div class="report-section">
-                        ${aiHeader.outerHTML}
-                        <div class="report-radar-wrapper">
-                            <div class="grading-container" style="margin:0; border:none; padding:0;">
-                                <div class="grading-grid">
-                                    <div class="grading-scores" style="padding:15px;">
-                                        <h3>綜合能力評估 (平均)</h3>
-                                        <div class="score-item"><label>內容 (40)</label><div class="slider-container"><div class="progress-bar-container"><div style="width:${finalStats[cat].content * 10}%" class="progress-bar-fill"></div></div><span class="score-display">${finalStats[cat].content * 4}</span></div></div>
-                                        <div class="score-item"><label>表達 (30)</label><div class="slider-container"><div class="progress-bar-container"><div style="width:${finalStats[cat].expression * 10}%" class="progress-bar-fill"></div></div><span class="score-display">${finalStats[cat].expression * 3}</span></div></div>
-                                        <div class="score-item"><label>結構 (20)</label><div class="slider-container"><div class="progress-bar-container"><div style="width:${finalStats[cat].structure * 10}%" class="progress-bar-fill"></div></div><span class="score-display">${finalStats[cat].structure * 2}</span></div></div>
-                                        <div class="score-item"><label>標點字體 (10)</label><div class="slider-container"><div class="progress-bar-container"><div style="width:50%" class="progress-bar-fill"></div></div><span class="score-display">5</span></div></div>
-                                        <div class="score-item"><label>錯別字 (+3)</label><div class="slider-container"><div class="progress-bar-container"><div style="width:100%" class="progress-bar-fill"></div></div><span class="score-display">3</span></div></div>
-                                        <div class="total-score-container">
-                                            <span style="font-size:1.1em; color:#555;">平均總分: ${finalStats[cat].total} / 100</span>
-                                            <span style="font-size:2em; font-weight:bold; color:#d9534f; margin-left:auto;">${finalStats[cat].level}</span>
-                                        </div>
-                                    </div>
-                                    <div class="grading-radar" style="padding:15px;">
-                                        <h3>能力分佈</h3>
-                                        <div class="radar-chart-container" style="height:250px;">
-                                            <canvas id="${uniqueId}Chart"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="report-text-card">
-                            ${aiText}
-                        </div>
-                    </div>`;
-                    sectionDiv.outerHTML = chartHTML;
-                }
-            });
-
-            resultBody.innerHTML = finalOutput + tempDiv.innerHTML;
-
-            // === 5. 渲染圖表並存檔 (重點修訂) ===
-            setTimeout(() => {
-                // 這裡保留原本的圖表渲染邏輯，讓學生當下看得到
-                ["敘事抒情", "議論"].forEach(cat => {
-                    if (finalStats[cat]) {
-                        const uniqueId = cat === "敘事抒情" ? "reportNarrative" : "reportArgument";
-                        const ctxEl = document.getElementById(`${uniqueId}Chart`);
-                        if (ctxEl) {
-                            new Chart(ctxEl.getContext('2d'), {
-                                type: 'radar',
-                                data: {
-                                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                    datasets: [{
-                                        label: '平均能力',
-                                        data: finalStats[cat].radar,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                        borderColor: 'rgba(54, 162, 235, 1)',
-                                        borderWidth: 2,
-                                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                        pointBorderColor: '#fff'
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        r: {
-                                            angleLines: { display: true },
-                                            suggestedMin: 0, suggestedMax: 10,
-                                            pointLabels: { font: { size: 12, family: "'Noto Serif TC', serif" } },
-                                            ticks: { stepSize: 2, display: false }
-                                        }
-                                    },
-                                    plugins: { legend: { display: false } }
-                                }
-                            });
-                        }
-                    }
-                });
-
-                // ★★★ 存檔 (傳入 finalStats 作為原始數據) ★★★
-                setTimeout(() => {
-                    // captureContainerHTML 已經在外部修改為不轉圖片
-                    const htmlToSave = captureContainerHTML('resultCanvasBody');
-                    saveToHistory(
-                        "學習報告", 
-                        "綜合分析", 
-                        `學習報告 (${today})`, 
-                        `系統自動生成之學習歷程分析。\n綜合評級：${overallLevel}`, 
-                        htmlToSave,
-                        finalStats // ★★★ 關鍵：傳入報告的原始統計數據，讓老師端可以動態繪圖
-                    );
-                    console.log("報告已自動存檔並同步 (含數據)。");
-                }, 500);
-
-            }, 100);
-
-            hideAllSaveHtmlButtons();
-            
-            // 強制顯示
-            const canvas = document.getElementById("resultCanvas");
-            const loadingOverlay = document.getElementById("loadingOverlay");
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-            if (canvas) {
-                canvas.style.display = 'block';
-                canvas.style.zIndex = '99999';
-                document.body.style.overflow = 'hidden';
-            }
-
-        };
-
-        request.onerror = function(e) { console.error("DB Error:", e); alert("讀取失敗"); hideLoading(); };
-
-    } catch (error) {
-        console.error("Report Error:", error);
-        alert("生成失敗：" + error.message);
-        hideLoading();
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-chart-pie"></i>'; }
-    }
-}
-	
-	
-</script>
-
-<footer class="copyright-footer">
-<p>Copyright © 2025 陳冠健. All rights reserved.</p>
-</footer>
-
-<!-- === 大綱編輯懸浮視窗 (修正版) === -->
-<!-- === 大綱編輯懸浮視窗 (修正版) === -->
-<div id="outline-editor-modal" class="outline-modal-overlay">
-    <div class="outline-modal-content">
-        <h3 id="modal-title">編輯內容</h3>
-        
-        <!-- ★★★ 新增：懸浮視窗內的範文選擇器 (預設隱藏) ★★★ -->
-        <select id="modal-template-select" style="display: none; margin-bottom: 10px; padding: 8px; font-size: 16px; border: 1px solid #2A9689; border-radius: 5px; background-color: #f0fdfc;">
-            <option value="">指定範文</option>
-        </select>
-        <!-- ★★★ 新增結束 ★★★ -->
-
-        <textarea id="modal-textarea" rows="15"></textarea>
-        <div class="modal-buttons">
-            <button id="modal-ocr-btn" class="btn-action" style="background-color: #17a2b8;">OCR</button>
-            <button id="modal-save-btn" class="btn-action">輸入</button>
-        </div>
-        <button id="modal-close-btn" class="preview-close-btn" title="關閉">&times;</button>
-    </div>
-</div>
-	<!-- 煙花特效畫布 -->
-<canvas id="fireworksCanvas"></canvas>
-<!-- 學生雲端中心 (修訂版：加入姓名輸入與指引) -->
-<div id="studentCloudModal" class="books-modal">
-    <div class="modal-content">
-        <span class="close-modal-btn" onclick="closeStudentCloudModal()">&times;</span>
-
-        <!-- 身份設定表單 -->
-        <div id="studentIdentityForm">
-            
-            <!-- 新增：標題與指引區塊 -->
-       <div style="margin-bottom: 20px; border-bottom: 2px dashed #b0bec5; padding-bottom: 15px; text-align: center;">
-    <h3 style="color: #546e7a; margin: 0 0 15px 0; font-size: 1.5em;">註冊帳號</h3>
-    
-    <div style="background-color: #e8ecef; padding: 15px; border-radius: 8px; text-align: center; color: #78909c; font-size: 0.95em; line-height: 1.6;">
-        <div style="font-weight: bold; margin-bottom: 8px;">
-            <i class="fas fa-info-circle"></i> 指引：
-        </div>
-        <div style="text-align: left; margin-top: 5px;">
-            請先輸入您的<strong>中文姓名</strong>，並選擇正確的<strong>年級、班別及班號</strong>，確認無誤後，再點擊下方的「學校帳號登入」按鈕。
-        </div>
-    </div>
-</div>
-
-            <!-- 新增：姓名輸入欄位 -->
-            <label style="font-weight: bold; color: #455a64;">姓名：</label>
-            <input type="text" id="studentNameInput" class="no-modal-editor" placeholder="請輸入您的中文全名 (例如：陳大文)" 
-                   style="width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #cfd8dc; border-radius: 8px; font-size: 1.1em;">
-
-            <!--原有的選單 -->
-            <div style="display: flex; gap: 10px;">
-                <div style="flex: 1;">
-                    <label style="font-weight: bold; color: #455a64;">年級：</label>
-                    <select id="studentGrade" class="no-modal-editor">
-                        <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
-                        <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
-                    </select>
-                </div>
-                <div style="flex: 1;">
-                    <label style="font-weight: bold; color: #455a64;">班別：</label>
-                    <select id="studentClass" class="no-modal-editor">
-                        <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
-                    </select>
-                </div>
-            </div>
-
-            <label style="font-weight: bold; color: #455a64;">班號：</label>
-            <select id="studentNumber" class="no-modal-editor">
-                <!-- JS 會自動填入選項 -->
-            </select>
-
-            <!-- 登入按鈕區塊 -->
-            <div style="margin-top: 25px; padding: 20px; background: #fff; border: 2px solid #607d8b; border-radius: 12px; text-align: center;">
-                <p style="color: #78909c; margin-bottom: 15px; font-size: 0.9em;">
-                    系統將驗證您的 @ccckyc.edu.hk 學校電郵
-                </p>
-                
-                <button class="btn-action" onclick="handleSchoolLogin()" 
-                        style="width: 100%; background-color: #607d8b; border: none; padding: 12px; font-size: 1.1em; letter-spacing: 1px; box-shadow: 0 4px 10px rgba(96, 125, 139, 0.3);">
-                    <i class="fab fa-google"></i> 學校帳號登入
-                </button>
-            </div>
-        </div>
-
-       <!-- 登入後顯示區域 -->
-<div id="studentCloudPanel" style="display:none; margin-top:15px;">
-    
-    <!-- 修改處：將歡迎文字與登出按鈕放在同一個容器內 -->
-    <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
-        <p id="welcomeText" style="font-weight:bold; color:#555; font-size:1.1em; margin: 0;"></p>
-        
-        <!-- 新增：圖案設計的登出鍵 -->
-        <button class="logout-icon-btn" onclick="handleStudentLogout()" title="登出帳號">
-            <i class="fas fa-sign-out-alt"></i>
-        </button>
-    </div>
-
-    <div style="border-top: 1px dashed #ccc; margin: 15px 0; padding-top:10px;">
-        <h4 style="margin-top:0; color:#2A9689;"><i class="fas fa-tasks"></i> 你的課業狀態</h4>
-        <div id="assignmentList" style="max-height: 250px; overflow-y:auto; padding-right:5px;">
-            載入中...
-        </div>
-    </div>
-</div>
-    </div>
-</div>
-
-      
-        </div>
-    </div>
-</div>
-
-<!-- 繳交功課選擇視窗 -->
-<div id="submitAssignmentModal" class="books-modal" style="z-index: 2200;">
-    <div class="modal-content" style="max-width: 400px;">
-        <span class="close-modal-btn" onclick="document.getElementById('submitAssignmentModal').style.display='none'">&times;</span>
-        <h3 style="color: #2A9689; border-bottom: 2px solid #eee; padding-bottom: 10px;">
-            <i class="fas fa-paper-plane"></i> 繳交課業
-        </h3>
-        <p>請選擇這份紀錄屬於哪一份課業：</p>
-        
-        <!-- 這裡會動態載入老師開設的功課 -->
-        <div id="activeAssignmentList" style="margin: 15px 0; max-height: 200px; overflow-y: auto;">
-            載入中...
-        </div>
-
-        <input type="hidden" id="pendingRecordId"> <!-- 暫存要繳交的紀錄 ID -->
-    </div>
-</div>
-
-	<!-- === 加載動畫覆蓋層 (新增) === -->
-<div id="loadingOverlay" class="loading-overlay">
-    <div class="loading-content">
-        <!-- 加入了 id="loadingImage" -->
-        <img src="生成中.gif" alt="Loading" class="loading-gif" id="loadingImage"> 
-        <div class="loading-text" id="loadingText">正在思考中...</div>
-    </div>
-</div>
-
-<!-- 新增的畫布 HTML -->
-<div id="resultCanvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #fdfcf8; z-index: 30000; display: none; overflow-y: auto; font-family: 'Noto Serif TC', serif;">
-    <div style="max-width: 900px; margin: 0 auto; padding: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 2px solid #2A9689; margin-bottom: 20px; position: sticky; top: 0; background: #fdfcf8; z-index: 10;">
-            <span id="resultCanvasTitle" style="font-size: 1.4rem; font-weight: bold; color: #2A9689;">生成結果</span>
-            <button onclick="closeResultCanvas()" style="background-color: #d9534f; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold;">
-                <i class="fas fa-times"></i> 
-            </button>
-        </div>
-        <div id="resultCanvasBody">
-            <!-- 內容注入處 -->
-        </div>
-    </div>
-</div>
-
-	<script>
-// ==========================================
-// === 紅點邏輯修復補丁 (Fix Badge Logic) ===
-// ==========================================
-
-// 1. 定義一個全域變數來記住是否有未交功課
+let pendingMonitorRef = null;
 window.hasPendingWork = false;
 
-// 2. 建立一個「統一」的紅點更新函式
-// 邏輯：只要 (有未繳交功課 OR 有推播通知卡片)，紅點就應該亮起
 function refreshGlobalBadge() {
     const badge = document.getElementById('notifBadge');
     const notifContainer = document.getElementById('notifContainer');
-    
     if (!badge) return;
 
-    // 檢查 A: 畫面上是否有推播通知卡片
     const hasVisibleNotifs = notifContainer && notifContainer.querySelectorAll('.sansi-notification').length > 0;
-
-    // 檢查 B: 是否有未繳交功課 (由 monitorPendingAssignments 更新 window.hasPendingWork)
     const shouldShow = window.hasPendingWork || hasVisibleNotifs;
 
     if (shouldShow) {
         badge.style.display = 'block';
-        
-        // 優化提示文字 (Tooltip)
-        if (window.hasPendingWork && hasVisibleNotifs) {
-            badge.title = "您有新通知及未繳交的課業！";
-        } else if (window.hasPendingWork) {
-            badge.title = "您有未繳交的課業！";
-        } else {
-            badge.title = "您有新通知！";
-        }
+        badge.title = window.hasPendingWork ? "您有未繳交的課業！" : "您有新通知！";
     } else {
         badge.style.display = 'none';
     }
 }
 
-// 3. 覆寫原有的 updateNotifBadge 函式
-// 讓推播系統不再直接關閉紅點，而是透過統一函式檢查
-window.updateNotifBadge = function() {
-    refreshGlobalBadge();
-};
-
-// 4. 覆寫原有的 monitorPendingAssignments 函式
-// 改為更新全域狀態變數，然後呼叫統一函式
-if (typeof pendingMonitorRef !== 'undefined' && pendingMonitorRef) {
-    pendingMonitorRef.off(); // 先移除舊的監聽器防止重複
-}
-
-window.monitorPendingAssignments = function() {
+function monitorPendingAssignments() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    
-    // 如果沒有登入資料，就不監聽
     if (!s) return;
 
-    // 移除舊的監聽 (如果存在)
-    if (typeof pendingMonitorRef !== 'undefined' && pendingMonitorRef) {
-        pendingMonitorRef.off();
-    }
+    if (pendingMonitorRef) pendingMonitorRef.off();
 
-    // 設定監聽路徑
     pendingMonitorRef = database.ref(`assignments/${s.grade}/${s.class}`);
-
     pendingMonitorRef.on('value', async (snapshot) => {
         const assignments = snapshot.val();
-        
-        // 如果完全沒有功課資料
         if (!assignments) {
             window.hasPendingWork = false;
             refreshGlobalBadge();
             return;
         }
-
-        const assignmentKeys = Object.keys(assignments);
         
-        // 並行檢查每一份功課的繳交狀態
+        const assignmentKeys = Object.keys(assignments);
         const checkPromises = assignmentKeys.map(async (key) => {
             const subSnap = await database.ref(`assignments_submissions/${key}/${s.name}`).once('value');
-            return subSnap.exists(); // true = 已交, false = 未交
+            return subSnap.exists();
         });
 
         const results = await Promise.all(checkPromises);
-
-        // 更新全域狀態：只要有一個是 false，就代表有待辦事項
         window.hasPendingWork = results.includes(false);
-
-        // 觸發 UI 更新
         refreshGlobalBadge();
     });
-};
+}
 
-// 5. 確保在頁面重新整理或登入後立即重新啟動監聽
-// (延遲執行以確保 Firebase 已就緒)
-setTimeout(() => {
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (s) {
-        monitorPendingAssignments();
+// 初始化
+document.addEventListener('DOMContentLoaded', () => {
+    // 班號初始化
+    const select = document.getElementById('studentNumber');
+    if (select) {
+        select.innerHTML = '';
+        for (let i = 1; i <= 35; i++) {
+            const opt = document.createElement('option');
+            opt.value = i; opt.innerText = i; select.appendChild(opt);
+        }
     }
-}, 1500);
+    // 延遲啟動監聽
+    setTimeout(() => {
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (s) monitorPendingAssignments();
+    }, 1500);
+});
 
-</script>
-
-
-
-<!-- === [新增] 神思大數據收集模組 (終極修正版：精準辨識訪客) === -->
-<!-- === [新增] 神思大數據收集模組 (身分切換修正版) === -->
-<script>
+// ==========================================
+// 5. 大數據收集 (訪客辨識修復)
+// ==========================================
 document.addEventListener('DOMContentLoaded', function() {
     let totalSeconds = 0;
     let timerInterval = null;
 
-    // 1. 獲取日期路徑
     function getDatePath() {
         const now = new Date();
-        const y = now.getFullYear();
-        const m = String(now.getMonth() + 1).padStart(2, '0');
-        const d = String(now.getDate()).padStart(2, '0');
-        return `${y}/${m}/${d}`;
+        return `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
     }
 
-    // 2. 獲取或生成訪客唯一 ID
     function getGuestID() {
         let id = localStorage.getItem('sansi_guest_uuid');
         if (!id) {
@@ -16457,7 +14970,6 @@ document.addEventListener('DOMContentLoaded', function() {
         return id;
     }
 
-    // 3. 記錄訪問 (Log Visit) - 核心修正邏輯
     function logVisitOnce() {
         if (typeof firebase === 'undefined') return;
         const db = firebase.database();
@@ -16466,7 +14978,6 @@ document.addEventListener('DOMContentLoaded', function() {
         let s = null;
         try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
 
-        // 定義當前身份的唯一標識
         let currentIdentityID = '';
         let isStudent = false;
 
@@ -16478,17 +14989,9 @@ document.addEventListener('DOMContentLoaded', function() {
             isStudent = false;
         }
 
-        // 檢查是否已經為「這個身份」記錄過訪問
         const lastLoggedID = sessionStorage.getItem('sansi_logged_identity_id');
+        if (currentIdentityID === lastLoggedID) return;
 
-        // 如果當前身份和上次記錄的一樣，則不重複記錄，直接退出
-        if (currentIdentityID === lastLoggedID) {
-            return;
-        }
-
-        console.log(`📍 [System] 偵測到新身份訪問 (${isStudent ? '學生' : '訪客'}), 正在記錄...`);
-
-        // 輔助寫入函數
         const incrementData = (path) => {
             db.ref(path).transaction(data => {
                 if (data === null) return { visits: 1, duration: 0 };
@@ -16496,37 +14999,24 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // A. 寫入特定路徑 (讓該學生/訪客的 visits 變成 1)
         if (isStudent) {
-            // 學生路徑
             incrementData(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
-            incrementData(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`); // 班級總結
-            incrementData(`analytics/${pathSuffix}/school`); // 全校學生總結
+            incrementData(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
+            incrementData(`analytics/${pathSuffix}/school`);
         } else {
-            // 訪客路徑
             incrementData(`analytics/${pathSuffix}/guests/${getGuestID()}`);
         }
 
-        // B. 寫入 Global Summary (全網總計)
-        // 邏輯：只有在「本次 Session 完全沒記錄過 Global」時才加 1
-        // 這樣可以避免同一個人從訪客變學生時，Global 變成 2 次 (雖然這也不算錯，但通常希望 Global 還是以 Session 為單位)
         if (!sessionStorage.getItem('sansi_global_visit_logged')) {
             incrementData(`analytics/${pathSuffix}/global_summary`);
             sessionStorage.setItem('sansi_global_visit_logged', 'true');
         }
-
-        // C. 更新 Session 狀態，標記這個身份已經記錄過了
         sessionStorage.setItem('sansi_logged_identity_id', currentIdentityID);
     }
 
-    // 4. 上傳時間
     function uploadOneMinute() {
         if (typeof firebase === 'undefined') return;
-        
-        // 每次上傳時間前，再次檢查身份是否切換 (例如剛登入)
-        // 如果剛登入，logVisitOnce 會補上 visits: 1
-        logVisitOnce(); 
-
+        logVisitOnce(); // 確保身分切換後立即記錄
         const db = firebase.database();
         const pathSuffix = getDatePath();
         const rawProfile = localStorage.getItem('studentProfile');
@@ -16540,90 +15030,52 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // Global
         add60s(`analytics/${pathSuffix}/global_summary`);
-
         if (s && s.grade && s.class && s.name) {
-            // 學生路徑
             add60s(`analytics/${pathSuffix}/school`);
             add60s(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
             add60s(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
         } else {
-            // 訪客路徑
-            const guestID = getGuestID();
-            add60s(`analytics/${pathSuffix}/guests/${guestID}`);
+            add60s(`analytics/${pathSuffix}/guests/${getGuestID()}`);
         }
     }
 
-    // 5. 計時器啟動
     function startTimer() {
         if (timerInterval) return;
-        
-        console.log("⏱️ [System] 計時器已啟動"); 
-
         timerInterval = setInterval(() => {
             totalSeconds++;
-            // 第 30 秒先傳一次，之後每 60 秒傳一次
             if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
         }, 1000);
     }
 
-    function pauseTimer() {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-    }
-
-    // 延遲 3 秒記錄首次訪問
-    setTimeout(logVisitOnce, 3000); 
-    
-    // 立即啟動計時
-    startTimer(); 
-
-    // 偵測頁面切換
+    setTimeout(logVisitOnce, 3000);
+    startTimer();
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'hidden') {
-            pauseTimer();
+            if(timerInterval) { clearInterval(timerInterval); timerInterval = null; }
         } else {
             startTimer();
         }
     });
-    
-    // 將 logVisitOnce 暴露給全域，讓登入函式可以強制呼叫
     window.forceLogVisit = logVisitOnce;
 });
-</script>
 
-	
-<!-- ★★★ 請在這裡加入凍結按鈕的程式碼 ★★★ -->
-<script>
+// 凍結按鈕效果
 document.addEventListener('DOMContentLoaded', function() {
-    // 獲取雲端同步按鈕
     const cloudBtn = document.getElementById('sideMenuCloudBtn');
-    
     if (cloudBtn) {
-        // 1. 頁面載入時立即凍結 (套用變灰、無法點擊的樣式)
         cloudBtn.classList.add('btn-frozen');
-        
-        // (選用) 暫時改變 title 提示
         const originalTitle = cloudBtn.getAttribute('title') || '雲端同步';
-        cloudBtn.setAttribute('title', '系統初始化中，請稍候...');
-
-        // 2. 設定 5 秒後解凍
+        cloudBtn.setAttribute('title', '系統初始化中...');
         setTimeout(() => {
-            // 移除凍結樣式，恢復顏色與點擊功能
             cloudBtn.classList.remove('btn-frozen');
-            
-            // 恢復原本的提示文字
             cloudBtn.setAttribute('title', originalTitle);
-        }, 5000); // 5000 毫秒 = 5 秒
+        }, 5000);
     }
 });
 </script>
-<!-- ★★★ 加入結束 ★★★ -->
 
 	
 
