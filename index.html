@@ -63,45 +63,6 @@ form-action 'self';
 <!-- 新增這行：Firebase Authentication -->
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
-<script>
-
-// === Firebase 初始化 ===
-// === Firebase 初始化 ===
-const firebaseConfig = {
-  apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-  authDomain: "sansidata.firebaseapp.com",
-  projectId: "sansidata",
-  storageBucket: "sansidata.firebasestorage.app",
-  messagingSenderId: "580288358575",
-  appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-  
-  // ★★★ 請務必確認有沒有這一行，且網址正確 ★★★
-  // 您可以在 Firebase Console -> Realtime Database 頁面最上方找到這個網址
-  // 通常是下面這個格式，但也可能是 https://sansidata-default-rtdb.firebaseio.com
-  databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
-};
-
-	// 確保 Firebase 只初始化一次
-if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-    try {
-        firebase.initializeApp(firebaseConfig);
-        console.log("Firebase 初始化成功！");
-        
-        // 初始化成功後，立即賦值給全局變數
-        database = firebase.database();
-        auth = firebase.auth();
-    } catch (e) {
-        console.error("Firebase 初始化失敗：", e);
-        alert("資料庫連線失敗，請刷新頁面重試。");
-    }
-} else if (typeof firebase !== 'undefined' && firebase.apps.length) {
-    // 已經初始化過，直接獲取實例
-    database = firebase.database();
-    auth = firebase.auth();
-}
-
-	
-</script>
 
 <!-- === 新增：頁面右緣卡扣按鈕 === -->
 <button id="sideMenuToggle" title="展開選單">
@@ -13665,8 +13626,57 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         console.error("儲存紀錄失敗:", error);
     }
 }
+// 2. 修改 syncHistoryToFirebase：支援靜默模式 (silent mode)
+async function syncHistoryToFirebase(isSilent = false) {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) {
+        if (!isSilent) alert("請先綁定身份");
+        return;
+    }
 
-	
+    // 如果不是靜默模式（例如手動點擊），才顯示按鈕狀態變化
+    let btn = null;
+    let originalText = "";
+    if (!isSilent && event && event.target) {
+        btn = event.target;
+        originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
+        btn.disabled = true;
+    }
+
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = function(e) {
+            const records = e.target.result;
+            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+            
+            database.ref(path).set(records, (error) => {
+                if (error) {
+                    console.error("自動同步失敗:", error);
+                    if (!isSilent && btn) alert("上傳失敗：" + error.message);
+                } else {
+                    console.log("自動同步成功");
+                    if (!isSilent && btn) alert("✅ 成功同步所有紀錄給老師！");
+                }
+                
+                if (!isSilent && btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        if (!isSilent && btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+}
 
 // ================= UI 導航邏輯 =================
 
@@ -14372,9 +14382,36 @@ function handleTitleDblClick(element, id) {
 }
 
 
+// === Firebase 初始化 ===
+// === Firebase 初始化 ===
+const firebaseConfig = {
+  apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+  authDomain: "sansidata.firebaseapp.com",
+  projectId: "sansidata",
+  storageBucket: "sansidata.firebasestorage.app",
+  messagingSenderId: "580288358575",
+  appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+  
+  // ★★★ 請務必確認有沒有這一行，且網址正確 ★★★
+  // 您可以在 Firebase Console -> Realtime Database 頁面最上方找到這個網址
+  // 通常是下面這個格式，但也可能是 https://sansidata-default-rtdb.firebaseio.com
+  databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
+};
 
+// 檢查是否重複初始化
+if (!firebase.apps.length) {
+    try {
+        firebase.initializeApp(firebaseConfig);
+        console.log("Firebase 初始化成功！"); // 按 F12 查看 Console
+    } catch (e) {
+        console.error("Firebase 初始化失敗：", e);
+        alert("資料庫連線失敗，請檢查網路或 CSP 設定");
+    }
+} else {
+    firebase.app(); // 如果已經初始化，使用現有的
+}
 
-
+const database = firebase.database();
 
 
 
@@ -14901,10 +14938,6 @@ async function processLoginResult(user, btn, originalContent) {
         updateWelcomeMessage(existingProfile);
         loadAssignments(existingProfile.grade, existingProfile.class);
         monitorPendingAssignments(); // 啟動紅點監聽
-
-
-		// ★★★ 加入這一行：觸發靜默同步，將未登入時的本地資料與雲端資料合併 ★★★
-syncHistoryToFirebase(true); 
 
         // 這裡不需要再呼叫 bindStudentIdentity，因為資料已經在雲端了
 
@@ -15475,151 +15508,75 @@ function doAssignment(type, topic) {
 }
 
 // === 核心：同步 IndexedDB 到 Firebase ===
-// === 核心：同步 IndexedDB 到 Firebase ===
-// === 智能同步邏輯 (修訂版：本地與雲端完美合併) ===
+// 2. 修改 syncHistoryToFirebase：移除成功提示
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) {
         if (!isSilent) alert("請先綁定身份");
         return;
     }
-    
-    // 顯示按鈕狀態 (若非靜默模式)
+
     let btn = null;
     let originalText = "";
+    
+    // 只有在非靜默模式（手動點擊）且存在事件對象時，才改變按鈕狀態
+    // 加入 typeof event 檢查以防止在某些自動調用情境下報錯
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
-        btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+        btn = event.target;
+        // 如果點到的是圖示 (i 標籤)，則向上尋找 button 標籤
+        if (btn.tagName !== 'BUTTON') {
+            btn = btn.closest('button');
+        }
+        
         if (btn) {
             originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 智能合併中...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上傳中...';
             btn.disabled = true;
         }
     }
-    
+
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.getAll();
-        
-        // 1. 取得本地 IndexedDB 紀錄 (未登入時產生的內容)
-        const localRecords = await new Promise(resolve => {
-            request.onsuccess = e => resolve(e.target.result);
-            request.onerror = () => resolve([]);
-        });
-        
-        // 2. 取得雲端 Firebase 紀錄 (帳戶原有的內容)
-        // 修正：補上反引號 `
-        const path = students/${s.grade}/${s.class}/${s.name}/history;
-        const cloudSnapshot = await database.ref(path).once('value');
-        const cloudRecords = cloudSnapshot.val() || [];
-        
-        // 修正：補上反引號 `
-        console.log(開始同步：本地 ${localRecords.length} 筆，雲端 ${cloudRecords.length} 筆);
 
-        // 3. 執行智能合併 (關鍵步驟)
-        const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
+        request.onsuccess = function(e) {
+            const records = e.target.result;
+            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+            
+            database.ref(path).set(records, (error) => {
+                if (error) {
+                    console.error("自動同步失敗:", error);
+                    // 只有失敗時，且非靜默模式才彈窗警告
+                    if (!isSilent) alert("上傳失敗：" + error.message);
+                } else {
+                    console.log("自動同步成功");
+                    // ★★★ 已移除 alert("✅ 成功同步所有紀錄給老師！"); ★★★
+                }
+                
+                // 無論成功或失敗，都要恢復按鈕狀態
+                if (!isSilent && btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            });
+        };
         
-        // 4. 將合併後的完整結果寫回雲端 (確保雲端不丟失本地新資料)
-        await database.ref(path).set(mergedRecords);
-        
-        // 5. 將合併後的完整結果寫回本地 (確保本地擁有雲端舊資料)
-        await updateLocalHistoryWithMergedData(mergedRecords, db);
-        
-        // 修正：補上反引號 `
-        console.log(同步完成：合併後共 ${mergedRecords.length} 筆);
-        if (!isSilent) alert("✅ 智能同步完成！本地與雲端紀錄已合併。");
-        
-        // 6. 如果當前正在查看歷史列表，即時刷新 UI
-        if (document.getElementById('historyLevel3')?.style.display === 'flex' && typeof currentSubFunctionFilter !== 'undefined') {
-            enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
-        }
+        request.onerror = function(e) {
+            console.error("IndexedDB 讀取錯誤", e);
+            if (!isSilent && btn) {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        };
 
     } catch (err) {
-        console.error("智能同步失敗:", err);
-        if (!isSilent) alert("❌ 同步失敗: " + err.message);
-    } finally {
-        if (btn) {
+        console.error(err);
+        if (!isSilent && btn) {
             btn.innerHTML = originalText;
             btn.disabled = false;
         }
-    }
-}
-
-// 輔助函式：合併算法 (以標題+日期+類別為唯一鍵)
-function mergeHistoryRecords(localRecords, cloudRecords) {
-    const mergedMap = new Map();
-    
-    // 生成唯一鍵的函式 (防止重複)
-    const generateKey = (r) => {
-        // 使用 標題 + 類別 + 子功能 作為識別，忽略秒數差異
-        // 這樣如果同一篇文章在兩邊都有，會被視為衝突需解決
-        // 修正：補上反引號 `
-        return ${r.category}_${r.subFunction}_${r.title}.trim();
-    };
-
-    // 1. 先放入雲端資料
-    cloudRecords.forEach(record => {
-        if(record) mergedMap.set(generateKey(record), record);
-    });
-
-    // 2. 放入本地資料 (處理衝突)
-    localRecords.forEach(localRecord => {
-        if(!localRecord) return;
-        const key = generateKey(localRecord);
-        
-        if (mergedMap.has(key)) {
-            const cloudRecord = mergedMap.get(key);
-            // 衝突解決：保留「修改時間」較新的那一份
-            // 如果本地的時間戳比雲端大 (新)，則覆蓋雲端
-            if (localRecord.timestamp > cloudRecord.timestamp) {
-                mergedMap.set(key, localRecord);
-            }
-            // 否則保留雲端的 (不做動作)
-        } else {
-            // 沒有衝突，直接加入本地新資料
-            mergedMap.set(key, localRecord);
-        }
-    });
-
-    // 3. 轉回陣列並按時間倒序排列
-    return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
-}
-
-// 輔助函式：更新本地 IndexedDB
-async function updateLocalHistoryWithMergedData(mergedRecords, db) {
-    // 這裡我們採取「清空後重寫」的策略來確保完全一致，這在大數據量下可能稍慢，
-    // 但能保證本地不會殘留已在雲端被刪除的髒數據，且邏輯最安全。
-    
-    // 如果 db 連接已關閉，重新打開
-    const usingNewDB = !db; 
-    if (usingNewDB) db = await openHistoryDB();
-
-    try {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        
-        // 清空本地
-        await new Promise((resolve, reject) => {
-            const req = store.clear();
-            req.onsuccess = resolve;
-            req.onerror = reject;
-        });
-
-        // 寫入合併後的資料
-        for (const record of mergedRecords) {
-            // 移除可能存在的 Firebase key，讓 IndexedDB 自動生成 id，或保留原 id
-            // 這裡直接寫入即可
-            store.put(record); 
-        }
-        
-        return new Promise((resolve) => {
-            transaction.oncomplete = resolve;
-        });
-    } catch(e) {
-        console.error("更新本地資料庫錯誤", e);
-    } finally {
-        if (usingNewDB && db) db.close();
     }
 }
 
