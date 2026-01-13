@@ -14446,56 +14446,58 @@ async function clearAllHistory() {
     if (!confirm("警告：確定要清空所有歷史紀錄嗎？\n(此動作無法復原，且雲端備份也會被清空)")) return;
     
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-
-    // 1. 立即給予視覺反饋 (若使用者正在列表頁，顯示 Loading)
     const level3 = document.getElementById('historyLevel3');
-    if (level3 && level3.style.display === 'flex') {
-        level3.innerHTML = '<div style="text-align:center; padding:40px; color:#999;"><i class="fas fa-circle-notch fa-spin"></i> 正在清空...</div>';
+
+    // 1. 視覺反饋：如果正在看列表，先強制清空內容並顯示 Loading
+    // 這裡改用 !== 'none' 確保捕捉到 grid 或 flex 狀態
+    if (level3 && level3.style.display !== 'none') {
+        level3.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#999;"><i class="fas fa-circle-notch fa-spin"></i> 正在清空...</div>';
     }
 
     try {
         const db = await openHistoryDB();
         
-        // 2. 使用 Promise 確保本地資料庫「完全」清空後才繼續
-        // 這是解決「需手動刷新」的關鍵：必須等待 transaction.oncomplete
+        // 2. 等待本地資料庫完全清空
         await new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
-            store.clear(); // 執行清空指令
+            const request = store.clear();
             
-            transaction.oncomplete = () => {
-                resolve(); // 只有當事務完全結束，才繼續下一步
-            };
-            
-            transaction.onerror = (e) => {
-                reject(e);
-            };
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e) => reject(e);
         });
 
-        // 3. 清空雲端資料 (如果已登入)
+        // 3. 清空雲端資料
         if (s) {
-            // 注意：這裡有反引號 `
             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-            
-            // 直接覆寫為空陣列
             await database.ref(path).set([]);
             console.log("雲端同步清空成功");
         }
 
-        // 4. ★★★ 關鍵邏輯：判斷當前層級並強制重新渲染 ★★★
+        // 4. ★★★ 關鍵修訂：寬鬆的顯示判斷 ★★★
         
-        if (document.getElementById('historyLevel3').style.display === 'flex') {
-            // 情況 A: 用戶正在看紀錄列表 -> 重新載入列表 (這時會顯示「無紀錄」)
-            // 我們使用全域變數 currentSubFunctionFilter 和 currentThemeIndex 來保持狀態
+        // 檢查 Level 3 (紀錄列表) 是否顯示中 (無論是 grid 還是 flex)
+        if (document.getElementById('historyLevel3').style.display !== 'none') {
+            // 重新載入列表 -> 因為 DB 空了，這裡會自動顯示「無紀錄」
             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-            enterHistoryList(currentSubFunctionFilter, themeIndex);
+            // 確保有過濾器變數，如果沒有則回到主選單
+            if (typeof currentSubFunctionFilter !== 'undefined') {
+                enterHistoryList(currentSubFunctionFilter, themeIndex);
+            } else {
+                renderHistoryCategories(); // 變數遺失，退回主層
+            }
         } 
-        else if (document.getElementById('historyLevel2').style.display === 'grid') {
-            // 情況 B: 用戶在子功能選單 (例如看到「文章點評(5)」) -> 刷新以更新計數為 (0)
-            renderLevel2(currentCategory);
+        // 檢查 Level 2 (子功能選單) 是否顯示中
+        else if (document.getElementById('historyLevel2').style.display !== 'none') {
+            // 刷新子選單 -> 數字會變 (0)
+            if (typeof currentCategory !== 'undefined') {
+                renderLevel2(currentCategory);
+            } else {
+                renderHistoryCategories();
+            }
         } 
         else {
-            // 情況 C: 用戶在主範疇 (例如看到「敘事抒情」) -> 刷新以更新計數
+            // 其他情況 (例如在主選單)，刷新主選單
             renderHistoryCategories();
         }
 
@@ -14504,10 +14506,10 @@ async function clearAllHistory() {
     } catch (e) { 
         console.error("清空錯誤:", e); 
         alert("清空失敗，請重試。");
-        
-        // 如果失敗，嘗試恢復顯示
-        if (document.getElementById('historyLevel3').style.display === 'flex') {
-            enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
+        // 發生錯誤時嘗試恢復畫面
+        if (document.getElementById('historyLevel3').style.display !== 'none') {
+             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+             enterHistoryList(currentSubFunctionFilter, themeIndex);
         }
     }
 }
