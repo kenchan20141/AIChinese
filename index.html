@@ -5446,6 +5446,126 @@ select:focus, select:hover {
     font-family: 'Noto Serif TC', serif !important;
     color: #333 !important;
 }
+
+
+/* ========================================= */
+/* === 取消生成 UI (莫蘭迪色系設計) === */
+/* ========================================= */
+ 
+/* 1. 純圖示取消鍵 (低調圓形按鈕) */
+.cancel-icon-btn {
+    margin-top: 30px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: transparent;
+    border: 1px solid rgba(143, 163, 152, 0.6); /* 莫蘭迪灰綠邊框 */
+    color: #8fa398;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(2px);
+    pointer-events: auto; /* 確保可以點擊 */
+}
+ 
+.cancel-icon-btn:hover {
+    background-color: rgba(143, 163, 152, 0.15);
+    transform: rotate(90deg); /* 懸停時旋轉效果 */
+    color: #5e7067;
+    border-color: #5e7067;
+    box-shadow: 0 0 15px rgba(143, 163, 152, 0.2);
+}
+ 
+/* 2. 確認視窗遮罩 (覆蓋在 Loading 之上) */
+.morandi-modal-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(253, 252, 248, 0.92); /* 米白遮罩，高模糊 */
+    backdrop-filter: blur(8px);
+    z-index: 20; /* 必須高於 loading-content */
+    display: none; /* 預設隱藏 */
+    justify-content: center;
+    align-items: center;
+    animation: fadeIn 0.3s ease;
+}
+ 
+/* 3. 視窗卡片本體 */
+.morandi-modal-card {
+    background: #fffcf6; /* 暖白紙張色 */
+    padding: 30px 35px;
+    border-radius: 16px;
+    border: 1px solid #e0ddd7;
+    box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15); /* 暖色柔和陰影 */
+    text-align: center;
+    max-width: 85%;
+    width: 340px;
+    transform: translateY(0);
+    animation: slideUp 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28); /* 彈性動畫 */
+}
+ 
+.morandi-title {
+    color: #5d4037; /* 莫蘭迪深咖啡 */
+    font-size: 1.3rem;
+    margin: 0 0 12px 0;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+ 
+.morandi-text {
+    color: #8d8d8d; /* 暖灰 */
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin-bottom: 25px;
+}
+ 
+/* 4. 按鈕群組 */
+.morandi-btn-group {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+ 
+.morandi-btn {
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: bold;
+    font-family: 'Noto Serif TC', serif;
+    transition: transform 0.2s, filter 0.2s;
+}
+ 
+.morandi-btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(105%);
+}
+ 
+.morandi-btn:active { transform: translateY(0); }
+ 
+/* 灰色按鈕 (繼續等待) */
+.btn-gray {
+    background-color: #ececec;
+    color: #777;
+}
+ 
+/* 紅色按鈕 (確認取消 - 豆沙紅) */
+.btn-red {
+    background-color: #d69a92;
+    color: white;
+    box-shadow: 0 4px 12px rgba(214, 154, 146, 0.4);
+}
+ 
+/* 動畫定義 */
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+	
 	
 </style>
 
@@ -5904,6 +6024,59 @@ transform: scale(1.15);
 
 
 <script>
+
+
+
+let globalAbortController = null;
+
+
+	// === [新增] 中斷生成控制邏輯 ===
+ 
+// 打開確認視窗
+function openCancelModal() {
+    const modal = document.getElementById('cancelConfirmModal');
+    if (modal) modal.style.display = 'flex';
+}
+ 
+// 關閉確認視窗 (繼續等待)
+function closeCancelModal() {
+    const modal = document.getElementById('cancelConfirmModal');
+    if (modal) modal.style.display = 'none';
+}
+ 
+// 確認取消 (執行中斷)
+function confirmCancel() {
+    closeCancelModal(); // 關閉確認窗
+    
+    // 1. 中斷 API 連線
+    if (globalAbortController) {
+        globalAbortController.abort(); // 發送中斷訊號
+        globalAbortController = null;
+        console.log("使用者手動取消生成");
+    }
+ 
+    // 2. 隱藏加載畫面
+    hideLoading();
+ 
+    // 3. 重新啟用所有被鎖定的提交按鈕
+    enableSubmitButtons();
+}
+ 
+// 輔助：重新啟用按鈕
+function enableSubmitButtons() {
+    const ids = [
+        'submitWritingBtn', 'submitReadingBtn', 'submitExpandBtn', 'submitExpandGuideBtn',
+        'submitArgumentOutlineBtn', 'submitArgumentWritingBtn', 'submitArgumentGuideBtn',
+        'submitWritingGuideBtn', 'startDiscussionBtn', 'continueBtn',
+        'continueWritingBtn', 'continueWritingGuideBtn', 'continueArgumentBtn',
+        'canvasChatSendBtn'
+    ];
+    ids.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = false;
+    });
+}
+	
 
 
 // === 分頁控制變數 ===
@@ -8123,6 +8296,7 @@ async function callReadingAPI(prompt, temperature = null) {
     while (attempts < maxAttempts) {
         // 定義超時控制器
         const controller = new AbortController();
+		globalAbortController = controller; // ★★★ 加入這一行：綁定全域控制器
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
@@ -9769,6 +9943,7 @@ async function callAPI(prompt, temperature = null) {
     while (attempts < maxAttempts) {
         // 定義超時控制器
         const controller = new AbortController();
+		globalAbortController = controller; // ★★★ 加入這一行：綁定全域控制器
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
@@ -9860,6 +10035,7 @@ async function callLlama3API(prompt, temperature = null) {
     while (attempts < maxAttempts) {
         // 定義超時控制器
         const controller = new AbortController();
+		globalAbortController = controller; // ★★★ 加入這一行：綁定全域控制器
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
@@ -16361,11 +16537,31 @@ ${promptData}
 </div>
 
 	<!-- === 加載動畫覆蓋層 (新增) === -->
+<!-- === 加載動畫覆蓋層 (含取消功能) === -->
 <div id="loadingOverlay" class="loading-overlay">
     <div class="loading-content">
-        <!-- 加入了 id="loadingImage" -->
-        <img src="生成中.gif" alt="Loading" class="loading-gif" id="loadingImage"> 
+        <!-- 加載動畫圖片 -->
+        <img src="生成中.gif" alt="Loading" class="loading-gif" id="loadingImage">
         <div class="loading-text" id="loadingText">正在思考中...</div>
+ 
+        <!-- 1. 純圖示取消鍵 (低調優雅) -->
+        <button id="cancelLoadingBtn" onclick="openCancelModal()" class="cancel-icon-btn" title="取消生成">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+ 
+    <!-- 2. 莫蘭迪風格確認視窗 (預設隱藏) -->
+    <div id="cancelConfirmModal" class="morandi-modal-overlay">
+        <div class="morandi-modal-card">
+            <h3 class="morandi-title">中斷思考？</h3>
+            <p class="morandi-text">目前的生成進度將會遺失，<br>但您輸入的內容會保留。</p>
+            <div class="morandi-btn-group">
+                <!-- 繼續等待 (灰色) -->
+                <button onclick="closeCancelModal()" class="morandi-btn btn-gray">繼續等待</button>
+                <!-- 確認取消 (莫蘭迪紅) -->
+                <button onclick="confirmCancel()" class="morandi-btn btn-red">確認取消</button>
+            </div>
+        </div>
     </div>
 </div>
 
