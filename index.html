@@ -13666,12 +13666,7 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
 // ==========================================
 
 // ==========================================
-// === 智能同步邏輯 (最終修訂版：已補上反引號) ===
-// ==========================================
-
-// 1. 主同步函式
-// ==========================================
-// === 智能同步邏輯 (最終修訂版：解決資料復活問題) ===
+// === 智能同步邏輯 (最終解決版：智能標記) ===
 // ==========================================
 
 // 1. 主同步函式
@@ -13706,13 +13701,16 @@ async function syncHistoryToFirebase(isSilent = false) {
         });
         
         // B. 獲取雲端資料
+        // 使用反引號確保變數正確
         const path = `students/${s.grade}/${s.class}/${s.name}/history`;
         const cloudSnapshot = await database.ref(path).once('value');
         let cloudRecords = cloudSnapshot.val() || [];
         
-        // ★★★ 關鍵步驟 1：給雲端下載的資料貼上「已同步」標籤 ★★★
-        // 這樣我們就知道這些資料是「官方認證」存在的
-        cloudRecords = cloudRecords.map(r => ({ ...r, isSynced: true }));
+        // ★★★ 關鍵步驟：給雲端下載的資料貼上「官方認證」標籤 ★★★
+        cloudRecords = cloudRecords.map(r => {
+            // 確保物件是新的，並加上標記
+            return Object.assign({}, r, { isSynced: true });
+        });
         
         console.log(`開始同步：本地 ${localRecords.length} 筆，雲端 ${cloudRecords.length} 筆`);
 
@@ -13722,7 +13720,7 @@ async function syncHistoryToFirebase(isSilent = false) {
         // D. 寫回雲端 (更新後的完整清單)
         await database.ref(path).set(mergedRecords);
         
-        // E. 寫回本地 (保持一致)
+        // E. 寫回本地 (讓本地資料也擁有 isSynced 標籤)
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         
         console.log(`同步完成：合併後共 ${mergedRecords.length} 筆`);
@@ -13747,15 +13745,16 @@ async function syncHistoryToFirebase(isSilent = false) {
     }
 }
 
-// 2. 輔助函式：合併算法 (修復：識別被刪除的資料)
+// 2. 輔助函式：合併算法 (核心邏輯)
 function mergeHistoryRecords(localRecords, cloudRecords) {
     const mergedMap = new Map();
     
+    // 生成唯一鍵
     const generateKey = (r) => {
         return `${r.category}_${r.subFunction}_${r.title}_${r.timestamp}`;
     };
 
-    // A. 先放入雲端資料 (這些是權威資料)
+    // A. 雲端資料是「權威」，無條件放入
     cloudRecords.forEach(record => {
         mergedMap.set(generateKey(record), record);
     });
@@ -13765,24 +13764,21 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         if(!localRecord) return;
         const key = generateKey(localRecord);
         
+        // 檢查雲端是否已經有這筆資料
         if (mergedMap.has(key)) {
-            // 如果雲端也有這筆，保留雲端的 (通常雲端會帶有最新的 isSynced 標籤)
-            // 除非你想做更複雜的時間戳比對，但這裡以雲端為準通常較安全
+            // 如果雲端有，代表兩邊都有，我們保留雲端的 (因為它帶有最新的 isSynced 標籤)
         } else {
-            // ★★★ 關鍵步驟 2：判斷是否為「被遺棄」的資料 ★★★
-            
-            // 如果本地有這筆資料，但雲端沒有 (Map裡沒有)...
-            // 檢查它是否有「已同步 (isSynced)」標籤？
+            // ★★★ 核心判斷：為什麼雲端沒有這筆資料？ ★★★
             
             if (localRecord.isSynced) {
-                // 如果它曾經同步過 (isSynced=true)，但現在雲端卻沒有它
-                // 代表：老師在 Firebase 把這筆資料刪掉了！
-                // 動作：不在這裡加入它 -> 等同於在本地也刪除它
-                console.log(`偵測到已刪除資料 (本地殘留)：${localRecord.title}，將自動移除。`);
+                // 情況 1：這筆資料本地有「已同步」標籤，但雲端卻找不到。
+                // 結論：這代表「老師在雲端刪掉了它」。
+                // 動作：捨棄它 (等於在本地也刪除)。
+                console.log(`移除已在雲端被刪除的項目：${localRecord.title}`);
             } else {
-                // 如果它沒有 isSynced 標籤 (isSynced=false 或 undefined)
-                // 代表：這是學生剛寫好、還沒上傳的新資料
-                // 動作：保留它，準備上傳
+                // 情況 2：這筆資料本地「沒有」標籤。
+                // 結論：這代表「這是學生離線新寫的，還沒上傳過」。
+                // 動作：保留它 (準備上傳)。
                 mergedMap.set(key, localRecord);
             }
         }
@@ -13792,7 +13788,7 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 
-// 3. 輔助函式：更新本地 IndexedDB (修復 ID 衝突)
+// 3. 輔助函式：更新本地 IndexedDB
 async function updateLocalHistoryWithMergedData(mergedRecords, db) {
     let localDb = db;
     if (!localDb) {
@@ -13803,52 +13799,22 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
         const transaction = localDb.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
-        // 清空本地，避免 ID 衝突
+        // A. 清空本地：避免 ID 衝突
         await new Promise((resolve, reject) => {
             const req = store.clear();
             req.onsuccess = resolve;
             req.onerror = reject;
         });
 
+        // B. 寫入資料
         for (const record of mergedRecords) {
-            // 移除舊 ID，讓 IndexedDB 重新分配
+            // 移除舊的 ID，讓 IndexedDB 重新分配，解決 id 衝突
             delete record.id; 
-            // 確保本地儲存時也帶有 isSynced 標籤，這樣下次就知道它已同步過
-            store.put(record); 
-        }
-        
-        return new Promise((resolve) => {
-            transaction.oncomplete = resolve;
-        });
-    } catch(e) {
-        console.error("更新本地資料庫錯誤", e);
-    }
-}
-// 輔助函式：更新本地 IndexedDB
-async function updateLocalHistoryWithMergedData(mergedRecords, db) {
-    // 這裡我們採取「清空後重寫」的策略來確保完全一致
-    // 因為 IndexedDB 處理大量單筆更新較繁瑣，全量寫入能保證本地不會殘留已在雲端被刪除的髒數據
-    
-    // 如果 db 連接已關閉或無效，重新打開
-    let localDb = db;
-    if (!localDb) {
-        localDb = await openHistoryDB();
-    }
-
-    try {
-        const transaction = localDb.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        
-        // 清空本地
-        await new Promise((resolve, reject) => {
-            const req = store.clear();
-            req.onsuccess = resolve;
-            req.onerror = reject;
-        });
-
-        // 寫入合併後的資料
-        for (const record of mergedRecords) {
-            // 確保移除可能存在的 Firebase 內部屬性，或者保留原樣皆可
+            
+            // ★★★ 關鍵：寫入本地時，確保加上 isSynced: true ★★★
+            // 這樣下次同步時，系統就知道這筆資料「已經存在過雲端」了
+            record.isSynced = true;
+            
             store.put(record); 
         }
         
