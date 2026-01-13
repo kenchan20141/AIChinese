@@ -14135,50 +14135,87 @@ function renderFilteredRecords(records) {
 // 9. 刪除與清空 (保持類似)
 async function deleteHistoryItem(id) {
     if (!confirm("確定要刪除這條紀錄嗎？\n(注意：雲端備份也會同步刪除)")) return;
+    
+    // 檢查登入狀態
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME); // 注意這裡要加 const 或 let，避免全域污染
-        store.delete(id);
+        const store = transaction.objectStore(STORE_NAME);
         
-        transaction.oncomplete = function() {
-            // 1. 重新整理當前列表 (UI)
-            enterHistoryList(currentSubFunctionFilter); 
+        // 1. 先獲取這筆資料的詳情 (為了拿到 timestamp 去雲端比對)
+        const recordRequest = store.get(id);
+        
+        recordRequest.onsuccess = async function(event) {
+            const recordToDelete = event.target.result;
             
-            // 2. ★★★ 新增：立即觸發靜默同步，讓雲端也刪除這筆資料 ★★★
-            // 檢查是否有登入，有登入才同步
-            const s = JSON.parse(localStorage.getItem('studentProfile'));
-            if (s) {
-                console.log("正在同步刪除動作至雲端...");
-                syncHistoryToFirebase(true); // true 代表靜默模式，不彈出 "上傳成功" 視窗
+            // 如果本地已經找不到了，直接刷新 UI 並退出
+            if (!recordToDelete) {
+                enterHistoryList(currentSubFunctionFilter);
+                return;
             }
+
+            // 2. 執行本地刪除
+            store.delete(id);
+            
+            // 3. 執行雲端刪除 (如果已登入)
+            if (s) {
+                // 注意：這裡有反引號 `
+                const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+                
+                // 讀取雲端目前所有資料
+                const snapshot = await database.ref(path).once('value');
+                const cloudRecords = snapshot.val() || [];
+                
+                // 過濾掉我們要刪除的那一筆 (利用 timestamp 比對)
+                const updatedRecords = cloudRecords.filter(r => r.timestamp !== recordToDelete.timestamp);
+                
+                // 將剩下的資料寫回雲端
+                await database.ref(path).set(updatedRecords);
+                console.log("雲端同步刪除成功");
+            }
+
+            // 4. 刷新介面
+            enterHistoryList(currentSubFunctionFilter);
         };
-    } catch (e) { console.error(e); }
+        
+    } catch (e) { 
+        console.error("刪除失敗:", e); 
+        alert("刪除失敗，請重試。");
+    }
 }
 
+	
 async function clearAllHistory() {
     if (!confirm("警告：確定要清空所有歷史紀錄嗎？\n(此動作無法復原，且雲端備份也會被清空)")) return;
+    
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME); // 注意這裡要加 const 或 let
-        store.clear();
+        const store = transaction.objectStore(STORE_NAME);
         
-        transaction.oncomplete = function() {
-            // 1. 更新 UI
+        // 1. 清空本地資料
+        const request = store.clear();
+        
+        request.onsuccess = async function() {
+            // 2. 清空雲端資料 (如果已登入)
+            if (s) {
+                // 注意：這裡有反引號 `
+                const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+                
+                // 直接覆寫為空陣列
+                await database.ref(path).set([]);
+                console.log("雲端同步清空成功");
+            }
+
+            // 3. 刷新 UI
             if(document.getElementById('historyLevel3').style.display === 'flex') {
                 enterHistoryList(currentSubFunctionFilter);
             } else {
                 alert("紀錄已清空");
-            }
-
-            // 2. ★★★ 新增：立即觸發靜默同步，清空雲端資料 ★★★
-            const s = JSON.parse(localStorage.getItem('studentProfile'));
-            if (s) {
-                console.log("正在同步清空動作至雲端...");
-                // 當本地是空的，syncHistoryToFirebase 會上傳一個空陣列或 null，
-                // Firebase 的 .set() 收到 null 會直接刪除該路徑下的資料，達到清空效果。
-                syncHistoryToFirebase(true); 
             }
         };
     } catch (e) { console.error(e); }
