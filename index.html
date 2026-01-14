@@ -16125,6 +16125,7 @@ function manageLoadMoreButton() {
 
 	
 // === 輔助函數：渲染列表 HTML (避免代碼重複) ===
+// === 輔助函數：渲染列表 HTML (CSP 修復版) ===
 // 參數: isSyncing (舊參數), isAppend (新參數: true=附加到底部, false=清空重畫)
 function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
     const listDiv = document.getElementById('assignmentList');
@@ -16134,27 +16135,23 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
         listDiv.innerHTML = '';
     }
 
-    let html = '';
+    // 莫蘭迪色系
     const morandiPalette = ['#8fa398', '#94a7b5', '#b6a6ca', '#d69a92', '#c7b299'];
 
     if (isSyncing) {
-        // 這是舊的同步提示，現在可能比較少用到
-        listDiv.innerHTML += `<div style="...">...</div>`;
+        listDiv.innerHTML += `<div>...</div>`;
         return;
     }
 
     dataArray.forEach((item, index) => {
         const task = item.task;
         const submission = item.submission;
-        // 為了讓顏色連續，使用全域計數器或當前批次的索引
-        // 這裡簡單用 (currentLoadedCount - 本批次長度 + index) 比較複雜
-        // 建議直接用隨機或簡單索引即可
         const themeColor = morandiPalette[index % morandiPalette.length];
 
         let uiClass = '';
         let statusIcon = '';
         let statusText = '';
-        let clickAction = '';
+        let clickHandler = null; // 用來儲存點擊事件的函數
         let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
 
         if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
@@ -16163,7 +16160,9 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
             statusText = '查看評語';
             submission.topic = task.topic; 
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            clickAction = `showTeacherFeedback('${submissionStr}')`;
+            
+            // ★★★ 修復重點：直接定義函數，而不是字串 ★★★
+            clickHandler = function() { showTeacherFeedback(submissionStr); };
         }
         else if (submission) {
             uiClass = 'status-submitted';
@@ -16172,19 +16171,26 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
             submission.topic = task.topic;
             submission.isPending = true; 
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            clickAction = `showTeacherFeedback('${submissionStr}')`;
+            
+            // ★★★ 修復重點：直接定義函數 ★★★
+            clickHandler = function() { showTeacherFeedback(submissionStr); };
         }
         else {
             uiClass = 'status-pending';
             statusIcon = '<i class="fas fa-pen"></i>'; 
             statusText = '未繳交';
-            clickAction = `goToHistoryForAssignment('${task.topic}')`;
+            
+            // ★★★ 修復重點：直接定義函數 ★★★
+            clickHandler = function() { goToHistoryForAssignment(task.topic); };
         }
 
-        // 建立 DOM 元素而不是純字串，這樣可以直接 appendChild
+        // 建立 DOM 元素
         const cardDiv = document.createElement('div');
         cardDiv.className = `task-card ${uiClass}`;
-        cardDiv.onclick = function() { eval(clickAction); }; // 或直接綁定函式
+        
+        // ★★★ 修復重點：直接將函數賦值給 onclick，移除 eval() ★★★
+        cardDiv.onclick = clickHandler; 
+        
         cardDiv.style.setProperty('--theme-color', themeColor);
         cardDiv.innerHTML = `
             <div class="task-info">
