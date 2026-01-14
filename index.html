@@ -5729,11 +5729,100 @@ select:focus, select:hover {
 @media (min-width: 601px) {
     .section-separator { display: none; }
 }
+
+
+/* === 全局莫蘭迪 Alert 樣式 (手機版邊距優化版) === */
+.sansi-alert-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(253, 252, 248, 0.6); /* 極淡米色遮罩 */
+    backdrop-filter: blur(5px); /* 毛玻璃效果 */
+    z-index: 2147483647; /* 最頂層 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sansi-alert-box {
+    background-color: #fdfcf8;
+    border: 1px solid #e0ddd7;
+    border-radius: 16px;
+    box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
+    
+    /* --- 關鍵修改開始 --- */
+    width: auto;           /* 讓寬度自動適應，不強制固定 */
+    max-width: 320px;      /* 電腦版最大限制寬度 */
+    min-width: 260px;      /* 防止內容太少時縮得太小 */
+    margin: 0 35px;        /* ★ 重點：手機版強制左右留白 35px，解決貼邊問題 */
+    /* --- 關鍵修改結束 --- */
+
+    padding: 25px;
+    text-align: center;
+    transform: translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    position: relative;
+    background-image: linear-gradient(to right, transparent 29px, #f2f0eb 30px, transparent 31px);
+    background-size: 100% 100%;
+}
+
+.sansi-alert-icon {
+    font-size: 2.5rem;
+    color: #8fa398;
+    margin-bottom: 15px;
+}
+
+.sansi-alert-message {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.05rem;
+    color: #5e5e5e;
+    line-height: 1.6;
+    margin-bottom: 25px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.sansi-alert-btn {
+    background-color: #8fa398;
+    color: white;
+    border: none;
+    padding: 10px 30px;
+    border-radius: 50px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(143, 163, 152, 0.3);
+    transition: all 0.2s ease;
+    font-family: 'Noto Serif TC', serif;
+}
+
+.sansi-alert-btn:hover {
+    background-color: #7d9186;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(143, 163, 152, 0.4);
+}
+
+.sansi-alert-show {
+    opacity: 1;
+}
+.sansi-alert-show .sansi-alert-box {
+    transform: translateY(0);
+}
+
+
+
+	
 	
 	
 </style>
 
 <script>
+
+
+
+
+	
 // 頁面載入完成後，為所有 img 加上 lazy loading（包括動態生成的）
 document.addEventListener("DOMContentLoaded", function() {
     document.querySelectorAll('img').forEach(img => {
@@ -6190,10 +6279,119 @@ transform: scale(1.15);
 <script>
 
 
+// ==========================================
+// === 覆寫原生 alert 為莫蘭迪 UI ===
+// ==========================================
+(function() {
+    // 保存原始 alert 以防萬一需要使用 (雖然這裡我們選擇完全覆蓋)
+    const originalAlert = window.alert;
+
+    window.alert = function(message) {
+        // 1. 移除頁面上可能已存在的 Alert (防止堆疊)
+        const existingAlert = document.getElementById('sansi-custom-alert');
+        if (existingAlert) existingAlert.remove();
+
+        // 2. 建立 DOM 結構
+        const overlay = document.createElement('div');
+        overlay.id = 'sansi-custom-alert';
+        overlay.className = 'sansi-alert-overlay';
+
+        // 判斷是否為錯誤訊息 (簡單判斷關鍵字)
+        const isError = String(message).includes('失敗') || String(message).includes('錯誤') || String(message).includes('請先');
+        const iconClass = isError ? 'fa-exclamation-circle' : 'fa-info-circle';
+        const iconColor = isError ? '#d69a92' : '#8fa398'; // 錯誤用豆沙紅，普通用灰綠
+
+        overlay.innerHTML = `
+            <div class="sansi-alert-box">
+                <div class="sansi-alert-icon">
+                    <i class="fas ${iconClass}" style="color: ${iconColor};"></i>
+                </div>
+                <div class="sansi-alert-message">${String(message)}</div>
+                <button class="sansi-alert-btn" onclick="closeSansiAlert()">
+                    明白
+                </button>
+            </div>
+        `;
+
+        // 3. 加入頁面
+        document.body.appendChild(overlay);
+
+        // 4. 觸發進場動畫 (需要一點延遲讓 DOM 渲染)
+        requestAnimationFrame(() => {
+            overlay.classList.add('sansi-alert-show');
+        });
+
+        // 5. 綁定鍵盤事件 (按 Enter 關閉)
+        const handleEnter = (e) => {
+            if (e.key === 'Enter' || e.key === 'Escape') {
+                closeSansiAlert();
+                document.removeEventListener('keydown', handleEnter);
+            }
+        };
+        document.addEventListener('keydown', handleEnter);
+    };
+
+    // 全域關閉函式
+    window.closeSansiAlert = function() {
+        const overlay = document.getElementById('sansi-custom-alert');
+        if (overlay) {
+            // 退場動畫
+            overlay.classList.remove('sansi-alert-show');
+            setTimeout(() => {
+                if (overlay) overlay.remove();
+            }, 300); // 等待 CSS transition 結束
+        }
+    };
+})();
+
+	
 
 let globalAbortController = null;
 
+// === 新增：權限與額度控制 ===
 
+// Base64 編碼的電郵
+// kenchan20131@gmail.com (扮學生)
+const STUDENT_ADDITION_B64 = "a2VuY2hhbjIwMTMxQGdtYWlsLmNvbQ=="; 
+// kenchan20151@gmail.com (特許用家)
+const SPECIAL_USER_B64 = "a2VuY2hhbjIwMTUxQGdtYWlsLmNvbQ==";
+
+/**
+ * 檢查訪客每日使用額度
+ * @returns {boolean} true=允許繼續, false=阻止
+ */
+function checkGuestUsage() {
+    // 1. 檢查是否已登入 (學生、老師、特許用家)
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (s) {
+        console.log(`[權限檢查] 用戶已登入 (${s.name})，不設限制。`);
+        return true; 
+    }
+
+    // 2. 未登入訪客：檢查 LocalStorage 計數
+    const today = new Date().toLocaleDateString('zh-HK'); // 格式如 2025/1/15
+    const storageKey = `sansi_guest_usage_${today}`;
+    
+    // 取得目前次數 (預設為 0)
+    let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
+    
+    console.log(`[權限檢查] 訪客狀態 | 日期: ${today} | 已用次數: ${currentCount} | 上限: 1`);
+
+    if (currentCount >= 1) {
+        alert("⚠️ 訪客每日體驗額度已用完。\n\n請登入學校帳號或註冊以無限使用所有功能。");
+        console.warn("[權限檢查] 攔截：超過每日額度。");
+        return false;
+    }
+
+    // 3. 增加計數 (在 API 呼叫成功前先扣除，防止併發)
+    localStorage.setItem(storageKey, currentCount + 1);
+    return true;
+}
+
+
+
+
+	
 	// === [新增] 中斷生成控制邏輯 ===
  
 // 打開確認視窗
@@ -8454,6 +8652,10 @@ const argumentReviewerPreferences = {
 
 // [新增] 閱讀專用 API 呼叫函式 (加入 50 秒超時)
 async function callReadingAPI(prompt, temperature = null) {
+	 // ★★★ 新增：額度檢查 ★★★
+    if (!checkGuestUsage()) {
+        throw new Error("Guest usage limit exceeded");
+    }
     let attempts = 0;
     const maxAttempts = READING_API_KEYS.length;
     // 每次調用都從一個隨機的索引開始
@@ -10102,6 +10304,11 @@ const guide = await callReadingAPI(prompt);
 
 // 通用 API 調用函數 (加入 50 秒超時)
 async function callAPI(prompt, temperature = null) {
+	// ★★★ 新增：額度檢查 ★★★
+    if (!checkGuestUsage()) {
+        // 中斷執行並拋出錯誤，讓外層 catch 處理
+        throw new Error("Guest usage limit exceeded"); 
+    }
     let attempts = 0;
     const maxAttempts = API_KEYS.length;
     // 每次調用都從一個隨機的索引開始
@@ -15479,7 +15686,7 @@ async function findProfileByEmail(targetEmail) {
 // === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
 
 async function processLoginResult(user, btn, originalContent) {
-    // 1. 獲取用戶輸入的資料
+    // 1. 獲取用戶輸入的資料 (優先從 SessionStorage 恢復，否則從 DOM 獲取)
     let manualName, grade, cls, number;
     
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
@@ -15504,11 +15711,21 @@ async function processLoginResult(user, btn, originalContent) {
 
     const email = user.email;
     
-    // 用於 Debug 的後門 (同樣編碼處理)
-    const debugUser = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
+    // === 設定特定帳號 (BASE64 編碼) ===
+    const DEBUG_USER_B64 = 'a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==';   // kenchan20141
+    const STUDENT_ADD_B64 = 'a2VuY2hhbjIwMTMxQGdtYWlsLmNvbQ==';  // kenchan20131 (新增：扮學生)
+    const SPECIAL_USER_B64 = 'a2VuY2hhbjIwMTUxQGdtYWlsLmNvbQ=='; // kenchan20151 (新增：特許用家)
 
-    // 2. 檢查電郵網域
-    if (!email.endsWith('@ccckyc.edu.hk') && email !== debugUser) {
+    const debugUser = atob(DEBUG_USER_B64);
+    const studentUserAdd = atob(STUDENT_ADD_B64);
+    const specialUserAdd = atob(SPECIAL_USER_B64);
+
+    // 2. 檢查電郵網域 (允許學校電郵及白名單電郵)
+    if (!email.endsWith('@ccckyc.edu.hk') && 
+        email !== debugUser && 
+        email !== studentUserAdd && 
+        email !== specialUserAdd) {
+        
         await auth.signOut();
         alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
         sessionStorage.removeItem('sansi_temp_student_data'); 
@@ -15516,24 +15733,24 @@ async function processLoginResult(user, btn, originalContent) {
         return;
     }
 
-
+    // === 教師名單識別 ===
     const TEACHER_B64_LIST = [
-        "Y2trQGNjY2t5Yy5lZHUuaGs=", // 
-        "dGx5QGNjY2t5Yy5lZHUuaGs=", // 
-        "bHN0QGNjY2t5Yy5lZHUuaGs=", // 
-        "Y2tjQGNjY2t5Yy5lZHUuaGs=", // 
-        "c2tzQGNjY2t5Yy5lZHUuaGs=", // 
-        "eWhjQGNjY2t5Yy5lZHUuaGs=", // 
-        "d2ZjQGNjY2t5Yy5lZHUuaGs=", // 
-        "dHVuZ0BjY2NreWMuZWR1Lmhr", //
-        "a2J5QGNjY2t5Yy5lZHUuaGs=", // 
-        "d3B5QGNjY2t5Yy5lZHUuaGs=", // 
-        "a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ=="
+        "Y2trQGNjY2t5Yy5lZHUuaGs=", 
+        "dGx5QGNjY2t5Yy5lZHUuaGs=", 
+        "bHN0QGNjY2t5Yy5lZHUuaGs=", 
+        "Y2tjQGNjY2t5Yy5lZHUuaGs=", 
+        "c2tzQGNjY2t5Yy5lZHUuaGs=", 
+        "eWhjQGNjY2t5Yy5lZHUuaGs=", 
+        "d2ZjQGNjY2t5Yy5lZHUuaGs=", 
+        "dHVuZ0BjY2NreWMuZWR1Lmhr", 
+        "a2J5QGNjY2t5Yy5lZHUuaGs=", 
+        "d3B5QGNjY2t5Yy5lZHUuaGs=", 
+        DEBUG_USER_B64 // 將 Debug User 視為教師權限處理
     ];
 
     let isTeacher = false;
     
-    // 遍歷並解碼比對
+    // 遍歷並解碼比對教師名單
     for (let b64 of TEACHER_B64_LIST) {
         try {
             if (atob(b64) === email) {
@@ -15553,9 +15770,20 @@ async function processLoginResult(user, btn, originalContent) {
         number = "99"; 
         alert(`👋 老師您好！\n系統已識別您的身份，將自動進入「系統測試班」 (System/Test)。\n您的所有操作將不會影響真實學生數據。`);
     }
-    // ★★★ 識別結束 ★★★
 
-    // 3. 檢查帳號是否存在 (後續邏輯保持不變)
+    // === 新增：特許用家 (白名單) 識別 ===
+    let isSpecialUser = false;
+    if (email === specialUserAdd) {
+        console.log("身份識別：特許用家 (白名單)");
+        isSpecialUser = true;
+        // 強制覆寫變數，進入白名單區域
+        grade = "Special";
+        cls = "User";
+        // number 保持用戶輸入或設為預設值，這裡保留用戶輸入以免出錯
+        alert(`👋 歡迎特許用家！\n您已登入白名單帳號，享有無限生成權限。`);
+    }
+
+    // 3. 檢查帳號是否已存在於資料庫
     const existingProfile = await findProfileByEmail(email);
 
     if (existingProfile) {
@@ -15563,27 +15791,33 @@ async function processLoginResult(user, btn, originalContent) {
         const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
         const newLocation = `${grade}${cls}`;
 
-        // 注意：如果是老師，grade/cls 已經被強制改成 System/Test
-        // 所以如果老師第一次登入是 1A，第二次被強制轉去 System/Test，這裡會提示並切換
+        // 如果位置不同，提示用戶 (一般學生轉班的情況)
+        // 如果是 Teacher 或 Special User，因為變數已被強制覆寫，這裡的 newLocation 就是強制後的目標
         if (oldLocation !== newLocation) {
-            // 如果是老師，不需要彈出警告，直接用新的 System/Test 覆蓋即可
-            // 如果是學生轉班，則保留原有邏輯
-            if (!isTeacher) {
+            if (!isTeacher && !isSpecialUser) {
                 alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號。\n系統將登入您的原有帳號。`);
             }
         }
 
-        // 如果是老師，我們希望強制更新他的 profile 為 System/Test
-        if (isTeacher && (existingProfile.grade !== "System" || existingProfile.class !== "Test")) {
-             console.log("將教師帳號遷移至測試區...");
-             await bindStudentIdentity("System", "Test", "99", manualName, email, user.uid);
-             // 重新獲取一次 profile
-             const newProfile = { grade: "System", class: "Test", number: "99", name: manualName, email: email };
+        // 強制遷移邏輯：
+        // 1. 如果是老師，但舊資料不在 System/Test
+        // 2. 如果是特許用家，但舊資料不在 Special/User
+        if ((isTeacher && (existingProfile.grade !== "System" || existingProfile.class !== "Test")) ||
+            (isSpecialUser && (existingProfile.grade !== "Special" || existingProfile.class !== "User"))) {
+             
+             console.log("將特殊帳號遷移至指定區域...");
+             // 使用新的強制變數覆蓋舊資料
+             await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
+             
+             // 重新建立 Profile 物件
+             const newProfile = { grade: grade, class: cls, number: number, name: manualName, email: email };
              localStorage.setItem('studentProfile', JSON.stringify(newProfile));
              updateWelcomeMessage(newProfile);
-             loadAssignments("System", "Test");
+             loadAssignments(grade, cls);
+
         } else {
-             // 普通學生或已在測試區的老師
+             // 普通學生，或已經在正確位置的特殊帳號
+             // 使用資料庫中的舊資料登入 (忽略本次輸入的班級)
              localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
              updateWelcomeMessage(existingProfile);
              loadAssignments(existingProfile.grade, existingProfile.class);
@@ -15600,6 +15834,9 @@ async function processLoginResult(user, btn, originalContent) {
     } else {
         // B. 新用戶註冊
         console.log("新用戶註冊...");
+        // 這裡的 grade/cls 已經經過上面的 Teacher/Special 判斷並可能被覆寫
+        // 如果是 kenchan20131 (STUDENT_ADD_B64)，因為沒有進入任何強制覆寫的 if，
+        // 所以會使用用戶在 UI 上選擇的 grade/cls/number 進行註冊。
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
         
@@ -17211,6 +17448,66 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
+	<script>
+// ==========================================
+// === 自動統一訪客額度提示 & 攔截雜訊 ===
+// ==========================================
+(function() {
+    // 1. 設定一個全域旗標，用來標記「剛剛是否觸發了額度限制」
+    window._isGuestLimitTriggered = false;
+
+    // 2. 覆寫權限檢查函式 (Check Guest Usage Override)
+    window.checkGuestUsage = function() {
+        // A. 檢查是否已登入 (學生/老師/特許用家)
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (s) return true; // 已登入，通過
+
+        // B. 未登入訪客：檢查 LocalStorage 計數
+        const today = new Date().toLocaleDateString('zh-HK');
+        const storageKey = `sansi_guest_usage_${today}`;
+        let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
+
+        // C. 如果超過額度 (上限 1 次)
+        if (currentCount >= 1) {
+            console.warn("[權限檢查] 攔截：超過每日額度。");
+            
+            // ★ 設定旗標：開啟「靜音模式」
+            window._isGuestLimitTriggered = true;
+            
+            // ★ 統一彈出標準提示
+            alert("⚠️ 訪客每日體驗額度已用完。\n\n請登入學校帳號或註冊。");
+            
+            // ★ 1秒後自動關閉「靜音模式」，恢復正常報錯功能
+            setTimeout(() => { window._isGuestLimitTriggered = false; }, 1000);
+            
+            return false; // 阻止後續執行
+        }
+
+        // D. 增加計數
+        localStorage.setItem(storageKey, currentCount + 1);
+        return true;
+    };
+
+    // 3. 升級 Alert 函式 (過濾雜訊)
+    // 這裡會包裝剛才寫好的莫蘭迪 Alert，增加過濾功能
+    const _baseAlert = window.alert;
+
+    window.alert = function(message) {
+        const msgStr = String(message);
+
+        // ★ 核心邏輯：如果處於「靜音模式」且 訊息不是「額度用完」的那條
+        // 代表這是一條因為被擋下而產生的副作用報錯 (如 "API錯誤"、"生成失敗")
+        // 我們直接將其攔截 (return)，不顯示出來
+        if (window._isGuestLimitTriggered && !msgStr.includes("訪客每日體驗額度")) {
+            console.log("已自動過濾重複的錯誤提示:", msgStr);
+            return; 
+        }
+
+        // 否則，正常顯示
+        _baseAlert(message);
+    };
+})();
+</script>
 	
 
 </body>
