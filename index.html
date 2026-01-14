@@ -15319,7 +15319,6 @@ function closeStudentCloudModal() {
 
 // 修改原本的 checkStudentLogin
 // 修改原本的 checkStudentLogin
-// === 修改後：檢查登入狀態 (加入即時同步與監聽) ===
 async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     
@@ -15328,32 +15327,85 @@ async function checkStudentLogin() {
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         
-        // B. 更新歡迎語
         updateWelcomeMessage(s);
-        
-        // C. 載入課業列表
         loadAssignments(s.grade, s.class);
-
-        // D. 啟動紅點監聽
         monitorPendingAssignments(); 
 
-        // ★★★ 關鍵新增 1：頁面載入後，立即執行一次同步 ★★★
-        // 確保本地資料與雲端一致 (例如老師剛剛刪除了作業)
-        syncHistoryToFirebase(true);
+        // ★★★ 步驟 1：先檢查是否需要搬運歷史紀錄 ★★★
+        await checkAndMigrateHistory(s);
 
-        // ★★★ 關鍵新增 2：啟動即時監聽器 ★★★
-        // 如果學生一直開著網頁，老師刪除資料時，這裡會收到通知並自動更新
+        // ★★★ 步驟 2：搬運完成後，再執行同步 ★★★
+        syncHistoryToFirebase(true);
         startAutoSyncListener();
 
-        if (window.forceLogVisit) {
-            window.forceLogVisit();
-        }
-
-        const user = firebase.auth().currentUser;
-        if (user) {
-            try { await user.reload(); } catch (error) { }
-        }
+        if (window.forceLogVisit) window.forceLogVisit();
         verifyStudentStatus(s);
+    }
+}
+
+// === 新增：歷史紀錄搬運工 (Lazy Migration) ===
+async function checkAndMigrateHistory(profile) {
+    // 檢查 Profile 是否有 migration_source 標記
+    // 這個標記是老師端在「學年過渡」時打上去的
+    
+    // 我們需要先從雲端讀取最新的 Profile，因為 LocalStorage 可能是舊的
+    const profilePath = students/${profile.grade}/${profile.class}/${profile.name}/profile;
+    
+    try {
+        const snap = await database.ref(profilePath).once('value');
+        const cloudProfile = snap.val();
+
+        if (cloudProfile && cloudProfile.migration_source) {
+            console.log("📦 發現舊學年歷史紀錄，準備搬運...", cloudProfile.migration_source);
+            
+            // 顯示提示給學生 (非阻擋式，或用 Toast)
+            const welcomeText = document.getElementById('welcomeText');
+            const originalText = welcomeText.innerHTML;
+            welcomeText.innerHTML += ` <span style="color:#d69a92; font-size:0.8em;"><i class="fas fa-truck-loading"></i> 正在搬運舊紀錄...</span>`;
+
+            // 1. 去舊地址下載歷史紀錄
+            const oldHistorySnap = await database.ref(cloudProfile.migration_source).once('value');
+            const oldHistory = oldHistorySnap.val();
+
+            if (oldHistory) {
+                // 2. 將舊紀錄寫入新地址 (合併或覆蓋)
+                // 注意：這裡是寫入新學年的 history 節點
+                const newHistoryPath = students/${profile.grade}/${profile.class}/${profile.name}/history;
+                
+                // 為了安全，我們先讀取新地址現有的 (雖然剛升班應該是空的)
+                const currentHistorySnap = await database.ref(newHistoryPath).once('value');
+                let currentHistory = currentHistorySnap.val() || [];
+                
+                // 合併陣列
+                const mergedHistory = [...currentHistory, ...oldHistory];
+                
+                // 寫入新位置
+                await database.ref(newHistoryPath).set(mergedHistory);
+                console.log("✅ 歷史紀錄搬運成功！");
+            }
+
+            // 3. 清理現場
+            // A. 刪除舊地址的數據 (釋放空間)
+            // 注意：要刪除的是 /history 節點的上層嗎？不，只刪除 history 節點即可，因為 profile 已經被老師刪了
+            // cloudProfile.migration_source 格式是 "students/1/A/Name/history"
+            // 我們需要移除整個學生節點 "students/1/A/Name" 嗎？
+            // 為了乾淨，我們可以移除上一層。
+            
+            const oldStudentPath = cloudProfile.migration_source.replace('/history', '');
+            
+            let updates = {};
+            updates[oldStudentPath] = null; // 刪除舊位置的所有殘留資料
+            updates[${profilePath}/migration_source] = null; // 移除標記，避免下次重複搬運
+
+            await database.ref().update(updates);
+            
+            // 恢復 UI
+            welcomeText.innerHTML = originalText;
+            console.log("🧹 舊紀錄清理完成");
+        }
+    } catch (e) {
+        console.error("搬運歷史紀錄失敗:", e);
+        // 不阻擋登入流程，下次登入再試
     }
 }
 
