@@ -15413,29 +15413,79 @@ async function verifyStudentStatus(localProfile) {
 }
 
 // === 新增：班號輸入介面 ===
+// === 1. 暫存變數，用於跨函式傳遞資料 ===
+let pendingUpdateProfile = null;
+let pendingUpdatePath = null;
+
+// === 2. 顯示班號更新視窗 (取代原本的 prompt) ===
 function promptForNewClassNumber(profile, firebasePath) {
-    // 使用簡單的 prompt 或自訂 Modal
-    // 這裡為了代碼簡潔，示範用 prompt，建議您改用您的 Modal 風格
-    let newNum = prompt(`👋 新學年好！\n\n系統已重置班號。\n請輸入您在 ${profile.grade}${profile.class} 班的新班號 (1-35)：`);
-    
-    // 簡單驗證
-    if (newNum && !isNaN(newNum) && parseInt(newNum) > 0 && parseInt(newNum) < 40) {
-        // 寫入 Firebase
-        database.ref(firebasePath).update({ number: newNum }).then(() => {
-            alert("✅ 班號已更新！");
-            
-            // 更新本地存儲
-            profile.number = newNum;
-            localStorage.setItem('studentProfile', JSON.stringify(profile));
-            updateWelcomeMessage(profile);
-        }).catch(err => {
-            alert("更新失敗，請檢查網路或權限。\n" + err.message);
-        });
+    // 儲存資料以便確認時使用
+    pendingUpdateProfile = profile;
+    pendingUpdatePath = firebasePath;
+
+    // 初始化下拉選單 (1-35)
+    const select = document.getElementById('newClassNumberSelect');
+    select.innerHTML = '';
+    for (let i = 1; i <= 35; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = i;
+        select.appendChild(opt);
+    }
+
+    // 顯示視窗 (強制最上層)
+    const modal = document.getElementById('classNumberUpdateModal');
+    if (modal) {
+        modal.style.display = 'flex';
     } else {
-        if (newNum !== null) { // 如果不是按取消
-            alert("班號格式錯誤，請重新登入輸入。");
-            // 可以選擇登出他，強迫他下次再試
-        }
+        // 如果 HTML 沒貼好，才降級使用原生 prompt (保險機制)
+        fallbackPrompt(profile, firebasePath);
+    }
+}
+
+// === 3. 確認更新班號 (點擊按鈕觸發) ===
+async function confirmClassNumberUpdate() {
+    const select = document.getElementById('newClassNumberSelect');
+    const newNum = select.value;
+    const modal = document.getElementById('classNumberUpdateModal');
+    const btn = modal.querySelector('button');
+
+    // UI 鎖定
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 更新中...';
+
+    try {
+        // 寫入 Firebase
+        await database.ref(pendingUpdatePath).update({ number: newNum });
+        
+        // 更新本地儲存
+        pendingUpdateProfile.number = newNum;
+        localStorage.setItem('studentProfile', JSON.stringify(pendingUpdateProfile));
+        
+        // 刷新歡迎語
+        updateWelcomeMessage(pendingUpdateProfile);
+
+        // 關閉視窗
+        modal.style.display = 'none';
+        alert(`✅ 班號已更新為：${newNum}`);
+
+    } catch (err) {
+        alert("更新失敗，請檢查網絡。\n" + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = '確認更新';
+    }
+}
+
+// (舊的 fallback，備用)
+function fallbackPrompt(profile, firebasePath) {
+    let newNum = window.prompt(`👋 新學年好！\n請輸入您在 ${profile.grade}${profile.class} 班的新班號 (1-35)：`);
+    if (newNum && !isNaN(newNum)) {
+        database.ref(firebasePath).update({ number: newNum });
+        profile.number = newNum;
+        localStorage.setItem('studentProfile', JSON.stringify(profile));
+        updateWelcomeMessage(profile);
+        alert("✅ 班號已更新！");
     }
 }
 
@@ -17513,6 +17563,32 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 })();
 </script>
+
+
+
+
+<!-- === 新增：班號強制更新視窗 (莫蘭迪風格) === -->
+<div id="classNumberUpdateModal" class="books-modal" style="z-index: 200000; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px);">
+    <div class="modal-content" style="max-width: 350px; text-align: center; border: 1px solid #e0ddd7; border-radius: 16px; box-shadow: 0 10px 30px rgba(141, 110, 99, 0.15);">
+        
+        <div style="margin-bottom: 20px;">
+            <i class="fas fa-user-edit" style="font-size: 3rem; color: #8fa398; margin-bottom: 10px;"></i>
+            <h3 style="color: #5e5e5e; margin: 0; font-size: 1.4rem;">更新班號</h3>
+            <p style="color: #888; font-size: 0.95rem; margin-top: 10px;">新學年開始，請輸入您的新班號。</p>
+        </div>
+
+        <!-- 班號選擇器 -->
+        <select id="newClassNumberSelect" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 1.2rem; text-align: center; margin-bottom: 25px; background-color: #fff;">
+            <!-- JS 會自動填入 1-35 -->
+        </select>
+
+        <button onclick="confirmClassNumberUpdate()" class="btn-action" style="width: 100%; justify-content: center; font-size: 1.1rem; padding: 12px; background-color: #8fa398; border: none; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
+            確認更新
+        </button>
+    </div>
+</div>
+
+
 	
 
 </body>
