@@ -15440,70 +15440,126 @@ function promptForNewClassNumber(profile, firebasePath) {
 }
 
 // === 2. 全校搜尋函式 (處理升班與刪除) ===
-async function findStudentNewLocation(studentName) {
-    const statusIcon = document.getElementById('syncStatusIcon');
+try {
+    // 1. 獲取舊的個人資料 (從 LocalStorage)
+    const oldProfileStr = localStorage.getItem('studentProfile');
+    let oldGradeInt = 1;
     
-    try {
-        // 先在正式名單找
-        const snapshot = await database.ref('students').once('value');
-        const allData = snapshot.val();
-        
-        let found = false;
-        let newGrade = '', newClass = '', newInfo = null;
-
-        if (allData) {
-            for (const g in allData) {
-                for (const c in allData[g]) {
-                    if (allData[g][c][studentName]) {
-                        found = true;
-                        newGrade = g; newClass = c;
-                        newInfo = allData[g][c][studentName].profile;
-                        break;
-                    }
-                }
-                if (found) break;
-            }
+    if (oldProfileStr) {
+        const oldP = JSON.parse(oldProfileStr);
+        // 嘗試解析舊年級，如果是 System/Special 則無需搜尋
+        if (isNaN(parseInt(oldP.grade))) {
+            console.log("特殊帳號無需搜尋");
+            return;
         }
-
-        if (found && newInfo) {
-            // A. 找到了 (例如在 4B 找到他)
-            const newProfile = {
-                name: studentName, grade: newGrade, class: newClass,
-                number: newInfo.number, email: newInfo.email
-            };
-            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
-            alert(`👋 歡迎回來！\n系統偵測到您已升班，已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
-            
-            updateWelcomeMessage(newProfile);
-            loadAssignments(newGrade, newClass);
-            
-            // ★★★ 自動補傳機制 ★★★
-            // 因為他換了新家，為了保險起見，我們觸發一次同步，把他本地的 History 上傳到新家
-            syncHistoryToFirebase(true); // true = 靜默模式
-            
-            if(statusIcon) statusIcon.innerHTML = ''; 
-
-        } else {
-            // B. 正式名單沒找到，去「待分班區」找 (S3 -> S4)
-            const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
-            
-            if (pendingSnap.exists()) {
-                alert("⏳ 您的資料目前在「待分班名單」中 (中三升中四)。\n請等待老師完成分班作業後再登入。");
-                return; // 保持等待，不登出
-            }
-
-            // C. 都找不到 -> 舊帳號失效 (例如被升班後的 3A 原地消失)
-            console.warn("資料庫無此人，判定為舊資料殘留。");
-            
-            // ★★★ 關鍵：強制登出並銷毀本地舊身分 ★★★
-            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊班級資料已失效，請重新登入並註冊您的新班級。");
-            handleStudentLogout(); 
-        }
-
-    } catch (error) {
-        console.error("搜尋錯誤:", error);
+        oldGradeInt = parseInt(oldP.grade);
     }
+
+    console.log(`正在為 ${studentName} 進行全校定位 (搜尋範圍：中${oldGradeInt} 及 中${oldGradeInt + 1})...`);
+
+    // 2. 定義搜尋範圍：同時搜尋「原年級(留班)」和「下一年級(升班)」
+    // 這樣就能抓到留班生，也能抓到升班生
+    let targetGrades = [oldGradeInt + 1, oldGradeInt];
+    
+    // 過濾掉不合理的年級 (例如中六升中七是不存在的，或者是0)
+    targetGrades = targetGrades.filter(g => g >= 1 && g <= 6);
+    
+    // 定義可能的班別 (覆蓋轉班情況)
+    const targetClasses = ['A', 'B', 'C', 'D', 'E', 'F']; 
+
+    let found = false;
+    let newGrade = '';
+    let newClass = '';
+    let newInfo = null;
+
+    // 3. 【關鍵策略】平行發射所有探測請求 (Promise.all)
+    // 這會同時檢查 "升班後的位置" 和 "留班的位置"
+    let probes = [];
+
+    targetGrades.forEach(g => {
+        targetClasses.forEach(c => {
+            const path = `students/${g}/${c}/${studentName}/profile`;
+            // 建立一個異步請求
+            const p = database.ref(path).once('value')
+                .then(snap => {
+                    if (snap.exists()) {
+                        // 找到了！回傳位置資訊
+                        return { found: true, grade: String(g), cls: c, data: snap.val() };
+                    }
+                    return null;
+                })
+                .catch(() => null); // 忽略 Permission Denied 或其他錯誤
+            
+            probes.push(p);
+        });
+    });
+
+    // 等待所有探測回來
+    const results = await Promise.all(probes);
+    
+    // 找出第一個成功的結果
+    const match = results.find(r => r && r.found);
+
+    if (match) {
+        found = true;
+        newGrade = match.grade;
+        newClass = match.cls;
+        newInfo = match.data;
+    }
+
+    // 4. 處理搜尋結果
+    if (found && newInfo) {
+        // === 情況 A: 找到了 (無論是升班、留班、還是轉班) ===
+        const newProfile = {
+            name: studentName,
+            grade: newGrade,
+            class: newClass,
+            number: newInfo.number || "", 
+            email: newInfo.email
+        };
+        
+        // 判斷是升班還是留班，給予不同提示
+        let msg = "";
+        if (newGrade == oldGradeInt) {
+            msg = `👋 歡迎回來！\n資料已更新 (留班/原讀)：${newGrade}${newClass}`;
+        } else {
+            msg = `👋 恭喜升班！\n資料已更新：${newGrade}${newClass}`;
+        }
+
+        localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+        alert(`${msg} (${newInfo.number || '未編班號'})`);
+        
+        updateWelcomeMessage(newProfile);
+        loadAssignments(newGrade, newClass);
+        
+        // 自動補傳歷史紀錄到新路徑
+        syncHistoryToFirebase(true);
+        
+        if(statusIcon) statusIcon.innerHTML = ''; 
+
+    } else {
+        // 5. 如果正規班級找不到，再檢查「待分班區」(Pending)
+        const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
+        
+        if (pendingSnap.exists()) {
+            alert("⏳ 您的資料目前在「待分班名單」中 (可能為中三升中四或特殊個案)。\n請等待老師完成分班作業後再登入。");
+            return; 
+        }
+
+        // === 情況 C: 徹底找不到 ===
+        console.warn("資料庫無此人，判定為舊學年殘留資料或已畢業。");
+        alert("⚠️ 系統資料庫已更新。\n\n您的舊身份已失效 (或已畢業/離校)。\n系統將自動登出，請重新註冊。");
+        handleStudentLogout(); 
+    }
+
+} catch (error) {
+    console.error("搜尋錯誤:", error);
+    alert("系統驗證發生錯誤，請重新登入。");
+    handleStudentLogout();
 }
+
+
+	
 // 4. 【核心新增】全校搜尋模式 (處理轉班)
 // 【核心新增】全校搜尋模式 (處理轉班與畢業)
 async function findStudentNewLocation(studentName) {
