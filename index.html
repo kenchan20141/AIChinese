@@ -17193,8 +17193,7 @@ setTimeout(() => {
 
 
 
-<!-- === [新增] 神思大數據收集模組 (終極修正版：精準辨識訪客) === -->
-<!-- === [新增] 神思大數據收集模組 (身分切換修正版) === -->
+<!-- === [新增] 神思大數據收集模組 (Log 顯示修正版) === -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let totalSeconds = 0;
@@ -17219,7 +17218,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return id;
     }
 
-    // 3. 記錄訪問 (Log Visit) - 核心修正邏輯
+    // 3. 記錄訪問 (Log Visit)
     function logVisitOnce() {
         if (typeof firebase === 'undefined') return;
         const db = firebase.database();
@@ -17228,7 +17227,6 @@ document.addEventListener('DOMContentLoaded', function() {
         let s = null;
         try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
 
-        // 定義當前身份的唯一標識
         let currentIdentityID = '';
         let isStudent = false;
 
@@ -17240,17 +17238,14 @@ document.addEventListener('DOMContentLoaded', function() {
             isStudent = false;
         }
 
-        // 檢查是否已經為「這個身份」記錄過訪問
         const lastLoggedID = sessionStorage.getItem('sansi_logged_identity_id');
 
-        // 如果當前身份和上次記錄的一樣，則不重複記錄，直接退出
         if (currentIdentityID === lastLoggedID) {
             return;
         }
 
         console.log(`📍 [System] 偵測到新身份訪問 (${isStudent ? '學生' : '訪客'}), 正在記錄...`);
 
-        // 輔助寫入函數
         const incrementData = (path) => {
             db.ref(path).transaction(data => {
                 if (data === null) return { visits: 1, duration: 0 };
@@ -17258,35 +17253,29 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // A. 寫入特定路徑 (讓該學生/訪客的 visits 變成 1)
         if (isStudent) {
-            // 學生路徑
             incrementData(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
-            incrementData(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`); // 班級總結
-            incrementData(`analytics/${pathSuffix}/school`); // 全校學生總結
+            incrementData(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
+            incrementData(`analytics/${pathSuffix}/school`);
         } else {
-            // 訪客路徑
             incrementData(`analytics/${pathSuffix}/guests/${getGuestID()}`);
         }
 
-        // B. 寫入 Global Summary (全網總計)
-        // 邏輯：只有在「本次 Session 完全沒記錄過 Global」時才加 1
-        // 這樣可以避免同一個人從訪客變學生時，Global 變成 2 次 (雖然這也不算錯，但通常希望 Global 還是以 Session 為單位)
         if (!sessionStorage.getItem('sansi_global_visit_logged')) {
             incrementData(`analytics/${pathSuffix}/global_summary`);
             sessionStorage.setItem('sansi_global_visit_logged', 'true');
         }
 
-        // C. 更新 Session 狀態，標記這個身份已經記錄過了
         sessionStorage.setItem('sansi_logged_identity_id', currentIdentityID);
     }
 
     // 4. 上傳時間
     function uploadOneMinute() {
+        // ★★★ 新增 Log：讓你知道上傳觸發了 ★★★
+        console.log(`⬆️ [System] 觸發上傳機制 (目前累計逗留: ${totalSeconds} 秒)`);
+
         if (typeof firebase === 'undefined') return;
         
-        // 每次上傳時間前，再次檢查身份是否切換 (例如剛登入)
-        // 如果剛登入，logVisitOnce 會補上 visits: 1
         logVisitOnce(); 
 
         const db = firebase.database();
@@ -17302,16 +17291,13 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
-        // Global
         add60s(`analytics/${pathSuffix}/global_summary`);
 
         if (s && s.grade && s.class && s.name) {
-            // 學生路徑
             add60s(`analytics/${pathSuffix}/school`);
             add60s(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
             add60s(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
         } else {
-            // 訪客路徑
             const guestID = getGuestID();
             add60s(`analytics/${pathSuffix}/guests/${guestID}`);
         }
@@ -17321,11 +17307,14 @@ document.addEventListener('DOMContentLoaded', function() {
     function startTimer() {
         if (timerInterval) return;
         
-        console.log("⏱️ [System] 計時器已啟動"); 
+        console.log("▶️ [System] 計時器已啟動/恢復"); 
 
         timerInterval = setInterval(() => {
             totalSeconds++;
-            // 第 30 秒先傳一次，之後每 60 秒傳一次
+            
+            // (選用) 如果你想每秒都看到跳動，可以打開下面這行註解，但會很吵
+            // console.log("tick: " + totalSeconds);
+
             if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
@@ -17336,13 +17325,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
+            // ★★★ 新增 Log：讓你知道暫停了 ★★★
+            console.log("⏸️ [System] 頁面隱藏/切換，計時已暫停");
         }
     }
 
-    // 延遲 3 秒記錄首次訪問
     setTimeout(logVisitOnce, 3000); 
     
-    // 立即啟動計時
     startTimer(); 
 
     // 偵測頁面切換
@@ -17354,7 +17343,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // 將 logVisitOnce 暴露給全域，讓登入函式可以強制呼叫
     window.forceLogVisit = logVisitOnce;
 });
 </script>
