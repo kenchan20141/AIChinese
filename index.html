@@ -15444,21 +15444,29 @@ async function findStudentNewLocation(studentName) {
     const statusIcon = document.getElementById('syncStatusIcon');
     
     try {
-        // 先在正式名單找
+        // 1. 搜尋正式名單 (解決 4A->5C 轉班，或 2A->2A 留班)
+        // 我們直接下載整個 students 節點來搜尋 (數據量允許的情況下這是最穩的)
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
         
         let found = false;
-        let newGrade = '', newClass = '', newInfo = null;
+        let newGrade = '';
+        let newClass = '';
+        let newInfo = null;
 
+        // 深度搜尋演算法
         if (allData) {
-            for (const g in allData) {
-                for (const c in allData[g]) {
-                    if (allData[g][c][studentName]) {
+            // 遍歷所有年級 (包含 System, Special, 1-6)
+            for (const grade in allData) {
+                for (const cls in allData[grade]) {
+                    const studentsInClass = allData[grade][cls];
+                    if (studentsInClass && studentsInClass[studentName]) {
+                        // 找到了！
                         found = true;
-                        newGrade = g; newClass = c;
-                        newInfo = allData[g][c][studentName].profile;
-                        break;
+                        newGrade = grade;
+                        newClass = cls;
+                        newInfo = studentsInClass[studentName].profile;
+                        break; 
                     }
                 }
                 if (found) break;
@@ -15466,42 +15474,51 @@ async function findStudentNewLocation(studentName) {
         }
 
         if (found && newInfo) {
-            // A. 找到了 (例如在 4B 找到他)
+            // === 情況 A: 找到新位置 (自動修正本地資料) ===
             const newProfile = {
-                name: studentName, grade: newGrade, class: newClass,
-                number: newInfo.number, email: newInfo.email
+                name: studentName,
+                grade: newGrade,
+                class: newClass,
+                number: newInfo.number || "", // 班號可能被清空
+                email: newInfo.email
             };
-            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
-            alert(`👋 歡迎回來！\n系統偵測到您已升班，已自動更新為：${newGrade}${newClass} (${newInfo.number})`);
             
+            // 更新本地儲存
+            localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+            
+            alert(`👋 歡迎回來！\n系統偵測到新學年資料變更。\n\n您的位置已更新為：${newGrade}${newClass} 班`);
+            
+            // 刷新介面
             updateWelcomeMessage(newProfile);
             loadAssignments(newGrade, newClass);
-            
-            // ★★★ 自動補傳機制 ★★★
-            // 因為他換了新家，為了保險起見，我們觸發一次同步，把他本地的 History 上傳到新家
-            syncHistoryToFirebase(true); // true = 靜默模式
             
             if(statusIcon) statusIcon.innerHTML = ''; 
 
         } else {
-            // B. 正式名單沒找到，去「待分班區」找 (S3 -> S4)
+            // 2. 如果正式名單找不到，搜尋「待分班區」 (處理中三升中四)
             const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
             
             if (pendingSnap.exists()) {
-                alert("⏳ 您的資料目前在「待分班名單」中 (中三升中四)。\n請等待老師完成分班作業後再登入。");
-                return; // 保持等待，不登出
+                // === 情況 B: 在待分班名單中 ===
+                alert("⏳ 您的資料目前在「待分班名單」中 (例如中三升中四)。\n請等待老師完成分班作業後再登入。");
+                
+                // 這裡我們不強制登出，但也不讓他們進入主介面，保持在等待狀態
+                // 這樣不會觸發錯誤
+                return; 
             }
 
-            // C. 都找不到 -> 舊帳號失效 (例如被升班後的 3A 原地消失)
-            console.warn("資料庫無此人，判定為舊資料殘留。");
+            // === 情況 C: 徹底找不到 (中六畢業 / 被刪除) ===
+            console.warn("資料庫無此人，判定為舊學年殘留資料。");
             
-            // ★★★ 關鍵：強制登出並銷毀本地舊身分 ★★★
-            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊班級資料已失效，請重新登入並註冊您的新班級。");
+            // 強制登出並銷毀本地資料
+            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊身份已失效 (可能是畢業或資料重置)，請重新登入並註冊。");
             handleStudentLogout(); 
         }
 
     } catch (error) {
         console.error("搜尋錯誤:", error);
+        // 發生網絡錯誤時不登出，僅提示
+        alert("連線檢查時發生錯誤，請稍後再試。");
     }
 }
 // 4. 【核心新增】全校搜尋模式 (處理轉班)
