@@ -15440,12 +15440,12 @@ function promptForNewClassNumber(profile, firebasePath) {
 }
 
 // === 2. 全校搜尋函式 (處理升班與刪除) ===
+// === 核心修訂：全校搜尋模式 (修復轉班後不彈出班號輸入視窗的問題) ===
 async function findStudentNewLocation(studentName) {
     const statusIcon = document.getElementById('syncStatusIcon');
     
     try {
-        // 1. 搜尋正式名單 (解決 4A->5C 轉班，或 2A->2A 留班)
-        // 我們直接下載整個 students 節點來搜尋 (數據量允許的情況下這是最穩的)
+        // 1. 搜尋正式名單
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
         
@@ -15454,19 +15454,16 @@ async function findStudentNewLocation(studentName) {
         let newClass = '';
         let newInfo = null;
 
-        // 深度搜尋演算法
         if (allData) {
-            // 遍歷所有年級 (包含 System, Special, 1-6)
             for (const grade in allData) {
                 for (const cls in allData[grade]) {
                     const studentsInClass = allData[grade][cls];
                     if (studentsInClass && studentsInClass[studentName]) {
-                        // 找到了！
                         found = true;
                         newGrade = grade;
                         newClass = cls;
                         newInfo = studentsInClass[studentName].profile;
-                        break; 
+                        break;
                     }
                 }
                 if (found) break;
@@ -15479,7 +15476,7 @@ async function findStudentNewLocation(studentName) {
                 name: studentName,
                 grade: newGrade,
                 class: newClass,
-                number: newInfo.number || "", // 班號可能被清空
+                number: newInfo.number || "", 
                 email: newInfo.email
             };
             
@@ -15488,36 +15485,39 @@ async function findStudentNewLocation(studentName) {
             
             alert(`👋 歡迎回來！\n系統偵測到新學年資料變更。\n\n您的位置已更新為：${newGrade}${newClass} 班`);
             
-            // 刷新介面
             updateWelcomeMessage(newProfile);
             loadAssignments(newGrade, newClass);
             
             if(statusIcon) statusIcon.innerHTML = ''; 
 
+            // ★★★ 關鍵修復：在此處補上帝班號檢查邏輯 ★★★
+            // 如果新位置的班號是空的，立即彈出輸入視窗
+            if (!newInfo.number || newInfo.number === "") {
+                const newPath = `students/${newGrade}/${newClass}/${studentName}/profile`;
+                // 稍微延遲一點點，讓 alert 關閉後再彈出 prompt，體驗較好
+                setTimeout(() => {
+                    promptForNewClassNumber(newProfile, newPath);
+                }, 500);
+            }
+
         } else {
-            // 2. 如果正式名單找不到，搜尋「待分班區」 (處理中三升中四)
+            // 2. 搜尋待分班區
             const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
             
             if (pendingSnap.exists()) {
                 // === 情況 B: 在待分班名單中 ===
                 alert("⏳ 您的資料目前在「待分班名單」中 (例如中三升中四)。\n請等待老師完成分班作業後再登入。");
-                
-                // 這裡我們不強制登出，但也不讓他們進入主介面，保持在等待狀態
-                // 這樣不會觸發錯誤
                 return; 
             }
 
-            // === 情況 C: 徹底找不到 (中六畢業 / 被刪除) ===
+            // === 情況 C: 徹底找不到 ===
             console.warn("資料庫無此人，判定為舊學年殘留資料。");
-            
-            // 強制登出並銷毀本地資料
-            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊身份已失效 (可能是畢業或資料重置)，請重新登入並註冊。");
+            alert("⚠️ 系統資料庫已更新 (新學年)。\n\n您的舊身份已失效，請重新登入並註冊。");
             handleStudentLogout(); 
         }
 
     } catch (error) {
         console.error("搜尋錯誤:", error);
-        // 發生網絡錯誤時不登出，僅提示
         alert("連線檢查時發生錯誤，請稍後再試。");
     }
 }
