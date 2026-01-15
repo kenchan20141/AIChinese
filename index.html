@@ -14270,8 +14270,11 @@ function startAutoSyncListener() {
 
 
 	
+// ==========================================
+// === 智能同步邏輯 (修復版：引入 isSynced 標記) ===
+// ==========================================
+ 
 // 1. 主同步函式
-// 1. 主同步函式 (修訂版：支援分佈式遷移 Lazy Migration)
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) {
@@ -14281,11 +14284,12 @@ async function syncHistoryToFirebase(isSilent = false) {
     
     let btn = null;
     let originalText = "";
+    // 如果是由按鈕觸發，改變按鈕狀態
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
         btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
         if (btn) {
             originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 智能合併中...';
+            btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 智能同步中...';
             btn.disabled = true;
         }
     }
@@ -14303,7 +14307,7 @@ async function syncHistoryToFirebase(isSilent = false) {
         });
         
         // B. 獲取雲端資料 (Firebase)
-        // 這裡需要先讀取 Profile，檢查是否有 "migration_source" 標記
+        // 檢查是否有遷移任務 (migration_source)
         const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
         const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
         
@@ -14313,65 +14317,50 @@ async function syncHistoryToFirebase(isSilent = false) {
         let cloudRecords = [];
         let oldHistoryRecords = [];
         let hasMigrationTask = false;
- 
-        // --- [新增] 分佈式遷移邏輯 ---
+        // 處理遷移邏輯 (保持不變)
         if (profileData && profileData.migration_source) {
-            console.log(`📦 發現舊紀錄遷移任務，來源: ${profileData.migration_source}`);
+            console.log(`📦 發現舊紀錄遷移任務`);
             hasMigrationTask = true;
-            
-            // 1. 下載舊地址的歷史紀錄
             const oldSnap = await database.ref(profileData.migration_source).once('value');
             oldHistoryRecords = oldSnap.val() || [];
-            console.log(`📦 下載了 ${oldHistoryRecords.length} 筆舊紀錄`);
         }
- 
-        // 2. 下載新地址的歷史紀錄 (通常剛升班時這裡是空的，或是學生已經產生了新紀錄)
+        // 下載當前雲端紀錄
         const currentSnap = await database.ref(historyPath).once('value');
         const currentCloudRecords = currentSnap.val() || [];
         
-        // 3. 合併雲端舊紀錄與新紀錄
+        // 合併雲端舊紀錄與新紀錄
         cloudRecords = [...currentCloudRecords, ...oldHistoryRecords];
- 
-        // 4. 給所有雲端資料貼上「官方認證」標籤
-        cloudRecords = cloudRecords.map(r => Object.assign({}, r, { isSynced: true }));
-        
-        console.log(`開始同步：本地 ${localRecords.length} 筆，雲端共 ${cloudRecords.length} 筆`);
- 
-        // C. 執行智能合併 (本地 + 雲端總集)
+        console.log(`開始同步：本地 ${localRecords.length} 筆，雲端 ${cloudRecords.length} 筆`);
+        // C. ★★★ 核心：執行智能合併 (引入 isSynced 判斷) ★★★
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
         
-        // D. 寫回雲端 (更新到【新地址】)
+        // D. 寫回雲端 (更新到最新狀態)
+        // 注意：這會把本地的新資料上傳，並保留雲端現有的資料
         await database.ref(historyPath).set(mergedRecords);
         
-        // --- [新增] 遷移後的清理 ---
+        // E. 處理遷移後的清理 (保持不變)
         if (hasMigrationTask) {
-            // 1. 移除 profile 中的標記，避免下次重複下載
             await database.ref(`${profilePath}/migration_source`).remove();
-            
-            // 2. (可選) 為了節省空間，可以刪除舊地址的歷史紀錄
-            // 如果你想保留備份，可以註解掉下面這行
-            await database.ref(profileData.migration_source).remove();
-            
-            console.log("✅ 遷移完成，標記已移除");
+            // await database.ref(profileData.migration_source).remove(); // 可選：刪除舊路徑
             if(!isSilent) alert("🎉 系統已自動為您搬運了舊學年的歷史紀錄！");
         }
         
-        // E. 寫回本地 (讓本地資料也擁有 isSynced 標籤)
+        // F. 寫回本地 (更新 IndexedDB，並補上 isSynced: true)
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         
         console.log(`同步完成：合併後共 ${mergedRecords.length} 筆`);
         
-        if (!isSilent && !hasMigrationTask) alert("✅ 智能同步完成！本地與雲端紀錄已合併。");
+        if (!isSilent && !hasMigrationTask) alert("✅ 智能同步完成！");
         
-        // F. 刷新 UI
+        // G. 刷新 UI (如果正在查看列表)
         if (document.getElementById('historyLevel3') && document.getElementById('historyLevel3').style.display === 'flex') {
             if (typeof currentSubFunctionFilter !== 'undefined') {
-                enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
+                const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+                enterHistoryList(currentSubFunctionFilter, themeIndex);
             }
         }
- 
     } catch (err) {
-        console.error("智能同步失敗:", err);
+        console.error("同步失敗:", err);
         if (!isSilent) alert("❌ 同步失敗: " + err.message);
     } finally {
         if (btn && originalText) {
@@ -14380,78 +14369,96 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
     }
 }
-
-// 2. 輔助函式：合併算法 (核心邏輯)
+ 
+// 2. 輔助函式：合併算法 (邏輯核心修復)
 function mergeHistoryRecords(localRecords, cloudRecords) {
     const mergedMap = new Map();
+    const cloudKeys = new Set(); // 用來快速查詢雲端有哪些資料
     
     // 生成唯一鍵
     const generateKey = (r) => {
         return `${r.category}_${r.subFunction}_${r.title}_${r.timestamp}`;
     };
-
-    // A. 雲端資料是「權威」，無條件放入
+ 
+    // === 第一步：處理雲端資料 (雲端是權威) ===
     cloudRecords.forEach(record => {
-        mergedMap.set(generateKey(record), record);
+        if (!record) return;
+        const key = generateKey(record);
+        
+        // 雲端下來的資料，肯定已經同步過了，確保標記為 true
+        record.isSynced = true;
+        
+        mergedMap.set(key, record);
+        cloudKeys.add(key);
     });
-
-    // B. 處理本地資料
+ 
+    // === 第二步：處理本地資料 (決定是「上傳」還是「刪除」) ===
     localRecords.forEach(localRecord => {
-        if(!localRecord) return;
+        if (!localRecord) return;
         const key = generateKey(localRecord);
         
-        // 檢查雲端是否已經有這筆資料
-        if (mergedMap.has(key)) {
-            // 如果雲端有，代表兩邊都有，我們保留雲端的 (因為它帶有最新的 isSynced 標籤)
-        } else {
-            // ★★★ 核心判斷：為什麼雲端沒有這筆資料？ ★★★
+        // 如果這筆資料已經在雲端 (Phase 1 已加入)，我們以雲端版本為準 (通常內容一樣)
+        if (cloudKeys.has(key)) {
+            return;
+        }
+ 
+        // 如果這筆資料「不在」雲端，我們需要判斷原因：
+        
+        // 情況 A (情境二)：本地有 isSynced: true 標記
+        // 意思：這筆資料以前同步過，但現在雲端找不到了。
+        // 結論：老師/管理者在雲端刪除了它。
+        // 動作：本地也應該刪除 (所以 **不要** 加入 mergedMap)。
+        if (localRecord.isSynced === true) {
+            console.log(`同步刪除：本地紀錄「${localRecord.title}」因雲端已移除而被刪除。`);
+            // Do nothing -> implicitly delete from result
+        }
+        
+        // 情況 B (情境一)：本地沒有 isSynced 標記 (undefined or false)
+        // 意思：這是學生在離線或未同步狀態下新生成的。
+        // 結論：這是新資料。
+        // 動作：保留並準備上傳 (加入 mergedMap)。
+        else {
+            console.log(`新資料上傳：發現本地新紀錄「${localRecord.title}」，準備上傳。`);
             
-            if (localRecord.isSynced) {
-                // 情況 1：這筆資料本地有「已同步」標籤，但雲端卻找不到。
-                // 結論：這代表「老師在雲端刪掉了它」。
-                // 動作：捨棄它 (等於在本地也刪除)。
-                console.log(`移除已在雲端被刪除的項目：${localRecord.title}`);
-            } else {
-                // 情況 2：這筆資料本地「沒有」標籤。
-                // 結論：這代表「這是學生離線新寫的，還沒上傳過」。
-                // 動作：保留它 (準備上傳)。
-                mergedMap.set(key, localRecord);
-            }
+            // 標記為將要同步 (當這個列表被寫回雲端和本地時，它就變成已同步了)
+            localRecord.isSynced = true;
+            mergedMap.set(key, localRecord);
         }
     });
-
-    // C. 轉回陣列並排序
+ 
+    // === 第三步：轉回陣列並排序 ===
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
-
+ 
 // 3. 輔助函式：更新本地 IndexedDB
 async function updateLocalHistoryWithMergedData(mergedRecords, db) {
     let localDb = db;
     if (!localDb) {
         localDb = await openHistoryDB();
     }
-
+ 
     try {
         const transaction = localDb.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
-        // A. 清空本地：避免 ID 衝突
+        // A. 清空本地：避免 ID 衝突與殘留
         await new Promise((resolve, reject) => {
             const req = store.clear();
             req.onsuccess = resolve;
             req.onerror = reject;
         });
-
+ 
         // B. 寫入資料
         for (const record of mergedRecords) {
-            // 移除舊的 ID，讓 IndexedDB 重新分配，解決 id 衝突
-            delete record.id; 
+            // 移除舊的 IndexedDB ID，讓它重新生成 (避免主鍵衝突)
+            // 注意：我們依賴 timestamp+title+category 作為邏輯唯一鍵，而不是 id
+            if (record.id) delete record.id;
             
-            // ★★★ 關鍵：寫入本地時，確保加上 isSynced: true ★★★
-            // 這樣下次同步時，系統就知道這筆資料「已經存在過雲端」了
+            // ★★★ 關鍵：確保寫入本地時，isSynced 必定為 true ★★★
+            // 因為這些資料即將被寫入雲端 (或已經來自雲端)，所以對本地來說，它們都是「已同步」的
             record.isSynced = true;
             
-            store.put(record); 
+            store.put(record);
         }
         
         return new Promise((resolve) => {
