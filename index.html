@@ -5838,6 +5838,63 @@ select:focus, select:hover {
     margin-top: 15px; /* 增加按鈕上方邊距 */
 }
 	
+
+/* === [新增] 歷史紀錄修訂功能樣式 === */
+ 
+/* 1. 編輯模式下的視覺提示 */
+[contenteditable="true"] {
+    outline: none;
+    border: 2px dashed #94a7b5 !important; /* 莫蘭迪藍虛線 */
+    background-color: #fffcf6; /* 暖白底色 */
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+    cursor: text;
+}
+ 
+/* 2. 莫蘭迪懸浮儲存鍵 (純圖案設計) */
+.morandi-save-float-btn {
+    position: fixed;
+    bottom: 50px;
+    right: 50px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    
+    /* 莫蘭迪灰綠漸層 */
+    background: linear-gradient(135deg, #8fa398 0%, #7d9186 100%);
+    color: white;
+    
+    border: none;
+    box-shadow: 0 8px 25px rgba(143, 163, 152, 0.6);
+    
+    display: none; /* 預設隱藏 */
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    cursor: pointer;
+    z-index: 99999; /* 確保在最上層 */
+    
+    animation: floatPopIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: transform 0.2s ease, background 0.2s;
+}
+ 
+.morandi-save-float-btn:hover {
+    transform: scale(1.1) rotate(15deg);
+    background: linear-gradient(135deg, #9db1a6 0%, #8fa398 100%);
+}
+ 
+.morandi-save-float-btn:active {
+    transform: scale(0.95);
+}
+ 
+@keyframes floatPopIn {
+    from { opacity: 0; transform: scale(0); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+
 	
 </style>
 
@@ -14898,14 +14955,13 @@ async function clearAllHistory() {
 }
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
-// === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.get(id);
-
+ 
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
@@ -14919,135 +14975,240 @@ async function viewHistoryDetail(id) {
                 }
                 const themeClass = `history-theme-context-${themeIndex}`;
                 const colorVar = `var(--m-color-${themeIndex})`;
-
+ 
                 // 2. 設定標題
-                document.getElementById('historyModalTitle').innerHTML = 
-                    `<i class="fas fa-book-open" style="color:${colorVar}"></i> 
-                     <span style="color:#333">${record.category}</span> 
-                     <span style="font-size:0.8em; color:#bbb; margin: 0 5px;">/</span> 
+                document.getElementById('historyModalTitle').innerHTML =
+                    `<i class="fas fa-book-open" style="color:${colorVar}"></i>
+                     <span style="color:#333">${record.category}</span>
+                     <span style="font-size:0.8em; color:#bbb; margin: 0 5px;">/</span>
                      <span style="color:${colorVar}; font-weight:bold;">${record.subFunction}</span>`;
                 
                 const dateElement = document.getElementById('historyModalDate');
-                if (dateElement) dateElement.style.display = "none"; 
+                if (dateElement) dateElement.style.display = "none";
                 
-                // ★★★ 這裡定義 contentHTML ★★★
                 let contentHTML = '';
-
-                // 3. 處理使用者輸入內容 (如果是「學習報告」，則跳過)
+ 
+                // 3. 處理使用者輸入內容 (加入雙擊事件與 ID)
                 if (record.category !== "學習報告" && record.userContent) {
                     const rawText = record.userContent;
                     const lines = rawText.split('\n');
                     let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
-                    let currentLabel = '輸入內容'; 
+                    let currentLabel = '輸入內容';
                     let currentContent = [];
                     const labelRegex = /^(.{2,10}?)[：:](.*)$/;
-
+ 
                     lines.forEach((line) => {
                         const match = line.match(labelRegex);
                         if (match) {
                             if (currentContent.length > 0) {
                                 parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
                             }
-                            currentLabel = match[1].trim(); 
+                            currentLabel = match[1].trim();
                             const restOfLine = match[2].trim();
-                            currentContent = restOfLine ? [restOfLine] : []; 
+                            currentContent = restOfLine ? [restOfLine] : [];
                         } else {
                             if (line.trim() !== "") currentContent.push(line);
                         }
                     });
-
-                    if (currentContent.length > 0 || lines.length === 0) { 
+ 
+                    if (currentContent.length > 0 || lines.length === 0) {
                          const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
                          parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
                     }
                     parsedHTML += '</div>';
                     
-                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
+                    // ★★★ 關鍵修改：外層加入 ID 和雙擊事件 ★★★
+                    contentHTML += `
+                        <div id="edit-user-content-${record.id}"
+                             ondblclick="enableHistoryEdit(this)"
+                             title="雙擊即可修訂內容"
+                             style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
+                            ${parsedHTML}
+                        </div>`;
                 }
-
-                // 4. 顯示 AI 生成內容
+ 
+                // 4. 處理 AI 生成內容 (加入雙擊事件與 ID)
                 if (record.aiContent) {
-                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
+                    // ★★★ 關鍵修改：外層加入 ID 和雙擊事件 ★★★
+                    contentHTML += `
+                        <div id="edit-ai-content-${record.id}"
+                             ondblclick="enableHistoryEdit(this)"
+                             title="雙擊即可修訂內容"
+                             class="ai-output-area"
+                             style="margin-top: 15px;">
+                            ${record.aiContent}
+                        </div>`;
                 }
                 
-                // 5. 顯示繳交按鈕 (若適用)
+                // 5. 顯示繳交按鈕
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
                         <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
-                            <button class="btn-action btn-morandi" 
+                            <button class="btn-action btn-morandi"
                                     onclick="openSubmitSelector(${record.id})">
                                 <i class="fas fa-paper-plane"></i> 繳交
                             </button>
                         </div>
                     `;
                 }
-
-                // 6. 將組合好的 HTML 注入 Modal
+ 
+                // 6. ★★★ 注入懸浮儲存鍵 (預設隱藏) ★★★
+                contentHTML += `
+                    <button id="history-save-btn-${record.id}"
+                            class="morandi-save-float-btn"
+                            onclick="saveHistoryEdits(${record.id})">
+                        <i class="fas fa-save"></i>
+                    </button>
+                `;
+ 
+                // 7. 注入 Modal
                 const modalContent = document.getElementById('historyModalContent');
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
-
-                // ==========================================
-                // ★★★ 雷達圖即時重繪邏輯 (Chart.js) ★★★
-                // ==========================================
-                // 檢查這條紀錄是否有分數數據 (scoreData)
-                if (record.scoreData && record.scoreData.radar) {
-                    // 1. 在剛剛注入的 HTML 中找到 Canvas 元素
-                    // 我們在 captureContainerHTML 中加了 class="history-radar-canvas"
-                    const canvasEl = modalContent.querySelector('canvas');
-                    
-                    if (canvasEl) {
-                        // 2. 準備數據
-                        const radarData = [
-                            record.scoreData.radar.立意 || 0,
-                            record.scoreData.radar.取材 || 0,
-                            record.scoreData.radar.扣題 || 0,
-                            record.scoreData.radar.詳略 || 0,
-                            record.scoreData.radar.詞彙 || 0,
-                            record.scoreData.radar.文學性 || 0
-                        ];
-
-                        // 3. 使用 Chart.js 繪圖
-                        new Chart(canvasEl.getContext('2d'), {
-                            type: 'radar',
-                            data: {
-                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                datasets: [{
-                                    label: '能力評估',
-                                    data: radarData,
-                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                    borderColor: 'rgba(54, 162, 235, 1)',
-                                    borderWidth: 2,
-                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                    pointBorderColor: '#fff'
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false, // 關鍵：允許填滿高度
-                                scales: {
-                                    r: {
-                                        angleLines: { display: true },
-                                        suggestedMin: 0,
-                                        suggestedMax: 10,
-                                        pointLabels: {
-                                            font: { size: 14, family: "'Noto Serif TC', serif" }
-                                        },
-                                        ticks: { stepSize: 2, display: false }
-                                    }
+ 
+                // 8. 雷達圖重繪邏輯 (保持不變)
+                setTimeout(() => {
+                    if (record.scoreData && record.scoreData.radar) {
+                        const canvasEl = modalContent.querySelector('canvas');
+                        if (canvasEl) {
+                            const radarData = [
+                                record.scoreData.radar.立意 || 0,
+                                record.scoreData.radar.取材 || 0,
+                                record.scoreData.radar.扣題 || 0,
+                                record.scoreData.radar.詳略 || 0,
+                                record.scoreData.radar.詞彙 || 0,
+                                record.scoreData.radar.文學性 || 0
+                            ];
+                            new Chart(canvasEl.getContext('2d'), {
+                                type: 'radar',
+                                data: {
+                                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+                                    datasets: [{
+                                        label: '能力評估',
+                                        data: radarData,
+                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                        borderColor: 'rgba(54, 162, 235, 1)',
+                                        borderWidth: 2,
+                                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                                        pointBorderColor: '#fff'
+                                    }]
                                 },
-                                plugins: {
-                                    legend: { display: false }
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    scales: {
+                                        r: {
+                                            angleLines: { display: true },
+                                            suggestedMin: 0,
+                                            suggestedMax: 10,
+                                            pointLabels: { font: { size: 14, family: "'Noto Serif TC', serif" } },
+                                            ticks: { stepSize: 2, display: false }
+                                        }
+                                    },
+                                    plugins: { legend: { display: false } }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
-                }
-                // ==========================================
+                }, 100);
             }
         };
     } catch (e) { console.error(e); }
+}
+
+
+	function enableHistoryEdit(element) {
+    // 啟用編輯
+    element.contentEditable = "true";
+    element.focus();
+    
+    // 找出目前紀錄的 ID
+    const parts = element.id.split('-');
+    const recordId = parts[parts.length - 1];
+    
+    // 顯示對應的懸浮儲存按鈕
+    const saveBtn = document.getElementById(`history-save-btn-${recordId}`);
+    if (saveBtn) {
+        saveBtn.style.display = 'flex'; // 顯示圓形按鈕
+        
+        // 手機震動回饋
+        if (navigator.vibrate) navigator.vibrate(15);
+    }
+}
+
+	async function saveHistoryEdits(id) {
+    const userContentEl = document.getElementById(`edit-user-content-${id}`);
+    const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
+    const saveBtn = document.getElementById(`history-save-btn-${id}`);
+ 
+    // UI 鎖定：顯示載入圖示
+    const originalIcon = saveBtn.innerHTML;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    saveBtn.disabled = true;
+ 
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        // 1. 讀取舊紀錄
+        const getRequest = store.get(id);
+        
+        getRequest.onsuccess = function(event) {
+            const record = event.target.result;
+            if (record) {
+                // 2. 更新內容
+                if (userContentEl) {
+                    // 對於使用者內容，innerText 通常比較乾淨，能保留換行
+                    record.userContent = userContentEl.innerText;
+                }
+                
+                if (aiContentEl) {
+                    // 對於 AI 內容 (含表格、樣式)，必須用 innerHTML
+                    record.aiContent = aiContentEl.innerHTML;
+                }
+ 
+                // ★★★ 關鍵修正：更新時間戳 ★★★
+                // 這讓系統知道這是最新的版本，解決「存不到」的問題
+                record.timestamp = new Date().getTime();
+                record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
+                
+                // 移除同步標籤，標記為本地新修訂
+                if (record.isSynced) delete record.isSynced;
+ 
+                // 3. 寫回本地資料庫
+                const putRequest = store.put(record);
+                
+                putRequest.onsuccess = function() {
+                    console.log("本地紀錄修訂成功");
+                    
+                    // 4. 關閉編輯模式
+                    if (userContentEl) userContentEl.contentEditable = "false";
+                    if (aiContentEl) aiContentEl.contentEditable = "false";
+                    
+                    // ★★★ 關鍵修正：這裡不呼叫 syncHistoryToFirebase() ★★★
+                    // 避免 ID 變更導致接下來的「繳交」按鈕失效
+                    
+                    // 5. UI 恢復
+                    saveBtn.style.display = 'none'; // 隱藏按鈕
+                    saveBtn.innerHTML = originalIcon;
+                    saveBtn.disabled = false;
+                    
+                    // 成功提示
+                    alert("✅ 修訂已儲存！\n您可以直接按「繳交」呈交給老師。");
+                    
+                    // 震動回饋
+                    if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
+                };
+            }
+        };
+    } catch (e) {
+        console.error("儲存修訂失敗:", e);
+        alert("儲存失敗，請重試。");
+        saveBtn.innerHTML = originalIcon;
+        saveBtn.disabled = false;
+    }
 }
 	
 function closeHistoryModal() {
@@ -16580,32 +16741,33 @@ function openSubmitSelector(recordId) {
 
 // === 繳交邏輯 2: 確認並上傳 ===
 async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
+    // 確保 ID 是整數
     const recordId = parseInt(document.getElementById('pendingRecordId').value);
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-
-    // 二次確認
+ 
     if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(注意：這將會覆蓋你之前對此功課的繳交內容)`)) return;
-
+ 
     try {
-        // 從本地資料庫撈出該筆紀錄的完整資料
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.get(recordId);
-
+ 
         request.onsuccess = function(e) {
             const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // 上傳到 Firebase 的 assignments_submissions 路徑
+            
+            // 如果找不到紀錄，這時才報錯
+            if (!record) return alert("錯誤：找不到原始紀錄 (ID: " + recordId + ")，請重新打開紀錄。");
+ 
+            // 上傳路徑
             const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
             
             // 顯示載入中
             const modalBody = document.getElementById('activeAssignmentList');
             modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師...</div>';
-
+ 
             database.ref(submitPath).set({
-                ...record, // 包含 title, userContent, aiContent
+                ...record, // 包含修訂後的 userContent 和 aiContent
                 submittedAt: new Date().toLocaleString('zh-HK'),
                 studentName: s.name,
                 studentClass: s.class,
@@ -16615,9 +16777,11 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
                     alert("繳交失敗：" + error.message);
                     document.getElementById('submitAssignmentModal').style.display = 'none';
                 } else {
-                    // 成功特效與提示
                     alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
                     document.getElementById('submitAssignmentModal').style.display = 'none';
+                    
+                    // 繳交後，我們才順便觸發一次同步，確保資料一致
+                    syncHistoryToFirebase(true);
                 }
             });
         };
