@@ -14271,6 +14271,7 @@ function startAutoSyncListener() {
 
 	
 // 1. 主同步函式
+// 1. 主同步函式 (修訂版：支援分佈式遷移 Lazy Migration)
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) {
@@ -14292,7 +14293,7 @@ async function syncHistoryToFirebase(isSilent = false) {
     try {
         const db = await openHistoryDB();
         
-        // A. 獲取本地資料
+        // A. 獲取本地資料 (IndexedDB)
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const localRecords = await new Promise((resolve, reject) => {
@@ -14301,32 +14302,66 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onerror = () => resolve([]);
         });
         
-        // B. 獲取雲端資料
-        // 使用反引號確保變數正確
-        const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-        const cloudSnapshot = await database.ref(path).once('value');
-        let cloudRecords = cloudSnapshot.val() || [];
+        // B. 獲取雲端資料 (Firebase)
+        // 這裡需要先讀取 Profile，檢查是否有 "migration_source" 標記
+        const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
+        const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
         
-        // ★★★ 關鍵步驟：給雲端下載的資料貼上「官方認證」標籤 ★★★
-        cloudRecords = cloudRecords.map(r => {
-            // 確保物件是新的，並加上標記
-            return Object.assign({}, r, { isSynced: true });
-        });
+        const profileSnap = await database.ref(profilePath).once('value');
+        const profileData = profileSnap.val();
         
-        console.log(`開始同步：本地 ${localRecords.length} 筆，雲端 ${cloudRecords.length} 筆`);
-
-        // C. 執行智能合併 (包含刪除判斷)
+        let cloudRecords = [];
+        let oldHistoryRecords = [];
+        let hasMigrationTask = false;
+ 
+        // --- [新增] 分佈式遷移邏輯 ---
+        if (profileData && profileData.migration_source) {
+            console.log(`📦 發現舊紀錄遷移任務，來源: ${profileData.migration_source}`);
+            hasMigrationTask = true;
+            
+            // 1. 下載舊地址的歷史紀錄
+            const oldSnap = await database.ref(profileData.migration_source).once('value');
+            oldHistoryRecords = oldSnap.val() || [];
+            console.log(`📦 下載了 ${oldHistoryRecords.length} 筆舊紀錄`);
+        }
+ 
+        // 2. 下載新地址的歷史紀錄 (通常剛升班時這裡是空的，或是學生已經產生了新紀錄)
+        const currentSnap = await database.ref(historyPath).once('value');
+        const currentCloudRecords = currentSnap.val() || [];
+        
+        // 3. 合併雲端舊紀錄與新紀錄
+        cloudRecords = [...currentCloudRecords, ...oldHistoryRecords];
+ 
+        // 4. 給所有雲端資料貼上「官方認證」標籤
+        cloudRecords = cloudRecords.map(r => Object.assign({}, r, { isSynced: true }));
+        
+        console.log(`開始同步：本地 ${localRecords.length} 筆，雲端共 ${cloudRecords.length} 筆`);
+ 
+        // C. 執行智能合併 (本地 + 雲端總集)
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
         
-        // D. 寫回雲端 (更新後的完整清單)
-        await database.ref(path).set(mergedRecords);
+        // D. 寫回雲端 (更新到【新地址】)
+        await database.ref(historyPath).set(mergedRecords);
+        
+        // --- [新增] 遷移後的清理 ---
+        if (hasMigrationTask) {
+            // 1. 移除 profile 中的標記，避免下次重複下載
+            await database.ref(`${profilePath}/migration_source`).remove();
+            
+            // 2. (可選) 為了節省空間，可以刪除舊地址的歷史紀錄
+            // 如果你想保留備份，可以註解掉下面這行
+            await database.ref(profileData.migration_source).remove();
+            
+            console.log("✅ 遷移完成，標記已移除");
+            if(!isSilent) alert("🎉 系統已自動為您搬運了舊學年的歷史紀錄！");
+        }
         
         // E. 寫回本地 (讓本地資料也擁有 isSynced 標籤)
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         
         console.log(`同步完成：合併後共 ${mergedRecords.length} 筆`);
         
-        if (!isSilent) alert("✅ 智能同步完成！本地與雲端紀錄已合併。");
+        if (!isSilent && !hasMigrationTask) alert("✅ 智能同步完成！本地與雲端紀錄已合併。");
         
         // F. 刷新 UI
         if (document.getElementById('historyLevel3') && document.getElementById('historyLevel3').style.display === 'flex') {
@@ -14334,7 +14369,7 @@ async function syncHistoryToFirebase(isSilent = false) {
                 enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
             }
         }
-
+ 
     } catch (err) {
         console.error("智能同步失敗:", err);
         if (!isSilent) alert("❌ 同步失敗: " + err.message);
