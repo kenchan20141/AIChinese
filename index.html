@@ -16801,7 +16801,10 @@ function openSubmitSelector(recordId) {
     });
 }
 
-// === 繳交邏輯 2: 確認並上傳 ===
+// ==========================================
+// === 最終修復：繳交課業 + 刷新背景列表 ===
+// ==========================================
+ 
 async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     // 確保 ID 是整數
     const recordId = parseInt(document.getElementById('pendingRecordId').value);
@@ -16818,7 +16821,6 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
         request.onsuccess = function(e) {
             const record = e.target.result;
             
-            // 如果找不到紀錄，這時才報錯
             if (!record) return alert("錯誤：找不到原始紀錄 (ID: " + recordId + ")，請重新打開紀錄。");
  
             // 上傳路徑
@@ -16834,7 +16836,7 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
                 studentName: s.name,
                 studentClass: s.class,
                 studentGrade: s.grade
-            }, (error) => {
+            }, async (error) => {
                 if (error) {
                     alert("繳交失敗：" + error.message);
                     document.getElementById('submitAssignmentModal').style.display = 'none';
@@ -16842,8 +16844,19 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
                     alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
                     document.getElementById('submitAssignmentModal').style.display = 'none';
                     
-                    // 繳交後，我們才順便觸發一次同步，確保資料一致
-                    syncHistoryToFirebase(true);
+                    // 1. 執行同步 (這會導致 ID 變更)
+                    await syncHistoryToFirebase(true);
+ 
+                    // 2. ★★★ 關鍵新增：刷新背景列表 ★★★
+                    // 這樣卡片的 ID 才會更新，您關閉視窗後點擊卡片才不會報錯
+                    if (typeof currentSubFunctionFilter !== 'undefined' &&
+                        document.getElementById('historyLevel3').style.display !== 'none') {
+                        
+                        const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+                        
+                        // 靜默刷新列表
+                        enterHistoryList(currentSubFunctionFilter, themeIndex);
+                    }
                 }
             });
         };
@@ -16852,7 +16865,6 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
         alert("系統錯誤，無法讀取紀錄。");
     }
 }
-
 
 
 // ==========================================
