@@ -16883,51 +16883,137 @@ function openSubmitSelector(recordId) {
 }
 
 // === 繳交邏輯 2: 確認並上傳 ===
+// 2. 執行繳交動作 (修訂版)
 async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     const recordId = parseInt(document.getElementById('pendingRecordId').value);
     const s = JSON.parse(localStorage.getItem('studentProfile'));
 
+    // 驗證必要的資料
+    if (!s || !s.name || !s.class || !s.grade) {
+        return alert("請先在「雲端同步」中綁定身份！");
+    }
+    
+    if (!recordId || isNaN(recordId)) {
+        return alert("找不到要繳交的紀錄ID，請重試。");
+    }
+    
     // 二次確認
-    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(注意：這將會覆蓋你之前對此功課的繳交內容)`)) return;
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？
+(這將會覆蓋你之前對此功課的繳交)`)) return;
 
+    // 設定載入狀態
+    const modalBody = document.getElementById('activeAssignmentList');
+    const originalHTML = modalBody.innerHTML;
+    modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師，請稍候...</div>';
+    
     try {
-        // 從本地資料庫撈出該筆紀錄的完整資料
+        // A. 從 IndexedDB 獲取該紀錄的完整內容
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.get(recordId);
-
-        request.onsuccess = function(e) {
+        
+        request.onerror = function(e) {
+            modalBody.innerHTML = originalHTML;
+            alert("讀取紀錄時發生錯誤，請重試。");
+            console.error("讀取紀錄失敗:", e);
+        };
+        
+        request.onsuccess = async function(e) {
             const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // 上傳到 Firebase 的 assignments_submissions 路徑
-            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+            if (!record) {
+                modalBody.innerHTML = originalHTML;
+                return alert("找不到原始紀錄，請嘗試重新開啟此紀錄。");
+            }
             
-            // 顯示載入中
-            const modalBody = document.getElementById('activeAssignmentList');
-            modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師...</div>';
-
-            database.ref(submitPath).set({
-                ...record, // 包含 title, userContent, aiContent
-                submittedAt: new Date().toLocaleString('zh-HK'),
-                studentName: s.name,
-                studentClass: s.class,
-                studentGrade: s.grade
-            }, (error) => {
-                if (error) {
-                    alert("繳交失敗：" + error.message);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                } else {
-                    // 成功特效與提示
-                    alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
+            // B. 路徑處理：為Firebase路徑移除特殊字符
+            const safeStudentName = s.name.replace(/[.#$\/\[\]]/g, '_');
+            const safeAssignmentId = assignmentId.replace(/[.#$\/\[\]]/g, '_');
+            const submitPath = `assignments_submissions/${safeAssignmentId}/${safeStudentName}`;
+            
+            try {
+                // 檢查是否已繳交（避免重複繳交）
+                const existingSubmission = await database.ref(submitPath).once('value');
+                let previousSubmittedAt = null;
+                if (existingSubmission.exists()) {
+                    previousSubmittedAt = existingSubmission.val().submittedAt;
                 }
-            });
+                
+                // C. 整理要提交的數據
+                const submissionData = {
+                    ...record, // 包含原本的所有內容
+                    submittedAt: new Date().toLocaleString('zh-HK'),
+                    previousSubmittedAt: previousSubmittedAt || null,
+                    studentName: s.name,
+                    studentClass: s.class,
+                    studentGrade: s.grade,
+                    assignmentId: safeAssignmentId,
+                    assignmentTopic: assignmentTopic,
+                };
+                
+                // D. 寫入 Firebase
+                await database.ref(submitPath).set(submissionData);
+                
+                // E. 視覺反饋與提示
+                const timestamp = new Date(submissionData.submittedAt);
+                const formattedTime = timestamp.toLocaleTimeString('zh-HK', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                // 動畫反饋
+                const successHTML = `
+                    <div style="text-align:center; padding:30px; color:#2ecc71;">
+                        <i class="fas fa-check-circle" style="font-size:4rem; margin-bottom:20px;"></i>
+                        <h3 style="color:#27ae60; margin:10px 0;">繳交成功！</h3>
+                        <p style="font-size:1.1em; margin:15px 0;">
+                            已成功將此紀錄呈交為<br>
+                            <strong style="color:#2A9689;">「${assignmentTopic}」</strong>
+                        </p>
+                        <p style="color:#7f8c8d; font-size:0.9em;">
+                            日期：${submissionData.submittedAt.split(' ')[0]}<br>
+                            時間：${formattedTime}
+                        </p>
+                        <div style="background:#e8f5e9; border-left:4px solid #2ecc71; padding:12px; margin-top:20px; border-radius:0 4px 4px 0;">
+                            <p style="margin:0; font-size:0.95em; color:#27ae60;">
+                                <i class="fas fa-info-circle"></i> 你可以在「雲端同步」中隨時檢視這份課業的狀態
+                            </p>
+                        </div>
+                    </div>
+                `;
+                modalBody.innerHTML = successHTML;
+                
+                // F. 3秒後自動關閉
+                setTimeout(() => {
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }, 3000);
+                
+                // G. 記錄成功動作到分析系統
+                logUserAction('assignment_submitted', {
+                    assignmentId: safeAssignmentId,
+                    topic: assignmentTopic,
+                    recordId: recordId
+                });
+                
+            } catch (error) {
+                // 錯誤處理
+                modalBody.innerHTML = originalHTML;
+                console.error("Firebase 寫入失敗:", error);
+                
+                if (error.code === 'PERMISSION_DENIED') {
+                    alert("權限不足，無法繳交課業。請確認你的帳號正確且有權限。");
+                } else if (error.message && error.message.includes('network')) {
+                    alert("網路連線不穩定，請檢查網路後重試。");
+                } else {
+                    alert("繳交失敗：" + (error.message || "未知錯誤"));
+                }
+            }
         };
     } catch (err) {
-        console.error(err);
-        alert("系統錯誤，無法讀取紀錄。");
+        console.error("系統錯誤:", err);
+        // 還原UI
+        if (modalBody) modalBody.innerHTML = originalHTML;
+        alert("系統錯誤，請重新嘗試或聯繫管理員。");
     }
 }
 
