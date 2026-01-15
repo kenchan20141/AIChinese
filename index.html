@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -16583,239 +16582,92 @@ function openSubmitSelector(recordId) {
 async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     const recordId = parseInt(document.getElementById('pendingRecordId').value);
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    
-    if (!s || !s.name || !s.class || !s.grade) {
-        return alert("請先在「雲端同步」中綁定身份！");
-    }
-    
-    if (!recordId || isNaN(recordId)) {
-        return alert("找不到要繳交的紀錄ID，請重新選擇。");
-    }
-    
-    // 顯示加載狀態
-    const modalBody = document.getElementById('activeAssignmentList');
-    const originalHTML = modalBody.innerHTML;
-    modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在載入紀錄...</div>';
-    
+
+    // 二次確認
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(注意：這將會覆蓋你之前對此功課的繳交內容)`)) return;
+
     try {
-        // 強制重新開啟資料庫連接 (避免事務衝突)
+        // 從本地資料庫撈出該筆紀錄的完整資料
         const db = await openHistoryDB();
-        
-        // 延遲一小段時間，確保編輯保存操作已完成
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // 新方法：直接使用 transaction 並確保正確處理
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction([STORE_NAME], 'readonly');
-            const store = transaction.objectStore(STORE_NAME);
-            const getRequest = store.get(recordId);
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(recordId);
+
+        request.onsuccess = function(e) {
+            const record = e.target.result;
+            if (!record) return alert("找不到原始紀錄，請重試。");
+
+            // 上傳到 Firebase 的 assignments_submissions 路徑
+            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
             
-            getRequest.onsuccess = function(e) {
-                const record = e.target.result;
-                if (!record) {
-                    // 嘗試從本地存儲重新獲取 (如果 IndexedDB 連接有問題)
-                    const rawHistory = localStorage.getItem('sansi_local_history');
-                    if (rawHistory) {
-                        const allRecords = JSON.parse(rawHistory);
-                        const foundRecord = allRecords.find(r => r.id === recordId);
-                        if (foundRecord) {
-                            console.log("從本地緩存載入紀錄");
-                            resolve(foundRecord);
-                            return;
-                        }
-                    }
-                    
-                    // 如果仍然找不到，嘗試重新載入整個歷史紀錄
-                    modalBody.innerHTML = '<div style="text-align:center; color:#d9534f; padding:20px;"><i class="fas fa-exclamation-triangle"></i><br><br>找不到原始紀錄，正在嘗試重新載入...</div>';
-                    
-                    setTimeout(async () => {
-                        try {
-                            const freshDb = await openHistoryDB();
-                            const freshTransaction = freshDb.transaction([STORE_NAME], 'readonly');
-                            const freshStore = freshTransaction.objectStore(STORE_NAME);
-                            const freshRequest = freshStore.get(recordId);
-                            
-                            freshRequest.onsuccess = function(freshEvent) {
-                                const freshRecord = freshEvent.target.result;
-                                if (freshRecord) {
-                                    resolve(freshRecord);
-                                } else {
-                                    reject("重新載入後仍然找不到原始紀錄，請重新打開此歷史紀錄後再嘗試繳交。");
-                                }
-                            };
-                            
-                            freshRequest.onerror = function() {
-                                reject("重新載入紀錄時發生錯誤");
-                            };
-                        } catch (err) {
-                            reject("系統錯誤：" + err.message);
-                        }
-                    }, 500);
-                    return;
-                }
-                resolve(record);
-            };
-            
-            getRequest.onerror = function(e) {
-                reject("讀取紀錄時發生錯誤：" + e.target.error.message);
-            };
-        })
-        .then(async (record) => {
-            // 資料準備完成，開始上傳
-            modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-cloud-upload-alt fa-2x"></i><br><br>正在呈交給老師，請稍候...</div>';
-            
-            try {
-                // 重新檢查紀錄完整性
-                if (!record.category || !record.subFunction || !record.title) {
-                    throw new Error("紀錄內容不完整，請重新打開此紀錄後再嘗試繳交");
-                }
-                
-                // 步驟 1: 確保路徑安全 (移除特殊字符)
-                const safeStudentName = s.name.replace(/[.#$\/\[\]]/g, '_');
-                const safeAssignmentId = assignmentId.replace(/[.#$\/\[\]]/g, '_');
-                const submitPath = `assignments_submissions/${safeAssignmentId}/${safeStudentName}`;
-                
-                // 步驟 2: 準備提交數據 (確保包含所有必要欄位)
-                const submissionData = {
-                    ...record,
-                    submittedAt: new Date().toLocaleString('zh-HK'),
-                    previousSubmittedAt: null,
-                    studentName: s.name,
-                    studentClass: s.class,
-                    studentGrade: s.grade,
-                    assignmentId: safeAssignmentId,
-                    assignmentTopic: assignmentTopic,
-                    // 確保有時間戳記用於排序
-                    timestamp: Date.now()
-                };
-                
-                // 步驟 3: 上傳到 Firebase
-                await database.ref(submitPath).set(submissionData);
-                
-                // 步驟 4: 嘗試獲取現有評語 (用於成功訊息)
-                let previousFeedback = null;
-                try {
-                    const feedbackSnap = await database.ref(`${submitPath}/teacherFeedback`).once('value');
-                    previousFeedback = feedbackSnap.val();
-                } catch (err) {
-                    console.log("獲取評語時發生非關鍵錯誤:", err);
-                }
-                
-                // 步驟 5: 顯示成功動畫
-                const timestamp = new Date(submissionData.submittedAt);
-                const formattedTime = timestamp.toLocaleTimeString('zh-HK', { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                });
-                
-                const successHTML = `
-                    <div style="text-align:center; padding:30px; color:#2ecc71;">
-                        <i class="fas fa-check-circle" style="font-size:4rem; margin-bottom:20px;"></i>
-                        <h3 style="color:#27ae60; margin:10px 0;">繳交成功！</h3>
-                        <p style="font-size:1.1em; margin:15px 0;">
-                            已成功將此紀錄呈交為<br>
-                            <strong style="color:#2A9689;">「${assignmentTopic}」</strong>
-                        </p>
-                        <p style="color:#7f8c8d; font-size:0.9em;">
-                            日期：${submissionData.submittedAt.split(' ')[0]}<br>
-                            時間：${formattedTime}
-                        </p>
-                        ${previousFeedback ? `
-                        <div style="background:#fef9e7; border-left:4px solid #f1c40f; padding:12px; margin-top:20px; border-radius:0 4px 4px 0; margin-bottom:15px;">
-                            <p style="margin:0; font-size:0.95em; color:#8e6f21;">
-                                <i class="fas fa-info-circle"></i> 老師已回覆評語
-                            </p>
-                        </div>
-                        ` : ''}
-                        <div style="background:#e8f5e9; border-left:4px solid #2ecc71; padding:12px; margin-top:10px; border-radius:0 4px 4px 0;">
-                            <p style="margin:0; font-size:0.95em; color:#27ae60;">
-                                <i class="fas fa-info-circle"></i> 你可以在「雲端同步」中隨時檢視這份課業的狀態
-                            </p>
-                        </div>
-                    </div>
-                `;
-                modalBody.innerHTML = successHTML;
-                
-                // 紀錄成功動作
-                logUserAction('assignment_submitted', {
-                    assignmentId: safeAssignmentId,
-                    topic: assignmentTopic,
-                    recordId: recordId
-                });
-                
-                // 3秒後自動關閉
-                setTimeout(() => {
+            // 顯示載入中
+            const modalBody = document.getElementById('activeAssignmentList');
+            modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師...</div>';
+
+            database.ref(submitPath).set({
+                ...record, // 包含 title, userContent, aiContent
+                submittedAt: new Date().toLocaleString('zh-HK'),
+                studentName: s.name,
+                studentClass: s.class,
+                studentGrade: s.grade
+            }, (error) => {
+                if (error) {
+                    alert("繳交失敗：" + error.message);
                     document.getElementById('submitAssignmentModal').style.display = 'none';
-                }, 3000);
-                
-            } catch (error) {
-                console.error("上傳失敗:", error);
-                handleSubmissionError(error, modalBody, originalHTML);
-            }
-        })
-        .catch(async (error) => {
-            console.error("獲取紀錄失敗:", error);
-            handleSubmissionError(error, modalBody, originalHTML);
-        });
-        
-    } catch (err) {
-        console.error("系統錯誤:", err);
-        handleSubmissionError(err, modalBody, originalHTML);
-    }
-}
-
-// 錯誤處理輔助函數
-function handleSubmissionError(error, modalBody, originalHTML) {
-    let errorMsg = "繳交失敗：";
-    
-    // 判斷錯誤類型
-    if (error.message && error.message.includes('recordId') && error.message.includes('undefined')) {
-        errorMsg += "找不到紀錄ID，請先關閉並重新打開此歷史紀錄，再嘗試繳交。";
-    } else if (error.message && error.message.includes('permission')) {
-        errorMsg += "權限不足，請確認你的帳號正確且有權限。";
-    } else if (error.message && error.message.includes('network')) {
-        errorMsg += "網路連線不穩定，請檢查網路後重試。";
-    } else {
-        errorMsg += (error.message || "未知錯誤，請重試或聯繫管理員。");
-    }
-    
-    // 顯示錯誤訊息
-    modalBody.innerHTML = `
-        <div style="text-align:center; padding:20px; color:#d9534f;">
-            <i class="fas fa-exclamation-triangle" style="font-size:2.5rem; margin-bottom:15px;"></i>
-            <p style="font-size:1.1rem; margin-bottom:20px;">${errorMsg}</p>
-            <button onclick="document.getElementById('submitAssignmentModal').style.display='none'" 
-                    style="background:#d9534f; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
-                關閉
-            </button>
-        </div>
-    `;
-    
-    // 3秒後如果使用者沒關閉，自動關閉
-    setTimeout(() => {
-        if (modalBody.innerHTML.includes('exclamation-triangle')) {
-            document.getElementById('submitAssignmentModal').style.display = 'none';
-        }
-    }, 5000);
-}
-
-// 確保 logUserAction 有定義
-function logUserAction(actionType, data) {
-    try {
-        console.log(`[User Action] ${actionType}:`, data);
-        
-        // 選擇性：也可以記錄到自己的資料庫
-        const s = JSON.parse(localStorage.getItem('studentProfile'));
-        if (s && database) {
-            const logPath = `user_actions/${s.grade}/${s.class}/${s.name}/${actionType}`;
-            database.ref(logPath).push({
-                timestamp: new Date().toISOString(),
-                ...data
+                } else {
+                    // 成功特效與提示
+                    alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }
             });
-        }
-    } catch (error) {
-        console.warn("記錄使用者行為時發生錯誤:", error);
-        // 錯誤不應該阻斷主要功能
+        };
+    } catch (err) {
+        console.error(err);
+        alert("系統錯誤，無法讀取紀錄。");
+    }
+}
+
+// 2. 執行繳交動作
+async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
+    const recordId = parseInt(document.getElementById('pendingRecordId').value);
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(這將會覆蓋你之前對此功課的繳交)`)) return;
+
+    try {
+        // A. 從 IndexedDB 獲取該紀錄的完整內容
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(recordId);
+
+        request.onsuccess = function(e) {
+            const record = e.target.result;
+            if (!record) return alert("找不到原始紀錄，請重試。");
+
+            // B. 寫入 Firebase 的 submissions 路徑
+            // 路徑：assignments_submissions/課業ID/學生姓名
+            // 這樣老師可以通過「課業ID」直接拉出所有人的這份功課
+            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+            
+            database.ref(submitPath).set({
+                ...record, // 包含原本的所有內容 (title, userContent, aiContent...)
+                submittedAt: new Date().toLocaleString('zh-HK'),
+                studentName: s.name,
+                studentClass: s.class,
+                studentGrade: s.grade
+            }, (error) => {
+                if (error) {
+                    alert("繳交失敗：" + error.message);
+                } else {
+                    alert(`🎉 繳交成功！\n已將此紀錄呈交給老師。`);
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        alert("系統錯誤，無法讀取紀錄。");
     }
 }
 
