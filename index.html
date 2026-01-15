@@ -15140,13 +15140,35 @@ async function viewHistoryDetail(id) {
 // ==========================================
 // === 核心修復：儲存修訂並覆蓋舊檔 ===
 // ==========================================
- 
+
+// 輔助函式：根據時間戳記找回新 ID
+function findIdByTimestamp(timestamp) {
+    return new Promise(async (resolve) => {
+        try {
+            const db = await openHistoryDB();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('timestamp');
+            const request = index.get(timestamp);
+            
+            request.onsuccess = function(event) {
+                const record = event.target.result;
+                resolve(record ? record.id : null);
+            };
+            request.onerror = () => resolve(null);
+        } catch (e) {
+            resolve(null);
+        }
+    });
+}
+
+
 async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
     const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
     const saveBtn = document.getElementById(`history-save-btn-${id}`);
  
-    // UI 鎖定：顯示儲存中動畫
+    // UI 鎖定
     const originalIcon = saveBtn.innerHTML;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     saveBtn.disabled = true;
@@ -15162,95 +15184,80 @@ async function saveHistoryEdits(id) {
         getRequest.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // ★★★ 關鍵步驟 1：先記下舊的時間戳記 (用來刪除雲端舊檔) ★★★
+                // 記下舊時間戳 (刪除雲端用)
                 const oldTimestamp = record.timestamp;
  
-                // 2. 更新內容 (只更新有編輯的部分)
-                if (userContentEl) {
-                    record.userContent = userContentEl.innerText; // 使用 innerText 保持純淨
-                }
-                
-                if (aiContentEl) {
-                    record.aiContent = aiContentEl.innerHTML; // AI 內容含 HTML，需保留
-                }
+                // 2. 更新內容
+                if (userContentEl) record.userContent = userContentEl.innerText;
+                if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
  
-                // ★★★ 關鍵步驟 2：更新時間戳記 (標記為新版) ★★★
-                record.timestamp = new Date().getTime();
+                // 更新時間戳 (這將成為我們找回新 ID 的唯一信物)
+                const newTimestamp = new Date().getTime();
+                record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
-                // 標記為尚未同步，確保稍後會被推送到雲端
                 if (record.isSynced) delete record.isSynced;
  
-                // 3. 寫回本地資料庫 (ID 不變，直接覆蓋)
+                // 3. 寫回本地
                 const putRequest = store.put(record);
                 
                 putRequest.onsuccess = async function() {
                     console.log("本地紀錄已更新");
  
-                    // 4. ★★★ 關鍵步驟 3：手動刪除雲端的「舊版本」 ★★★
+                    // 4. 刪除雲端舊檔
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
                         try {
-                            // 定義路徑
                             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-                            
-                            // 先讀取雲端所有資料
                             const snapshot = await database.ref(path).once('value');
                             const cloudData = snapshot.val();
-                            
                             let cloudRecords = [];
-                            // 轉為陣列處理
                             if (cloudData) {
-                                if (Array.isArray(cloudData)) {
-                                    cloudRecords = cloudData.filter(item => item !== null);
-                                } else {
-                                    cloudRecords = Object.values(cloudData);
-                                }
+                                cloudRecords = Array.isArray(cloudData) ? cloudData.filter(x=>x) : Object.values(cloudData);
                             }
- 
-                            // ★ 過濾邏輯：保留所有「時間戳不等於舊時間戳」的紀錄
-                            // 這樣就等於刪除了舊的那一筆
+                            // 過濾掉舊時間戳的紀錄
                             const updatedRecords = cloudRecords.filter(r => r.timestamp !== oldTimestamp);
- 
-                            // 將刪除後的乾淨清單寫回雲端
                             await database.ref(path).set(updatedRecords);
-                            console.log(">>> 雲端舊版本已移除，準備上傳新版...");
- 
                         } catch (cloudErr) {
-                            console.error("移除雲端舊檔失敗 (可能是網絡問題):", cloudErr);
+                            console.error("雲端舊檔移除失敗:", cloudErr);
                         }
                     }
                     
-                    // 5. 觸發同步：將剛才存入本地的「新版」推上雲端
-                    // 因為舊版已經被我們手動刪了，所以同步時不會產生衝突或重複
+                    // 5. 觸發同步 (這一步會導致 ID 改變！)
                     await syncHistoryToFirebase(true);
  
-                    // 6. UI 恢復與回饋
-                    if (userContentEl) userContentEl.contentEditable = "false";
-                    if (aiContentEl) aiContentEl.contentEditable = "false";
+                    // 6. ★★★ 關鍵修復：找回新 ID 並刷新介面 ★★★
+                    const newId = await findIdByTimestamp(newTimestamp);
                     
-                    saveBtn.style.display = 'none'; // 隱藏按鈕
-                    saveBtn.innerHTML = originalIcon;
-                    saveBtn.disabled = false;
-                    
-                    // 7. 更新介面上的 ID 參考 (防止繳交時找不到)
-                    // 雖然本地 ID 沒變，但為了保險起見，我們重新整理該卡片的點擊事件
-                    // 不過因為我們是原位更新，通常不需要重新渲染整個列表
-                    
-                    alert("✅ 修訂已成功儲存並覆蓋舊檔！\n您現在可以進行繳交。");
+                    if (newId) {
+                        // 重新加載視窗內容 (這會更新所有按鈕的 ID 連結)
+                        // 因為 contentEditable 已經關閉，這也順便退出了編輯模式
+                        await viewHistoryDetail(newId);
+                        
+                        alert("✅ 修訂已儲存！\n資料已同步，您可以直接按「繳交」。");
+                    } else {
+                        // 萬一找不到 (極少見)，則關閉視窗避免錯誤操作
+                        alert("✅ 修訂已儲存！\n請重新打開紀錄以進行繳交。");
+                        closeHistoryModal();
+                        // 刷新列表以顯示新紀錄
+                        if (currentSubFunctionFilter) {
+                            enterHistoryList(currentSubFunctionFilter, currentThemeIndex);
+                        }
+                    }
                     
                     if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
                 };
             } else {
-                alert("錯誤：找不到原始紀錄，無法儲存。");
+                alert("錯誤：找不到原始紀錄。");
                 saveBtn.disabled = false;
+                saveBtn.innerHTML = originalIcon;
             }
         };
     } catch (e) {
-        console.error("儲存修訂失敗:", e);
+        console.error("儲存失敗:", e);
         alert("儲存失敗，請重試。");
-        saveBtn.innerHTML = originalIcon;
         saveBtn.disabled = false;
+        saveBtn.innerHTML = originalIcon;
     }
 }
 	
