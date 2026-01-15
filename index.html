@@ -15137,12 +15137,16 @@ async function viewHistoryDetail(id) {
     }
 }
 
-	async function saveHistoryEdits(id) {
+// ==========================================
+// === 核心修復：儲存修訂並覆蓋舊檔 ===
+// ==========================================
+ 
+async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
     const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
     const saveBtn = document.getElementById(`history-save-btn-${id}`);
  
-    // UI 鎖定：顯示載入圖示
+    // UI 鎖定：顯示儲存中動畫
     const originalIcon = saveBtn.innerHTML;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     saveBtn.disabled = true;
@@ -15152,55 +15156,94 @@ async function viewHistoryDetail(id) {
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
-        // 1. 讀取舊紀錄
+        // 1. 讀取本地舊紀錄
         const getRequest = store.get(id);
         
         getRequest.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 2. 更新內容
+                // ★★★ 關鍵步驟 1：先記下舊的時間戳記 (用來刪除雲端舊檔) ★★★
+                const oldTimestamp = record.timestamp;
+ 
+                // 2. 更新內容 (只更新有編輯的部分)
                 if (userContentEl) {
-                    // 對於使用者內容，innerText 通常比較乾淨，能保留換行
-                    record.userContent = userContentEl.innerText;
+                    record.userContent = userContentEl.innerText; // 使用 innerText 保持純淨
                 }
                 
                 if (aiContentEl) {
-                    // 對於 AI 內容 (含表格、樣式)，必須用 innerHTML
-                    record.aiContent = aiContentEl.innerHTML;
+                    record.aiContent = aiContentEl.innerHTML; // AI 內容含 HTML，需保留
                 }
  
-                // ★★★ 關鍵修正：更新時間戳 ★★★
-                // 這讓系統知道這是最新的版本，解決「存不到」的問題
+                // ★★★ 關鍵步驟 2：更新時間戳記 (標記為新版) ★★★
                 record.timestamp = new Date().getTime();
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
-                // 移除同步標籤，標記為本地新修訂
+                // 標記為尚未同步，確保稍後會被推送到雲端
                 if (record.isSynced) delete record.isSynced;
  
-                // 3. 寫回本地資料庫
+                // 3. 寫回本地資料庫 (ID 不變，直接覆蓋)
                 const putRequest = store.put(record);
                 
-                putRequest.onsuccess = function() {
-                    console.log("本地紀錄修訂成功");
+                putRequest.onsuccess = async function() {
+                    console.log("本地紀錄已更新");
+ 
+                    // 4. ★★★ 關鍵步驟 3：手動刪除雲端的「舊版本」 ★★★
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+                    if (s) {
+                        try {
+                            // 定義路徑
+                            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+                            
+                            // 先讀取雲端所有資料
+                            const snapshot = await database.ref(path).once('value');
+                            const cloudData = snapshot.val();
+                            
+                            let cloudRecords = [];
+                            // 轉為陣列處理
+                            if (cloudData) {
+                                if (Array.isArray(cloudData)) {
+                                    cloudRecords = cloudData.filter(item => item !== null);
+                                } else {
+                                    cloudRecords = Object.values(cloudData);
+                                }
+                            }
+ 
+                            // ★ 過濾邏輯：保留所有「時間戳不等於舊時間戳」的紀錄
+                            // 這樣就等於刪除了舊的那一筆
+                            const updatedRecords = cloudRecords.filter(r => r.timestamp !== oldTimestamp);
+ 
+                            // 將刪除後的乾淨清單寫回雲端
+                            await database.ref(path).set(updatedRecords);
+                            console.log(">>> 雲端舊版本已移除，準備上傳新版...");
+ 
+                        } catch (cloudErr) {
+                            console.error("移除雲端舊檔失敗 (可能是網絡問題):", cloudErr);
+                        }
+                    }
                     
-                    // 4. 關閉編輯模式
+                    // 5. 觸發同步：將剛才存入本地的「新版」推上雲端
+                    // 因為舊版已經被我們手動刪了，所以同步時不會產生衝突或重複
+                    await syncHistoryToFirebase(true);
+ 
+                    // 6. UI 恢復與回饋
                     if (userContentEl) userContentEl.contentEditable = "false";
                     if (aiContentEl) aiContentEl.contentEditable = "false";
                     
-                    // ★★★ 關鍵修正：這裡不呼叫 syncHistoryToFirebase() ★★★
-                    // 避免 ID 變更導致接下來的「繳交」按鈕失效
-                    
-                    // 5. UI 恢復
                     saveBtn.style.display = 'none'; // 隱藏按鈕
                     saveBtn.innerHTML = originalIcon;
                     saveBtn.disabled = false;
                     
-                    // 成功提示
-                    alert("✅ 修訂已儲存！\n您可以直接按「繳交」呈交給老師。");
+                    // 7. 更新介面上的 ID 參考 (防止繳交時找不到)
+                    // 雖然本地 ID 沒變，但為了保險起見，我們重新整理該卡片的點擊事件
+                    // 不過因為我們是原位更新，通常不需要重新渲染整個列表
                     
-                    // 震動回饋
+                    alert("✅ 修訂已成功儲存並覆蓋舊檔！\n您現在可以進行繳交。");
+                    
                     if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
                 };
+            } else {
+                alert("錯誤：找不到原始紀錄，無法儲存。");
+                saveBtn.disabled = false;
             }
         };
     } catch (e) {
