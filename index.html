@@ -5837,67 +5837,6 @@ select:focus, select:hover {
 #classNumberUpdateModal .modal-content button {
     margin-top: 15px; /* 增加按鈕上方邊距 */
 }
-
-
-/* === 歷史紀錄修訂功能專用樣式 === */
- 
-/* 1. 編輯模式下的區塊樣式 (雙擊後的效果) */
-[contenteditable="true"] {
-    outline: none;
-    border: 2px dashed #94a7b5 !important; /* 莫蘭迪藍虛線，提示可編輯 */
-    background-color: #fffcf6; /* 暖白底色，保護眼睛 */
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    transition: all 0.3s ease;
-    cursor: text;
-}
- 
-/* 2. 莫蘭迪懸浮儲存鍵 (純圖案) */
-.morandi-save-float-btn {
-    position: fixed;
-    bottom: 40px;
-    right: 40px;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    
-    /* 莫蘭迪灰綠漸層 */
-    background: linear-gradient(135deg, #8fa398 0%, #7d9186 100%);
-    color: white;
-    
-    border: none;
-    box-shadow: 0 6px 20px rgba(143, 163, 152, 0.5); /* 柔和陰影 */
-    
-    display: none; /* 預設隱藏 */
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-    cursor: pointer;
-    z-index: 10000; /* 確保在最上層 */
-    
-    /* 動畫效果 */
-    animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    transition: transform 0.2s ease, background 0.2s;
-}
- 
-.morandi-save-float-btn:hover {
-    transform: scale(1.1) rotate(10deg); /* 懸停時微動 */
-    background: linear-gradient(135deg, #9db1a6 0%, #8fa398 100%);
-}
- 
-.morandi-save-float-btn:active {
-    transform: scale(0.95);
-}
- 
-/* 進場動畫 */
-@keyframes popIn {
-    from { opacity: 0; transform: scale(0); }
-    to { opacity: 1; transform: scale(1); }
-}
-
-
-	
 	
 	
 </style>
@@ -14958,11 +14897,8 @@ async function clearAllHistory() {
     }
 }
 // 優化後的查看詳情函數
-// ==========================================
-// === 歷史紀錄詳情 (可修訂版) ===
-// ==========================================
-
-// 1. [替換舊函式] 查看詳情主邏輯
+// === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
+// === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -14973,7 +14909,7 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 計算主題色
+                // 1. 計算主題色
                 let themeIndex = 1;
                 if (HISTORY_STRUCTURE[record.category]) {
                     const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
@@ -14984,7 +14920,7 @@ async function viewHistoryDetail(id) {
                 const themeClass = `history-theme-context-${themeIndex}`;
                 const colorVar = `var(--m-color-${themeIndex})`;
 
-                // 設定標題
+                // 2. 設定標題
                 document.getElementById('historyModalTitle').innerHTML = 
                     `<i class="fas fa-book-open" style="color:${colorVar}"></i> 
                      <span style="color:#333">${record.category}</span> 
@@ -14994,9 +14930,10 @@ async function viewHistoryDetail(id) {
                 const dateElement = document.getElementById('historyModalDate');
                 if (dateElement) dateElement.style.display = "none"; 
                 
+                // ★★★ 這裡定義 contentHTML ★★★
                 let contentHTML = '';
 
-                // A. 處理使用者輸入內容 (加入雙擊事件)
+                // 3. 處理使用者輸入內容 (如果是「學習報告」，則跳過)
                 if (record.category !== "學習報告" && record.userContent) {
                     const rawText = record.userContent;
                     const lines = rawText.split('\n');
@@ -15025,30 +14962,15 @@ async function viewHistoryDetail(id) {
                     }
                     parsedHTML += '</div>';
                     
-                    // ★★★ 加入 id 和 ondblclick ★★★
-                    contentHTML += `
-                        <div id="edit-user-content-${record.id}" 
-                             ondblclick="enableHistoryEdit(this)" 
-                             title="雙擊即可修訂內容"
-                             style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
-                            ${parsedHTML}
-                        </div>`;
+                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
                 }
 
-                // B. 處理 AI 生成內容 (加入雙擊事件)
+                // 4. 顯示 AI 生成內容
                 if (record.aiContent) {
-                    // ★★★ 加入 id 和 ondblclick ★★★
-                    contentHTML += `
-                        <div id="edit-ai-content-${record.id}" 
-                             ondblclick="enableHistoryEdit(this)"
-                             title="雙擊即可修訂內容" 
-                             class="ai-output-area" 
-                             style="margin-top: 15px; border-radius:12px; transition:all 0.3s;">
-                            ${record.aiContent}
-                        </div>`;
+                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
                 }
                 
-                // C. 顯示繳交按鈕
+                // 5. 顯示繳交按鈕 (若適用)
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
@@ -15061,163 +14983,71 @@ async function viewHistoryDetail(id) {
                     `;
                 }
 
-                // ★★★ D. 注入懸浮儲存鍵 (預設隱藏) ★★★
-                contentHTML += `
-                    <button id="history-save-btn-${record.id}" 
-                            class="morandi-save-float-btn" 
-                            onclick="saveHistoryEdits(${record.id})">
-                        <i class="fas fa-save"></i>
-                    </button>
-                `;
-
-                // E. 注入內容
+                // 6. 將組合好的 HTML 注入 Modal
                 const modalContent = document.getElementById('historyModalContent');
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
 
-                // F. 雷達圖重繪邏輯 (保持不變，略)
-                setTimeout(() => {
-                    if (record.scoreData && record.scoreData.radar) {
-                        const canvasEl = modalContent.querySelector('canvas');
-                        if (canvasEl) {
-                            // ... (這部分維持原本的 Chart.js 繪圖代碼，不需要更動) ...
-                            const radarData = [
-                                record.scoreData.radar.立意 || 0,
-                                record.scoreData.radar.取材 || 0,
-                                record.scoreData.radar.扣題 || 0,
-                                record.scoreData.radar.詳略 || 0,
-                                record.scoreData.radar.詞彙 || 0,
-                                record.scoreData.radar.文學性 || 0
-                            ];
-                            new Chart(canvasEl.getContext('2d'), {
-                                type: 'radar',
-                                data: {
-                                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                    datasets: [{
-                                        label: '能力評估',
-                                        data: radarData,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                        borderColor: 'rgba(54, 162, 235, 1)',
-                                        borderWidth: 2,
-                                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                        pointBorderColor: '#fff'
-                                    }]
+                // ==========================================
+                // ★★★ 雷達圖即時重繪邏輯 (Chart.js) ★★★
+                // ==========================================
+                // 檢查這條紀錄是否有分數數據 (scoreData)
+                if (record.scoreData && record.scoreData.radar) {
+                    // 1. 在剛剛注入的 HTML 中找到 Canvas 元素
+                    // 我們在 captureContainerHTML 中加了 class="history-radar-canvas"
+                    const canvasEl = modalContent.querySelector('canvas');
+                    
+                    if (canvasEl) {
+                        // 2. 準備數據
+                        const radarData = [
+                            record.scoreData.radar.立意 || 0,
+                            record.scoreData.radar.取材 || 0,
+                            record.scoreData.radar.扣題 || 0,
+                            record.scoreData.radar.詳略 || 0,
+                            record.scoreData.radar.詞彙 || 0,
+                            record.scoreData.radar.文學性 || 0
+                        ];
+
+                        // 3. 使用 Chart.js 繪圖
+                        new Chart(canvasEl.getContext('2d'), {
+                            type: 'radar',
+                            data: {
+                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+                                datasets: [{
+                                    label: '能力評估',
+                                    data: radarData,
+                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 2,
+                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                                    pointBorderColor: '#fff'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false, // 關鍵：允許填滿高度
+                                scales: {
+                                    r: {
+                                        angleLines: { display: true },
+                                        suggestedMin: 0,
+                                        suggestedMax: 10,
+                                        pointLabels: {
+                                            font: { size: 14, family: "'Noto Serif TC', serif" }
+                                        },
+                                        ticks: { stepSize: 2, display: false }
+                                    }
                                 },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        r: {
-                                            angleLines: { display: true },
-                                            suggestedMin: 0,
-                                            suggestedMax: 10,
-                                            pointLabels: { font: { size: 14, family: "'Noto Serif TC', serif" } },
-                                            ticks: { stepSize: 2, display: false }
-                                        }
-                                    },
-                                    plugins: { legend: { display: false } }
+                                plugins: {
+                                    legend: { display: false }
                                 }
-                            });
-                        }
+                            }
+                        });
                     }
-                }, 100);
+                }
+                // ==========================================
             }
         };
     } catch (e) { console.error(e); }
-}
-
-// 2. [新增] 啟動編輯模式
-function enableHistoryEdit(element) {
-    // 啟用可編輯屬性
-    element.contentEditable = "true";
-    element.focus();
-    
-    // 找出對應的儲存按鈕並顯示
-    // ID 格式為: edit-user-content-{id} 或 edit-ai-content-{id}
-    const parts = element.id.split('-');
-    const recordId = parts[parts.length - 1];
-    const saveBtn = document.getElementById(`history-save-btn-${recordId}`);
-    
-    if (saveBtn) {
-        saveBtn.style.display = 'flex'; // 顯示按鈕
-        
-        // 加入輕微震動回饋 (如果裝置支援)
-        if (navigator.vibrate) navigator.vibrate(10);
-    }
-}
-
-// 3. [新增] 儲存修訂內容 (高效能版)
-async function saveHistoryEdits(id) {
-    const userContentEl = document.getElementById(`edit-user-content-${id}`);
-    const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
-    const saveBtn = document.getElementById(`history-save-btn-${id}`);
-
-    // UI 鎖定：顯示儲存中動畫
-    const originalIcon = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    saveBtn.disabled = true;
-
-    try {
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        
-        // 1. 讀取舊紀錄
-        const getRequest = store.get(id);
-        
-        getRequest.onsuccess = function(event) {
-            const record = event.target.result;
-            if (record) {
-                // 2. 獲取修訂後的 HTML (innerText 會丟失格式，必須用 innerHTML)
-                // 只更新有被編輯的欄位
-                if (userContentEl) {
-                    // 注意：這裡是 div 內的結構，我們需要擷取內部的純文字重建或直接存 HTML
-                    // 為了最大相容性與保留排版，我們更新 innerHTML，但要小心 XSS (這裡假設是用戶自己改的)
-                    // 對於 history-parsed-container 結構，比較安全的做法是存 innerHTML 讓下次 renderDetail 直接顯示
-                    
-                    // 這裡有個小技巧：因為 viewHistoryDetail 是透過 parsing text 重建 userContent HTML 的
-                    // 如果我們直接存 HTML 到 userContent，下次讀取時 split('\n') 會壞掉
-                    // 所以：如果是 userContent，我們嘗試轉回純文字 (innerText)，
-                    // 除非您的系統允許 userContent 存 HTML。
-                    // 考慮到您的 parsing 邏輯 (split by \n)，我們存 innerText 最安全：
-                    record.userContent = userContentEl.innerText; 
-                }
-                
-                if (aiContentEl) {
-                    // AI 內容包含複雜 HTML (表格、樣式)，必須存 innerHTML
-                    record.aiContent = aiContentEl.innerHTML;
-                }
-
-                // 3. 寫回本地資料庫
-                const putRequest = store.put(record);
-                
-                putRequest.onsuccess = function() {
-                    console.log("本地紀錄修訂成功");
-                    
-                    // 4. 關閉編輯模式
-                    if (userContentEl) userContentEl.contentEditable = "false";
-                    if (aiContentEl) aiContentEl.contentEditable = "false";
-                    
-                    // 5. 觸發雲端同步 (自動把剛才的修訂推上 Firebase)
-                    // 這確保了之後按「繳交」時，Firebase 上的 assignments_submissions 也是新的
-                    syncHistoryToFirebase(true); 
-
-                    // 6. UI 恢復
-                    saveBtn.style.display = 'none'; // 隱藏按鈕
-                    saveBtn.innerHTML = originalIcon;
-                    saveBtn.disabled = false;
-                    
-                    // 震動回饋
-                    if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
-                };
-            }
-        };
-    } catch (e) {
-        console.error("儲存修訂失敗:", e);
-        alert("儲存失敗，請重試。");
-        saveBtn.innerHTML = originalIcon;
-        saveBtn.disabled = false;
-    }
 }
 	
 function closeHistoryModal() {
