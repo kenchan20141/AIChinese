@@ -15526,13 +15526,17 @@ function fallbackPrompt(profile, firebasePath) {
 
 // === 2. 全校搜尋函式 (處理升班與刪除) ===
 // ===============================================================
-// === [核心修復] 自動轉班與班號視窗即時彈出邏輯 ===
 // ===============================================================
-
-// 1. 覆寫：全校搜尋函式 (移除重新整理，改為即時彈窗)
+// === [核心修復] 自動轉班與無縫遷移邏輯 ===
+// ===============================================================
+ 
+// 1. 覆寫：全校搜尋函式 (加入自動歷史遷移功能)
 async function findStudentNewLocation(studentName) {
     console.log(`[系統] 正在全校搜尋學生新位置: ${studentName}...`);
     
+    // 顯示全屏遮罩，避免學生在遷移過程中操作
+    showLoading("偵測到學年變動，正在更新您的身份與資料...");
+ 
     try {
         const snapshot = await database.ref('students').once('value');
         const allData = snapshot.val();
@@ -15541,7 +15545,7 @@ async function findStudentNewLocation(studentName) {
         let newGrade = '';
         let newClass = '';
         let newInfo = null;
-
+ 
         if (allData) {
             for (const grade in allData) {
                 for (const cls in allData[grade]) {
@@ -15557,65 +15561,79 @@ async function findStudentNewLocation(studentName) {
                 if (found) break;
             }
         }
-
+ 
         if (found && newInfo) {
-            // === 情況 A: 找到新位置 (自動修正並彈窗) ===
+            // === 情況 A: 找到新位置 (自動修正、遷移歷史、彈窗) ===
             const newProfile = {
                 name: studentName,
                 grade: newGrade,
                 class: newClass,
-                number: newInfo.number || "", 
+                number: newInfo.number || "",
                 email: newInfo.email
             };
             
-            // 1. 更新本地儲存
+            // 1. 更新本地儲存為新身份
             localStorage.setItem('studentProfile', JSON.stringify(newProfile));
             
-            // 2. 顯示提示 (可選，或直接顯示班號視窗)
-            alert(`👋 歡迎回來！\n系統偵測到新學年資料變更。\n\n您的位置已更新為：${newGrade}${newClass} 班`);
-            
-            // 3. ★ 核心修正：立即更新 UI，不重新整理頁面 ★
+            // 2. 更新 UI：歡迎詞
             updateWelcomeMessage(newProfile);
+            
+            // 3. 更新 UI：載入新班級的課業 (通常新學年是空的)
             loadAssignments(newGrade, newClass);
             
-            // 4. 重啟監聽器 (針對新班級)
+            // 4. ★★★ 關鍵步驟：立即執行歷史紀錄遷移 ★★★
+            // 這一步會讀取老師設定的 migration_source，把舊紀錄搬過來
+            console.log("[系統] 開始執行歷史紀錄無縫遷移...");
+            await syncHistoryToFirebase(true);
+ 
+            // 5. 重啟所有監聽器 (針對新班級)
             monitorPendingAssignments();
-            startAutoSyncListener(); 
-
-            // 5. ★ 關鍵動作：立即彈出班號輸入視窗 ★
+            startAutoSyncListener();
+ 
+            // 6. 移除遮罩
+            hideLoading();
+ 
+            // 7. 顯示成功提示
+            alert(`👋 升班快樂！\n\n您的身份已更新為：${newGrade}${newClass} 班。\n歷史紀錄已自動搬運完成，無需重新登入。`);
+ 
+            // 8. 立即彈出班號輸入視窗 (因為升班後班號通常需重填)
             const newPath = `students/${newGrade}/${newClass}/${studentName}/profile`;
             promptForNewClassNumber(newProfile, newPath);
             
-            return; 
-
+            return;
+ 
         } else {
             // 2. 搜尋待分班區
             const pendingSnap = await database.ref('pending_allocation/' + studentName).once('value');
+            hideLoading();
             
             if (pendingSnap.exists()) {
                 alert("⏳ 您的資料目前在「待分班名單」中 (例如中三升中四)。\n請等待老師完成分班作業後再登入。");
-                return; 
+                handleStudentLogout(); // 建議登出，因為目前沒有有效班級
+                return;
             }
-
+ 
             // 3. 徹底找不到
             console.warn("資料庫無此人，判定為舊學年殘留資料。");
             alert("⚠️ 系統資料庫已更新。\n\n您的舊身份已失效，請重新登入。");
-            handleStudentLogout(); 
+            handleStudentLogout();
         }
-
+ 
     } catch (error) {
         console.error("搜尋錯誤:", error);
+        hideLoading();
+        alert("自動更新失敗，請嘗試手動重新登入。");
     }
 }
-
-// 2. 覆寫：自動同步監聽器 (新增 Profile 監聽，實現自動觸發)
+ 
+// 2. 覆寫：自動同步監聽器 (確保監聽器切換正確)
 // 用於儲存 Profile 監聽器，避免重複
 let autoProfileListenerRef = null;
-
+ 
 function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
-
+ 
     // --- A. 歷史紀錄同步 (保持原樣) ---
     if (autoSyncListenerRef) autoSyncListenerRef.off();
     const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
@@ -15628,31 +15646,35 @@ function startAutoSyncListener() {
             setTimeout(() => { isSyncingLock = false; }, 2000);
         });
     });
-
-    // --- B. ★ 新增：身份狀態監聽 (這是自動彈出的關鍵) ---
+ 
+    // --- B. 身份狀態監聽 (這是自動觸發轉班的關鍵) ---
     if (autoProfileListenerRef) autoProfileListenerRef.off();
     
     const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
     autoProfileListenerRef = database.ref(profilePath);
-
+ 
     autoProfileListenerRef.on('value', (snapshot) => {
         const val = snapshot.val();
-
+ 
         if (!val) {
             // 情況 1: 資料消失 (代表老師剛剛執行了轉班/升班操作)
             console.log("⚠️ 偵測到當前班級資料消失，正在搜尋新位置...");
             
             // 立即停止監聽舊路徑，防止報錯
-            autoProfileListenerRef.off(); 
+            autoProfileListenerRef.off();
             if (autoSyncListenerRef) autoSyncListenerRef.off();
-
-            // 觸發全校搜尋 -> 這裡會呼叫上面的 findStudentNewLocation -> 彈出班號視窗
+ 
+            // 觸發全校搜尋 -> 這裡會呼叫上面的 findStudentNewLocation
             findStudentNewLocation(s.name);
-        } 
+        }
         else if (!val.number || val.number === "") {
             // 情況 2: 資料還在，但班號被清空 (可能是原地升班或資料重置)
-            console.log("⚠️ 偵測到班號需更新，彈出視窗...");
-            promptForNewClassNumber(s, profilePath);
+            // 只有在我們沒有正在更新班號時才彈出，避免迴圈
+            const modal = document.getElementById('classNumberUpdateModal');
+            if (modal && modal.style.display === 'none') {
+                console.log("⚠️ 偵測到班號需更新，彈出視窗...");
+                promptForNewClassNumber(s, profilePath);
+            }
         }
     });
     
