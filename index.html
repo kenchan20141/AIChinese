@@ -5853,7 +5853,7 @@ select:focus, select:hover {
 }
 
 .save-edit-btn {
-  background-color: #2A9689 !important;
+  background-color: #2C92B8 !important;
   margin-top: 10px !important;
 }
 	
@@ -15147,14 +15147,14 @@ async function saveContentEdit(element, recordId, fieldType) {
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
-        const getRequest = store.get(recordId);
+        // 關鍵修改: 保留原始ID，直接更新現有紀錄
+        const getRequest = store.get(parseInt(recordId));
         getRequest.onsuccess = async function(event) {
             const record = event.target.result;
             if (!record) return;
             
             // 根據字段類型更新內容
             if (fieldType === 'user') {
-                // 將 HTML 轉換回純文本格式
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = newContent;
                 record.userContent = tempDiv.textContent;
@@ -15162,25 +15162,31 @@ async function saveContentEdit(element, recordId, fieldType) {
                 record.aiContent = newContent;
             }
             
-            // 保存回資料庫
-            const updateRequest = store.put(record);
-            updateRequest.onsuccess = function() {
-                console.log(`紀錄 #${recordId} 已更新`);
-                // 同步到雲端
-                const s = JSON.parse(localStorage.getItem('studentProfile'));
-                if (s) {
-                    syncHistoryToFirebase(true);
-                }
-            };
-            updateRequest.onerror = function() {
-                console.error('更新失敗');
-                element.innerHTML = originalContent; // 恢復原始內容
-            };
+            // 關鍵修復: 僅更新內容，不改變ID
+            await new Promise((resolve, reject) => {
+                const updateRequest = store.put(record); // 這裡保留了原始ID
+                updateRequest.onsuccess = resolve;
+                updateRequest.onerror = reject;
+            });
+            
+            console.log(`紀錄 #${recordId} 已更新`);
+            
+            // 更新成功後重新渲染該紀錄的標題
+            if (document.getElementById('historyLevel3').style.display === 'flex' && 
+                currentSubFunctionFilter) {
+                enterHistoryList(currentSubFunctionFilter, currentThemeIndex);
+            }
+            
+            // 同步到雲端
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (s) {
+                syncHistoryToFirebase(true);
+            }
         };
     } catch (error) {
         console.error("保存編輯失敗:", error);
         alert("保存失敗，請重試");
-        element.innerHTML = originalContent; // 恢復原始內容
+        element.innerHTML = originalContent;
     }
 }
 	
@@ -16925,48 +16931,28 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     }
 }
 
-// 2. 執行繳交動作
-async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
-    const recordId = parseInt(document.getElementById('pendingRecordId').value);
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
 
-    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(這將會覆蓋你之前對此功課的繳交)`)) return;
 
-    try {
-        // A. 從 IndexedDB 獲取該紀錄的完整內容
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(recordId);
 
-        request.onsuccess = function(e) {
-            const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // B. 寫入 Firebase 的 submissions 路徑
-            // 路徑：assignments_submissions/課業ID/學生姓名
-            // 這樣老師可以通過「課業ID」直接拉出所有人的這份功課
-            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
-            
-            database.ref(submitPath).set({
-                ...record, // 包含原本的所有內容 (title, userContent, aiContent...)
-                submittedAt: new Date().toLocaleString('zh-HK'),
-                studentName: s.name,
-                studentClass: s.class,
-                studentGrade: s.grade
-            }, (error) => {
-                if (error) {
-                    alert("繳交失敗：" + error.message);
-                } else {
-                    alert(`🎉 繳交成功！\n已將此紀錄呈交給老師。`);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                }
-            });
-        };
-    } catch (err) {
-        console.error(err);
-        alert("系統錯誤，無法讀取紀錄。");
-    }
+	// 新增輔助函式來處理實際的繳交邏輯
+function submitRecordToCloud(record, assignmentId, s) {
+    const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+    database.ref(submitPath).set({
+        ...record,
+        submittedAt: new Date().toLocaleString('zh-HK'),
+        studentName: s.name,
+        studentClass: s.class,
+        studentGrade: s.grade
+    }, (error) => {
+        if (error) {
+            alert("繳交失敗：" + error.message);
+            document.getElementById('submitAssignmentModal').style.display = 'none';
+        } else {
+            alert(`🎉 繳交成功！
+已成功將此紀錄呈交為「${assignmentTopic}」。`);
+            document.getElementById('submitAssignmentModal').style.display = 'none';
+        }
+    });
 }
 
 
