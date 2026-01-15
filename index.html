@@ -16627,6 +16627,49 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     }
 }
 
+// 2. 執行繳交動作
+async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
+    const recordId = parseInt(document.getElementById('pendingRecordId').value);
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(這將會覆蓋你之前對此功課的繳交)`)) return;
+
+    try {
+        // A. 從 IndexedDB 獲取該紀錄的完整內容
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(recordId);
+
+        request.onsuccess = function(e) {
+            const record = e.target.result;
+            if (!record) return alert("找不到原始紀錄，請重試。");
+
+            // B. 寫入 Firebase 的 submissions 路徑
+            // 路徑：assignments_submissions/課業ID/學生姓名
+            // 這樣老師可以通過「課業ID」直接拉出所有人的這份功課
+            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+            
+            database.ref(submitPath).set({
+                ...record, // 包含原本的所有內容 (title, userContent, aiContent...)
+                submittedAt: new Date().toLocaleString('zh-HK'),
+                studentName: s.name,
+                studentClass: s.class,
+                studentGrade: s.grade
+            }, (error) => {
+                if (error) {
+                    alert("繳交失敗：" + error.message);
+                } else {
+                    alert(`🎉 繳交成功！\n已將此紀錄呈交給老師。`);
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }
+            });
+        };
+    } catch (err) {
+        console.error(err);
+        alert("系統錯誤，無法讀取紀錄。");
+    }
+}
 
 
 // ==========================================
@@ -17565,503 +17608,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 
-<script>
-
-
-	// ============= 在 document.addEventListener('DOMContentLoaded') 中加入 ============= //
-
-// 1. 初始化可編輯的歷史紀錄元素
-function setupHistoryEditing() {
-    // 監聽歷史紀錄容器的點擊，委派到所有文字元素
-    document.getElementById('historyModalContent').addEventListener('dblclick', function(e) {
-        let target = e.target;
-        
-        // 防止點擊到按鈕或輸入框時觸發編輯
-        if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('.canvas-chat-container')) {
-            return;
-        }
-        
-        // 找到最接近的可編輯文字元素
-        while (target && !target.classList.contains('history-item-content') && !target.classList.contains('history-title') && !target.closest('.ai-output-area')) {
-            target = target.parentElement;
-        }
-        
-        if (target) {
-            // 如果點擊的是標題
-            if (target.closest('.history-title')) {
-                enableTitleEditing(target.closest('.history-title'), currentRecordId);
-            } 
-            // 如果點擊的是輸入內容
-            else if (target.closest('.history-item-content')) {
-                enableContentEditing(target.closest('.history-item-content'));
-            }
-            // 如果點擊的是AI生成的內容
-            else if (target.closest('.ai-output-area')) {
-                enableAiContentEditing(target.closest('.ai-output-area'));
-            }
-        }
-    });
-}
-
-// 2. 標題編輯功能
-function enableTitleEditing(element, recordId) {
-    // 防止重複觸發
-    if (element.querySelector('input')) return;
-    
-    // 移除可能已存在的儲存按鈕
-    const existingSaveBtn = element.nextElementSibling;
-    if (existingSaveBtn && existingSaveBtn.classList.contains('edit-save-btn')) {
-        existingSaveBtn.remove();
-    }
-    
-    const currentText = element.innerText.trim();
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = currentText;
-    input.className = 'history-title-input';
-    input.style.width = '100%';
-    input.style.padding = '5px 10px';
-    input.style.border = '2px dashed #2A9689';
-    input.style.borderRadius = '4px';
-    
-    element.innerHTML = '';
-    element.appendChild(input);
-    input.focus();
-    
-    // 創建儲存按鈕（莫蘭迪風格 - 淡雅青色）
-    const saveBtn = createSaveButton(() => {
-        const newText = input.value.trim() || currentText;
-        if (newText !== currentText) {
-            saveHistoryRecord('title', newText, recordId);
-            element.innerText = newText;
-        } else {
-            element.innerText = currentText;
-        }
-        // 刪除儲存按鈕
-        if (saveBtn.parentNode) {
-            saveBtn.parentNode.removeChild(saveBtn);
-        }
-    });
-    saveBtn.classList.add('edit-save-btn');
-    
-    element.parentNode.insertBefore(saveBtn, element.nextSibling);
-    
-    // 失去焦點或按Enter時儲存
-    input.addEventListener('blur', function() {
-        saveBtn.click();
-    });
-    
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            saveBtn.click();
-        }
-    });
-}
-
-// 3. 內容編輯功能
-function enableContentEditing(element) {
-    // 防止重複觸發
-    if (element.dataset.isEditing) return;
-    
-    // 移除可能已存在的儲存按鈕
-    const existingSaveBtn = element.nextElementSibling;
-    if (existingSaveBtn && existingSaveBtn.classList.contains('edit-save-btn')) {
-        existingSaveBtn.remove();
-    }
-    
-    // 保存原始HTML
-    const originalHTML = element.innerHTML;
-    element.dataset.originalContent = originalHTML;
-    element.dataset.isEditing = 'true';
-    
-    // 創建可編輯區域
-    const editableDiv = document.createElement('div');
-    editableDiv.contentEditable = 'true';
-    editableDiv.innerHTML = originalHTML;
-    editableDiv.style.minHeight = '80px';
-    editableDiv.style.border = '2px dashed #2A9689';
-    editableDiv.style.borderRadius = '4px';
-    editableDiv.style.padding = '8px 12px';
-    editableDiv.style.margin = '5px 0';
-    editableDiv.style.background = '#f8fdfc';
-    editableDiv.style.lineHeight = '1.6';
-    
-    // 替換原始元素
-    element.innerHTML = '';
-    element.appendChild(editableDiv);
-    
-    // 設定游標
-    const range = document.createRange();
-    range.selectNodeContents(editableDiv);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    
-    // 創建儲存按鈕
-    const saveBtn = createSaveButton(() => {
-        const newContent = editableDiv.innerHTML.trim();
-        if (newContent !== originalHTML) {
-            saveHistoryRecord('userContent', newContent, currentRecordId);
-        }
-        // 恢復原始狀態
-        element.innerHTML = newContent;
-        delete element.dataset.isEditing;
-        delete element.dataset.originalContent;
-        
-        // 刪除儲存按鈕
-        if (saveBtn.parentNode) {
-            saveBtn.parentNode.removeChild(saveBtn);
-        }
-    });
-    saveBtn.classList.add('edit-save-btn');
-    
-    element.parentNode.insertBefore(saveBtn, element.nextSibling);
-}
-
-// 4. AI內容編輯功能
-function enableAiContentEditing(element) {
-    // 防止重複觸發
-    if (element.dataset.isEditing) return;
-    
-    // 移除可能已存在的儲存按鈕
-    const existingSaveBtn = element.nextElementSibling;
-    if (existingSaveBtn && existingSaveBtn.classList.contains('edit-save-btn')) {
-        existingSaveBtn.remove();
-    }
-    
-    // 保存原始HTML
-    const originalHTML = element.innerHTML;
-    element.dataset.originalContent = originalHTML;
-    element.dataset.isEditing = 'true';
-    
-    // 創建可編輯區域
-    const editableDiv = document.createElement('div');
-    editableDiv.contentEditable = 'true';
-    editableDiv.innerHTML = originalHTML;
-    editableDiv.style.minHeight = '150px';
-    editableDiv.style.border = '2px dashed #2A9689';
-    editableDiv.style.borderRadius = '4px';
-    editableDiv.style.padding = '12px 15px';
-    editableDiv.style.margin = '10px 0';
-    editableDiv.style.background = '#f6fbf9';
-    editableDiv.style.lineHeight = '1.7';
-    
-    // 替換原始元素
-    element.innerHTML = '';
-    element.appendChild(editableDiv);
-    
-    // 設定游標
-    const range = document.createRange();
-    range.selectNodeContents(editableDiv);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    
-    // 創建儲存按鈕
-    const saveBtn = createSaveButton(() => {
-        const newContent = editableDiv.innerHTML.trim();
-        if (newContent !== originalHTML) {
-            saveHistoryRecord('aiContent', newContent, currentRecordId);
-        }
-        // 恢復原始狀態
-        element.innerHTML = newContent;
-        delete element.dataset.isEditing;
-        delete element.dataset.originalContent;
-        
-        // 刪除儲存按鈕
-        if (saveBtn.parentNode) {
-            saveBtn.parentNode.removeChild(saveBtn);
-        }
-    });
-    saveBtn.classList.add('edit-save-btn');
-    
-    element.parentNode.insertBefore(saveBtn, element.nextSibling);
-}
-
-// 5. 創建莫蘭迪風格儲存按鈕
-function createSaveButton(onClick) {
-    const btn = document.createElement('button');
-    btn.innerHTML = '<i class="fas fa-save"></i>';
-    btn.style.cssText = `
-        background: linear-gradient(135deg, #3da7a6 0%, #2A9689 100%);
-        color: white;
-        border: none;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        cursor: pointer;
-        margin: 8px 0;
-        box-shadow: 0 2px 8px rgba(42, 150, 137, 0.35);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-        z-index: 10;
-        position: relative;
-    `;
-    btn.style.fontSize = '14px';
-    
-    btn.addEventListener('mouseover', () => {
-        btn.style.transform = 'scale(1.15)';
-        btn.style.boxShadow = '0 4px 12px rgba(42, 150, 137, 0.5)';
-    });
-    
-    btn.addEventListener('mouseout', () => {
-        btn.style.transform = 'scale(1)';
-        btn.style.boxShadow = '0 2px 8px rgba(42, 150, 137, 0.35)';
-    });
-    
-    btn.addEventListener('click', function(e) {
-        e.stopPropagation(); // 防止觸發父元素的點擊事件
-        onClick();
-    });
-    
-    return btn;
-}
-
-// 6. 儲存修訂到 IndexedDB 和 Firebase
-async function saveHistoryRecord(field, value, recordId) {
-    try {
-        // 1. 更新 IndexedDB
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        
-        const getRequest = store.get(recordId);
-        getRequest.onsuccess = async function(event) {
-            const record = event.target.result;
-            if (!record) return;
-            
-            // 更新指定字段
-            if (field === 'title') {
-                record.title = value;
-            } else if (field === 'userContent') {
-                record.userContent = value;
-            } else if (field === 'aiContent') {
-                record.aiContent = value;
-            }
-            
-            // 儲存修改
-            store.put(record);
-            
-            // 2. 同步到 Firebase（如果已登入）
-            const s = JSON.parse(localStorage.getItem('studentProfile'));
-            if (s) {
-                await syncSingleRecordToFirebase(record, s);
-            }
-            
-            // 3. 顯示成功提示
-            showSansiNotif('info', '紀錄已儲存', 'saved-' + Date.now());
-        };
-    } catch (error) {
-        console.error("儲存失敗:", error);
-        alert("儲存失敗，請重試。");
-    }
-}
-
-// 7. 單筆紀錄同步到 Firebase
-async function syncSingleRecordToFirebase(record, studentProfile) {
-    const path = `students/${studentProfile.grade}/${studentProfile.class}/${studentProfile.name}/history`;
-    
-    try {
-        // 獲取雲端現有紀錄
-        const snapshot = await database.ref(path).once('value');
-        let cloudRecords = snapshot.val() || [];
-        
-        if (!Array.isArray(cloudRecords)) {
-            cloudRecords = Object.values(cloudRecords).filter(item => item !== null);
-        }
-        
-        // 找到對應紀錄並更新
-        const index = cloudRecords.findIndex(r => r.timestamp === record.timestamp);
-        if (index !== -1) {
-            cloudRecords[index] = record;
-            await database.ref(path).set(cloudRecords);
-            console.log("Firebase 單筆紀錄同步成功");
-        }
-    } catch (error) {
-        console.error("Firebase 同步失敗:", error);
-    }
-}
-
-// 8. 當前記錄ID（用於雙擊編輯）
-let currentRecordId = null;
-
-// 9. 重寫 viewHistoryDetail 函數，加入 currentRecordId 設定
-window.viewHistoryDetail = async function(id) {
-    currentRecordId = id;
-    try {
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(id);
-        request.onsuccess = function(event) {
-            const record = event.target.result;
-            if (record) {
-                // 舊有的顯示邏輯
-                let themeIndex = 1;
-                if (HISTORY_STRUCTURE[record.category]) {
-                    const subIndex = HISTORY_STRUCTURE[record.category].indexOf(record.subFunction);
-                    if (subIndex !== -1) {
-                        themeIndex = (subIndex % 5) + 1;
-                    }
-                }
-                const themeClass = `history-theme-context-${themeIndex}`;
-                const colorVar = `var(--m-color-${themeIndex})`;
-                
-                document.getElementById('historyModalTitle').innerHTML =
-                `<i class="fas fa-book-open" style="color:${colorVar}"></i>
-                <span style="color:#333">${record.category}</span>
-                <span style="font-size:0.8em; color:#bbb; margin: 0 5px;">/</span>
-                <span style="color:${colorVar}; font-weight:bold;">${record.subFunction}</span>`;
-                
-                let contentHTML = '';
-                // 處理使用者輸入內容
-                if (record.category !== "學習報告" && record.userContent) {
-                    const rawText = record.userContent;
-                    const lines = rawText.split('\n');
-                    let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
-                    let currentLabel = '輸入內容';
-                    let currentContent = [];
-                    const labelRegex = /^(.{2,10}?)[：:](.*)$/;
-                    lines.forEach((line) => {
-                        const match = line.match(labelRegex);
-                        if (match) {
-                            if (currentContent.length > 0) {
-                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
-                            }
-                            currentLabel = match[1].trim();
-                            const restOfLine = match[2].trim();
-                            currentContent = restOfLine ? [restOfLine] : [];
-                        } else {
-                            if (line.trim() !== "") currentContent.push(line);
-                        }
-                    });
-                    if (currentContent.length > 0 || lines.length === 0) {
-                        const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-                        parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
-                    }
-                    parsedHTML += '</div>';
-                    contentHTML += `<div style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">${parsedHTML}</div>`;
-                }
-                
-                // 顯示 AI 生成內容
-                if (record.aiContent) {
-                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
-                }
-                
-                // 顯示繳交按鈕
-                const s = JSON.parse(localStorage.getItem('studentProfile'));
-                if (s && record.category !== "學習報告") {
-                    contentHTML += `
-                    <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #eee; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
-                        <button class="btn-action btn-morandi"
-                        onclick="openSubmitSelector(${record.id})">
-                            <i class="fas fa-paper-plane"></i> 繳交
-                        </button>
-                    </div>
-                    `;
-                }
-                
-                const modalContent = document.getElementById('historyModalContent');
-                modalContent.innerHTML = contentHTML;
-                document.getElementById('historyModal').style.display = 'flex';
-                
-                // 處理雷達圖
-                if (record.scoreData && record.scoreData.radar) {
-                    const canvasEl = modalContent.querySelector('canvas');
-                    if (canvasEl) {
-                        const radarData = [
-                            record.scoreData.radar.立意 || 0,
-                            record.scoreData.radar.取材 || 0,
-                            record.scoreData.radar.扣題 || 0,
-                            record.scoreData.radar.詳略 || 0,
-                            record.scoreData.radar.詞彙 || 0,
-                            record.scoreData.radar.文學性 || 0
-                        ];
-                        
-                        new Chart(canvasEl.getContext('2d'), {
-                            type: 'radar',
-                            data: {
-                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                datasets: [{
-                                    label: '能力評估',
-                                    data: radarData,
-                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                    borderColor: 'rgba(54, 162, 235, 1)',
-                                    borderWidth: 2,
-                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                    pointBorderColor: '#fff'
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: {
-                                    r: {
-                                        angleLines: { display: true },
-                                        suggestedMin: 0,
-                                        suggestedMax: 10,
-                                        pointLabels: {
-                                            font: { size: 14, family: "'Noto Serif TC', serif" }
-                                        },
-                                        ticks: { stepSize: 2, display: false }
-                                    }
-                                },
-                                plugins: {
-                                    legend: { display: false }
-                                }
-                            }
-                        });
-                    }
-                }
-            }
-        };
-    } catch (e) { 
-        console.error(e);
-        currentRecordId = null;
-    }
-};
-
-// ============= 初始設置 ============= // 
-document.addEventListener('DOMContentLoaded', function() {
-    // 設置歷史紀錄編輯功能
-    setupHistoryEditing();
-    
-    // 其他頁面初始化邏輯...
-});
-
-// ============= 通知函數 (輕量版) ============= //
-function showSansiNotif(type, message, uniqueId) {
-    const container = document.getElementById('notifContainer') || document.body;
-    
-    // 創建通知元素
-    const notif = document.createElement('div');
-    notif.className = 'sansi-notification notif-info';
-    notif.style.cssText = `
-        background-color: #f0f7ff;
-        border-left: 4px solid #4A90E2;
-        padding: 12px 15px;
-        margin: 10px 0;
-        border-radius: 4px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        animation: fadeIn 0.3s;
-    `;
-    
-    notif.innerHTML = `<i class="fas fa-info-circle" style="color:#4A90E2; margin-right:8px;"></i> ${message}`;
-    container.appendChild(notif);
-    
-    // 3秒後自動消失
-    setTimeout(() => {
-        notif.style.opacity = '0';
-        notif.style.transition = 'opacity 0.3s';
-        setTimeout(() => notif.remove(), 300);
-    }, 3000);
-}
-
-
-	</script>
 
 
 <!-- === 新增：班號強制更新視窗 (莫蘭迪風格) === -->
