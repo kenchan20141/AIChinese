@@ -15541,15 +15541,28 @@ async function findStudentNewLocation(studentName) {
                 name: studentName,
                 grade: newGrade,
                 class: newClass,
-                number: newInfo.number || "", 
+                number: newInfo.number || "",
                 email: newInfo.email
             };
             
             // 1. 更新本地儲存
             localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+ 
+            // ★★★ 新增這段：強制清空本地 IndexedDB 歷史紀錄 ★★★
+            // 因為已經轉班，舊的紀錄不再適用，且防止回傳到新班級資料庫
+            try {
+                const db = await openHistoryDB();
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                store.clear(); // <--- 徹底清空
+                console.log("已因應轉班清除本地舊紀錄");
+            } catch (e) {
+                console.error("清除本地紀錄失敗", e);
+            }
+            // ★★★ 新增結束 ★★★
             
-            // 2. 顯示提示 (可選，或直接顯示班號視窗)
-            alert(`👋 歡迎回來！\n系統偵測到新學年資料變更。\n\n您的位置已更新為：${newGrade}${newClass} 班`);
+            // 2. 顯示提示
+            alert(`👋 歡迎回來！\n系統偵測到新學年資料變更。\n\n您的位置已更新為：${newGrade}${newClass} 班\n(舊的歷史紀錄已封存並移除)`);
             
             // 3. ★ 核心修正：立即更新 UI，不重新整理頁面 ★
             updateWelcomeMessage(newProfile);
