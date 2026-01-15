@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -5837,6 +5836,25 @@ select:focus, select:hover {
 /* 調整按鈕與選擇器之間的距離 */
 #classNumberUpdateModal .modal-content button {
     margin-top: 15px; /* 增加按鈕上方邊距 */
+}
+
+
+	.editing {
+  background-color: #f9f9f9;
+  border: 1px dashed #2A9689;
+  padding: 5px 10px;
+  border-radius: 4px;
+  outline: none;
+  cursor: text;
+}
+
+.editing:focus {
+  box-shadow: 0 0 0 2px rgba(42, 150, 137, 0.3);
+}
+
+.save-edit-btn {
+  background-color: #2C92B8 !important;
+  margin-top: 10px !important;
 }
 	
 	
@@ -14899,7 +14917,7 @@ async function clearAllHistory() {
 }
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
-// === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
+// === 優化版：查看詳情 (加入雙擊編輯功能並保留雷達圖重繪) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -14931,7 +14949,6 @@ async function viewHistoryDetail(id) {
                 const dateElement = document.getElementById('historyModalDate');
                 if (dateElement) dateElement.style.display = "none"; 
                 
-                // ★★★ 這裡定義 contentHTML ★★★
                 let contentHTML = '';
 
                 // 3. 處理使用者輸入內容 (如果是「學習報告」，則跳過)
@@ -14947,7 +14964,7 @@ async function viewHistoryDetail(id) {
                         const match = line.match(labelRegex);
                         if (match) {
                             if (currentContent.length > 0) {
-                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content" data-editable="user">${currentContent.join('\n')}</div></div>`;
                             }
                             currentLabel = match[1].trim(); 
                             const restOfLine = match[2].trim();
@@ -14959,7 +14976,7 @@ async function viewHistoryDetail(id) {
 
                     if (currentContent.length > 0 || lines.length === 0) { 
                          const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
+                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content" data-editable="user">${finalContent}</div></div>`;
                     }
                     parsedHTML += '</div>';
                     
@@ -14968,10 +14985,10 @@ async function viewHistoryDetail(id) {
 
                 // 4. 顯示 AI 生成內容
                 if (record.aiContent) {
-                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
+                    contentHTML += `<div class="ai-output-area" data-editable="ai">${record.aiContent}</div>`;
                 }
                 
-                // 5. 顯示繳交按鈕 (若適用)
+                // 5. 顯示繳交按鈕 (若 applicable)
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
@@ -14990,12 +15007,77 @@ async function viewHistoryDetail(id) {
                 document.getElementById('historyModal').style.display = 'flex';
 
                 // ==========================================
+                // ★★★ 雙擊編輯功能實現 ★★★
+                // ==========================================
+                const editableElements = modalContent.querySelectorAll('[data-editable]');
+                
+                editableElements.forEach(element => {
+                    // 防止重複綁定事件
+                    if (element.dataset.editableInitialized) return;
+                    element.dataset.editableInitialized = 'true';
+                    
+                    element.addEventListener('dblclick', async function(e) {
+                        e.stopPropagation();
+                        if (this.isContentEditable) return;
+                        
+                        // 保存原始內容
+                        this.dataset.originalContent = this.innerHTML;
+                        
+                        // 開啟編輯模式
+                        this.contentEditable = true;
+                        this.classList.add('editing');
+                        this.focus();
+                        
+                        // 防止事件冒泡
+                        this.addEventListener('click', e => e.stopPropagation());
+                        
+                        // 創建保存按鈕
+                        const saveBtn = document.createElement('button');
+                        saveBtn.className = 'btn-action save-edit-btn';
+                        saveBtn.innerHTML = '<i class="fas fa-save"></i>';
+                        saveBtn.style.marginTop = '10px';
+                        saveBtn.style.width = '100%';
+                        
+                        // 保存按鈕事件
+                        saveBtn.onclick = async (e) => {
+                            e.stopPropagation();
+                            await saveContentEdit(this, id, this.dataset.editable);
+                            this.contentEditable = false;
+                            this.classList.remove('editing');
+                            saveBtn.remove();
+                        };
+                        
+                        // 插入保存按鈕
+                        if (!this.nextElementSibling || !this.nextElementSibling.classList.contains('save-edit-btn')) {
+                            this.parentNode.insertBefore(saveBtn, this.nextSibling);
+                        }
+                    });
+                });
+                
+                // 點擊外部保存
+                document.addEventListener('click', function saveOnOutsideClick(e) {
+                    editableElements.forEach(element => {
+                        if (element.isContentEditable && !element.contains(e.target) && 
+                            !e.target.classList.contains('save-edit-btn')) {
+                            saveContentEdit(element, id, element.dataset.editable);
+                            element.contentEditable = false;
+                            element.classList.remove('editing');
+                            
+                            // 移除保存按鈕
+                            const saveBtn = element.nextElementSibling;
+                            if (saveBtn && saveBtn.classList.contains('save-edit-btn')) {
+                                saveBtn.remove();
+                            }
+                        }
+                    });
+                }, { once: true }); // 只綁定一次
+
+                // ==========================================
                 // ★★★ 雷達圖即時重繪邏輯 (Chart.js) ★★★
                 // ==========================================
                 // 檢查這條紀錄是否有分數數據 (scoreData)
                 if (record.scoreData && record.scoreData.radar) {
                     // 1. 在剛剛注入的 HTML 中找到 Canvas 元素
-                    // 我們在 captureContainerHTML 中加了 class="history-radar-canvas"
                     const canvasEl = modalContent.querySelector('canvas');
                     
                     if (canvasEl) {
@@ -15026,7 +15108,7 @@ async function viewHistoryDetail(id) {
                             },
                             options: {
                                 responsive: true,
-                                maintainAspectRatio: false, // 關鍵：允許填滿高度
+                                maintainAspectRatio: false,
                                 scales: {
                                     r: {
                                         angleLines: { display: true },
@@ -15048,13 +15130,234 @@ async function viewHistoryDetail(id) {
                 // ==========================================
             }
         };
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+        console.error('查看歷史紀錄詳情時出錯:', e); 
+    }
+}
+
+// 保存編輯內容的函數 (需放在 viewHistoryDetail 之外)
+async function saveContentEdit(element, recordId, fieldType) {
+    const newContent = element.innerHTML;
+    const originalContent = element.dataset.originalContent;
+    
+    if (newContent === originalContent) return;
+    
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        // 關鍵修改: 保留原始ID，直接更新現有紀錄
+        const getRequest = store.get(parseInt(recordId));
+        getRequest.onsuccess = async function(event) {
+            const record = event.target.result;
+            if (!record) return;
+            
+            // 根據字段類型更新內容
+            if (fieldType === 'user') {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = newContent;
+                record.userContent = tempDiv.textContent;
+            } else if (fieldType === 'ai') {
+                record.aiContent = newContent;
+            }
+            
+            // 關鍵修復: 僅更新內容，不改變ID
+            await new Promise((resolve, reject) => {
+                const updateRequest = store.put(record); // 這裡保留了原始ID
+                updateRequest.onsuccess = resolve;
+                updateRequest.onerror = reject;
+            });
+            
+            console.log(`紀錄 #${recordId} 已更新`);
+            
+            // 更新成功後重新渲染該紀錄的標題
+            if (document.getElementById('historyLevel3').style.display === 'flex' && 
+                currentSubFunctionFilter) {
+                enterHistoryList(currentSubFunctionFilter, currentThemeIndex);
+            }
+            
+            // 同步到雲端
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (s) {
+                syncHistoryToFirebase(true);
+            }
+        };
+    } catch (error) {
+        console.error("保存編輯失敗:", error);
+        alert("保存失敗，請重試");
+        element.innerHTML = originalContent;
+    }
 }
 	
 function closeHistoryModal() {
     document.getElementById('historyModal').style.display = 'none';
 }
 
+
+
+function enableContentEditing(recordId, container) {
+  // 選取需要可編輯的內容區域
+  const editableAreas = container.querySelectorAll('.history-item-content, .ai-output-area');
+  
+  editableAreas.forEach(area => {
+    // 防止重複綁定
+    if (area.dataset.editableInitialized) return;
+    
+    // 標記已初始化
+    area.dataset.editableInitialized = 'true';
+    
+    // 設定雙擊事件
+    area.addEventListener('dblclick', function(e) {
+      // 阻止事件冒泡
+      e.stopPropagation();
+      
+      // 如果已經是編輯模式，則不做處理
+      if (this.isContentEditable) return;
+      
+      // 開啟編輯模式
+      this.contentEditable = true;
+      this.classList.add('editing');
+      this.focus();
+      
+      // 顯示提示（可選）
+      if (!this.dataset.originalText) {
+        this.dataset.originalText = this.innerHTML;
+      }
+      
+      // 添加保存按鈕
+      addSaveButton(this, recordId);
+    });
+    
+    // 點擊外部保存
+    document.addEventListener('click', function saveOnOutsideClick(e) {
+      if (area.isContentEditable && !area.contains(e.target) && !e.target.classList.contains('save-edit-btn')) {
+        saveContentEdit(area, recordId);
+        area.contentEditable = false;
+        area.classList.remove('editing');
+        
+        // 移除保存按鈕
+        const saveBtn = area.nextElementSibling;
+        if (saveBtn && saveBtn.classList.contains('save-edit-btn')) {
+          saveBtn.remove();
+        }
+        
+        // 移除事件監聽（避免重複綁定累積）
+        document.removeEventListener('click', saveOnOutsideClick);
+      }
+    });
+  });
+}
+
+
+
+
+	async function saveContentEdit(element, recordId) {
+  const newContent = element.innerHTML;
+  const originalContent = element.dataset.originalText;
+  
+  // 只有當內容有改變時才保存
+  if (newContent !== originalContent) {
+    try {
+      const db = await openHistoryDB();
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      
+      // 獲取原始記錄
+      const request = store.get(recordId);
+      request.onsuccess = function(event) {
+        const record = event.target.result;
+        if (record) {
+          // 判斷是修改 userContent 還是 aiContent
+          if (element.closest('.history-item-block')) {
+            // 修改 userContent - 需要解析並重建
+            record.userContent = parseEditedUserContent(newContent, record.userContent);
+          } else {
+            // 修改 aiContent
+            record.aiContent = newContent;
+          }
+          
+          // 保存回資料庫
+          store.put(record);
+          
+          // 同步到雲端（如果已登入）
+          const s = JSON.parse(localStorage.getItem('studentProfile'));
+          if (s) {
+            syncHistoryToFirebase(true);
+          }
+          
+          console.log(`紀錄 #${recordId} 已更新`);
+        }
+      };
+    } catch (error) {
+      console.error("保存編輯失敗:", error);
+      alert("保存失敗，請重試");
+      // 恢復原始內容
+      element.innerHTML = originalContent;
+    }
+  }
+}
+
+// 輔助函數：解析編輯後的 userContent
+function parseEditedUserContent(editedHTML, originalContent) {
+  // 轉換 HTML 為純文字並重建格式
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = editedHTML;
+  const textContent = tempDiv.textContent;
+  
+  // 根據原始內容的格式重建（保留標籤結構）
+  const lines = textContent.split('\n');
+  let reconstructed = '';
+  
+  lines.forEach(line => {
+    line = line.trim();
+    if (line) {
+      if (originalContent.includes('題目：') && line.includes('題目：')) {
+        reconstructed += line + '\n';
+      } else if (originalContent.includes('結構段重點：') && line.includes('結構段重點：')) {
+        reconstructed += line + '\n';
+      } else if (originalContent.includes('情節大要：') && line.includes('情節大要：')) {
+        reconstructed += line + '\n';
+      } else {
+        reconstructed += line + '\n';
+      }
+    }
+  });
+  
+  return reconstructed.trim();
+}
+
+
+
+	function addSaveButton(element, recordId) {
+  // 移除可能存在的舊按鈕
+  const existingBtn = element.nextElementSibling;
+  if (existingBtn && existingBtn.classList.contains('save-edit-btn')) {
+    existingBtn.remove();
+  }
+  
+  // 創建保存按鈕
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-action save-edit-btn';
+  saveBtn.innerHTML = '<i class="fas fa-save"></i> 保存修改';
+  saveBtn.style.marginTop = '10px';
+  saveBtn.style.width = '100%';
+  
+  // 事件處理
+  saveBtn.onclick = function(e) {
+    e.stopPropagation();
+    saveContentEdit(element, recordId);
+    element.contentEditable = false;
+    element.classList.remove('editing');
+    this.remove();
+  };
+  
+  // 插入按鈕
+  element.parentNode.insertBefore(saveBtn, element.nextSibling);
+}
+
+
+	
 
 // === 新增：日期搜尋功能 ===
 
@@ -16584,92 +16887,157 @@ async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
     const recordId = parseInt(document.getElementById('pendingRecordId').value);
     const s = JSON.parse(localStorage.getItem('studentProfile'));
 
-    // 二次確認
-    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(注意：這將會覆蓋你之前對此功課的繳交內容)`)) return;
-
-    try {
-        // 從本地資料庫撈出該筆紀錄的完整資料
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(recordId);
-
-        request.onsuccess = function(e) {
-            const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // 上傳到 Firebase 的 assignments_submissions 路徑
-            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
-            
-            // 顯示載入中
-            const modalBody = document.getElementById('activeAssignmentList');
-            modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師...</div>';
-
-            database.ref(submitPath).set({
-                ...record, // 包含 title, userContent, aiContent
-                submittedAt: new Date().toLocaleString('zh-HK'),
-                studentName: s.name,
-                studentClass: s.class,
-                studentGrade: s.grade
-            }, (error) => {
-                if (error) {
-                    alert("繳交失敗：" + error.message);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                } else {
-                    // 成功特效與提示
-                    alert(`🎉 繳交成功！\n\n已成功將此紀錄呈交為「${assignmentTopic}」。`);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
-                }
-            });
-        };
-    } catch (err) {
-        console.error(err);
-        alert("系統錯誤，無法讀取紀錄。");
+    // 驗證必要的資料
+    if (!s || !s.name || !s.class || !s.grade) {
+        return alert("請先在「雲端同步」中綁定身份！");
     }
-}
+    
+    if (!recordId || isNaN(recordId)) {
+        return alert("找不到要繳交的紀錄ID，請重試。");
+    }
+    
+    // 二次確認
+    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？
+(這將會覆蓋你之前對此功課的繳交)`)) return;
 
-// 2. 執行繳交動作
-async function confirmAndSubmitAssignment(assignmentId, assignmentTopic) {
-    const recordId = parseInt(document.getElementById('pendingRecordId').value);
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-
-    if (!confirm(`確定要將這份紀錄繳交為「${assignmentTopic}」嗎？\n(這將會覆蓋你之前對此功課的繳交)`)) return;
-
+    // 設定載入狀態
+    const modalBody = document.getElementById('activeAssignmentList');
+    const originalHTML = modalBody.innerHTML;
+    modalBody.innerHTML = '<div style="text-align:center; color:#2A9689; padding:20px;"><i class="fas fa-circle-notch fa-spin fa-2x"></i><br><br>正在呈交給老師，請稍候...</div>';
+    
     try {
         // A. 從 IndexedDB 獲取該紀錄的完整內容
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.get(recordId);
-
-        request.onsuccess = function(e) {
+        
+        request.onerror = function(e) {
+            modalBody.innerHTML = originalHTML;
+            alert("讀取紀錄時發生錯誤，請重試。");
+            console.error("讀取紀錄失敗:", e);
+        };
+        
+        request.onsuccess = async function(e) {
             const record = e.target.result;
-            if (!record) return alert("找不到原始紀錄，請重試。");
-
-            // B. 寫入 Firebase 的 submissions 路徑
-            // 路徑：assignments_submissions/課業ID/學生姓名
-            // 這樣老師可以通過「課業ID」直接拉出所有人的這份功課
-            const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+            if (!record) {
+                modalBody.innerHTML = originalHTML;
+                return alert("找不到原始紀錄，請嘗試重新開啟此紀錄。");
+            }
             
-            database.ref(submitPath).set({
-                ...record, // 包含原本的所有內容 (title, userContent, aiContent...)
-                submittedAt: new Date().toLocaleString('zh-HK'),
-                studentName: s.name,
-                studentClass: s.class,
-                studentGrade: s.grade
-            }, (error) => {
-                if (error) {
-                    alert("繳交失敗：" + error.message);
-                } else {
-                    alert(`🎉 繳交成功！\n已將此紀錄呈交給老師。`);
-                    document.getElementById('submitAssignmentModal').style.display = 'none';
+            // B. 路徑處理：為Firebase路徑移除特殊字符
+            const safeStudentName = s.name.replace(/[.#$\/\[\]]/g, '_');
+            const safeAssignmentId = assignmentId.replace(/[.#$\/\[\]]/g, '_');
+            const submitPath = `assignments_submissions/${safeAssignmentId}/${safeStudentName}`;
+            
+            try {
+                // 檢查是否已繳交（避免重複繳交）
+                const existingSubmission = await database.ref(submitPath).once('value');
+                let previousSubmittedAt = null;
+                if (existingSubmission.exists()) {
+                    previousSubmittedAt = existingSubmission.val().submittedAt;
                 }
-            });
+                
+                // C. 整理要提交的數據
+                const submissionData = {
+                    ...record, // 包含原本的所有內容
+                    submittedAt: new Date().toLocaleString('zh-HK'),
+                    previousSubmittedAt: previousSubmittedAt || null,
+                    studentName: s.name,
+                    studentClass: s.class,
+                    studentGrade: s.grade,
+                    assignmentId: safeAssignmentId,
+                    assignmentTopic: assignmentTopic,
+                };
+                
+                // D. 寫入 Firebase
+                await database.ref(submitPath).set(submissionData);
+                
+                // E. 視覺反饋與提示
+                const timestamp = new Date(submissionData.submittedAt);
+                const formattedTime = timestamp.toLocaleTimeString('zh-HK', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                // 動畫反饋
+                const successHTML = `
+                    <div style="text-align:center; padding:30px; color:#2ecc71;">
+                        <i class="fas fa-check-circle" style="font-size:4rem; margin-bottom:20px;"></i>
+                        <h3 style="color:#27ae60; margin:10px 0;">繳交成功！</h3>
+                        <p style="font-size:1.1em; margin:15px 0;">
+                            已成功將此紀錄呈交為<br>
+                            <strong style="color:#2A9689;">「${assignmentTopic}」</strong>
+                        </p>
+                        <p style="color:#7f8c8d; font-size:0.9em;">
+                            日期：${submissionData.submittedAt.split(' ')[0]}<br>
+                            時間：${formattedTime}
+                        </p>
+                        <div style="background:#e8f5e9; border-left:4px solid #2ecc71; padding:12px; margin-top:20px; border-radius:0 4px 4px 0;">
+                            <p style="margin:0; font-size:0.95em; color:#27ae60;">
+                                <i class="fas fa-info-circle"></i> 你可以在「雲端同步」中隨時檢視這份課業的狀態
+                            </p>
+                        </div>
+                    </div>
+                `;
+                modalBody.innerHTML = successHTML;
+                
+                // F. 3秒後自動關閉
+                setTimeout(() => {
+                    document.getElementById('submitAssignmentModal').style.display = 'none';
+                }, 3000);
+                
+                // G. 記錄使用行為到分析系統
+                // 這裡已修復：使用已定義的 logUserAction 函數
+                logUserAction('assignment_submitted', {
+                    assignmentId: safeAssignmentId,
+                    topic: assignmentTopic,
+                    recordId: recordId
+                });
+                
+            } catch (error) {
+                // 錯誤處理
+                modalBody.innerHTML = originalHTML;
+                console.error("Firebase 寫入失敗:", error);
+                
+                if (error.code === 'PERMISSION_DENIED') {
+                    alert("權限不足，無法繳交課業。請確認你的帳號正確且有權限。");
+                } else if (error.message && error.message.includes('network')) {
+                    alert("網路連線不穩定，請檢查網路後重試。");
+                } else {
+                    alert("繳交失敗：" + (error.message || "未知錯誤"));
+                }
+            }
         };
     } catch (err) {
-        console.error(err);
-        alert("系統錯誤，無法讀取紀錄。");
+        console.error("系統錯誤:", err);
+        // 還原UI
+        if (modalBody) modalBody.innerHTML = originalHTML;
+        alert("系統錯誤，請重新嘗試或聯繫管理員。");
     }
+}
+
+
+
+	// 新增輔助函式來處理實際的繳交邏輯
+function submitRecordToCloud(record, assignmentId, s) {
+    const submitPath = `assignments_submissions/${assignmentId}/${s.name}`;
+    database.ref(submitPath).set({
+        ...record,
+        submittedAt: new Date().toLocaleString('zh-HK'),
+        studentName: s.name,
+        studentClass: s.class,
+        studentGrade: s.grade
+    }, (error) => {
+        if (error) {
+            alert("繳交失敗：" + error.message);
+            document.getElementById('submitAssignmentModal').style.display = 'none';
+        } else {
+            alert(`🎉 繳交成功！
+已成功將此紀錄呈交為「${assignmentTopic}」。`);
+            document.getElementById('submitAssignmentModal').style.display = 'none';
+        }
+    });
 }
 
 
