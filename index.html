@@ -64,6 +64,8 @@ form-action 'self';
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
 
+
+
 	<script>
 // === 1. Firebase 初始化 (必須放在最頂部) ===
 const firebaseConfig = {
@@ -5894,7 +5896,51 @@ select:focus, select:hover {
     to { opacity: 1; transform: scale(1); }
 }
 
+/* === 歷史紀錄操作按鈕區優化 === */
+.history-actions {
+    margin-top: 15px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px; /* 增加按鈕之間的間距 */
+    opacity: 0.8; /* 稍微提高預設透明度，方便手機辨識 */
+    transition: opacity 0.3s;
+}
 
+/* 下載按鈕樣式 (莫蘭迪藍/灰色) */
+.btn-download-history {
+    background: transparent;
+    border: 1px solid #94a7b5; /* 霧霾藍邊框 */
+    color: #94a7b5;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 0;
+}
+
+.btn-download-history:hover {
+    background-color: #94a7b5;
+    color: white;
+    transform: scale(1.1);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+}
+
+/* 手機版適配：確保按鈕區域夠大，防止誤觸 */
+@media (max-width: 600px) {
+    .history-actions {
+        opacity: 1; /* 手機上總是顯示 */
+        margin-top: 12px;
+    }
+    .btn-download-history, .btn-delete-history {
+        width: 40px; /* 手機上按鈕稍微加大 */
+        height: 40px;
+        font-size: 1.1em;
+    }
+}
 	
 </style>
 
@@ -14814,17 +14860,338 @@ function renderFilteredRecords(records) {
             </div>
             
             <div class="history-actions">
-                <!-- 刪除按鈕必須保留 stopPropagation，否則刪除時會同時彈出視窗 -->
-                <button class="btn-delete-history" onclick="event.stopPropagation(); deleteHistoryItem(${record.id})" title="刪除此紀錄">
-                    <i class="fas fa-trash-alt"></i>
-                </button>
-            </div>
+    <!-- 下載按鈕 (新增) -->
+    <button class="btn-download-history" id="download-btn-${record.id}" onclick="event.stopPropagation(); downloadHistoryHTML(${record.id})" title="下載 HTML 檔案">
+    <i class="fas fa-file-code"></i>
+</button>
+
+    <!-- 刪除按鈕 -->
+    <button class="btn-delete-history" onclick="event.stopPropagation(); deleteHistoryItem(${record.id})" title="刪除此紀錄">
+        <i class="fas fa-trash-alt"></i>
+    </button>
+</div>
         `;
 
         listContainer.appendChild(card);
     });
 }
 
+
+// === 新增：下載歷史紀錄為 PDF ===
+// === [100% 完美復刻 + 強制置中修復版] 下載歷史紀錄為 HTML ===
+async function downloadHistoryHTML(id) {
+    const btn = document.getElementById(`download-btn-${id}`);
+    if (!btn) return;
+    
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+
+    const resetBtn = () => {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+    };
+
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(id);
+
+        request.onsuccess = async function(event) {
+            const record = event.target.result;
+            if (!record) { alert("找不到紀錄"); resetBtn(); return; }
+
+            // 1. 建立影子容器 (設定為 900px，這是電腦版的標準寬度)
+            const shadowContainer = document.createElement('div');
+            shadowContainer.style.cssText = `
+                position: absolute; left: -9999px; top: 0; 
+                width: 900px; 
+                background-color: #fff; 
+                visibility: hidden;
+                box-sizing: border-box;
+            `;
+            document.body.appendChild(shadowContainer);
+
+            // 2. === 重建 HTML 結構 ===
+            
+            let themeIndex = 1;
+            if (record.category && typeof HISTORY_STRUCTURE !== 'undefined') {
+                const subIndex = HISTORY_STRUCTURE[record.category]?.indexOf(record.subFunction);
+                if (subIndex !== -1 && subIndex !== undefined) themeIndex = (subIndex % 5) + 1;
+            }
+            const themeClass = `history-theme-context-${themeIndex}`;
+            const colorVar = `var(--m-color-${themeIndex})`;
+
+            let contentHTML = `
+                <div style="padding: 40px 40px 30px 40px; border-bottom: 1px solid #eee; margin-bottom: 20px;">
+                    <h2 style="margin: 0; color: #2A9689; font-size: 28px; font-family: 'Noto Serif TC', serif; text-align: left;">
+                        ${record.title}
+                    </h2>
+                    <div style="color: #888; font-size: 14px; margin-top: 15px; text-align: center;">
+                        <span style="background-color:${colorVar}; color:white; padding: 2px 8px; border-radius: 4px; font-weight:bold;">${record.category}</span>
+                        <span style="margin: 0 5px;">/</span>
+                        <span>${record.subFunction}</span>
+                        <span style="margin-left: 15px;">📅 ${record.dateStr}</span>
+                    </div>
+                </div>
+                <div style="padding: 0 40px 40px 40px;">
+            `;
+
+            if (record.userContent) {
+                const rawText = record.userContent;
+                const lines = rawText.split('\n');
+                let parsedHTML = `<div class="history-parsed-container ${themeClass}">`;
+                let currentLabel = '輸入內容'; 
+                let currentContent = [];
+                const labelRegex = /^(.{2,10}?)[：:](.*)$/;
+
+                lines.forEach((line) => {
+                    const match = line.match(labelRegex);
+                    if (match) {
+                        if (currentContent.length > 0) {
+                            parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                        }
+                        currentLabel = match[1].trim(); 
+                        const restOfLine = match[2].trim();
+                        currentContent = restOfLine ? [restOfLine] : []; 
+                    } else {
+                        if (line.trim() !== "") currentContent.push(line);
+                    }
+                });
+                if (currentContent.length > 0 || lines.length === 0) { 
+                     const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
+                     parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
+                }
+                parsedHTML += '</div>';
+                
+                contentHTML += `
+                    <div style="background:#fff; padding:25px; border-radius:12px; margin-bottom:30px; border:1px solid #e0ddd7; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
+                        ${parsedHTML}
+                    </div>`;
+            }
+
+            if (record.aiContent) {
+                contentHTML += `<div class="ai-output-area">${record.aiContent}</div>`;
+            }
+
+            contentHTML += `</div>`; 
+            shadowContainer.innerHTML = contentHTML;
+
+            // 3. === 清理與凍結 ===
+            shadowContainer.querySelectorAll('.canvas-chat-container, .canvas-input-area, button, .action-buttons-container, .history-save-btn, input[type="text"], textarea').forEach(el => {
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                    const span = document.createElement('div');
+                    span.innerText = el.value;
+                    span.style.cssText = "white-space: pre-wrap; background: #fffcf6; padding: 10px; border: 1px solid #ddd; border-radius: 4px; color: #333; font-size: 16px; font-family: 'Noto Serif TC', serif;";
+                    el.parentNode.replaceChild(span, el);
+                } else {
+                    el.remove();
+                }
+            });
+
+            shadowContainer.querySelectorAll('.progress-bar-fill').forEach(bar => {
+                const w = bar.style.width; 
+                bar.setAttribute('style', `width: ${w} !important; background-color: #007bff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact;`);
+            });
+
+            // 4. === 處理圖表 ===
+            if (record.scoreData && record.scoreData.radar) {
+                let canvasEl = shadowContainer.querySelector('canvas');
+                if (!canvasEl) {
+                    const radarContainer = shadowContainer.querySelector('.radar-chart-container') || shadowContainer.querySelector('.ai-output-area');
+                    if (radarContainer) {
+                        if (radarContainer.classList.contains('radar-chart-container')) radarContainer.innerHTML = ''; 
+                        canvasEl = document.createElement('canvas');
+                        canvasEl.width = 500;
+                        canvasEl.height = 350;
+                        if (radarContainer.firstChild) {
+                            radarContainer.insertBefore(canvasEl, radarContainer.firstChild);
+                        } else {
+                            radarContainer.appendChild(canvasEl);
+                        }
+                    }
+                }
+
+                if (canvasEl) {
+                    const ctx = canvasEl.getContext('2d');
+                    await new Promise((resolve) => {
+                        new Chart(ctx, {
+                            type: 'radar',
+                            data: {
+                                labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+                                datasets: [{
+                                    label: '能力評估',
+                                    data: [
+                                        record.scoreData.radar.立意 || 0,
+                                        record.scoreData.radar.取材 || 0,
+                                        record.scoreData.radar.扣題 || 0,
+                                        record.scoreData.radar.詳略 || 0,
+                                        record.scoreData.radar.詞彙 || 0,
+                                        record.scoreData.radar.文學性 || 0
+                                    ],
+                                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 2,
+                                    pointBackgroundColor: 'rgba(54, 162, 235, 1)'
+                                }]
+                            },
+                            options: {
+                                animation: false,
+                                responsive: false,
+                                scales: {
+                                    r: {
+                                        angleLines: { display: true },
+                                        suggestedMin: 0, suggestedMax: 10,
+                                        pointLabels: { font: { size: 14, family: "'Noto Serif TC', serif" } },
+                                        ticks: { stepSize: 2, display: false }
+                                    }
+                                },
+                                plugins: { legend: { display: false } }
+                            }
+                        });
+                        setTimeout(resolve, 300);
+                    });
+
+                    const imgUrl = canvasEl.toDataURL('image/png');
+                    const img = document.createElement('img');
+                    img.src = imgUrl;
+                    img.style.cssText = "width: 100%; max-width: 500px; display: block; margin: 0 auto;";
+                    canvasEl.parentNode.replaceChild(img, canvasEl);
+                }
+            }
+
+            // 5. === 提取全站 CSS ===
+            let cssRules = "";
+            Array.from(document.querySelectorAll('style')).forEach(style => { cssRules += style.innerHTML + "\n"; });
+            let externalLinks = "";
+            Array.from(document.querySelectorAll('link[rel="stylesheet"]')).forEach(link => { externalLinks += link.outerHTML + "\n"; });
+
+            // 6. === 組合最終 HTML (強制覆寫 Body 樣式) ===
+            const finalHtmlSource = `
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${record.title} - 神思紀錄</title>
+    ${externalLinks}
+    <style>
+        ${cssRules}
+        
+        /* === 關鍵修正：強制覆寫原有網站 CSS 對 Body 的限制 === */
+        
+        body { 
+            /* 1. 強制重置 Body 寬度與背景，覆蓋原網站的 max-width: 800px */
+            max-width: 100% !important; 
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 40px 0 !important;
+            
+            /* 2. 使用 Flexbox 確保內容卡片絕對置中 */
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important; /* 水平置中 */
+            
+            background-color: #f2f4f7 !important;
+            background-image: none !important;
+            min-height: 100vh !important;
+            overflow-y: auto !important;
+        }
+
+        /* 內容容器：這張「紙」 */
+        .export-wrapper {
+            /* 3. 設定固定寬度 900px (電腦版)，配合 Body 的 Flex 置中 */
+            width: 900px !important;
+            
+            /* 4. 響應式保護：在小螢幕上縮放 */
+            max-width: 95% !important; 
+            
+            background-color: #ffffff !important;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.08) !important;
+            border-radius: 12px !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            position: relative !important;
+            margin: 0 !important; /* Margin 0，因為 Body 已經負責置中了 */
+        }
+
+        /* 修復 Grid 排版 (評分表 + 雷達圖) */
+        .grading-grid { 
+            display: grid !important; 
+            grid-template-columns: 1fr 1fr !important; 
+            gap: 20px !important; 
+            width: 100% !important;
+        }
+        .grading-scores, .grading-radar {
+            width: 100% !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+        }
+
+        /* 手機版樣式 */
+        @media (max-width: 768px) {
+            body {
+                padding: 0 !important; 
+                background-color: #fff !important;
+                display: block !important; /* 手機版改回 Block，讓內容自然流動 */
+            }
+            .export-wrapper {
+                width: 100% !important;
+                max-width: 100% !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+            }
+            .grading-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+        button { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="export-wrapper">
+        ${shadowContainer.innerHTML}
+    </div>
+    
+    <div style="text-align: center; color: #aaa; font-size: 12px; margin-top: 30px; font-family: sans-serif; width: 100%;">
+        Generated by 神思 SANSI AI System
+    </div>
+</body>
+</html>`;
+
+            // 7. 清理與下載
+            document.body.removeChild(shadowContainer);
+
+            const blob = new Blob([finalHtmlSource], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            const safeTitle = record.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 15);
+            const dateSuffix = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `神思紀錄_${safeTitle}_${dateSuffix}.html`;
+            
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                resetBtn();
+            }, 100);
+        };
+
+        request.onerror = function() { alert("讀取紀錄失敗"); resetBtn(); };
+
+    } catch (e) {
+        console.error("下載 HTML 錯誤:", e);
+        alert("下載失敗，請重試");
+        resetBtn();
+    }
+}
+	
 	
 // 9. 刪除與清空 (保持類似)
 async function deleteHistoryItem(id) {
