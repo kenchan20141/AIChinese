@@ -15744,6 +15744,7 @@ async function findProfileByEmail(targetEmail) {
 
 // === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
 
+// === 修改後：統一處理登入後的邏輯 (加入唯一性檢查 & 支援新特許用家) ===
 async function processLoginResult(user, btn, originalContent) {
     // 1. 獲取用戶輸入的資料 (優先從 SessionStorage 恢復，否則從 DOM 獲取)
     let manualName, grade, cls, number;
@@ -15761,55 +15762,55 @@ async function processLoginResult(user, btn, originalContent) {
         cls = document.getElementById('studentClass')?.value;
         number = document.getElementById('studentNumber')?.value;
     }
-
+ 
     if (!manualName) {
         alert("資料遺失，請重新輸入姓名後再試一次。");
         if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
         return;
     }
-
+ 
     const email = user.email;
     
     // === 設定特定帳號 (BASE64 編碼) ===
-    const DEBUG_USER_B64 = 'a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==';   // 
-    const STUDENT_ADD_B64 = 'a2VuY2hhbjIwMTMxQGdtYWlsLmNvbQ==';  // 扮學生
-    const SPECIAL_USER_B64 = 'a2VuY2hhbjIwMTUxQGdtYWlsLmNvbQ=='; // 特許用家
-
-	  // ★★★ 新增這行 ★★★
-    const SPECIAL_USER_2_B64 = 'Y2hhbnN1bWx1aTIwMDVAZ21haWwuY29t'; // chan
-
+    const DEBUG_USER_B64 = 'a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==';   
+    const STUDENT_ADD_B64 = 'a2VuY2hhbjIwMTMxQGdtYWlsLmNvbQ==';  
+    const SPECIAL_USER_B64 = 'a2VuY2hhbjIwMTUxQGdtYWlsLmNvbQ==';
+    const SPECIAL_USER_2_B64 = 'Y2hhbnN1bWx1aTIwMDVAZ21haWwuY29t'; // ★ 新增：chansumlui2005
+ 
     const debugUser = atob(DEBUG_USER_B64);
     const studentUserAdd = atob(STUDENT_ADD_B64);
     const specialUserAdd = atob(SPECIAL_USER_B64);
-
+    const specialUser2Add = atob(SPECIAL_USER_2_B64); // ★ 解碼
+ 
     // 2. 檢查電郵網域 (允許學校電郵及白名單電郵)
-    if (!email.endsWith('@ccckyc.edu.hk') && 
-        email !== debugUser && 
-        email !== studentUserAdd && 
-        email !== specialUserAdd) {
+    if (!email.endsWith('@ccckyc.edu.hk') &&
+        email !== debugUser &&
+        email !== studentUserAdd &&
+        email !== specialUserAdd &&
+        email !== specialUser2Add) { // ★ 加入檢查條件
         
         await auth.signOut();
         alert("⛔ 驗證失敗！\n\n請必須使用「@ccckyc.edu.hk」的學校電郵登入。");
-        sessionStorage.removeItem('sansi_temp_student_data'); 
+        sessionStorage.removeItem('sansi_temp_student_data');
         if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
         return;
     }
-
+ 
     // === 教師名單識別 ===
     const TEACHER_B64_LIST = [
-        "Y2trQGNjY2t5Yy5lZHUuaGs=", 
-        "dGx5QGNjY2t5Yy5lZHUuaGs=", 
-        "bHN0QGNjY2t5Yy5lZHUuaGs=", 
-        "Y2tjQGNjY2t5Yy5lZHUuaGs=", 
-        "c2tzQGNjY2t5Yy5lZHUuaGs=", 
-        "eWhjQGNjY2t5Yy5lZHUuaGs=", 
-        "d2ZjQGNjY2t5Yy5lZHUuaGs=", 
-        "dHVuZ0BjY2NreWMuZWR1Lmhr", 
-        "a2J5QGNjY2t5Yy5lZHUuaGs=", 
-        "d3B5QGNjY2t5Yy5lZHUuaGs=", 
-        DEBUG_USER_B64 // 將 Debug User 視為教師權限處理
+        "Y2trQGNjY2t5Yy5lZHUuaGs=",
+        "dGx5QGNjY2t5Yy5lZHUuaGs=",
+        "bHN0QGNjY2t5Yy5lZHUuaGs=",
+        "Y2tjQGNjY2t5Yy5lZHUuaGs=",
+        "c2tzQGNjY2t5Yy5lZHUuaGs=",
+        "eWhjQGNjY2t5Yy5lZHUuaGs=",
+        "d2ZjQGNjY2t5Yy5lZHUuaGs=",
+        "dHVuZ0BjY2NreWMuZWR1Lmhr",
+        "a2J5QGNjY2t5Yy5lZHUuaGs=",
+        "d3B5QGNjY2t5Yy5lZHUuaGs=",
+        DEBUG_USER_B64
     ];
-
+ 
     let isTeacher = false;
     
     // 遍歷並解碼比對教師名單
@@ -15823,44 +15824,44 @@ async function processLoginResult(user, btn, originalContent) {
             console.error("解碼錯誤", e);
         }
     }
-
+ 
     if (isTeacher) {
         console.log("身份識別：教師");
         // 強制覆寫變數，無視下拉選單的選擇
         grade = "System";
         cls = "Test";
-        number = "99"; 
+        number = "99";
         alert(`👋 老師您好！\n系統已識別您的身份，將自動進入「系統測試班」 (System/Test)。\n您的所有操作將不會影響真實學生數據。`);
     }
-
+ 
     // === 新增：特許用家 (白名單) 識別 ===
     let isSpecialUser = false;
-    if (email === specialUserAdd) {
+    // ★ 加入 specialUser2Add 的判斷
+    if (email === specialUserAdd || email === specialUser2Add) {
         console.log("身份識別：特許用家 (白名單)");
         isSpecialUser = true;
         // 強制覆寫變數，進入白名單區域
         grade = "Special";
         cls = "User";
-        // number 保持用戶輸入或設為預設值，這裡保留用戶輸入以免出錯
+        // number 保持用戶輸入或設為預設值
         alert(`👋 歡迎特許用家！\n您已登入白名單帳號，享有無限生成權限。`);
     }
-
+ 
     // 3. 檢查帳號是否已存在於資料庫
     const existingProfile = await findProfileByEmail(email);
-
+ 
     if (existingProfile) {
         // A. 帳號已存在 (登入舊帳號)
         const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
         const newLocation = `${grade}${cls}`;
-
+ 
         // 如果位置不同，提示用戶 (一般學生轉班的情況)
-        // 如果是 Teacher 或 Special User，因為變數已被強制覆寫，這裡的 newLocation 就是強制後的目標
         if (oldLocation !== newLocation) {
             if (!isTeacher && !isSpecialUser) {
                 alert(`⚠️ 偵測到此電郵已註冊！\n\n您已在【${oldLocation}班】擁有帳號。\n系統將登入您的原有帳號。`);
             }
         }
-
+ 
         // 強制遷移邏輯：
         // 1. 如果是老師，但舊資料不在 System/Test
         // 2. 如果是特許用家，但舊資料不在 Special/User
@@ -15876,7 +15877,7 @@ async function processLoginResult(user, btn, originalContent) {
              localStorage.setItem('studentProfile', JSON.stringify(newProfile));
              updateWelcomeMessage(newProfile);
              loadAssignments(grade, cls);
-
+ 
         } else {
              // 普通學生，或已經在正確位置的特殊帳號
              // 使用資料庫中的舊資料登入 (忽略本次輸入的班級)
@@ -15890,15 +15891,19 @@ async function processLoginResult(user, btn, originalContent) {
         document.getElementById('studentCloudPanel').style.display = 'block';
         
         monitorPendingAssignments();
+        
+        // ★ 呼叫你的恢復封存函式 (如果有的話)
+        if (typeof tryRestoreArchivedHistory === 'function') {
+            await tryRestoreArchivedHistory(JSON.parse(localStorage.getItem('studentProfile')));
+        }
+ 
         await syncHistoryToFirebase(true);
         startAutoSyncListener();
-
+ 
     } else {
         // B. 新用戶註冊
         console.log("新用戶註冊...");
         // 這裡的 grade/cls 已經經過上面的 Teacher/Special 判斷並可能被覆寫
-        // 如果是 kenchan20131 (STUDENT_ADD_B64)，因為沒有進入任何強制覆寫的 if，
-        // 所以會使用用戶在 UI 上選擇的 grade/cls/number 進行註冊。
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
         
