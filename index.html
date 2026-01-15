@@ -5837,6 +5837,25 @@ select:focus, select:hover {
 #classNumberUpdateModal .modal-content button {
     margin-top: 15px; /* 增加按鈕上方邊距 */
 }
+
+
+	.editing {
+  background-color: #f9f9f9;
+  border: 1px dashed #2A9689;
+  padding: 5px 10px;
+  border-radius: 4px;
+  outline: none;
+  cursor: text;
+}
+
+.editing:focus {
+  box-shadow: 0 0 0 2px rgba(42, 150, 137, 0.3);
+}
+
+.save-edit-btn {
+  background-color: #2A9689 !important;
+  margin-top: 10px !important;
+}
 	
 	
 </style>
@@ -14898,7 +14917,7 @@ async function clearAllHistory() {
 }
 // 優化後的查看詳情函數
 // === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
-// === 優化版：查看詳情 (修復 ReferenceError 並加入雷達圖重繪) ===
+// === 優化版：查看詳情 (加入雙擊編輯功能並保留雷達圖重繪) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -14930,7 +14949,6 @@ async function viewHistoryDetail(id) {
                 const dateElement = document.getElementById('historyModalDate');
                 if (dateElement) dateElement.style.display = "none"; 
                 
-                // ★★★ 這裡定義 contentHTML ★★★
                 let contentHTML = '';
 
                 // 3. 處理使用者輸入內容 (如果是「學習報告」，則跳過)
@@ -14946,7 +14964,7 @@ async function viewHistoryDetail(id) {
                         const match = line.match(labelRegex);
                         if (match) {
                             if (currentContent.length > 0) {
-                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content" data-editable="user">${currentContent.join('\n')}</div></div>`;
                             }
                             currentLabel = match[1].trim(); 
                             const restOfLine = match[2].trim();
@@ -14958,7 +14976,7 @@ async function viewHistoryDetail(id) {
 
                     if (currentContent.length > 0 || lines.length === 0) { 
                          const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
+                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content" data-editable="user">${finalContent}</div></div>`;
                     }
                     parsedHTML += '</div>';
                     
@@ -14967,10 +14985,10 @@ async function viewHistoryDetail(id) {
 
                 // 4. 顯示 AI 生成內容
                 if (record.aiContent) {
-                    contentHTML += `<div class="ai-output-area" style="margin-top: 15px;">${record.aiContent}</div>`;
+                    contentHTML += `<div class="ai-output-area" data-editable="ai">${record.aiContent}</div>`;
                 }
                 
-                // 5. 顯示繳交按鈕 (若適用)
+                // 5. 顯示繳交按鈕 (若 applicable)
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
@@ -14989,12 +15007,77 @@ async function viewHistoryDetail(id) {
                 document.getElementById('historyModal').style.display = 'flex';
 
                 // ==========================================
+                // ★★★ 雙擊編輯功能實現 ★★★
+                // ==========================================
+                const editableElements = modalContent.querySelectorAll('[data-editable]');
+                
+                editableElements.forEach(element => {
+                    // 防止重複綁定事件
+                    if (element.dataset.editableInitialized) return;
+                    element.dataset.editableInitialized = 'true';
+                    
+                    element.addEventListener('dblclick', async function(e) {
+                        e.stopPropagation();
+                        if (this.isContentEditable) return;
+                        
+                        // 保存原始內容
+                        this.dataset.originalContent = this.innerHTML;
+                        
+                        // 開啟編輯模式
+                        this.contentEditable = true;
+                        this.classList.add('editing');
+                        this.focus();
+                        
+                        // 防止事件冒泡
+                        this.addEventListener('click', e => e.stopPropagation());
+                        
+                        // 創建保存按鈕
+                        const saveBtn = document.createElement('button');
+                        saveBtn.className = 'btn-action save-edit-btn';
+                        saveBtn.innerHTML = '<i class="fas fa-save"></i>';
+                        saveBtn.style.marginTop = '10px';
+                        saveBtn.style.width = '100%';
+                        
+                        // 保存按鈕事件
+                        saveBtn.onclick = async (e) => {
+                            e.stopPropagation();
+                            await saveContentEdit(this, id, this.dataset.editable);
+                            this.contentEditable = false;
+                            this.classList.remove('editing');
+                            saveBtn.remove();
+                        };
+                        
+                        // 插入保存按鈕
+                        if (!this.nextElementSibling || !this.nextElementSibling.classList.contains('save-edit-btn')) {
+                            this.parentNode.insertBefore(saveBtn, this.nextSibling);
+                        }
+                    });
+                });
+                
+                // 點擊外部保存
+                document.addEventListener('click', function saveOnOutsideClick(e) {
+                    editableElements.forEach(element => {
+                        if (element.isContentEditable && !element.contains(e.target) && 
+                            !e.target.classList.contains('save-edit-btn')) {
+                            saveContentEdit(element, id, element.dataset.editable);
+                            element.contentEditable = false;
+                            element.classList.remove('editing');
+                            
+                            // 移除保存按鈕
+                            const saveBtn = element.nextElementSibling;
+                            if (saveBtn && saveBtn.classList.contains('save-edit-btn')) {
+                                saveBtn.remove();
+                            }
+                        }
+                    });
+                }, { once: true }); // 只綁定一次
+
+                // ==========================================
                 // ★★★ 雷達圖即時重繪邏輯 (Chart.js) ★★★
                 // ==========================================
                 // 檢查這條紀錄是否有分數數據 (scoreData)
                 if (record.scoreData && record.scoreData.radar) {
                     // 1. 在剛剛注入的 HTML 中找到 Canvas 元素
-                    // 我們在 captureContainerHTML 中加了 class="history-radar-canvas"
                     const canvasEl = modalContent.querySelector('canvas');
                     
                     if (canvasEl) {
@@ -15025,7 +15108,7 @@ async function viewHistoryDetail(id) {
                             },
                             options: {
                                 responsive: true,
-                                maintainAspectRatio: false, // 關鍵：允許填滿高度
+                                maintainAspectRatio: false,
                                 scales: {
                                     r: {
                                         angleLines: { display: true },
@@ -15047,13 +15130,228 @@ async function viewHistoryDetail(id) {
                 // ==========================================
             }
         };
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+        console.error('查看歷史紀錄詳情時出錯:', e); 
+    }
+}
+
+// 保存編輯內容的函數 (需放在 viewHistoryDetail 之外)
+async function saveContentEdit(element, recordId, fieldType) {
+    const newContent = element.innerHTML;
+    const originalContent = element.dataset.originalContent;
+    
+    if (newContent === originalContent) return;
+    
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        
+        const getRequest = store.get(recordId);
+        getRequest.onsuccess = async function(event) {
+            const record = event.target.result;
+            if (!record) return;
+            
+            // 根據字段類型更新內容
+            if (fieldType === 'user') {
+                // 將 HTML 轉換回純文本格式
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = newContent;
+                record.userContent = tempDiv.textContent;
+            } else if (fieldType === 'ai') {
+                record.aiContent = newContent;
+            }
+            
+            // 保存回資料庫
+            const updateRequest = store.put(record);
+            updateRequest.onsuccess = function() {
+                console.log(`紀錄 #${recordId} 已更新`);
+                // 同步到雲端
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                if (s) {
+                    syncHistoryToFirebase(true);
+                }
+            };
+            updateRequest.onerror = function() {
+                console.error('更新失敗');
+                element.innerHTML = originalContent; // 恢復原始內容
+            };
+        };
+    } catch (error) {
+        console.error("保存編輯失敗:", error);
+        alert("保存失敗，請重試");
+        element.innerHTML = originalContent; // 恢復原始內容
+    }
 }
 	
 function closeHistoryModal() {
     document.getElementById('historyModal').style.display = 'none';
 }
 
+
+
+function enableContentEditing(recordId, container) {
+  // 選取需要可編輯的內容區域
+  const editableAreas = container.querySelectorAll('.history-item-content, .ai-output-area');
+  
+  editableAreas.forEach(area => {
+    // 防止重複綁定
+    if (area.dataset.editableInitialized) return;
+    
+    // 標記已初始化
+    area.dataset.editableInitialized = 'true';
+    
+    // 設定雙擊事件
+    area.addEventListener('dblclick', function(e) {
+      // 阻止事件冒泡
+      e.stopPropagation();
+      
+      // 如果已經是編輯模式，則不做處理
+      if (this.isContentEditable) return;
+      
+      // 開啟編輯模式
+      this.contentEditable = true;
+      this.classList.add('editing');
+      this.focus();
+      
+      // 顯示提示（可選）
+      if (!this.dataset.originalText) {
+        this.dataset.originalText = this.innerHTML;
+      }
+      
+      // 添加保存按鈕
+      addSaveButton(this, recordId);
+    });
+    
+    // 點擊外部保存
+    document.addEventListener('click', function saveOnOutsideClick(e) {
+      if (area.isContentEditable && !area.contains(e.target) && !e.target.classList.contains('save-edit-btn')) {
+        saveContentEdit(area, recordId);
+        area.contentEditable = false;
+        area.classList.remove('editing');
+        
+        // 移除保存按鈕
+        const saveBtn = area.nextElementSibling;
+        if (saveBtn && saveBtn.classList.contains('save-edit-btn')) {
+          saveBtn.remove();
+        }
+        
+        // 移除事件監聽（避免重複綁定累積）
+        document.removeEventListener('click', saveOnOutsideClick);
+      }
+    });
+  });
+}
+
+
+
+
+	async function saveContentEdit(element, recordId) {
+  const newContent = element.innerHTML;
+  const originalContent = element.dataset.originalText;
+  
+  // 只有當內容有改變時才保存
+  if (newContent !== originalContent) {
+    try {
+      const db = await openHistoryDB();
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      
+      // 獲取原始記錄
+      const request = store.get(recordId);
+      request.onsuccess = function(event) {
+        const record = event.target.result;
+        if (record) {
+          // 判斷是修改 userContent 還是 aiContent
+          if (element.closest('.history-item-block')) {
+            // 修改 userContent - 需要解析並重建
+            record.userContent = parseEditedUserContent(newContent, record.userContent);
+          } else {
+            // 修改 aiContent
+            record.aiContent = newContent;
+          }
+          
+          // 保存回資料庫
+          store.put(record);
+          
+          // 同步到雲端（如果已登入）
+          const s = JSON.parse(localStorage.getItem('studentProfile'));
+          if (s) {
+            syncHistoryToFirebase(true);
+          }
+          
+          console.log(`紀錄 #${recordId} 已更新`);
+        }
+      };
+    } catch (error) {
+      console.error("保存編輯失敗:", error);
+      alert("保存失敗，請重試");
+      // 恢復原始內容
+      element.innerHTML = originalContent;
+    }
+  }
+}
+
+// 輔助函數：解析編輯後的 userContent
+function parseEditedUserContent(editedHTML, originalContent) {
+  // 轉換 HTML 為純文字並重建格式
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = editedHTML;
+  const textContent = tempDiv.textContent;
+  
+  // 根據原始內容的格式重建（保留標籤結構）
+  const lines = textContent.split('\n');
+  let reconstructed = '';
+  
+  lines.forEach(line => {
+    line = line.trim();
+    if (line) {
+      if (originalContent.includes('題目：') && line.includes('題目：')) {
+        reconstructed += line + '\n';
+      } else if (originalContent.includes('結構段重點：') && line.includes('結構段重點：')) {
+        reconstructed += line + '\n';
+      } else if (originalContent.includes('情節大要：') && line.includes('情節大要：')) {
+        reconstructed += line + '\n';
+      } else {
+        reconstructed += line + '\n';
+      }
+    }
+  });
+  
+  return reconstructed.trim();
+}
+
+
+
+	function addSaveButton(element, recordId) {
+  // 移除可能存在的舊按鈕
+  const existingBtn = element.nextElementSibling;
+  if (existingBtn && existingBtn.classList.contains('save-edit-btn')) {
+    existingBtn.remove();
+  }
+  
+  // 創建保存按鈕
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-action save-edit-btn';
+  saveBtn.innerHTML = '<i class="fas fa-save"></i> 保存修改';
+  saveBtn.style.marginTop = '10px';
+  saveBtn.style.width = '100%';
+  
+  // 事件處理
+  saveBtn.onclick = function(e) {
+    e.stopPropagation();
+    saveContentEdit(element, recordId);
+    element.contentEditable = false;
+    element.classList.remove('editing');
+    this.remove();
+  };
+  
+  // 插入按鈕
+  element.parentNode.insertBefore(saveBtn, element.nextSibling);
+}
+
+
+	
 
 // === 新增：日期搜尋功能 ===
 
