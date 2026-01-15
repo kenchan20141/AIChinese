@@ -15163,6 +15163,10 @@ function findIdByTimestamp(timestamp) {
 }
 
 
+// ==========================================
+// === 最終修復：儲存修訂 + 刷新背景列表 ===
+// ==========================================
+ 
 async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
     const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
@@ -15184,14 +15188,13 @@ async function saveHistoryEdits(id) {
         getRequest.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 記下舊時間戳 (刪除雲端用)
                 const oldTimestamp = record.timestamp;
  
                 // 2. 更新內容
                 if (userContentEl) record.userContent = userContentEl.innerText;
                 if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
  
-                // 更新時間戳 (這將成為我們找回新 ID 的唯一信物)
+                // 更新時間戳
                 const newTimestamp = new Date().getTime();
                 record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
@@ -15215,7 +15218,6 @@ async function saveHistoryEdits(id) {
                             if (cloudData) {
                                 cloudRecords = Array.isArray(cloudData) ? cloudData.filter(x=>x) : Object.values(cloudData);
                             }
-                            // 過濾掉舊時間戳的紀錄
                             const updatedRecords = cloudRecords.filter(r => r.timestamp !== oldTimestamp);
                             await database.ref(path).set(updatedRecords);
                         } catch (cloudErr) {
@@ -15223,25 +15225,35 @@ async function saveHistoryEdits(id) {
                         }
                     }
                     
-                    // 5. 觸發同步 (這一步會導致 ID 改變！)
+                    // 5. 觸發同步 (這會重整 ID)
                     await syncHistoryToFirebase(true);
  
-                    // 6. ★★★ 關鍵修復：找回新 ID 並刷新介面 ★★★
+                    // 6. 找回新 ID
                     const newId = await findIdByTimestamp(newTimestamp);
                     
                     if (newId) {
-                        // 重新加載視窗內容 (這會更新所有按鈕的 ID 連結)
-                        // 因為 contentEditable 已經關閉，這也順便退出了編輯模式
+                        // A. 重新加載視窗內容 (更新按鈕 ID)
                         await viewHistoryDetail(newId);
                         
-                        alert("✅ 修訂已儲存！");
+                        // ★★★ 關鍵新增：在背景刷新列表，讓卡片 ID 也同步更新 ★★★
+                        // 檢查目前是否在列表頁面，如果是，就刷新它
+                        if (typeof currentSubFunctionFilter !== 'undefined' &&
+                            document.getElementById('historyLevel3').style.display !== 'none') {
+                            
+                            // 保持當前的主題色索引，如果沒有則預設 1
+                            const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+                            
+                            // 靜默刷新列表 (這會更新卡片上的 onclick ID)
+                            enterHistoryList(currentSubFunctionFilter, themeIndex);
+                        }
+ 
+                        alert("✅ 修訂已儲存！\n資料已同步，您可以直接按「繳交」。");
                     } else {
-                        // 萬一找不到 (極少見)，則關閉視窗避免錯誤操作
                         alert("✅ 修訂已儲存！\n請重新打開紀錄以進行繳交。");
                         closeHistoryModal();
                         // 刷新列表以顯示新紀錄
-                        if (currentSubFunctionFilter) {
-                            enterHistoryList(currentSubFunctionFilter, currentThemeIndex);
+                        if (typeof currentSubFunctionFilter !== 'undefined') {
+                            enterHistoryList(currentSubFunctionFilter, currentThemeIndex || 1);
                         }
                     }
                     
