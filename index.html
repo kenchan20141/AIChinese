@@ -14271,6 +14271,7 @@ function startAutoSyncListener() {
 
 	
 // 1. 主同步函式
+// 1. 主同步函式 (修復版)
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) {
@@ -14280,6 +14281,7 @@ async function syncHistoryToFirebase(isSilent = false) {
     
     let btn = null;
     let originalText = "";
+    // 如果是由按鈕觸發，加入 Loading 效果
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
         btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
         if (btn) {
@@ -14301,20 +14303,30 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onerror = () => resolve([]);
         });
         
-        // B. 獲取雲端資料
-        // 使用反引號確保變數正確
+        // B. 獲取雲端資料 (★ 關鍵修復處 ★)
         const path = `students/${s.grade}/${s.class}/${s.name}/history`;
         const cloudSnapshot = await database.ref(path).once('value');
-        let cloudRecords = cloudSnapshot.val() || [];
+        let cloudData = cloudSnapshot.val();
+        let cloudRecords = [];
+ 
+        // ★★★ 強制轉為 Array，防止 Firebase 因刪除產生 "Sparse Array" (物件格式) 導致 .map 報錯 ★★★
+        if (cloudData) {
+            if (Array.isArray(cloudData)) {
+                // 如果是陣列，過濾掉可能存在的 null (空洞)
+                cloudRecords = cloudData.filter(item => item !== null);
+            } else if (typeof cloudData === 'object') {
+                // 如果是物件 (例如 {"1": {...}})，強制轉為陣列
+                cloudRecords = Object.values(cloudData);
+            }
+        }
         
-        // ★★★ 關鍵步驟：給雲端下載的資料貼上「官方認證」標籤 ★★★
+        // 給雲端下載的資料貼上「官方認證」標籤
         cloudRecords = cloudRecords.map(r => {
-            // 確保物件是新的，並加上標記
             return Object.assign({}, r, { isSynced: true });
         });
         
         console.log(`開始同步：本地 ${localRecords.length} 筆，雲端 ${cloudRecords.length} 筆`);
-
+ 
         // C. 執行智能合併 (包含刪除判斷)
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
         
@@ -14328,13 +14340,13 @@ async function syncHistoryToFirebase(isSilent = false) {
         
         if (!isSilent) alert("✅ 智能同步完成！本地與雲端紀錄已合併。");
         
-        // F. 刷新 UI
+        // F. 刷新 UI (如果在列表頁面)
         if (document.getElementById('historyLevel3') && document.getElementById('historyLevel3').style.display === 'flex') {
             if (typeof currentSubFunctionFilter !== 'undefined') {
                 enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
             }
         }
-
+ 
     } catch (err) {
         console.error("智能同步失敗:", err);
         if (!isSilent) alert("❌ 同步失敗: " + err.message);
