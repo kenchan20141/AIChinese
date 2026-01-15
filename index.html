@@ -5941,12 +5941,122 @@ select:focus, select:hover {
         font-size: 1.1em;
     }
 }
+
+
+	/* === 備用線路提示視窗 (響應式設計) === */
+.backup-alert-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(253, 252, 248, 0.85); /* 米白高模糊遮罩 */
+    backdrop-filter: blur(8px);
+    z-index: 999999; /* 確保在最上層 */
+    display: none; /* 預設隱藏 */
+    justify-content: center;
+    align-items: center;
+    animation: fadeIn 0.3s ease;
+}
+
+.backup-alert-card {
+    background: #fff;
+    
+    /* === 修改部分：優化響應式寬度 === */
+    /* 強制左右各留 30px 邊距，解決手機貼邊問題 */
+    width: calc(100% - 60px); 
+    max-width: 360px;         /* 電腦版最大寬度保持不變 */
+    box-sizing: border-box;   /* 確保內距不會撐大卡片 */
+    margin: 0 auto;           /* 確保水平置中 */
+    /* ============================ */
+
+    padding: 30px 25px;
+    border-radius: 16px;
+    border: 1px solid #e0ddd7;
+    box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
+    text-align: center;
+    position: relative;
+}
+
+.backup-alert-icon {
+    font-size: 3rem;
+    color: #d69a92; /* 莫蘭迪紅，表示警示 */
+    margin-bottom: 15px;
+    animation: pulse 2s infinite;
+}
+
+.backup-alert-title {
+    color: #5d4037;
+    font-size: 1.3rem;
+    font-weight: bold;
+    margin: 0 0 10px 0;
+}
+
+.backup-alert-desc {
+    color: #888;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin-bottom: 25px;
+}
+
+.backup-btn-group {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.backup-btn {
+    border: none;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: bold;
+    font-family: 'Noto Serif TC', serif;
+    transition: transform 0.2s;
+}
+
+.backup-btn:hover { transform: translateY(-2px); }
+
+.btn-stay { background: #f0f0f0; color: #777; }
+.btn-switch { 
+    background: #8fa398; /* 莫蘭迪綠 */
+    color: white; 
+    box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
+}
 	
 </style>
 
 <script>
 
+// 全域變數：記錄當天(或本次會話) API 循環失敗的次數
+let globalApiCycleFailures = 0;
 
+// 顯示備用視窗
+function showBackupAlert() {
+    const modal = document.getElementById('backupAlertModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        // 觸發震動提醒 (如支援)
+        if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+    }
+}
+
+// 關閉備用視窗
+function closeBackupAlert() {
+    const modal = document.getElementById('backupAlertModal');
+    if (modal) modal.style.display = 'none';
+}
+
+// 追蹤失敗並判斷是否彈窗
+function trackApiCycleFailure() {
+    globalApiCycleFailures++;
+    console.warn(`[System] API 完整循環失敗次數: ${globalApiCycleFailures}`);
+    
+    // 當累積失敗循環達到 2 次時，彈出視窗
+    if (globalApiCycleFailures >= 2) {
+        showBackupAlert();
+        // 重置計數器，避免下次單次失敗又立即彈出 (可選)
+        globalApiCycleFailures = 0; 
+    }
+}
 
 
 	
@@ -8849,16 +8959,18 @@ async function callReadingAPI(prompt, temperature = null) {
             console.error(`使用閱讀 API Key ${currentApiKeyIndex} 時出錯 (嘗試 ${attempts + 1}/${maxAttempts}):`, error);
             
             // 無論是網絡錯誤、API錯誤還是超時(AbortError)，都切換下一個 Key
-            currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
             attempts++;
             
             if (attempts >= maxAttempts) {
+                // ★★★ 新增這一行：觸發失敗計數與檢查 ★★★
+                trackApiCycleFailure(); 
+                
                 throw new Error("所有 API 密鑰均無法使用或連線超時");
             }
         }
     }
 }
-
 
 
 
@@ -10502,10 +10614,13 @@ async function callAPI(prompt, temperature = null) {
             console.error(`使用通用 API Key ${currentApiKeyIndex} 時出錯 (嘗試 ${attempts + 1}/${maxAttempts}):`, error);
             
             // 無論是網絡錯誤、API錯誤還是超時(AbortError)，都切換下一個 Key
-            currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+           currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
             attempts++;
             
             if (attempts >= maxAttempts) {
+                // ★★★ 新增這一行：觸發失敗計數與檢查 ★★★
+                trackApiCycleFailure(); 
+                
                 throw new Error("所有 API 密鑰均無法使用或連線超時");
             }
         }
@@ -10598,6 +10713,9 @@ async function callLlama3API(prompt, temperature = null) {
             attempts++;
             
             if (attempts >= maxAttempts) {
+                // ★★★ 新增這一行 ★★★
+                trackApiCycleFailure(); 
+                
                 throw new Error("所有 Llama3 API 密鑰均無法使用或連線超時");
             }
         }
@@ -18193,6 +18311,28 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
+
+<!-- === API 故障備用線路提示視窗 === -->
+<div id="backupAlertModal" class="backup-alert-overlay">
+    <div class="backup-alert-card">
+        <div class="backup-alert-icon">
+            <i class="fas fa-wifi"></i>
+        </div>
+        <div class="backup-alert-title">連線不穩</div>
+        <div class="backup-alert-desc">
+            系統偵測到多次連線異常。<br>
+            建議切換至備用線路以確保體驗。
+        </div>
+        <div class="backup-btn-group">
+            <button class="backup-btn btn-stay" onclick="closeBackupAlert()">稍後</button>
+            <button class="backup-btn btn-switch" onclick="window.open('https://sansi.vercel.app/', '_blank'); closeBackupAlert();">
+                <i class="fas fa-external-link-alt"></i> 前往
+            </button>
+        </div>
+    </div>
+</div>
+
+	
 	
 
 </body>
