@@ -15434,6 +15434,10 @@ async function clearAllHistory() {
 // === 3. [學生端] 歷史詳情修復：加入學習報告雷達圖的重繪邏輯 ===
 // ==========================================================================
 async function viewHistoryDetail(id) {
+// ==========================================================================
+// === 3. [學生端] 歷史詳情修復：加入學習報告雷達圖的重繪邏輯 (修復版) ===
+// ==========================================================================
+async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -15545,32 +15549,43 @@ async function viewHistoryDetail(id) {
  
                 // 8. ★★★ 核心修復：重繪圖表邏輯 (含學習報告) ★★★
                 setTimeout(() => {
-                    const container = modalContent; // 在 modal 內尋找
-
                     // A. 單篇文章的雷達圖 (原有邏輯)
-                    if (record.scoreData && record.scoreData.radar) {
+                    if (record.category !== "學習報告" && record.scoreData && record.scoreData.radar) {
                         const canvasEl = modalContent.querySelector('.radar-chart-container canvas') || modalContent.querySelector('canvas');
                         if (canvasEl) {
                             renderSingleRadarChart(canvasEl, record.scoreData.radar);
                         }
                     }
                     
-                    // B. 學習報告的雙雷達圖 (修復重點)
+                    // B. 學習報告的雙雷達圖 (★ 修復重點 ★)
+                    // 因為 ID 已經在存檔時被移除，所以我們必須透過結構 (Class) 來尋找對應的 canvas
                     else if (record.category === "學習報告" && record.scoreData) {
                         
                         // 1. 繪製敘事抒情圖表
+                        // 邏輯：找到「敘事抒情」的標籤 -> 往上找父容器 -> 在父容器內找 canvas
                         if (record.scoreData["敘事抒情"]) {
-                            const narrCanvas = modalContent.querySelector('#reportNarrativeChart');
-                            if (narrCanvas && record.scoreData["敘事抒情"].radar) {
-                                renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
+                            const narrBadge = modalContent.querySelector('.badge-narrative');
+                            if (narrBadge) {
+                                const section = narrBadge.closest('.report-section');
+                                const narrCanvas = section ? section.querySelector('canvas') : null;
+                                
+                                if (narrCanvas && record.scoreData["敘事抒情"].radar) {
+                                    renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
+                                }
                             }
                         }
 
                         // 2. 繪製議論圖表
+                        // 邏輯：同上，找「議論」標籤對應的 canvas
                         if (record.scoreData["議論"]) {
-                            const argCanvas = modalContent.querySelector('#reportArgumentChart');
-                            if (argCanvas && record.scoreData["議論"].radar) {
-                                renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
+                            const argBadge = modalContent.querySelector('.badge-argument');
+                            if (argBadge) {
+                                const section = argBadge.closest('.report-section');
+                                const argCanvas = section ? section.querySelector('canvas') : null;
+                                
+                                if (argCanvas && record.scoreData["議論"].radar) {
+                                    renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
+                                }
                             }
                         }
                     }
