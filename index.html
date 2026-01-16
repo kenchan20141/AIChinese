@@ -17869,7 +17869,8 @@ document.addEventListener('DOMContentLoaded', function() {
         return id;
     }
     // 4. 記錄訪問 (Log Visit)
-   function logVisitOnce() {
+ // === [修訂版] 記錄訪問 (Log Visit) - 解決 N/A 與流量問題 ===
+function logVisitOnce() {
     if (typeof firebase === 'undefined') return;
     const db = firebase.database();
     
@@ -17879,9 +17880,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const m = String(now.getMonth() + 1).padStart(2, '0');
     const d = String(now.getDate()).padStart(2, '0');
     
-    const pathSuffix = `${y}/${m}/${d}`;       // 詳細路徑
+    const pathSuffix = `${y}/${m}/${d}`;       // 詳細路徑 (僅供 Day 模式使用)
     const monthPath = `${y}/${m}`;             // 月度路徑
-    const yearPath = `${y}`;                   // 年度路徑
+    const yearPath = `${y}`;                   // 年度路徑 (直接寫入年份節點)
     
     const rawProfile = localStorage.getItem('studentProfile');
     let s = null;
@@ -17902,83 +17903,85 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         currentIdentityID = gid;
     }
- 
-    // 2. 防止單次 Session 重複記錄 (保持原有機制)
+    // 2. 防止單次 Session 重複記錄
     const lastLoggedID = sessionStorage.getItem('sansi_logged_identity_id');
     if (currentIdentityID === lastLoggedID) return;
     
     console.log(`📍 [System] 偵測到新訪問 (${isStudent ? '學生' : '訪客'}), 正在記錄...`);
+    // === 通用寫入器 (同時寫入 Month 和 Year 節點) ===
+    // 參數: basePath (如 stats_summary), isUnique (是否計入人數)
+    const writeStats = (basePath, isUnique) => {
+        // A. 寫入月度數據
+        db.ref(`${basePath}/${monthPath}`).transaction(data => {
+            if (data === null) return isUnique ? { visits: 1, duration: 0, unique: 1 } : { visits: 1, duration: 0 };
+            const newData = { ...data, visits: (data.visits || 0) + 1 };
+            if (isUnique) newData.unique = (data.unique || 0) + 1;
+            return newData;
+        });
  
-    // 通用加法器 (次數 +1)
-    const incrementData = (path) => {
-        db.ref(path).transaction(data => {
-            if (data === null) return { visits: 1, duration: 0 };
-            return { ...data, visits: (data.visits || 0) + 1 };
+        // B. 寫入年度數據 (直接寫在年份節點，不用累加月份)
+        db.ref(`${basePath}/${yearPath}`).transaction(data => {
+            if (data === null) return isUnique ? { visits: 1, duration: 0, unique: 1 } : { visits: 1, duration: 0 };
+            const newData = { ...data, visits: (data.visits || 0) + 1 };
+            
+            // ★ 關鍵：只有當 "年度 Unique Key" 不存在時，才增加年度 Unique 計數
+            // 這一點由外部的 localStorage 判斷邏輯控制，這裡只負責執行
+            // (注意：這裡的 isUnique 參數代表「這次請求是否被視為該時段的唯一訪問」)
+            // 由於 Month 和 Year 的唯一性是分開判斷的，我們下面會分開呼叫。
+            return newData;
         });
     };
  
-    // ★★★ 新增：人數加法器 (Unique +1) ★★★
-    const incrementUnique = (path) => {
+    // 為了精確控制 Year 和 Month 的 Unique，我們拆分寫入邏輯
+    
+    const updateNode = (path, addUnique) => {
         db.ref(path).transaction(data => {
-            if (data === null) return { unique: 1 };
-            // 注意：這裡只更新 unique 欄位，不影響其他欄位
-            return { ...data, unique: (data.unique || 0) + 1 };
+            if (data === null) return { visits: 1, duration: 0, unique: addUnique ? 1 : 0 };
+            return {
+                ...data,
+                visits: (data.visits || 0) + 1,
+                unique: (data.unique || 0) + (addUnique ? 1 : 0)
+            };
         });
     };
  
-    // --- A. 寫入詳細日誌 (Analytics) - 保持不變 ---
+    // --- 1. 寫入詳細日誌 (保留給「本日」查詢用) ---
     if (isStudent) {
-        incrementData(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`);
-        incrementData(`analytics/${pathSuffix}/classes/${s.grade}${s.class}`);
-        incrementData(`analytics/${pathSuffix}/school`);
-        
-        // 班級輕量統計 (Visits)
-        incrementData(`class_stats_summary/${s.grade}/${s.class}/${monthPath}`);
+        // 寫入詳細樹狀結構
+        db.ref(`analytics/${pathSuffix}/students/${s.grade}/${s.class}/${s.name}`).transaction(d => d ? {...d, visits:(d.visits||0)+1} : {visits:1, duration:0});
+        // 順便寫入 analytics summary
+        db.ref(`analytics/${pathSuffix}/global_summary`).transaction(d => d ? {...d, visits:(d.visits||0)+1} : {visits:1, duration:0});
     } else {
-        incrementData(`analytics/${pathSuffix}/guests/${currentIdentityID}`);
+        db.ref(`analytics/${pathSuffix}/guests/${currentIdentityID}`).transaction(d => d ? {...d, visits:(d.visits||0)+1} : {visits:1, duration:0});
+        db.ref(`analytics/${pathSuffix}/global_summary`).transaction(d => d ? {...d, visits:(d.visits||0)+1} : {visits:1, duration:0});
     }
  
-    // --- B. 寫入全域/班級 輕量統計 (Visits) ---
-    if (!sessionStorage.getItem('sansi_global_visit_logged')) {
-        incrementData(`stats_summary/${monthPath}`); // 全域本月
-        incrementData(`stats_summary/${yearPath}`);  // 全域本年 (新增)
-        sessionStorage.setItem('sansi_global_visit_logged', 'true');
-    }
+    // --- 2. 寫入輕量統計 (Stats Summary) ---
+    
+    // 定義檢查並寫入的輔助函式
+    const processScope = (prefixKey, dbRootPath) => {
+        // Month Logic
+        const monthKey = `${prefixKey}_month_${monthPath}`;
+        const isNewMonth = !localStorage.getItem(monthKey);
+        if (isNewMonth) localStorage.setItem(monthKey, '1');
+        updateNode(`${dbRootPath}/${monthPath}`, isNewMonth);
  
-    // ============================================================
-    // ★★★ 核心新增：判斷並寫入「不重複人數」 (Unique Count) ★★★
-    // ============================================================
+        // Year Logic (解決 N/A 問題的關鍵：獨立計算年份的 Unique)
+        const yearKey = `${prefixKey}_year_${yearPath}`;
+        const isNewYear = !localStorage.getItem(yearKey);
+        if (isNewYear) localStorage.setItem(yearKey, '1');
+        updateNode(`${dbRootPath}/${yearPath}`, isNewYear);
+    };
  
-    // 1. 處理【全域】(Global) 人數
-    const globalMonthKey = `sansi_unique_global_${monthPath}`;
-    const globalYearKey = `sansi_unique_global_${yearPath}`;
+    // A. 全域 (Global) - 所有人
+    processScope('sansi_global', 'stats_summary');
  
-    // 本月第一次來嗎？
-    if (!localStorage.getItem(globalMonthKey)) {
-        incrementUnique(`stats_summary/${monthPath}`);
-        localStorage.setItem(globalMonthKey, '1');
-    }
-    // 本年第一次來嗎？
-    if (!localStorage.getItem(globalYearKey)) {
-        incrementUnique(`stats_summary/${yearPath}`); // 寫入年份節點
-        localStorage.setItem(globalYearKey, '1');
-    }
- 
-    // 2. 處理【班級】(Class) 人數 (僅限學生)
     if (isStudent) {
-        const classMonthKey = `sansi_unique_class_${s.grade}${s.class}_${monthPath}`;
-        const classYearKey = `sansi_unique_class_${s.grade}${s.class}_${yearPath}`;
-        
-        // 該生本月第一次訪問該班級節點嗎？
-        if (!localStorage.getItem(classMonthKey)) {
-            incrementUnique(`class_stats_summary/${s.grade}/${s.class}/${monthPath}`);
-            localStorage.setItem(classMonthKey, '1');
-        }
-        // 該生本年第一次訪問該班級節點嗎？(我們需要在 class_stats_summary 下新增年份層級)
-        if (!localStorage.getItem(classYearKey)) {
-            incrementUnique(`class_stats_summary/${s.grade}/${s.class}/${yearPath}`);
-            localStorage.setItem(classYearKey, '1');
-        }
+        // B. 全校 (School) - 僅學生
+        processScope('sansi_school', 'school_stats_summary');
+ 
+        // C. 班級 (Class) - 僅該班
+        processScope(`sansi_class_${s.grade}${s.class}`, `class_stats_summary/${s.grade}/${s.class}`);
     }
  
     // 記錄本次 Session
