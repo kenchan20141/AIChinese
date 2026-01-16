@@ -15430,7 +15430,9 @@ async function clearAllHistory() {
     }
 }
 // 優化後的查看詳情函數
-// === 優化版：查看詳情 (修復學習報告雷達圖) ===
+// ==========================================================================
+// === 3. [學生端] 歷史詳情修復：加入學習報告雷達圖的重繪邏輯 ===
+// ==========================================================================
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -15541,8 +15543,10 @@ async function viewHistoryDetail(id) {
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
  
-                // 8. ★★★ 核心修復：學習報告的圖表重繪邏輯 ★★★
+                // 8. ★★★ 核心修復：重繪圖表邏輯 (含學習報告) ★★★
                 setTimeout(() => {
+                    const container = modalContent; // 在 modal 內尋找
+
                     // A. 單篇文章的雷達圖 (原有邏輯)
                     if (record.scoreData && record.scoreData.radar) {
                         const canvasEl = modalContent.querySelector('.radar-chart-container canvas') || modalContent.querySelector('canvas');
@@ -15551,22 +15555,26 @@ async function viewHistoryDetail(id) {
                         }
                     }
                     
-                    // B. 學習報告的雷達圖 (新邏輯)
-                    // 學習報告的資料結構是 scoreData["敘事抒情"].radar
+                    // B. 學習報告的雙雷達圖 (修復重點)
                     else if (record.category === "學習報告" && record.scoreData) {
-                        // 嘗試尋找敘事抒情的 Canvas ID (reportNarrativeChart)
-                        const narrCanvas = modalContent.querySelector('#reportNarrativeChart');
-                        if (narrCanvas && record.scoreData["敘事抒情"]) {
-                            renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
+                        
+                        // 1. 繪製敘事抒情圖表
+                        if (record.scoreData["敘事抒情"]) {
+                            const narrCanvas = modalContent.querySelector('#reportNarrativeChart');
+                            if (narrCanvas && record.scoreData["敘事抒情"].radar) {
+                                renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
+                            }
                         }
 
-                        // 嘗試尋找議論的 Canvas ID (reportArgumentChart)
-                        const argCanvas = modalContent.querySelector('#reportArgumentChart');
-                        if (argCanvas && record.scoreData["議論"]) {
-                            renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
+                        // 2. 繪製議論圖表
+                        if (record.scoreData["議論"]) {
+                            const argCanvas = modalContent.querySelector('#reportArgumentChart');
+                            if (argCanvas && record.scoreData["議論"].radar) {
+                                renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
+                            }
                         }
                     }
-                }, 100);
+                }, 150);
             }
         };
     } catch (e) { console.error(e); }
