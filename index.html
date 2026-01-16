@@ -8870,37 +8870,42 @@ const argumentReviewerPreferences = {
 
 
 
-// [新增] 閱讀專用 API 呼叫函式 (加入 50 秒超時)
+// [新增] 閱讀專用 API 呼叫函式 (修訂版：解決 400 Bad Request)
 async function callReadingAPI(prompt, temperature = null) {
-	 // ★★★ 新增：額度檢查 ★★★
+    // ★★★ 新增：額度檢查 ★★★
     if (!checkGuestUsage()) {
         throw new Error("Guest usage limit exceeded");
     }
+    
     let attempts = 0;
     const maxAttempts = READING_API_KEYS.length;
-    // 每次調用都從一個隨機的索引開始
     let currentApiKeyIndex = Math.floor(Math.random() * READING_API_KEYS.length);
     const TIMEOUT_MS = 100000; // 設定 50 秒超時
 
     while (attempts < maxAttempts) {
-        // 定義超時控制器
         const controller = new AbortController();
-		globalAbortController = controller; // ★★★ 加入這一行：綁定全域控制器
+        globalAbortController = controller;
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
+            // === 修訂開始：參數調整 ===
+            // 1. 設定預設溫度 (若為 null 則設為 0.7)
+            const finalTemperature = temperature !== null ? temperature : 0.7;
+
             const requestBody = {
-                model: READING_MODEL,
+                model: READING_MODEL, // "deepseek"
                 messages: [{
                     role: "user",
                     content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
                 }],
-                max_tokens: 8000
+                // 2. 降低 Token 上限 (解決 400 錯誤的核心)
+                // 8000 太高，容易導致 Input + Output 超出模型限制
+                max_tokens: 4000, 
+                temperature: finalTemperature,
+                top_p: 0.95, // 增加穩定性
+                stream: false
             };
-
-            if (temperature !== null) {
-                requestBody.temperature = temperature;
-            }
+            // === 修訂結束 ===
 
             const response = await fetch(READING_API_URL, {
                 method: "POST",
@@ -8909,10 +8914,10 @@ async function callReadingAPI(prompt, temperature = null) {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify(requestBody),
-                signal: controller.signal // 綁定中斷訊號
+                signal: controller.signal
             });
 
-            clearTimeout(timeoutId); // 成功收到回應，清除計時器
+            clearTimeout(timeoutId);
 
             if (response.status === 429) {
                 console.warn(`閱讀 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
@@ -8922,11 +8927,21 @@ async function callReadingAPI(prompt, temperature = null) {
             }
 
             if (!response.ok) {
-                throw new Error(`API 調用失敗: ${response.statusText}`);
+                // 印出詳細錯誤以便除錯
+                const errorText = await response.text(); 
+                console.error(`API Error Details: ${errorText}`);
+                throw new Error(`API 調用失敗: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
+            
+            // 防呆檢查：確保 choices 存在
+            if (!data.choices || data.choices.length === 0) {
+                throw new Error("API 回傳格式異常 (無 choices)");
+            }
+
             let content = data.choices[0].message.content.trim();
+            // 過濾思考標籤
             content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
 
             if (!content) {
@@ -8936,25 +8951,19 @@ async function callReadingAPI(prompt, temperature = null) {
             return content;
 
         } catch (error) {
-            // 清除計時器以防萬一
             clearTimeout(timeoutId);
-
             console.error(`使用閱讀 API Key ${currentApiKeyIndex} 時出錯 (嘗試 ${attempts + 1}/${maxAttempts}):`, error);
             
-            // 無論是網絡錯誤、API錯誤還是超時(AbortError)，都切換下一個 Key
-            currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
             attempts++;
             
             if (attempts >= maxAttempts) {
-                // ★★★ 新增這一行：觸發失敗計數與檢查 ★★★
                 trackApiCycleFailure(); 
-                
                 throw new Error("所有 API 密鑰均無法使用或連線超時");
             }
         }
     }
 }
-
 
 
 /* --------------------------------------
