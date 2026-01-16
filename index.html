@@ -15421,7 +15421,7 @@ async function clearAllHistory() {
     }
 }
 // 優化後的查看詳情函數
-// === 優化版：查看詳情 (加入雷達圖重繪邏輯) ===
+// === 優化版：查看詳情 (修復學習報告雷達圖) ===
 async function viewHistoryDetail(id) {
     try {
         const db = await openHistoryDB();
@@ -15455,7 +15455,7 @@ async function viewHistoryDetail(id) {
                 
                 let contentHTML = '';
  
-                // 3. 處理使用者輸入內容 (加入雙擊事件與 ID)
+                // 3. 處理使用者輸入內容
                 if (record.category !== "學習報告" && record.userContent) {
                     const rawText = record.userContent;
                     const lines = rawText.split('\n');
@@ -15484,7 +15484,6 @@ async function viewHistoryDetail(id) {
                     }
                     parsedHTML += '</div>';
                     
-                    // ★★★ 關鍵修改：外層加入 ID 和雙擊事件 ★★★
                     contentHTML += `
                         <div id="edit-user-content-${record.id}"
                              ondblclick="enableHistoryEdit(this)"
@@ -15494,9 +15493,8 @@ async function viewHistoryDetail(id) {
                         </div>`;
                 }
  
-                // 4. 處理 AI 生成內容 (加入雙擊事件與 ID)
+                // 4. 處理 AI 生成內容
                 if (record.aiContent) {
-                    // ★★★ 關鍵修改：外層加入 ID 和雙擊事件 ★★★
                     contentHTML += `
                         <div id="edit-ai-content-${record.id}"
                              ondblclick="enableHistoryEdit(this)"
@@ -15520,7 +15518,7 @@ async function viewHistoryDetail(id) {
                     `;
                 }
  
-                // 6. ★★★ 注入懸浮儲存鍵 (預設隱藏) ★★★
+                // 6. 注入懸浮儲存鍵
                 contentHTML += `
                     <button id="history-save-btn-${record.id}"
                             class="morandi-save-float-btn"
@@ -15534,48 +15532,29 @@ async function viewHistoryDetail(id) {
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
  
-                // 8. 雷達圖重繪邏輯 (保持不變)
+                // 8. ★★★ 核心修復：學習報告的圖表重繪邏輯 ★★★
                 setTimeout(() => {
+                    // A. 單篇文章的雷達圖 (原有邏輯)
                     if (record.scoreData && record.scoreData.radar) {
-                        const canvasEl = modalContent.querySelector('canvas');
+                        const canvasEl = modalContent.querySelector('.radar-chart-container canvas') || modalContent.querySelector('canvas');
                         if (canvasEl) {
-                            const radarData = [
-                                record.scoreData.radar.立意 || 0,
-                                record.scoreData.radar.取材 || 0,
-                                record.scoreData.radar.扣題 || 0,
-                                record.scoreData.radar.詳略 || 0,
-                                record.scoreData.radar.詞彙 || 0,
-                                record.scoreData.radar.文學性 || 0
-                            ];
-                            new Chart(canvasEl.getContext('2d'), {
-                                type: 'radar',
-                                data: {
-                                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                    datasets: [{
-                                        label: '能力評估',
-                                        data: radarData,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                        borderColor: 'rgba(54, 162, 235, 1)',
-                                        borderWidth: 2,
-                                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                        pointBorderColor: '#fff'
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        r: {
-                                            angleLines: { display: true },
-                                            suggestedMin: 0,
-                                            suggestedMax: 10,
-                                            pointLabels: { font: { size: 14, family: "'Noto Serif TC', serif" } },
-                                            ticks: { stepSize: 2, display: false }
-                                        }
-                                    },
-                                    plugins: { legend: { display: false } }
-                                }
-                            });
+                            renderSingleRadarChart(canvasEl, record.scoreData.radar);
+                        }
+                    }
+                    
+                    // B. 學習報告的雷達圖 (新邏輯)
+                    // 學習報告的資料結構是 scoreData["敘事抒情"].radar
+                    else if (record.category === "學習報告" && record.scoreData) {
+                        // 嘗試尋找敘事抒情的 Canvas ID (reportNarrativeChart)
+                        const narrCanvas = modalContent.querySelector('#reportNarrativeChart');
+                        if (narrCanvas && record.scoreData["敘事抒情"]) {
+                            renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
+                        }
+
+                        // 嘗試尋找議論的 Canvas ID (reportArgumentChart)
+                        const argCanvas = modalContent.querySelector('#reportArgumentChart');
+                        if (argCanvas && record.scoreData["議論"]) {
+                            renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
                         }
                     }
                 }, 100);
@@ -15584,6 +15563,63 @@ async function viewHistoryDetail(id) {
     } catch (e) { console.error(e); }
 }
 
+// 輔助函式：繪製單篇雷達圖
+function renderSingleRadarChart(canvasEl, radarData) {
+    const dataValues = [
+        radarData.立意 || 0, radarData.取材 || 0, radarData.扣題 || 0,
+        radarData.詳略 || 0, radarData.詞彙 || 0, radarData.文學性 || 0
+    ];
+    new Chart(canvasEl.getContext('2d'), {
+        type: 'radar',
+        data: {
+            labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+            datasets: [{
+                label: '能力評估',
+                data: dataValues,
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 2,
+                pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                pointBorderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                r: { angleLines: { display: true }, suggestedMin: 0, suggestedMax: 10, ticks: { stepSize: 2, display: false } }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+// 輔助函式：繪製學習報告雷達圖
+function renderReportRadarChart(canvasEl, radarDataArray) {
+    // 學習報告的 radarData 已經是一個陣列 [立意, 取材...]
+    new Chart(canvasEl.getContext('2d'), {
+        type: 'radar',
+        data: {
+            labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
+            datasets: [{
+                label: '平均能力',
+                data: radarDataArray,
+                backgroundColor: 'rgba(94, 112, 103, 0.4)',
+                borderColor: '#5e7067',
+                borderWidth: 2,
+                pointBackgroundColor: '#5e7067'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                r: { suggestedMin: 0, suggestedMax: 10, ticks: { display: false } }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
 
 	function enableHistoryEdit(element) {
     // 啟用編輯
