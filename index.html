@@ -16390,27 +16390,29 @@ async function handleSchoolLogin() {
 }
 
 
-// === [修正版] 全校電郵搜尋函式 (只查索引表，極速且省流量) ===
+// === 新增：全校電郵搜尋函式 ===
 async function findProfileByEmail(targetEmail) {
     try {
-        // 1. 將電郵轉為 Base64 (因為你的 email_mapping 是用 Base64 當 Key)
-        const emailKey = btoa(targetEmail);
+        // 讀取全校學生資料 (注意：若學生人數非常多，建議未來改用 Firebase Index)
+        const snapshot = await database.ref('students').once('value');
+        const allData = snapshot.val();
         
-        // 2. 直接讀取 email_mapping 下的特定節點
-        // 這只會下載該用戶的 Profile，不會下載 History，也不會下載其他人的資料
-        const snapshot = await database.ref(`email_mapping/${emailKey}`).once('value');
-        const profile = snapshot.val();
-        
-        if (profile) {
-            console.log("✅ 透過索引表快速找到用戶:", profile.name);
-            return profile; // 回傳該學生的基本資料
+        if (!allData) return null;
+
+        // 遍歷所有年級、班級、學生
+        for (const grade in allData) {
+            for (const cls in allData[grade]) {
+                const studentsInClass = allData[grade][cls];
+                for (const name in studentsInClass) {
+                    const profile = studentsInClass[name].profile;
+                    // 如果找到電郵相符的紀錄
+                    if (profile && profile.email === targetEmail) {
+                        return profile; // 回傳該學生的原始資料
+                    }
+                }
+            }
         }
- 
-        // 3. 如果索引表找不到，我們 **絕對不要** 掃描全校資料庫 ('students')
-        // 直接回傳 null，讓系統改用「手動輸入的班級姓名」去嘗試登入
-        console.log("索引表中未找到此電郵，視為新用戶或需手動驗證。");
-        return null;
- 
+        return null; // 沒找到，代表是新用戶
     } catch (error) {
         console.error("搜尋電郵失敗:", error);
         return null;
