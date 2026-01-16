@@ -17839,11 +17839,11 @@ setTimeout(() => {
 
 
 
-<!-- === [修復版] 神思大數據收集模組 (解決權限導致無法寫入的問題) === -->
+<!-- === [還原版] 神思大數據收集模組 (30秒=1分鐘邏輯) === -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    let totalSeconds = 0;
     let timerInterval = null;
-    let unsavedSeconds = 0;
 
     // 1. 獲取日期路徑
     function getDateParts() {
@@ -17861,9 +17861,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
 
         if (s && s.grade && s.class) {
-            // 替換特殊字符
             const safeName = s.name.replace(/[.#$/[\]]/g, '_'); 
-            // 為了 Tracking key 安全
             return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class };
         } else {
             let guestID = localStorage.getItem('sansi_guest_uuid');
@@ -17875,7 +17873,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // 3. 核心：記錄訪問 (Log Visit) - 改用 update + increment
+    // 3. 記錄訪問 (Log Visit) - 僅增加 Visits 和 Unique
     async function logVisitOnce() {
         if (typeof firebase === 'undefined' || !database) return;
         
@@ -17883,19 +17881,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const identity = getIdentity();
         const uid = identity.id;
 
-        // Session 鎖 (防止刷新重複計數)
+        // Session 鎖
         const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
         if (sessionStorage.getItem(sessionKey)) return; 
 
-        // Tracking 路徑 (檢查今日是否來過)
-        // 這裡可以用 transaction，因為 Rules 允許讀取自己的 Tracking 節點
+        // 檢查 Tracking
         const trackingRef = database.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
         
         try {
             const snap = await trackingRef.once('value');
             const isFirstTimeToday = !snap.exists();
 
-            // 準備寫入 View 的更新包 (原子操作)
             const updates = {};
             const increment1 = firebase.database.ServerValue.increment(1);
             
@@ -17904,31 +17900,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 ? `stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}` 
                 : null;
 
-            // A. 如果是今天第一次來 -> 增加 unique 計數
             if (isFirstTimeToday) {
-                // 標記 Tracking (這行很重要)
                 updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
-                
-                // 增加 Global Unique
                 updates[`${globalPath}/unique`] = increment1;
-                
-                // 增加 Class Unique
-                if (classPath) {
-                    updates[`${classPath}/unique`] = increment1;
-                }
+                if (classPath) updates[`${classPath}/unique`] = increment1;
                 console.log("📍 [Stats] 新增訪客記錄");
             }
 
-            // B. 增加 Visits (無論是否第一次) -> 增加 visits 計數
             updates[`${globalPath}/visits`] = increment1;
-            if (classPath) {
-                updates[`${classPath}/visits`] = increment1;
-            }
+            if (classPath) updates[`${classPath}/visits`] = increment1;
 
-            // 執行一次性原子寫入 (這不需要 stats_view 的讀取權限)
             await database.ref().update(updates);
-            
-            // 標記 Session
             sessionStorage.setItem(sessionKey, 'true');
             console.log("📍 [Stats] 訪問次數已上傳");
 
@@ -17937,45 +17919,44 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // 4. 上傳時長 (Upload Duration) - 改用 update + increment
-    function uploadDuration(secondsToAdd) {
-        if (typeof firebase === 'undefined' || !database || secondsToAdd <= 0) return;
+    // 4. 上傳 1 分鐘 (固定 +60s)
+    function uploadOneMinute() {
+        if (typeof firebase === 'undefined' || !database) return;
         
-        // 確保先點名
-        logVisitOnce(); 
+        logVisitOnce(); // 確保有点名
 
         const { y, m, d } = getDateParts();
         const identity = getIdentity();
         
-        // 使用原子增量 (不需要讀取權限)
+        // 這裡就是你要的邏輯：觸發一次就是 +60秒 (1分鐘)
+        console.log(`⬆️ [Stats] 滿足時長條件，上傳 +60s`);
+
         const updates = {};
-        const incrementSeconds = firebase.database.ServerValue.increment(secondsToAdd);
+        const increment60 = firebase.database.ServerValue.increment(60);
 
-        // 更新全站總時長
-        updates[`stats_view/${y}/${m}/${d}/global/duration`] = incrementSeconds;
+        updates[`stats_view/${y}/${m}/${d}/global/duration`] = increment60;
 
-        // 更新班級時長
         if (identity.type === 'student') {
-            updates[`stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}/duration`] = incrementSeconds;
+            updates[`stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}/duration`] = increment60;
         }
 
-        // 使用 update 進行盲寫
-        database.ref().update(updates).then(() => {
-            console.log(`⬆️ [Stats] 時長 +${secondsToAdd}s 成功`);
-        }).catch(e => console.error("Duration Upload Error:", e));
+        database.ref().update(updates).catch(e => console.error(e));
     }
 
-    // 5. 計時器啟動
+    // 5. 計時器啟動 (還原你的邏輯)
     function startTimer() {
         if (timerInterval) return;
         console.log("▶️ [Stats] 計時器啟動");
         
         timerInterval = setInterval(() => {
-            unsavedSeconds++;
-            // 每 30 秒上傳一次
-            if (unsavedSeconds >= 30) {
-                uploadDuration(unsavedSeconds);
-                unsavedSeconds = 0;
+            totalSeconds++;
+            
+            // ★★★ 你的原始邏輯 ★★★
+            // 30秒 -> 傳送 (算1分鐘)
+            // 90秒 (1分30秒) -> 傳送 (算2分鐘)
+            // 150秒 (2分30秒) -> 傳送 (算3分鐘)
+            if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
+                uploadOneMinute();
             }
         }, 1000);
     }
@@ -17984,11 +17965,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
-            // 離開前補傳
-            if (unsavedSeconds > 0) {
-                uploadDuration(unsavedSeconds);
-                unsavedSeconds = 0;
-            }
+            console.log("⏸️ [Stats] 暫停計時 (當前累計: " + totalSeconds + "s)");
+            // 注意：這裡不再有 uploadDuration(unsaved)，未滿的部分直接捨棄
         }
     }
 
@@ -18002,14 +17980,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('visibilitychange', function() {
         if (document.visibilityState === 'hidden') pauseTimer();
         else startTimer();
-    });
-    
-    // 額外保險
-    window.addEventListener("pagehide", function() {
-        if (unsavedSeconds > 0) {
-            uploadDuration(unsavedSeconds);
-            unsavedSeconds = 0;
-        }
     });
     
     window.forceLogVisit = logVisitOnce;
