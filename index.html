@@ -6021,6 +6021,85 @@ select:focus, select:hover {
     color: white; 
     box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
 }
+
+
+/* =======================================================
+   === [新增] 閱卷員追問區 (畫布聊天室) 樣式 - 歷史紀錄專用 ===
+   ======================================================= */
+
+/* 1. 聊天室外層容器 */
+.canvas-chat-container {
+    margin-top: 40px;
+    padding-top: 25px;
+    border-top: 3px dashed #2A9689; /* 標誌性的綠色虛線 */
+    background-color: #fcfdfd;
+    padding-bottom: 20px;
+    font-family: 'Noto Serif TC', serif;
+    animation: fadeIn 0.5s ease;
+}
+
+/* 2. 標題設計 */
+.canvas-chat-header {
+    color: #2A9689;
+    font-size: 1.3rem;
+    font-weight: bold;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 5px;
+}
+
+/* 3. 聊天紀錄捲動區 (在歷史紀錄中我們通常希望它自動伸展，不要 Scroll，方便列印或閱讀) */
+.canvas-chat-history {
+    background-color: #f0f4f8; /* 淺藍灰背景 */
+    border: 1px solid #d1d9e6;
+    border-radius: 12px;
+    padding: 25px;
+    /* 這裡移除了固定高度 (height: 300px)，改為自動高度，讓歷史紀錄完整顯示 */
+    height: auto !important; 
+    min-height: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px; /* 氣泡間距 */
+}
+
+/* 4. 訊息氣泡通用設定 */
+.message-bubble {
+    padding: 15px 20px;
+    border-radius: 18px;
+    line-height: 1.8;
+    font-size: 1rem;
+    max-width: 88%;
+    word-wrap: break-word;
+    position: relative;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+/* 5. AI (閱卷員) 氣泡 - 左側 */
+.message-bubble.ai-message {
+    background-color: #ffffff;
+    color: #333;
+    align-self: flex-start; /* 靠左 */
+    border-top-left-radius: 4px;
+    border: 1px solid #e0e0e0;
+}
+
+/* 6. 學生 (用戶) 氣泡 - 右側 */
+.message-bubble.user-message {
+    background-color: #2A9689; /* 主題綠 */
+    color: white;
+    align-self: flex-end; /* 靠右 */
+    border-top-right-radius: 4px;
+    box-shadow: 0 4px 10px rgba(42, 150, 137, 0.2);
+}
+
+/* 7. 強制隱藏歷史紀錄中的輸入框 (保險起見，雖然 JS 會移除) */
+.history-modal-content .canvas-input-area,
+.detail-view .canvas-input-area {
+    display: none !important;
+}
+	
 	
 </style>
 
@@ -10219,13 +10298,13 @@ async function submitArgumentOutline() {
     
         
         let userInputHistoryStr = `題目：${topic}`;
-        saveToHistory(
-            "議論", 
-            "大綱點評", 
-            topic, 
-            userInputHistoryStr, 
-            fullAiResultHtml 
-        );
+       saveToHistory(
+    "議論", 
+    "大綱點評", 
+    topic, 
+    userInputHistoryStr, 
+    fullAiResultHtml // 確保這個變數包含了 getCanvasChatHTML 的結果
+);
 
     } catch (error) {
         console.error("提交議論大綱時出錯:", error);
@@ -10521,7 +10600,7 @@ const guide = await callReadingAPI(prompt);
 
         // 儲存 (移除聊天室)
         const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
-        saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, historyHTML);
+        saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
     
     } catch (error) {
@@ -11142,9 +11221,8 @@ async function submitWritingGuide() {
         resultContainer.innerHTML = finalHTML;
 
         // === 儲存歷史紀錄 ===
-        // 儲存時移除聊天室 HTML，以免歷史紀錄過長
-        const historyHTML = finalHTML.split('<div class="canvas-chat-container">')[0]; 
-        saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, historyHTML);
+        // 新的邏輯：完整儲存 (包含聊天室介面)
+saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, finalHTML);
         
         // 顯示儲存按鈕 (如果有的話)
         hideAllSaveHtmlButtons();
@@ -11260,13 +11338,13 @@ async function submitWriting() {
             let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
             
             // 儲存 HTML 時已經包含了聊天室結構 (由 displayOutlineComment 生成)，這裡直接儲存
-            saveToHistory(
-                "敘事抒情", 
-                "大綱點評", 
-                topic, 
-                userContentForHistory, 
-                document.getElementById("resultCanvasBody").innerHTML
-            );
+           saveToHistory(
+    "敘事抒情", 
+    "大綱點評", 
+    topic, 
+    userContentForHistory, 
+    document.getElementById("resultCanvasBody").innerHTML // 直接存整個 innerHTML
+);
         } 
         // ==========================================
         // 模式二：敘事物象 (★ UI 美化修訂 ★)
@@ -11315,7 +11393,7 @@ async function submitWriting() {
             
             // 儲存時移除聊天室 HTML (以免歷史紀錄過長)
             const historyHTML = elementsHTML.split('<div class="canvas-chat-container">')[0];
-            saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, historyHTML);
+            saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
         } 
         // ==========================================
         // 模式三：文章點評 (保持不變)
@@ -11711,7 +11789,7 @@ async function submitReading() {
             
             // 儲存時移除聊天室 HTML
             const historyHTML = finalHTML.split('<div class="canvas-chat-container">')[0];
-            saveToHistory("閱讀", "點評", question, `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, historyHTML);
+            saveToHistory("閱讀", "指引", question, `篇章：${passage}\n題目：${question}`, guideHTML);
          
 
         } else { // guide
@@ -12345,7 +12423,7 @@ async function submitExpandComment() {
         
         // 儲存時移除聊天室 HTML
         const historyHTML = finalHTML.split('<div class="canvas-chat-container">')[0];
-        saveToHistory("整合拓展", "點評", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, historyHTML);
+       saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, guideHTML);
         
        
 
@@ -13871,14 +13949,17 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
     
     // 使用 captureContainerHTML 確保儲存時雷達圖不消失 (記得要用不轉圖片的修復版)
+    // 使用 captureContainerHTML 確保儲存時雷達圖不消失
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
     saveToHistory(
+        // ★★★ 這一行必須保留，不能改！它會自動判斷是敘事還是議論 ★★★
         uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
+        
         "文章點評", 
         topic || "無題目", 
         `題目：${topic}\n\n文章：${fullTextContent}`, 
-        htmlContent,
+        htmlContent, // 這裡傳入完整的 HTML (含聊天室) 即可
         scoresForDisplay 
     );
 }
@@ -14389,30 +14470,27 @@ function captureContainerHTML(containerId) {
 }
 
 // 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
+// === 修改後：儲存紀錄 (保留閱卷員追問區，但移除輸入框) ===
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
         // ============================================================
-        // ★★★ 核心修訂：在上傳前徹底移除聊天室/追問區 HTML ★★★
+        // ★★★ 核心修訂：保留聊天紀錄，只移除輸入介面 ★★★
         // ============================================================
         if (aiContent && typeof aiContent === 'string') {
             // 建立一個暫時的 DOM 元素來處理 HTML 字串
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
             
-            // 1. 移除主要的聊天室容器 (.canvas-chat-container)
-            // 使用 querySelectorAll 確保移除頁面上所有可能的聊天室實例
-            const chatContainers = tempDiv.querySelectorAll('.canvas-chat-container');
-            chatContainers.forEach(el => el.remove());
-
-            // 2. 保險起見，移除聊天輸入區 (.canvas-input-area) 和 歷史區 (.canvas-chat-history)
-            // 防止有殘留的 HTML 結構
+            // 1. 移除聊天輸入區 (.canvas-input-area)
+            // 我們希望保留歷史對話 (.canvas-chat-history)，但不希望在歷史紀錄裡看到輸入框和發送按鈕
             const inputAreas = tempDiv.querySelectorAll('.canvas-input-area');
             inputAreas.forEach(el => el.remove());
             
-            const historyBoxes = tempDiv.querySelectorAll('.canvas-chat-history');
-            historyBoxes.forEach(el => el.remove());
-            
-            // 將處理乾淨的 HTML 重新賦值給 aiContent
+            // 2. 移除可能殘留的 "繼續討論" 按鈕 (舊版介面)
+            const continueBtns = tempDiv.querySelectorAll('#continueWritingBtn, #continueArgumentBtn');
+            continueBtns.forEach(el => el.remove());
+
+            // 將處理後的 HTML (保留了聊天室結構) 重新賦值
             aiContent = tempDiv.innerHTML;
         }
         // ============================================================
@@ -14426,14 +14504,14 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             subFunction: subFunction,
             title: title || "無標題",
             userContent: userContent,
-            aiContent: aiContent, // 這裡是已經過濾掉聊天室的內容
+            aiContent: aiContent, // 這裡現在包含了完整的追問區紀錄
             scoreData: scoreData, 
             timestamp: new Date().getTime(),
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
         };
 
         store.add(record);
-        console.log("本地紀錄已儲存 (已過濾追問區)");
+        console.log("本地紀錄已儲存 (含閱卷員追問區)");
         
         // 檢查是否已綁定身份，如果是，則自動同步
         const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14445,7 +14523,6 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         console.error("儲存紀錄失敗:", error);
     }
 }
-
 
 
 // ==========================================
