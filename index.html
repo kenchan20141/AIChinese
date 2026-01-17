@@ -67,6 +67,8 @@ form-action 'self';
 
 
 	<script>
+
+		
 // === 1. Firebase 初始化 (必須放在最頂部) ===
 const firebaseConfig = {
   apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
@@ -6105,6 +6107,11 @@ select:focus, select:hover {
 
 <script>
 
+
+
+	// === 全域變數：記錄最新生成的歷史紀錄時間戳 (用於聊天即時存檔) ===
+let lastGeneratedTimestamp = null;
+
 // 全域變數：記錄當天(或本次會話) API 循環失敗的次數
 let globalApiCycleFailures = 0;
 
@@ -8808,8 +8815,7 @@ async function sendCanvasMessage() {
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
     
-    // === 設定語氣與閱卷員 ===
-    // 檢查是否有陳SIR語氣設定
+    // 設定語氣與閱卷員
     const toneEls = [
         document.getElementById("writingTone"), 
         document.getElementById("readingTone"), 
@@ -8819,16 +8825,15 @@ async function sendCanvasMessage() {
     ];
     
     for (let el of toneEls) {
-        if (el && el.offsetParent !== null && el.value === "chen") { // 檢查是否顯示且值為 chen
+        if (el && el.offsetParent !== null && el.value === "chen") {
             toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
             activeReviewer = "陳SIR";
             break;
         }
     }
 
-    // === 構建 Prompt 上下文 ===
+    // 構建 Prompt (保持原有邏輯)
     let promptContext = "";
-    
     switch (currentContextType) {
         case 'narrative_writing':
         case 'argument_writing':
@@ -8836,67 +8841,22 @@ async function sendCanvasMessage() {
         case 'argument_outline':
         case 'expand_comment':
         case 'reading_comment':
-            promptContext = `
-            【背景資料】
-            學生提交了一份作業，你已經給出了點評/改寫。
-            學生的內容/原文：
-            ${currentContextContent}
-            ---
-            你的點評/改寫內容：
-            ${currentContextReview}
-            ---
-            【任務】
-            請針對學生的問題進行回應，解釋你的點評理據，或提供更多寫作建議。`;
+            promptContext = `【背景資料】學生提交了一份作業，你已經給出了點評/改寫。\n原文：${currentContextContent}\n你的點評：${currentContextReview}\n【任務】針對學生的問題回應。`;
             break;
-
         case 'narrative_guide':
         case 'argument_guide':
         case 'expand_guide':
         case 'reading_guide':
-            promptContext = `
-            【背景資料】
-            你剛剛為學生提供了寫作/答題指引。
-            題目/輸入資料：
-            ${currentContextContent}
-            ---
-            你生成的指引內容：
-            ${currentContextReview}
-            ---
-            【任務】
-            請引導學生如何利用這些指引來完成寫作或回答問題，激發他的靈感。`;
+            promptContext = `【背景資料】你提供了指引。\n題目：${currentContextContent}\n你的指引：${currentContextReview}\n【任務】引導學生如何利用指引。`;
             break;
-
         case 'narrative_elements':
-            promptContext = `
-            【背景資料】
-            你剛剛為學生生成了一系列「敘事物象」。
-            題目與背景：
-            ${currentContextContent}
-            ---
-            你生成的物象列表：
-            ${currentContextReview}
-            ---
-            【任務】
-            學生可能會問如何運用某個物象。請教導他如何將這些物象融入故事中，營造意境或推動情節。`;
+            promptContext = `【背景資料】你生成了物象。\n背景：${currentContextContent}\n物象列表：${currentContextReview}\n【任務】教導如何運用。`;
             break;
-
         default:
             promptContext = `【背景資料】正在進行中文科學習討論。`;
     }
 
-    const fullPrompt = `
-    你是一位${activeReviewer}。
-    ${promptContext}
-    
-    【對話紀錄】
-    ${historyText}
-    【學生最新問題】
-    ${userText}
-
-    1. 解釋要具體，不要空泛，最好舉例說明。
-    2. 語氣要求：${toneNote}
-    3. 字數控制在 200 字以內。
-    `;
+    const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
 
     try {
         const response = await callReadingAPI(fullPrompt);
@@ -8905,6 +8865,10 @@ async function sendCanvasMessage() {
         aiBubble.innerHTML = formattedResponse;
         canvasChatHistory.push({ role: "Student", content: userText });
         canvasChatHistory.push({ role: "Teacher", content: response });
+
+        // ★★★ 關鍵新增：AI 回應後，立即更新歷史紀錄！ ★★★
+        await updateHistoryChat();
+
     } catch (error) {
         aiBubble.innerHTML = "抱歉，連線發生錯誤，請重試。";
         console.error(error);
@@ -11015,75 +10979,56 @@ async function continueWritingGuideDiscussion() {
     userMessageBubble.textContent = userInputText;
     chatHistoryDiv.appendChild(userMessageBubble);
     
-    // 2. 將使用者訊息存入歷史紀錄
     writingGuideChatHistoryData.push({ sender: 'user', message: userInputText });
     document.getElementById("writingGuideUserInput").value = "";
     chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
 
-    // 3. 顯示 AI 正在回應
+    // 2. 顯示 AI 正在回應
     const aiMessageBubble = document.createElement('div');
     aiMessageBubble.className = 'message-bubble ai-message';
     aiMessageBubble.textContent = `陳SIR正在回應...`;
     chatHistoryDiv.appendChild(aiMessageBubble);
     chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
 
-    // 4. 準備對話歷史文字 (去除 HTML 標籤，讓 AI 讀得更清楚)
-    // 這裡我們把之前的對話整理成純文字格式
+    // 3. 準備 Prompt
     const conversationHistoryForPrompt = writingGuideChatHistoryData.map(item => {
         const role = item.sender === 'user' ? '學生' : '陳SIR';
-        // 簡單去除 HTML 標籤以防干擾 Prompt
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = item.message;
         const cleanMessage = tempDiv.textContent || tempDiv.innerText || "";
         return `${role}: ${cleanMessage}`;
     }).join('\n');
 
-    // 5. 準備 Prompt (核心修正：加入指引上下文)
     const prompt = `
-    【角色設定】
-    你是一位高中中文科老師「陳SIR」，你剛剛為學生分析了作文題目：「${currentGuideTopic}」。
-    你的語氣親切、有見地，善於用具體的例子或生活化的比喻來引導學生深入思考，而不是只給空泛的理論。
-
-    【背景資料：你剛才生成的解題指引內容】
-    (請基於此內容回答學生的問題，不要忘記你剛剛提出的觀點)
-    ---
-    ${currentGuideAnalysis}
-    ---
-
-    【我們剛才的對話紀錄】
-    ${conversationHistoryForPrompt}
-
-    【學生的最新追問】
-    ${userInputText}
-
-    【你的任務】
-    請針對學生的最新追問進行回應。
-    1. 必須緊扣你剛才生成的「解題指引」內容（例如你提到的情感特質或故事種子）。
-    2. 不要使用括號解釋你的目的。
-    3. 請用完整句子回應，字數控制在 200 字以內。
+    【角色設定】你是一位高中中文科老師「陳SIR」。
+    【背景資料】解題指引內容：${currentGuideAnalysis}
+    【對話紀錄】${conversationHistoryForPrompt}
+    【學生追問】${userInputText}
+    【任務】請針對學生追問回應，緊扣剛才的指引，字數200字以內。
     `;
 
    try {
-    const aiResponse = await callAPI(prompt);
-    // 添加這段檢查代碼
-    if (!aiResponse || typeof aiResponse !== 'string') {
-        throw new Error('API 傳回無效回應');
+        const aiResponse = await callAPI(prompt);
+        if (!aiResponse) throw new Error('API 傳回無效回應');
+        
+        let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formattedResponse = formattedResponse.replace(/\n/g, '<br>');
+        aiMessageBubble.innerHTML = formattedResponse;
+        
+        writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
+
+        // ★★★ 關鍵新增：更新歷史紀錄 ★★★
+        // 注意：此函數通常用於舊版介面，若已轉用 Canvas Chat 則此函數可能不再被呼叫
+        // 但為了保險起見，我們加入更新邏輯
+        await updateHistoryChat();
+
+    } catch (error) {
+        console.error("繼續指引討論時出錯:", error);
+        aiMessageBubble.textContent = "抱歉，回應失敗。";
+    } finally {
+        chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        continueBtn.disabled = false;
     }
-    
-    // 6. 更新 UI (將 Markdown 粗體轉為 HTML)
-    let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    formattedResponse = formattedResponse.replace(/\n/g, '<br>');
-    aiMessageBubble.innerHTML = formattedResponse;
-    
-    // 存入歷史
-    writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
-} catch (error) {
-    console.error("繼續指引討論時出錯:", error);
-    aiMessageBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，陳SIR無法回應。😅`;
-} finally {
-    chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
-    continueBtn.disabled = false;
-}
 }
 
 
@@ -11951,67 +11896,47 @@ async function continueArgumentDiscussion() {
     
     const chatHistoryDiv = document.getElementById('argumentChatHistory');
     
-    // 1. 顯示使用者訊息
     const userMessageBubble = document.createElement('div');
     userMessageBubble.className = 'message-bubble user-message';
     userMessageBubble.textContent = userInputText;
     chatHistoryDiv.appendChild(userMessageBubble);
     
-    // 2. 將使用者訊息存入歷史紀錄
     argumentChatHistoryData.push({ sender: 'user', message: userInputText });
     document.getElementById("argumentUserInput").value = "";
     chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
 
-    // 3. 顯示「正在回應」
     const aiLoadingBubble = document.createElement('div');
     aiLoadingBubble.className = 'message-bubble ai-message';
     aiLoadingBubble.textContent = `${currentReviewerName}正在回應...`;
     chatHistoryDiv.appendChild(aiLoadingBubble);
     chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
 
-    // 4. 準備完整的對話歷史給 AI
     const conversationHistoryForPrompt = argumentChatHistoryData.map(item => {
         const speaker = item.sender === 'user' ? '我的追問' : '你的上一輪回應';
-        // 清理 message 中的 HTML 標籤，讓 prompt 更乾淨
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = item.message;
         const cleanMessage = tempDiv.textContent || tempDiv.innerText || "";
         return `${speaker}: ${cleanMessage}`;
     }).join('\n---\n');
 
-
     const tone = document.getElementById("argumentWritingTone").value;
     let toneNote = tone === "chen" ? categories["課外書籍"].chatNote : categories["課外書籍"].seriousChatNote;
     
-    // 5. 建立包含完整上下文的 Prompt
-    const prompt = `我是一位高中生，你正在點評我的議論文。
-    ---
-    我的原文：
-    ${currentArgumentArticle}
-    ---
-    這是我們到目前為止的完整對話紀錄：
-    ${conversationHistoryForPrompt}
-    ---
-    請針對我最新的追問，用日常的語言簡潔地回應我，不要過於理論化，必須詳細分析並給出例子。請不要使用括號解釋你的目的。回應字數不要超過180字。
-    教學筆記：${toneNote}`;
+    const prompt = `我是一位高中生，你正在點評我的議論文。\n原文：${currentArgumentArticle}\n對話紀錄：${conversationHistoryForPrompt}\n請針對我最新的追問，用日常的語言簡潔地回應我，不要過於理論化，必須詳細分析並給出例子。請不要使用括號解釋你的目的。回應字數不要超過180字。${toneNote}`;
     
     try {
         const aiResponse = await callReadingAPI(prompt);
-        
-        // 6. 更新 AI 回應並存入歷史紀錄
-        // 步驟一：將 Markdown 的 **粗體** 語法轉換為 HTML 的 <strong> 標籤
-let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-// 步驟二：處理換行符
-formattedResponse = formattedResponse.replace(/\n/g, '<br>');
-
-// 步驟三：將處理好的 HTML 內容放入聊天氣泡
-aiLoadingBubble.innerHTML = formattedResponse;
+        let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formattedResponse = formattedResponse.replace(/\n/g, '<br>');
+        aiLoadingBubble.innerHTML = formattedResponse;
         argumentChatHistoryData.push({ sender: 'ai', message: aiResponse });
+
+        // ★★★ 關鍵新增：更新歷史紀錄 ★★★
+        await updateHistoryChat();
 
     } catch (error) {
         console.error("繼續議論文討論時出錯:", error);
-        aiLoadingBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，${currentReviewerName}無法回應。😅`;
+        aiLoadingBubble.textContent = "抱歉，回應失敗。";
     } finally {
         chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
         continueBtn.disabled = false;
@@ -12048,21 +11973,10 @@ async function continueWritingDiscussion() {
     const tone = document.getElementById("writingTone").value;
     let toneNote = tone === "chen" ? categories["課外書籍"].chatNote : categories["課外書籍"].seriousChatNote;
     
-    const prompt = `我是一位高中生，你剛剛點評了我的文章。
-    ---
-    我的原文：${currentWritingArticle}
-    ---
-    你的上一輪點評：${currentWritingReview}
-    ---
-    我的追問是：${userInputText}
-    ---
-    請針對我的追問，用日常的語言回應我，不要過於理論化，必須詳細分析並給出例子，然後引導我深入思考。請不要使用括號解釋你的目的，也不要提及你會追問我。請用完整句子回應。回應字數不要超過180字。
-    教學筆記：${toneNote}`;
+    const prompt = `我是一位高中生，你剛剛點評了我的文章。\n原文：${currentWritingArticle}\n點評：${currentWritingReview}\n追問：${userInputText}\n請用日常語言回應，詳細分析並舉例，不要過於理論。${toneNote}`;
     
-    // 顯示「正在回應」
     const aiMessageBubble = document.createElement('div');
     aiMessageBubble.className = 'message-bubble ai-message';
-    // --- 【核心修訂】使用全域變數來顯示動態名稱 ---
     aiMessageBubble.textContent = `${currentReviewerName}正在回應...`;
     writingChatHistoryDiv.appendChild(aiMessageBubble);
     writingChatHistoryDiv.scrollTop = writingChatHistoryDiv.scrollHeight;
@@ -12073,9 +11987,12 @@ async function continueWritingDiscussion() {
         aiMessageBubble.innerHTML = aiResponse.replace(/\n/g, '<br>');
         writingChatHistoryData.push({ sender: 'ai', message: aiResponse });
 
+        // ★★★ 關鍵新增：更新歷史紀錄 ★★★
+        await updateHistoryChat();
+
     } catch (error) {
         console.error("繼續討論時出錯:", error);
-        aiMessageBubble.textContent = error.message.includes("API") ? `今日 API 調用次數已用完。😓` : `抱歉，${currentReviewerName}無法回應。😅`;
+        aiMessageBubble.textContent = "抱歉，回應失敗。";
     } finally {
         writingChatHistoryDiv.scrollTop = writingChatHistoryDiv.scrollHeight;
         continueBtn.disabled = false;
@@ -14469,51 +14386,54 @@ function captureContainerHTML(containerId) {
     return clone.innerHTML;
 }
 
+
+
+
+	
 // 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
 // === 修改後：儲存紀錄 (保留閱卷員追問區，但移除輸入框) ===
+// === 修改後：儲存紀錄 (設定時間戳標記) ===
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
-        // ============================================================
-        // ★★★ 核心修訂：保留聊天紀錄，只移除輸入介面 ★★★
-        // ============================================================
+        // 1. 清理 HTML (保留聊天室結構，只移除輸入框)
         if (aiContent && typeof aiContent === 'string') {
-            // 建立一個暫時的 DOM 元素來處理 HTML 字串
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
             
-            // 1. 移除聊天輸入區 (.canvas-input-area)
-            // 我們希望保留歷史對話 (.canvas-chat-history)，但不希望在歷史紀錄裡看到輸入框和發送按鈕
-            const inputAreas = tempDiv.querySelectorAll('.canvas-input-area');
+            // 移除輸入區
+            const inputAreas = tempDiv.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer');
             inputAreas.forEach(el => el.remove());
             
-            // 2. 移除可能殘留的 "繼續討論" 按鈕 (舊版介面)
-            const continueBtns = tempDiv.querySelectorAll('#continueWritingBtn, #continueArgumentBtn');
+            // 移除按鈕
+            const continueBtns = tempDiv.querySelectorAll('button, .btn-icon-action');
             continueBtns.forEach(el => el.remove());
 
-            // 將處理後的 HTML (保留了聊天室結構) 重新賦值
             aiContent = tempDiv.innerHTML;
         }
-        // ============================================================
 
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
+
+        // 2. 生成並記錄時間戳 (關鍵步驟)
+        const ts = new Date().getTime();
+        lastGeneratedTimestamp = ts; // ★ 全域變數更新
 
         const record = {
             category: category,
             subFunction: subFunction,
             title: title || "無標題",
             userContent: userContent,
-            aiContent: aiContent, // 這裡現在包含了完整的追問區紀錄
+            aiContent: aiContent,
             scoreData: scoreData, 
-            timestamp: new Date().getTime(),
-            dateStr: new Date().toLocaleString('zh-HK', { hour12: false })
+            timestamp: ts,
+            dateStr: new Date().toLocaleString('zh-HK', { hour12: false }),
+            isSynced: false
         };
 
         store.add(record);
         console.log("本地紀錄已儲存 (含閱卷員追問區)");
         
-        // 檢查是否已綁定身份，如果是，則自動同步
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
             syncHistoryToFirebase(true); 
@@ -14525,6 +14445,88 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
 }
 
 
+// ==========================================
+// === [新增] 聊天室即時存檔助手函數 ===
+// ==========================================
+async function updateHistoryChat() {
+    if (!lastGeneratedTimestamp) return; // 如果沒有剛生成的紀錄，就不動作
+
+    console.log("正在更新聊天紀錄到歷史檔案...");
+
+    // 1. 捕捉當前畫布的最新狀態 (含新氣泡)
+    // 我們使用 cloneNode 來處理，以免影響螢幕上的顯示
+    // 優先抓取 Result Canvas，如果沒有，嘗試抓取舊版容器 (兼容性)
+    let sourceElement = document.getElementById("resultCanvasBody");
+    
+    // 如果 Canvas 沒顯示，嘗試抓取對應的舊版聊天容器 (視乎當前功能)
+    if (!sourceElement || sourceElement.innerHTML.trim() === "") {
+        if (document.getElementById("writingGuideChatHistory") && document.getElementById("writingGuideChatHistory").style.display !== 'none') {
+            // 特殊情況：舊版解題指引
+            // 這裡比較複雜，因為舊版結構不同，但為了統一，建議主要依賴 Canvas。
+            // 若您的解題指引已改用 Canvas，則不需要此 else if
+        }
+    }
+
+    if (!sourceElement) return;
+    
+    const clone = sourceElement.cloneNode(true);
+
+    // 2. 執行「移除輸入框」的邏輯 (確保歷史紀錄乾淨，只留對話)
+    const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer');
+    inputAreas.forEach(el => el.remove());
+    
+    // 移除按鈕
+    const buttons = clone.querySelectorAll('button, .btn-icon-action');
+    buttons.forEach(el => el.remove());
+
+    // 處理 Canvas (避免圖表消失) - 給予固定高度
+    const clonedCanvases = clone.querySelectorAll('canvas');
+    clonedCanvases.forEach((canvas) => {
+        canvas.style.height = '350px';
+        canvas.style.display = 'block';
+    });
+
+    const newAiContent = clone.innerHTML;
+
+    // 3. 更新 IndexedDB
+    try {
+        const db = await openHistoryDB();
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const index = store.index('timestamp'); // 使用時間戳索引找回紀錄
+
+        const request = index.get(lastGeneratedTimestamp);
+
+        request.onsuccess = function(event) {
+            const data = event.target.result;
+            if (data) {
+                // 更新內容
+                data.aiContent = newAiContent;
+                
+                // 標記為未同步，觸發雲端更新
+                if (data.isSynced) delete data.isSynced;
+
+                // 寫回
+                const updateRequest = store.put(data);
+                
+                updateRequest.onsuccess = function() {
+                    console.log("聊天紀錄已更新至本地 DB");
+                    // 觸發雲端同步
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+                    if (s) {
+                        syncHistoryToFirebase(true);
+                    }
+                };
+            }
+        };
+    } catch (e) {
+        console.error("更新聊天紀錄失敗:", e);
+    }
+}
+
+
+
+	
 // ==========================================
 // === 智能同步邏輯 (最終修訂版：已修復反引號語法錯誤) ===
 // ==========================================
