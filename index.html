@@ -15517,7 +15517,7 @@ async function viewHistoryDetail(id) {
                         </div>`;
                 }
                 
-                // 5. 顯示繳交按鈕
+                // 5. 顯示繳交按鈕 (學習報告除外)
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (s && record.category !== "學習報告") {
                     contentHTML += `
@@ -15546,7 +15546,7 @@ async function viewHistoryDetail(id) {
  
                 // 8. ★★★ 核心修復：重繪圖表邏輯 (含學習報告) ★★★
                 setTimeout(() => {
-                    // A. 單篇文章的雷達圖 (原有邏輯)
+                    // A. 單篇文章的雷達圖
                     if (record.category !== "學習報告" && record.scoreData && record.scoreData.radar) {
                         const canvasEl = modalContent.querySelector('.radar-chart-container canvas') || modalContent.querySelector('canvas');
                         if (canvasEl) {
@@ -15554,33 +15554,30 @@ async function viewHistoryDetail(id) {
                         }
                     }
                     
-                    // B. 學習報告的雙雷達圖 (★ 修復重點 ★)
-                    // 因為 ID 已經在存檔時被移除，所以我們必須透過結構 (Class) 來尋找對應的 canvas
+                    // B. 學習報告的雙雷達圖 (★ 關鍵邏輯 ★)
                     else if (record.category === "學習報告" && record.scoreData) {
-                        
+                        console.log("正在還原學習報告圖表...");
+
                         // 1. 繪製敘事抒情圖表
-                        // 邏輯：找到「敘事抒情」的標籤 -> 往上找父容器 -> 在父容器內找 canvas
-                        if (record.scoreData["敘事抒情"]) {
+                        if (record.scoreData["敘事抒情"] && record.scoreData["敘事抒情"].radar) {
+                            // 根據結構找到對應的 Canvas
                             const narrBadge = modalContent.querySelector('.badge-narrative');
                             if (narrBadge) {
                                 const section = narrBadge.closest('.report-section');
                                 const narrCanvas = section ? section.querySelector('canvas') : null;
-                                
-                                if (narrCanvas && record.scoreData["敘事抒情"].radar) {
+                                if (narrCanvas) {
                                     renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
                                 }
                             }
                         }
 
                         // 2. 繪製議論圖表
-                        // 邏輯：同上，找「議論」標籤對應的 canvas
-                        if (record.scoreData["議論"]) {
+                        if (record.scoreData["議論"] && record.scoreData["議論"].radar) {
                             const argBadge = modalContent.querySelector('.badge-argument');
                             if (argBadge) {
                                 const section = argBadge.closest('.report-section');
                                 const argCanvas = section ? section.querySelector('canvas') : null;
-                                
-                                if (argCanvas && record.scoreData["議論"].radar) {
+                                if (argCanvas) {
                                     renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
                                 }
                             }
@@ -15592,6 +15589,7 @@ async function viewHistoryDetail(id) {
     } catch (e) { console.error(e); }
 }
 
+	
 // 輔助函式：繪製單篇雷達圖
 function renderSingleRadarChart(canvasEl, radarData) {
     const dataValues = [
@@ -17332,7 +17330,7 @@ async function generateHistoryReport() {
                 return;
             }
 
-            // === 1. 數據聚合 (保持不變) ===
+            // === 1. 數據聚合 ===
             const stats = {
                 "敘事抒情": { count: 0, scores: { content: 0, expression: 0, structure: 0 }, radar: { 立意: 0, 取材: 0, 扣題: 0, 詳略: 0, 詞彙: 0, 文學性: 0 }, snippets: [] },
                 "議論": { count: 0, scores: { content: 0, expression: 0, structure: 0 }, radar: { 立意: 0, 取材: 0, 扣題: 0, 詳略: 0, 詞彙: 0, 文學性: 0 }, snippets: [] },
@@ -17344,6 +17342,7 @@ async function generateHistoryReport() {
 
             records.forEach(r => {
                 if (!r.aiContent) return;
+                // 提取摘要
                 const cleanText = r.aiContent.replace(/<[^>]*>?/gm, ' ');
                 let snippet = "";
                 const critiqueIndex = cleanText.indexOf("點評");
@@ -17354,28 +17353,50 @@ async function generateHistoryReport() {
                 if (stats[r.category]) {
                     stats[r.category].snippets.push(summary);
                 }
+
+                // 提取分數 (針對敘事和議論)
                 if (r.category === "敘事抒情" || r.category === "議論") {
                     try {
-                        const doc = parser.parseFromString(r.aiContent, 'text/html');
-                        const contentInput = doc.querySelector('input[id*="ContentScore"]');
-                        const exprInput = doc.querySelector('input[id*="ExpressionScore"]');
-                        const structInput = doc.querySelector('input[id*="StructureScore"]');
-                        if (contentInput && exprInput && structInput) {
+                        // 優先使用結構化存儲的 scoreData
+                        if (r.scoreData) {
                             stats[r.category].count++;
-                            const c = parseInt(contentInput.value || 5);
-                            const e = parseInt(exprInput.value || 5);
-                            const s = parseInt(structInput.value || 5);
+                            const c = r.scoreData.content || 0;
+                            const e = r.scoreData.expression || 0;
+                            const s = r.scoreData.structure || 0;
                             stats[r.category].scores.content += c;
                             stats[r.category].scores.expression += e;
                             stats[r.category].scores.structure += s;
-                            stats[r.category].radar.立意 += (c * 0.6 + s * 0.4);
-                            stats[r.category].radar.取材 += (c * 0.8 + e * 0.2);
-                            stats[r.category].radar.扣題 += (c * 0.7 + s * 0.3);
-                            stats[r.category].radar.詳略 += (s * 0.7 + c * 0.3);
-                            stats[r.category].radar.詞彙 += e;
-                            stats[r.category].radar.文學性 += e;
+                            
+                            if (r.scoreData.radar) {
+                                stats[r.category].radar.立意 += (r.scoreData.radar.立意 || 0);
+                                stats[r.category].radar.取材 += (r.scoreData.radar.取材 || 0);
+                                stats[r.category].radar.扣題 += (r.scoreData.radar.扣題 || 0);
+                                stats[r.category].radar.詳略 += (r.scoreData.radar.詳略 || 0);
+                                stats[r.category].radar.詞彙 += (r.scoreData.radar.詞彙 || 0);
+                                stats[r.category].radar.文學性 += (r.scoreData.radar.文學性 || 0);
+                            }
+                        } else {
+                            // 舊數據回退機制：嘗試從 HTML 解析 input value
+                            const doc = parser.parseFromString(r.aiContent, 'text/html');
+                            const contentInput = doc.querySelector('input[id*="ContentScore"]');
+                            if (contentInput) {
+                                stats[r.category].count++;
+                                const c = parseInt(contentInput.value || 5);
+                                const e = parseInt(doc.querySelector('input[id*="ExpressionScore"]')?.value || 5);
+                                const s = parseInt(doc.querySelector('input[id*="StructureScore"]')?.value || 5);
+                                stats[r.category].scores.content += c;
+                                stats[r.category].scores.expression += e;
+                                stats[r.category].scores.structure += s;
+                                // 舊數據估算雷達
+                                stats[r.category].radar.立意 += (c * 0.6 + s * 0.4);
+                                stats[r.category].radar.取材 += (c * 0.8 + e * 0.2);
+                                stats[r.category].radar.扣題 += (c * 0.7 + s * 0.3);
+                                stats[r.category].radar.詳略 += (s * 0.7 + c * 0.3);
+                                stats[r.category].radar.詞彙 += e;
+                                stats[r.category].radar.文學性 += e;
+                            }
                         }
-                    } catch (e) { }
+                    } catch (e) { console.error("Parse Error", e); }
                 }
             });
 
@@ -17432,8 +17453,7 @@ async function generateHistoryReport() {
 
             showLoading("陳SIR 正在生成學習報告...");
 
-            // Prompt 結構
-             const prompt = `你現在扮演一位資深的中文科老師「陳SIR」。請根據學生以下的歷史紀錄，生成一份「學習概況報告」。
+            const prompt = `你現在扮演一位資深的中文科老師「陳SIR」。請根據學生以下的歷史紀錄，生成一份「學習概況報告」。
 
 ### 學生歷史紀錄摘要：
 ${promptData}
@@ -17458,7 +17478,6 @@ ${promptData}
        </div>
    </div>
    
-   <!-- 分隔線 -->
    <div class="report-separator"></div>
 
 2. **分範疇分析**：(針對有數據的範疇)
@@ -17476,7 +17495,6 @@ ${promptData}
        <div class="report-quote-author">—— 陳SIR</div>
    </div>`;
 
-            // 呼叫 API
             const reportHTML = await callReadingAPI(prompt);
 
             // === 4. 組合與渲染 ===
@@ -17519,6 +17537,7 @@ ${promptData}
                                     </div>
                                     <div class="grading-radar" style="padding:15px;">
                                         <h3>能力分佈</h3>
+                                        <!-- 注意：這裡的 canvas 是空的，需要JS繪製 -->
                                         <div class="radar-chart-container" style="height:250px;">
                                             <canvas id="${uniqueId}Chart"></canvas>
                                         </div>
@@ -17536,49 +17555,23 @@ ${promptData}
 
             resultBody.innerHTML = finalOutput + tempDiv.innerHTML;
 
-            // === 5. 渲染圖表並存檔 (重點修訂) ===
+            // === 5. 渲染當前畫面的圖表並存檔 ===
             setTimeout(() => {
-                // 這裡保留原本的圖表渲染邏輯，讓學生當下看得到
+                // A. 渲染當前使用者看到的畫面
                 ["敘事抒情", "議論"].forEach(cat => {
                     if (finalStats[cat]) {
                         const uniqueId = cat === "敘事抒情" ? "reportNarrative" : "reportArgument";
                         const ctxEl = document.getElementById(`${uniqueId}Chart`);
                         if (ctxEl) {
-                            new Chart(ctxEl.getContext('2d'), {
-                                type: 'radar',
-                                data: {
-                                    labels: ['立意', '取材', '扣題', '詳略', '詞彙', '文學性'],
-                                    datasets: [{
-                                        label: '平均能力',
-                                        data: finalStats[cat].radar,
-                                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                        borderColor: 'rgba(54, 162, 235, 1)',
-                                        borderWidth: 2,
-                                        pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-                                        pointBorderColor: '#fff'
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    scales: {
-                                        r: {
-                                            angleLines: { display: true },
-                                            suggestedMin: 0, suggestedMax: 10,
-                                            pointLabels: { font: { size: 12, family: "'Noto Serif TC', serif" } },
-                                            ticks: { stepSize: 2, display: false }
-                                        }
-                                    },
-                                    plugins: { legend: { display: false } }
-                                }
-                            });
+                            renderReportRadarChart(ctxEl, finalStats[cat].radar);
                         }
                     }
                 });
 
-                // ★★★ 存檔 (傳入 finalStats 作為原始數據) ★★★
+                // B. 存檔：這裡最重要！
+                // 我們使用 captureContainerHTML 儲存 HTML 結構
+                // 並且將 finalStats 作為最後一個參數傳入 saveToHistory
                 setTimeout(() => {
-                    // captureContainerHTML 已經在外部修改為不轉圖片
                     const htmlToSave = captureContainerHTML('resultCanvasBody');
                     saveToHistory(
                         "學習報告", 
@@ -17586,9 +17579,9 @@ ${promptData}
                         `學習報告 (${today})`, 
                         `系統自動生成之學習歷程分析。\n綜合評級：${overallLevel}`, 
                         htmlToSave,
-                        finalStats // ★★★ 關鍵：傳入報告的原始統計數據，讓老師端可以動態繪圖
+                        finalStats // ★★★ 關鍵：這將成為 record.scoreData ★★★
                     );
-                    console.log("報告已自動存檔並同步 (含數據)。");
+                    console.log("報告已自動存檔並同步 (含統計數據)。");
                 }, 500);
 
             }, 100);
