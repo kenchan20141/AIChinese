@@ -14549,23 +14549,19 @@ async function updateHistoryChat() {
 	
 	
 // ==========================================
-// === [詳細數據版] 合併算法 ===
+// === 1. 合併算法 (嚴格雙向同步版) ===
 // ==========================================
 function mergeHistoryRecords(localRecords, cloudRecords) {
-    console.log("--- [Logic] 執行合併 (顯示詳細時間) ---");
+    console.log("--- [Logic] 執行智能合併 ---");
     const mergedMap = new Map();
     
-    // 定義「黃金存活時間」為 60 秒 (60000 毫秒)
-    const SURVIVAL_TIME = 60000; 
-    const now = new Date().getTime();
-
     // 輔助：生成唯一鍵值
     const generateKey = (r) => {
         const ts = r.timestamp ? Number(r.timestamp) : 0;
         return `${r.category}_${r.subFunction}_${r.title}_${ts}`;
     };
 
-    // A. 建立雲端資料索引
+    // A. 建立雲端資料索引 (雲端是權威)
     cloudRecords.forEach(record => {
         const key = generateKey(record);
         mergedMap.set(key, record);
@@ -14576,35 +14572,39 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         if (!localRecord) return;
         const key = generateKey(localRecord);
         
-        // 計算資料年齡 (毫秒 -> 秒)
-        const recordTs = localRecord.timestamp ? Number(localRecord.timestamp) : 0;
-        const recordAgeMs = now - recordTs;
-        const recordAgeSec = (recordAgeMs / 1000).toFixed(1); // 轉成秒數，保留一位小數
-        
         // --- 情況 1：雲端也有這筆資料 ---
         if (mergedMap.has(key)) {
+            // 如果本地有「未同步的修改」(例如剛追問完)，優先使用本地版本
+            // 這樣才能將追問內容推上雲端
             if (localRecord.isSynced === false) {
+                // 繼承本地的內容，但標記保持不變，等待後續上傳
                 mergedMap.set(key, localRecord);
             }
+            // 否則，默認使用雲端版本 (已在 map 中)
         } 
         // --- 情況 2：雲端沒有這筆資料 ---
         else {
-            // ★★★ 印出詳細數據讓您檢查 ★★★
-            if (recordAgeMs < SURVIVAL_TIME) {
-                console.log(`[同步] 🛡️ 保留 (保護期內): [${localRecord.title}] | 存活時間: ${recordAgeSec} 秒 (< 60秒)`);
+            // ★★★ 核心判斷：是「新草稿」還是「被老師刪除」？ ★★★
+            
+            // hasBeenSynced === false : 代表這是剛生成、從未上過雲端的新資料 -> 【保留並上傳】
+            if (localRecord.hasBeenSynced === false) {
                 mergedMap.set(key, localRecord);
-            }
+            } 
+            // hasBeenSynced === true : 代表它曾經在雲端。現在沒了，表示被老師刪了 -> 【本地同步刪除】
+            // (如果不加入 map，就等於刪除了)
             else {
-                // 這裡會顯示大於 60 秒的數字
-                console.log(`[同步] ❌ 刪除 (已超時): [${localRecord.title}] | 存活時間: ${recordAgeSec} 秒 (> 60秒) | 雲端缺失`);
+                console.log(`[同步] 雲端已移除紀錄: ${localRecord.title}，執行本地刪除。`);
             }
         }
     });
 
+    // C. 排序回傳
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
+
+
 // ==========================================
-// === 1. 核心同步函數 (強制身份修正版) ===
+// === [DEBUG 版] 核心同步函數 ===
 // ==========================================
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -14613,7 +14613,9 @@ async function syncHistoryToFirebase(isSilent = false) {
         return;
     }
     
-    // UI 按鈕處理
+    console.log(`[DEBUG] 啟動同步... 用戶: ${s.name}`);
+
+    // UI 按鈕狀態處理
     let btn = null;
     let originalText = "";
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
@@ -14636,9 +14638,12 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onsuccess = e => resolve(e.target.result);
             req.onerror = () => resolve([]);
         });
-        
+        console.log(`[DEBUG] 讀取本地: ${localRecords.length} 筆`);
+
         // B. 讀取雲端
         const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+        console.log(`[DEBUG] 讀取雲端路徑: ${path}`);
+        
         const cloudSnapshot = await database.ref(path).once('value');
         const cloudData = cloudSnapshot.val();
         let cloudRecords = [];
@@ -14650,49 +14655,33 @@ async function syncHistoryToFirebase(isSilent = false) {
                 cloudRecords = Object.values(cloudData);
             }
         }
-        
-        // ★★★ 關鍵修正：從雲端下來的，一律視為「已歸檔 (true)」 ★★★
-        // 這能修復之前因為 JSON 紀錄了 "false" 而導致無法刪除的 Bug
-        cloudRecords = cloudRecords.map(r => ({ 
-            ...r, 
-            isSynced: true, 
-            hasBeenSynced: true 
-        }));
-        
-        // C. 執行合併
+        // 標記雲端資料為已同步
+        cloudRecords = cloudRecords.map(r => ({ ...r, isSynced: true }));
+        console.log(`[DEBUG] 讀取雲端: ${cloudRecords.length} 筆`);
+
+        // C. 執行合併 (這會呼叫上面的新函數)
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
-        
+
         // D. 寫回雲端
         await database.ref(path).set(mergedRecords);
+        console.log(`[DEBUG] 雲端更新完畢`);
         
-        // E. 寫回本地 (並鎖定狀態)
+        // E. 寫回本地
         await updateLocalHistoryWithMergedData(mergedRecords, db);
+        console.log(`[DEBUG] 本地更新完畢`);
         
-        if (!isSilent) alert("✅ 同步完成！資料已更新。");
+        if (!isSilent) alert("✅ 資料同步完成！");
         
         // F. 刷新畫面
         const level3 = document.getElementById('historyLevel3');
-        if (level3 && level3.style.display !== 'none') {
-            if (typeof currentSubFunctionFilter !== 'undefined') {
-                const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-                enterHistoryList(currentSubFunctionFilter, themeIndex);
-            }
-        } else if (document.getElementById('historyModal').style.display === 'flex') {
-            const currentTimestamp = window.lastGeneratedTimestamp;
-            if (currentTimestamp) {
-                const exists = mergedRecords.some(r => Number(r.timestamp) === Number(currentTimestamp));
-                if (!exists) {
-                    closeHistoryModal();
-                    if(!isSilent) alert("此紀錄已被雲端移除。");
-                    if (typeof currentSubFunctionFilter !== 'undefined') {
-                        enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
-                    }
-                }
-            }
+        // 如果正在列表頁面，刷新列表
+        if (level3 && level3.style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
+             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+             enterHistoryList(currentSubFunctionFilter, themeIndex);
         }
- 
+        
     } catch (err) {
-        console.error("同步失敗:", err);
+        console.error("[DEBUG] 同步錯誤:", err);
         if (!isSilent) alert("❌ 同步失敗: " + err.message);
     } finally {
         if (btn && originalText) {
@@ -14701,6 +14690,7 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
     }
 }
+
 
 	
 // ==========================================
@@ -15816,7 +15806,11 @@ function findIdByTimestamp(timestamp) {
 
 
 // ==========================================
-// === 3. 儲存修訂 (賦予新草稿身份) ===
+// === 最終修復：儲存修訂 + 刷新背景列表 ===
+// ==========================================
+ 
+// ==========================================
+// === 4. 儲存修訂 (修訂內容不影響刪除邏輯) ===
 // ==========================================
 async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
@@ -15843,25 +15837,28 @@ async function saveHistoryEdits(id) {
                 if (userContentEl) record.userContent = userContentEl.innerText;
                 if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
  
-                // 更新時間戳 (這會讓它變成一筆全新的紀錄)
+                // 更新時間戳 (視為新版)
                 const newTimestamp = new Date().getTime();
                 record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
-                // ★★★ 關鍵：標記為新草稿 ★★★
-                // 這樣做可以獲得 mergeHistoryRecords 的保護，直到同步成功
+                // ★★★ 關鍵：標記為未同步，但保留歷史狀態 ★★★
                 record.isSynced = false; 
+                
+                // 注意：這裡我們將 hasBeenSynced 設為 false，是因為「修訂」在邏輯上產生了一筆
+                // 全新的紀錄 (新 timestamp)，舊的那筆會被刪除。
+                // 所以這筆新的必須被視為「新草稿」保護起來，直到它第一次成功上傳。
                 record.hasBeenSynced = false; 
  
                 const putRequest = store.put(record);
                 
                 putRequest.onsuccess = async function() {
-                    console.log("修訂已儲存，準備同步");
+                    console.log("本地紀錄已修訂");
  
-                    // 嘗試刪除雲端上的「舊版本」 (清理垃圾)
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
                         try {
+                            // 刪除雲端舊的時間戳版本 (如果存在)
                             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
                             const snapshot = await database.ref(path).once('value');
                             const cloudData = snapshot.val();
@@ -15871,13 +15868,15 @@ async function saveHistoryEdits(id) {
                             }
                             const updatedRecords = cloudRecords.filter(r => r.timestamp !== oldTimestamp);
                             await database.ref(path).set(updatedRecords);
-                        } catch (e) {}
+                        } catch (cloudErr) {
+                            console.error("雲端舊檔移除失敗:", cloudErr);
+                        }
                     }
                     
-                    // 上傳「新版本」
+                    // 上傳新版本
                     await syncHistoryToFirebase(true);
  
-                    // UI 更新
+                    // 更新 UI
                     const newId = await findIdByTimestamp(newTimestamp);
                     if (newId) {
                         await viewHistoryDetail(newId);
@@ -15889,16 +15888,19 @@ async function saveHistoryEdits(id) {
                         alert("✅ 修訂已儲存並同步！");
                     }
                 };
+            } else {
+                alert("錯誤：找不到原始紀錄。");
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalIcon;
             }
         };
     } catch (e) {
         console.error("儲存失敗:", e);
+        alert("儲存失敗，請重試。");
         saveBtn.disabled = false;
         saveBtn.innerHTML = originalIcon;
     }
 }
-
-	
 	
 function closeHistoryModal() {
     document.getElementById('historyModal').style.display = 'none';
@@ -16025,25 +16027,32 @@ function enableTitleEditing(titleEl, id) {
 }
 
 // ==========================================
-// === 4. 聊天室即時存檔 (保持原身份) ===
+// === 3. 聊天室/追問 即時存檔 (保護生命週期) ===
 // ==========================================
 async function updateHistoryChat() {
-    if (!lastGeneratedTimestamp) return;
+    if (!lastGeneratedTimestamp) {
+        console.warn("未設定時間戳，無法儲存對話。");
+        return; 
+    }
 
+    // 尋找內容來源
     let sourceElement = document.getElementById("resultCanvasBody");
     const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
     
     if (isCanvasHidden) {
         sourceElement = document.getElementById("historyModalContent");
     }
+
     if (!sourceElement) return;
     
+    // 複製並清理 HTML (移除輸入框與按鈕)
     const clone = sourceElement.cloneNode(true);
-    // ... (清理 DOM 元素的代碼省略，保持您原有的即可) ...
     const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
     inputAreas.forEach(el => el.remove());
+    
     const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn, .history-save-btn, .morandi-save-float-btn');
     buttons.forEach(el => el.remove());
+
     const clonedCanvases = clone.querySelectorAll('canvas');
     clonedCanvases.forEach((canvas) => {
         canvas.style.width = '100%';
@@ -16065,28 +16074,36 @@ async function updateHistoryChat() {
         request.onsuccess = function(event) {
             const data = event.target.result;
             if (data) {
-                // 更新內容
+                // A. 更新內容
                 data.aiContent = newAiContent;
                 
-                // 標記內容有變 (需要上傳)
+                // B. 標記狀態：內容有變，需要上傳
                 delete data.isSynced; 
                 data.isSynced = false; 
                 
-                // ★★★ 關鍵：保持 hasBeenSynced 不變 ★★★
-                // 不要重置為 false！這樣它才不會變成「假新草稿」。
+                // C. ★★★ 關鍵：絕對不要將 hasBeenSynced 設為 false ★★★
+                // 我們只在它是 undefined (極舊資料) 時才補上 false。
+                // 如果它原本是 true，保持 true。這確保了如果老師刪除，這筆資料會消失。
                 if (data.hasBeenSynced === undefined) {
-                    data.hasBeenSynced = false; // 只有真的很舊的資料才補 false
+                    data.hasBeenSynced = false;
                 }
 
                 const updateRequest = store.put(data);
+                
                 updateRequest.onsuccess = function() {
+                    console.log("聊天紀錄已更新 (準備上傳)");
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
-                    if (s) syncHistoryToFirebase(true); // 靜默上傳更新
+                    if (s) {
+                        syncHistoryToFirebase(true); // 觸發同步
+                    }
                 };
             }
         };
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("更新聊天紀錄失敗:", e);
+    }
 }
+
 	
 // === 雙擊/單擊 衝突解決方案 ===
 let titleClickTimer = null;
