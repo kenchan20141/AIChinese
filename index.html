@@ -14549,7 +14549,7 @@ async function updateHistoryChat() {
 	
 	
 // ==========================================
-// === 1. 合併算法 (嚴格雙向同步版) ===
+// === 1. 合併算法 (修復：嚴格雙向同步與刪除) ===
 // ==========================================
 function mergeHistoryRecords(localRecords, cloudRecords) {
     console.log("--- [Logic] 執行智能合併 ---");
@@ -14561,7 +14561,7 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         return `${r.category}_${r.subFunction}_${r.title}_${ts}`;
     };
 
-    // A. 建立雲端資料索引 (雲端是權威)
+    // A. 建立雲端資料索引 (雲端是最高權威)
     cloudRecords.forEach(record => {
         const key = generateKey(record);
         mergedMap.set(key, record);
@@ -14574,34 +14574,38 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         
         // --- 情況 1：雲端也有這筆資料 ---
         if (mergedMap.has(key)) {
-            // 如果本地有「未同步的修改」(例如剛追問完)，優先使用本地版本
-            // 這樣才能將追問內容推上雲端
+            // 如果本地有「未同步的修改」(例如剛追問完、剛修訂完)，優先使用本地版本
+            // 這樣才能將最新的聊天/修訂內容推上雲端
             if (localRecord.isSynced === false) {
-                // 繼承本地的內容，但標記保持不變，等待後續上傳
+                // 繼承本地的最新內容
+                // 但要確保 hasBeenSynced 屬性被保留，這樣下次同步才知道它的狀態
+                localRecord.hasBeenSynced = true; 
                 mergedMap.set(key, localRecord);
             }
             // 否則，默認使用雲端版本 (已在 map 中)
         } 
-        // --- 情況 2：雲端沒有這筆資料 ---
+        // --- 情況 2：雲端【沒有】這筆資料 (最關鍵的刪除判斷) ---
         else {
             // ★★★ 核心判斷：是「新草稿」還是「被老師刪除」？ ★★★
             
-            // hasBeenSynced === false : 代表這是剛生成、從未上過雲端的新資料 -> 【保留並上傳】
-            if (localRecord.hasBeenSynced === false) {
-                mergedMap.set(key, localRecord);
+            // 如果 hasBeenSynced 為 true，代表這筆資料曾經存在於雲端。
+            // 現在雲端沒了，唯一的解釋就是「被刪除了」。
+            if (localRecord.hasBeenSynced === true) {
+                console.log(`[同步] 偵測到雲端已刪除紀錄: ${localRecord.title}，執行本地同步刪除。`);
+                // 不將其加入 mergedMap，即代表刪除
             } 
-            // hasBeenSynced === true : 代表它曾經在雲端。現在沒了，表示被老師刪了 -> 【本地同步刪除】
-            // (如果不加入 map，就等於刪除了)
+            // 如果 hasBeenSynced 為 false (或 undefined)，代表這是剛生成、還沒來得及上傳的新資料
+            // 我們必須保留它並上傳
             else {
-                console.log(`[同步] 雲端已移除紀錄: ${localRecord.title}，執行本地刪除。`);
+                console.log(`[同步] 發現未上傳的新紀錄: ${localRecord.title}，準備上傳。`);
+                mergedMap.set(key, localRecord);
             }
         }
     });
 
-    // C. 排序回傳
+    // C. 排序回傳 (按時間倒序)
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
-
 
 // ==========================================
 // === [DEBUG 版] 核心同步函數 ===
@@ -14694,7 +14698,7 @@ async function syncHistoryToFirebase(isSilent = false) {
 
 	
 // ==========================================
-// === 2. 更新本地資料庫 (鎖定同步狀態) ===
+// === 2. 更新本地資料庫 (修復：鎖定同步狀態) ===
 // ==========================================
 async function updateLocalHistoryWithMergedData(mergedRecords, db) {
     let localDb = db;
@@ -14717,9 +14721,12 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
         for (const record of mergedRecords) {
             delete record.id; // 移除舊 ID，讓 IndexedDB 重新分配
             
-            // ★★★ 關鍵設定 ★★★
-            // 既然這份列表已經是同步後的結果 (準備寫入或已寫入雲端)，
-            // 那麼它們現在全部都視為「已同步」且「曾經上傳過」。
+            // ★★★ 關鍵設定：同步完成後的鎖定 ★★★
+            // 既然這份列表是已經與雲端溝通後的最終結果：
+            // 1. isSynced = true (代表內容已一致)
+            // 2. hasBeenSynced = true (代表這筆資料已經在雲端「掛號」了)
+            // 這樣下次如果雲端沒了這筆資料，merge 函數就會知道要刪除它
+            
             record.isSynced = true;       
             record.hasBeenSynced = true;  
             
@@ -15806,11 +15813,7 @@ function findIdByTimestamp(timestamp) {
 
 
 // ==========================================
-// === 最終修復：儲存修訂 + 刷新背景列表 ===
-// ==========================================
- 
-// ==========================================
-// === 4. 儲存修訂 (修訂內容不影響刪除邏輯) ===
+// === 4. 儲存修訂 (修復：版本更替與同步) ===
 // ==========================================
 async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
@@ -15837,17 +15840,20 @@ async function saveHistoryEdits(id) {
                 if (userContentEl) record.userContent = userContentEl.innerText;
                 if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
  
-                // 更新時間戳 (視為新版)
+                // 更新時間戳 (視為新版，避免與舊版衝突)
                 const newTimestamp = new Date().getTime();
                 record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
-                // ★★★ 關鍵：標記為未同步，但保留歷史狀態 ★★★
+                // ★★★ 關鍵修訂：狀態邏輯 ★★★
+                // 因為我們改了 timestamp，這在技術上是一筆「全新」的紀錄
+                // 舊的那筆 (oldTimestamp) 我們會手動從雲端刪除
+                
+                // 標記為未同步，讓它上傳
                 record.isSynced = false; 
                 
-                // 注意：這裡我們將 hasBeenSynced 設為 false，是因為「修訂」在邏輯上產生了一筆
-                // 全新的紀錄 (新 timestamp)，舊的那筆會被刪除。
-                // 所以這筆新的必須被視為「新草稿」保護起來，直到它第一次成功上傳。
+                // 這裡設為 false 是為了保護這筆「新誕生」的紀錄
+                // 確保它在第一次成功上傳前，不會因為雲端沒有它而被誤刪
                 record.hasBeenSynced = false; 
  
                 const putRequest = store.put(record);
@@ -15858,7 +15864,7 @@ async function saveHistoryEdits(id) {
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
                         try {
-                            // 刪除雲端舊的時間戳版本 (如果存在)
+                            // 主動刪除雲端舊的時間戳版本 (如果存在)
                             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
                             const snapshot = await database.ref(path).once('value');
                             const cloudData = snapshot.val();
@@ -15866,6 +15872,7 @@ async function saveHistoryEdits(id) {
                             if (cloudData) {
                                 cloudRecords = Array.isArray(cloudData) ? cloudData.filter(x=>x) : Object.values(cloudData);
                             }
+                            // 過濾掉舊紀錄
                             const updatedRecords = cloudRecords.filter(r => r.timestamp !== oldTimestamp);
                             await database.ref(path).set(updatedRecords);
                         } catch (cloudErr) {
@@ -15873,12 +15880,15 @@ async function saveHistoryEdits(id) {
                         }
                     }
                     
-                    // 上傳新版本
+                    // 立即上傳新版本
                     await syncHistoryToFirebase(true);
  
-                    // 更新 UI
+                    // 更新 UI 並鎖定新 ID
                     const newId = await findIdByTimestamp(newTimestamp);
                     if (newId) {
+                        // 更新全域時間戳，確保後續追問是針對新版本
+                        lastGeneratedTimestamp = newTimestamp;
+                        
                         await viewHistoryDetail(newId);
                         if (typeof currentSubFunctionFilter !== 'undefined' &&
                             document.getElementById('historyLevel3').style.display !== 'none') {
@@ -16027,7 +16037,7 @@ function enableTitleEditing(titleEl, id) {
 }
 
 // ==========================================
-// === 3. 聊天室/追問 即時存檔 (保護生命週期) ===
+// === 3. 聊天室/追問 即時存檔 (修復：狀態保護) ===
 // ==========================================
 async function updateHistoryChat() {
     if (!lastGeneratedTimestamp) {
@@ -16035,7 +16045,7 @@ async function updateHistoryChat() {
         return; 
     }
 
-    // 尋找內容來源
+    // 尋找內容來源 (兼容畫布與歷史詳情視窗)
     let sourceElement = document.getElementById("resultCanvasBody");
     const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
     
@@ -16074,27 +16084,27 @@ async function updateHistoryChat() {
         request.onsuccess = function(event) {
             const data = event.target.result;
             if (data) {
-                // A. 更新內容
+                // A. 更新內容 (保留聊天紀錄)
                 data.aiContent = newAiContent;
                 
-                // B. 標記狀態：內容有變，需要上傳
-                delete data.isSynced; 
+                // B. ★★★ 關鍵修訂：狀態標記 ★★★
+                // isSynced = false: 告訴系統「內容變了，請立即上傳到雲端」
                 data.isSynced = false; 
                 
-                // C. ★★★ 關鍵：絕對不要將 hasBeenSynced 設為 false ★★★
-                // 我們只在它是 undefined (極舊資料) 時才補上 false。
-                // 如果它原本是 true，保持 true。這確保了如果老師刪除，這筆資料會消失。
-                if (data.hasBeenSynced === undefined) {
-                    data.hasBeenSynced = false;
-                }
+                // hasBeenSynced = true: 告訴系統「這筆資料已經歸檔了」
+                // 這樣做可以防止它變成「新草稿」，如果雲端此時刪除了它，
+                // 下次同步時因為它是 true 且雲端沒有，就會被正確刪除。
+                data.hasBeenSynced = true; 
 
                 const updateRequest = store.put(data);
                 
                 updateRequest.onsuccess = function() {
                     console.log("聊天紀錄已更新 (準備上傳)");
+                    
+                    // 立即觸發同步，確保雲端獲得最新聊天內容
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
-                        syncHistoryToFirebase(true); // 觸發同步
+                        syncHistoryToFirebase(true); 
                     }
                 };
             }
