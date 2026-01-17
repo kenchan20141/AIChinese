@@ -14549,10 +14549,10 @@ async function updateHistoryChat() {
 	
 	
 // ==========================================
-// === [DEBUG 修復版] 合併算法 ===
+// === [DEBUG 最終修復版] 合併算法 ===
 // ==========================================
 function mergeHistoryRecords(localRecords, cloudRecords) {
-    console.log("--- [DEBUG] 執行合併邏輯 (v2) ---");
+    console.log("--- [DEBUG] 執行合併邏輯 (最終版) ---");
     const mergedMap = new Map();
     
     // 生成唯一鍵
@@ -14579,24 +14579,30 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         if (mergedMap.has(key)) {
             // 雲端有，本地也有
             if (localRecord.isSynced === false) {
+                // 本地有修改，覆蓋雲端 (保留學生最新的修改)
                 console.log(`[DEBUG] [${title}] 本地有新修改 -> 覆蓋雲端版本`);
                 mergedMap.set(key, localRecord);
             } else {
                 // 雙方同步，以雲端為準 (已在 map 中)
             }
         } 
-        // --- 情況 2：雲端沒有這筆資料 (關鍵修復) ---
+        // --- 情況 2：雲端沒有這筆資料 (關鍵!) ---
         else {
-            // ★★★ 強制刪除邏輯 ★★★
-            // 只有當 isSynced 明確為 false 時 (代表是剛按了生成、或是剛改了標題的新資料)，才保留。
-            // 其他情況 (true 或 undefined) 都視為「應該在雲端但消失了」，所以跟著刪除。
+            // ★★★ 最終邏輯修正 ★★★
+            // 我們只保留「從未上傳過」的新草稿 (hasBeenSynced === false)。
+            // 只要它曾經上傳過 (hasBeenSynced === true)，或者它是舊資料 (undefined)，
+            // 而現在雲端找不到它，就一律視為「被老師刪除了」。
             
-            if (localRecord.isSynced === false) {
-                console.log(`[DEBUG] ✅ [${title}] 保留 (標記為未同步/新草稿)`);
+            // 1. 檢查是否為新草稿
+            const isBrandNewDraft = (localRecord.hasBeenSynced === false);
+
+            if (isBrandNewDraft) {
+                console.log(`[DEBUG] ✅ [${title}] 是新草稿 (從未上傳) -> 保留`);
                 mergedMap.set(key, localRecord);
             } else {
-                console.log(`[DEBUG] ❌ [${title}] 刪除 (雲端已無此資料，且本地非新草稿)`);
-                // 不加入 Map = 執行刪除
+                // 2. 其他情況 (曾經上傳過，或舊資料) -> 執行刪除
+                console.log(`[DEBUG] ❌ [${title}] 雲端已刪除 -> 執行本地刪除`);
+                // 不加入 mergedMap，即代表刪除
             }
         }
     });
@@ -14604,7 +14610,6 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     console.log(`[DEBUG] 合併結束，最終保留: ${mergedMap.size} 筆`);
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
-
 
 
 // ==========================================
