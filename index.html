@@ -10316,6 +10316,7 @@ async function submitArgumentWriting() {
         showLoading(`${currentReviewerName} 正在細閱文章...`);
 
         if (isFullReview) {
+            // ... (全方位評分的代碼，displayFullCommentWithGrading 內部已經有 saveToHistory，所以這裡不需要改) ...
             let toneInstruction = "請使用嚴肅正經的語氣。";
             if (tone === "chen") {
                 toneInstruction = `
@@ -10377,15 +10378,11 @@ async function submitArgumentWriting() {
             currentContextContent = content;
             currentContextReview = response;
 
-            // 生成評分報告 (displayFullCommentWithGrading 內部會自動加入一個聊天室)
+            // 生成評分報告 (displayFullCommentWithGrading 內部會自動加入一個聊天室並存檔)
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
-            
-            // ★★★ 已移除多餘的 append ChatHTML 代碼 ★★★
-            
-         
 
         } else {
-            // (聚焦式點評邏輯 - 不變)
+            // (聚焦式點評邏輯 - 需要修復儲存)
             const scopeDefinitions = `
 - **謀篇**: 嚴謹地對比題目《${topic}》與文章的字面內容。
 - **論點**: 嚴謹地對比題目《${topic}》與文章的字面內容。
@@ -10430,12 +10427,22 @@ async function submitArgumentWriting() {
                 initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
             }
 
+            // 加入聊天室
+            initialReviewHTML += getCanvasChatHTML('argument_writing');
+
             openResultCanvas("聚焦點評結果");
             const resultBody = document.getElementById("resultCanvasBody");
+            resultBody.innerHTML = initialReviewHTML;
             
-            // ★★★ 手動追加 Chat ★★★
-            resultBody.innerHTML = initialReviewHTML + getCanvasChatHTML('argument_writing');
-         
+            // ★★★ 關鍵修復：這裡原本沒有調用 saveToHistory，現在補上 ★★★
+            const htmlToSave = captureContainerHTML('resultCanvasBody'); 
+            saveToHistory(
+                "議論", 
+                "文章點評", 
+                topic || "無題目", 
+                `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, 
+                htmlToSave
+            );
         }
 
     } catch (error) {
@@ -10446,7 +10453,6 @@ async function submitArgumentWriting() {
         hideLoading();
     }
 }
-
 
 // 【新增】用於儲存解題指引對話的上下文
 let currentGuideTopic = '';
@@ -11588,6 +11594,7 @@ function displayOutlineComment(response, content) {
 }
 
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存問題)
+// 替換舊的 submitReading 函式 (修正歷史紀錄儲存變數錯誤)
 async function submitReading() {
     const submitBtn = document.getElementById('submitReadingBtn');
     submitBtn.disabled = true; 
@@ -11722,10 +11729,16 @@ async function submitReading() {
             openResultCanvas("閱讀理解點評");
             document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             
-            // 儲存時移除聊天室 HTML
-            const historyHTML = finalHTML.split('<div class="canvas-chat-container">')[0];
-            saveToHistory("閱讀", "指引", question, `篇章：${passage}\n題目：${question}`, guideHTML);
-         
+            // ★★★ 修正這裡 ★★★
+            // 原本錯誤：saveToHistory("閱讀", "指引", ..., guideHTML)
+            // 修正後：使用 "點評" 作為子功能，並儲存 finalHTML
+            saveToHistory(
+                "閱讀", 
+                "點評", 
+                question || "閱讀練習", 
+                `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, 
+                finalHTML
+            );
 
         } else { // guide
             const guideParts = result.split("###").map(part => part.trim()).filter(part => part);
@@ -11771,10 +11784,14 @@ async function submitReading() {
             openResultCanvas("閱讀理解指引");
             document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             
-            // 儲存時移除聊天室 HTML
-            const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
-            saveToHistory("閱讀", "指引", question, `篇章：${passage}\n題目：${question}`, historyHTML);
-        
+            // 儲存時移除聊天室 HTML (指引部分原代碼正確，但為了保險這裡也貼上)
+            saveToHistory(
+                "閱讀", 
+                "指引", 
+                question || "閱讀指引", 
+                `篇章：${passage}\n題目：${question}`, 
+                guideHTML
+            );
         }
 
     } catch (error) {
@@ -11785,6 +11802,7 @@ async function submitReading() {
         hideLoading();
     }
 }
+
 
 // 課外書籍討論功能
 let chatHistory = [];
@@ -12260,7 +12278,7 @@ async function submitExpand() {
 
 
 // 提交整合拓展內容
-// 提交整合拓展內容 (已修復變數未定義錯誤)
+// 提交整合拓展內容 (已修復儲存邏輯)
 async function submitExpandComment() {
     const submitBtn = document.getElementById('submitExpandBtn');
     submitBtn.disabled = true;
@@ -12271,7 +12289,7 @@ async function submitExpandComment() {
         const theme = localStorage.getItem("expandCurrentTheme");
         const data = localStorage.getItem("expandCurrentData");
         
-        // 1. 這裡定義的變數名稱是 content
+        // 獲取用戶輸入的內容
         const content = document.getElementById("expandContent").value.trim();
         
         if (!theme || !data || !content) {
@@ -12331,17 +12349,14 @@ async function submitExpandComment() {
         openResultCanvas("整合拓展點評");
         document.getElementById("resultCanvasBody").innerHTML = finalHTML;
         
-        // 儲存時移除聊天室 HTML
-        const historyHTML = finalHTML.split('<div class="canvas-chat-container">')[0];
+        // 儲存時移除聊天室 HTML 結構以保持乾淨，或直接儲存也可（saveToHistory 內部會處理輸入框移除）
+        const historyHTML = finalHTML; 
         
-        // ★★★ 關鍵修復處 ★★★
-        // 1. 將第二個參數 "指引" 改為 "點評" (這才是正確的子功能名稱)
-        // 2. 將內容：${expand} 改為 內容：${content} (對應上方定義的變數)
-        // 3. 將最後一個參數 guideHTML 改為 historyHTML (對應上方定義的變數)
+        // ★★★ 關鍵修復：正確呼叫儲存函數 ★★★
         saveToHistory(
             "整合拓展", 
-            "點評", 
-            title, 
+            "點評", // 確保子功能名稱正確
+            title || "無題目", 
             `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, 
             historyHTML
         );
