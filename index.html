@@ -14549,15 +14549,13 @@ async function updateHistoryChat() {
 	
 	
 // ==========================================
-// === [終極修復] 合併算法 (絕對時間法則) ===
+// === [詳細數據版] 合併算法 ===
 // ==========================================
 function mergeHistoryRecords(localRecords, cloudRecords) {
-    console.log("--- [Logic] 執行合併 (絕對時間法則) ---");
+    console.log("--- [Logic] 執行合併 (顯示詳細時間) ---");
     const mergedMap = new Map();
     
-    // 定義「黃金存活時間」為 60 秒
-    // 意思：只有 60 秒內誕生的新資料，才有資格在雲端缺失時「暫時存活」。
-    // 任何超過 1 分鐘的資料，只要雲端沒有，一律視為「被刪除」。
+    // 定義「黃金存活時間」為 60 秒 (60000 毫秒)
     const SURVIVAL_TIME = 60000; 
     const now = new Date().getTime();
 
@@ -14567,7 +14565,7 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         return `${r.category}_${r.subFunction}_${r.title}_${ts}`;
     };
 
-    // A. 建立雲端資料索引 (雲端是絕對權威)
+    // A. 建立雲端資料索引
     cloudRecords.forEach(record => {
         const key = generateKey(record);
         mergedMap.set(key, record);
@@ -14578,42 +14576,33 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         if (!localRecord) return;
         const key = generateKey(localRecord);
         
-        // 取得資料年齡 (如果沒有 timestamp 則視為超舊資料，age 為無限大)
+        // 計算資料年齡 (毫秒 -> 秒)
         const recordTs = localRecord.timestamp ? Number(localRecord.timestamp) : 0;
-        const recordAge = now - recordTs;
+        const recordAgeMs = now - recordTs;
+        const recordAgeSec = (recordAgeMs / 1000).toFixed(1); // 轉成秒數，保留一位小數
         
         // --- 情況 1：雲端也有這筆資料 ---
         if (mergedMap.has(key)) {
-            // 如果本地有「未同步的修改」(例如剛追問完)，優先使用本地版本
             if (localRecord.isSynced === false) {
                 mergedMap.set(key, localRecord);
             }
-            // 否則，默認使用雲端版本 (已在 map 中)
         } 
-        // --- 情況 2：雲端沒有這筆資料 (關鍵判斷) ---
+        // --- 情況 2：雲端沒有這筆資料 ---
         else {
-            // ★★★ 鐵血判斷邏輯 ★★★
-            // 我們不再看它是否 sync 過，只看時間。
-            
-            if (recordAge < SURVIVAL_TIME) {
-                // 它是 60 秒內剛出生的寶寶，可能還在傳輸中，給它活路。
-                console.log(`[同步] 保留 (新生成/剛修訂 < 60s): ${localRecord.title}`);
+            // ★★★ 印出詳細數據讓您檢查 ★★★
+            if (recordAgeMs < SURVIVAL_TIME) {
+                console.log(`[同步] 🛡️ 保留 (保護期內): [${localRecord.title}] | 存活時間: ${recordAgeSec} 秒 (< 60秒)`);
                 mergedMap.set(key, localRecord);
             }
             else {
-                // 它已經超過 60 秒了。
-                // 既然雲端找不到，代表它要麼是被老師刪了，要麼是上傳失敗的棄嬰。
-                // 執行死刑。
-                console.log(`[同步] ❌ 刪除 (超時舊檔 > 60s): ${localRecord.title}`);
-                // 不加入 Map = 刪除
+                // 這裡會顯示大於 60 秒的數字
+                console.log(`[同步] ❌ 刪除 (已超時): [${localRecord.title}] | 存活時間: ${recordAgeSec} 秒 (> 60秒) | 雲端缺失`);
             }
         }
     });
 
-    // C. 排序回傳
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
-
 // ==========================================
 // === 1. 核心同步函數 (強制身份修正版) ===
 // ==========================================
