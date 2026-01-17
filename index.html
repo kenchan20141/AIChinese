@@ -10252,16 +10252,16 @@ async function submitArgumentOutline() {
         resultContainer.innerHTML = fullAiResultHtml;
         resultContainer.style.width = "100%";
         
-    
-        
         let userInputHistoryStr = `題目：${topic}`;
-       saveToHistory(
-    "議論", 
-    "大綱點評", 
-    topic, 
-    userInputHistoryStr, 
-    fullAiResultHtml // 確保這個變數包含了 getCanvasChatHTML 的結果
-);
+        
+        // ★★★ 修訂處：加上 await ★★★
+        await saveToHistory(
+            "議論", 
+            "大綱點評", 
+            topic, 
+            userInputHistoryStr, 
+            fullAiResultHtml 
+        );
 
     } catch (error) {
         console.error("提交議論大綱時出錯:", error);
@@ -10512,23 +10512,27 @@ function handleAllScopeChange(checkbox) {
     }
 }
 
-// 提交議論指引
+// ==========================================
+// === 修訂：提交議論指引 (加入 await) ===
+// ==========================================
 async function submitArgumentGuide() {
-const submitBtn = document.getElementById('submitArgumentGuideBtn');
-submitBtn.disabled = true; // 禁用按鈕
-	hideAllSaveHtmlButtons();
+    const submitBtn = document.getElementById('submitArgumentGuideBtn');
+    submitBtn.disabled = true; 
+    hideAllSaveHtmlButtons();
 
-try {
-const topic = document.getElementById("argumentGuideTopic").value.trim();
-const point = document.getElementById("argumentGuidePoint").value.trim();
-const evidence = document.getElementById("argumentGuideEvidence").value.trim();
-const argument = document.getElementById("argumentGuideArgument").value.trim();
-if (!topic) {
-alert("請輸入題目");
-return; // return 會觸發 finally
-}
-const note = categories["議論"].guideNote;
-let prompt = `請根據以下輸入提供參考建議。要求：
+    try {
+        const topic = document.getElementById("argumentGuideTopic").value.trim();
+        const point = document.getElementById("argumentGuidePoint").value.trim();
+        const evidence = document.getElementById("argumentGuideEvidence").value.trim();
+        const argument = document.getElementById("argumentGuideArgument").value.trim();
+        
+        if (!topic) {
+            alert("請輸入題目");
+            return; 
+        }
+
+        const note = categories["議論"].guideNote;
+        const prompt = `請根據以下輸入提供參考建議。要求：
 1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
 2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
 3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
@@ -10539,11 +10543,11 @@ let prompt = `請根據以下輸入提供參考建議。要求：
 論據：${evidence || "無"}
 論證：${argument || "無"}
 教學筆記：${note}`;
-showLoading("陳SIR 正在思考...");
 
-// 【核心修訂】改用閱讀專用的 API 函式
-const guide = await callReadingAPI(prompt);
- // 設定聊天室上下文
+        showLoading("陳SIR 正在思考指引...");
+        
+        const guide = await callReadingAPI(prompt);
+        
         currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
         currentContextReview = guide;
 
@@ -10555,26 +10559,27 @@ const guide = await callReadingAPI(prompt);
         });
         guideHTML += "</table>";
 
-        // ★★★ 加入聊天室 ★★★
         guideHTML += getCanvasChatHTML('argument_guide');
 
         openResultCanvas("議論文寫作指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
 
-        // 儲存 (移除聊天室)
         const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
-        saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
-    
+        // ★★★ 核心修訂：加上 await ★★★
+        // 確保這裡跑完，isSynced 已經變為 true
+        await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
+        
     } catch (error) {
         console.error("提交指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
         submitBtn.disabled = false; 
-        hideLoading();
+        hideLoading(); // Loading 消失時，資料肯定已同步完成
     }
 }
 
+	
 // 通用 API 調用函數 (加入 50 秒超時)
 async function callAPI(prompt, temperature = null) {
 	// ★★★ 新增：額度檢查 ★★★
@@ -11156,19 +11161,16 @@ async function submitWritingGuide() {
         // 這會自動生成對話框，並且 sendCanvasMessage 會讀取上面的 currentContext 變數
         finalHTML += getCanvasChatHTML('narrative_guide');
 
-        // === 打開畫布並寫入內容 ===
-        openResultCanvas("解題指引");
+         openResultCanvas("解題指引");
         const resultContainer = document.getElementById("resultCanvasBody");
         resultContainer.innerHTML = finalHTML;
 
-        // === 儲存歷史紀錄 ===
+        // ★★★ 修訂處：加上 await ★★★
         // 新的邏輯：完整儲存 (包含聊天室介面)
-saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, finalHTML);
+        await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, finalHTML);
         
         // 顯示儲存按鈕 (如果有的話)
         hideAllSaveHtmlButtons();
-   
-
 
     } catch (error) {
         console.error("解題指引生成失敗:", error);
@@ -11329,13 +11331,15 @@ async function submitWriting() {
             // ★★★ 加入聊天室介面 ★★★
             elementsHTML += getCanvasChatHTML('narrative_elements');
 
-            openResultCanvas("生成的敘事物象");
+               openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             
             // 儲存時移除聊天室 HTML (以免歷史紀錄過長)
             const historyHTML = elementsHTML.split('<div class="canvas-chat-container">')[0];
-            saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
-        } 
+            
+            // ★★★ 修訂處 1：加上 await ★★★
+            await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
+        }
         // ==========================================
         // 模式三：文章點評 (保持不變)
         // ==========================================
@@ -11589,9 +11593,22 @@ function displayOutlineComment(response, content) {
     }
     
     openResultCanvas("敘事大綱點評結果");
-    const resultContainer = document.getElementById("resultCanvasBody");
-    resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML + getCanvasChatHTML('narrative_outline');
-}
+            const resultContainer = document.getElementById("resultCanvasBody");
+            // 注意：這裡應該是呼叫 displayOutlineComment 後儲存
+            // 請確認 displayOutlineComment 執行後，我們抓取內容儲存
+
+            const structureName = structure === "fourPart" ? "起承轉合" : "三線";
+            let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
+            
+            // ★★★ 修訂處 2：加上 await ★★★
+            await saveToHistory(
+                "敘事抒情", 
+                "大綱點評", 
+                topic, 
+                userContentForHistory, 
+                document.getElementById("resultCanvasBody").innerHTML 
+            );
+        }
 
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存問題)
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存變數錯誤)
@@ -11729,10 +11746,8 @@ async function submitReading() {
             openResultCanvas("閱讀理解點評");
             document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             
-            // ★★★ 修正這裡 ★★★
-            // 原本錯誤：saveToHistory("閱讀", "指引", ..., guideHTML)
-            // 修正後：使用 "點評" 作為子功能，並儲存 finalHTML
-            saveToHistory(
+            // ★★★ 修訂處 1 (點評)：加上 await ★★★
+            await saveToHistory(
                 "閱讀", 
                 "點評", 
                 question || "閱讀練習", 
@@ -11740,7 +11755,7 @@ async function submitReading() {
                 finalHTML
             );
 
-        } else { // guide
+        } else { 
             const guideParts = result.split("###").map(part => part.trim()).filter(part => part);
             guideHTML = "<h3>陳SIR指引：</h3>";
 
@@ -11781,11 +11796,11 @@ async function submitReading() {
             // ★★★ 加入聊天室 (指引) ★★★
             guideHTML += getCanvasChatHTML('reading_guide');
 
-            openResultCanvas("閱讀理解指引");
+             openResultCanvas("閱讀理解指引");
             document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             
-            // 儲存時移除聊天室 HTML (指引部分原代碼正確，但為了保險這裡也貼上)
-            saveToHistory(
+            // ★★★ 修訂處 2 (指引)：加上 await ★★★
+            await saveToHistory(
                 "閱讀", 
                 "指引", 
                 question || "閱讀指引", 
@@ -12346,16 +12361,15 @@ async function submitExpandComment() {
         // ★★★ 加入聊天室 ★★★
         finalHTML += getCanvasChatHTML('expand_comment');
 
-        openResultCanvas("整合拓展點評");
+       openResultCanvas("整合拓展點評");
         document.getElementById("resultCanvasBody").innerHTML = finalHTML;
         
-        // 儲存時移除聊天室 HTML 結構以保持乾淨，或直接儲存也可（saveToHistory 內部會處理輸入框移除）
         const historyHTML = finalHTML; 
         
-        // ★★★ 關鍵修復：正確呼叫儲存函數 ★★★
-        saveToHistory(
+        // ★★★ 修訂處：加上 await ★★★
+        await saveToHistory(
             "整合拓展", 
-            "點評", // 確保子功能名稱正確
+            "點評", 
             title || "無題目", 
             `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, 
             historyHTML
@@ -12441,11 +12455,16 @@ async function submitExpandGuide() {
         openResultCanvas("整合拓展指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
         
-        // 儲存歷史紀錄 (移除聊天室)
         const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
-        saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, historyHTML);
         
-        
+        // ★★★ 修訂處：加上 await ★★★
+        await saveToHistory(
+            "整合拓展", 
+            "指引", 
+            title, 
+            `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, 
+            historyHTML
+        );
 
     } catch (error) {
         console.error("提交整合拓展指引時出錯:", error);
@@ -13884,16 +13903,16 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     // 使用 captureContainerHTML 確保儲存時雷達圖不消失 (記得要用不轉圖片的修復版)
     // 使用 captureContainerHTML 確保儲存時雷達圖不消失
+    // 使用 captureContainerHTML 確保儲存時雷達圖不消失
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
-    saveToHistory(
-        // ★★★ 這一行必須保留，不能改！它會自動判斷是敘事還是議論 ★★★
+    // ★★★ 修訂處：加上 await ★★★
+    await saveToHistory(
         uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
-        
         "文章點評", 
         topic || "無題目", 
         `題目：${topic}\n\n文章：${fullTextContent}`, 
-        htmlContent, // 這裡傳入完整的 HTML (含聊天室) 即可
+        htmlContent, 
         scoresForDisplay 
     );
 }
@@ -14408,21 +14427,17 @@ function captureContainerHTML(containerId) {
 
 	
 // === 修改後：儲存紀錄 (初始化同步狀態) ===
+// ==========================================
+// === 修訂：儲存紀錄 (強制等待同步完成) ===
+// ==========================================
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
-        // 1. 清理 HTML (移除輸入框與按鈕)
+        // 1. 清理 HTML
         if (aiContent && typeof aiContent === 'string') {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
-            
-            // 移除輸入區
-            const inputAreas = tempDiv.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer');
-            inputAreas.forEach(el => el.remove());
-            
-            // 移除按鈕
-            const continueBtns = tempDiv.querySelectorAll('button, .btn-icon-action, .canvas-send-btn');
-            continueBtns.forEach(el => el.remove());
-
+            const toRemove = tempDiv.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer, button, .btn-icon-action, .canvas-send-btn');
+            toRemove.forEach(el => el.remove());
             aiContent = tempDiv.innerHTML;
         }
 
@@ -14430,7 +14445,6 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
 
-        // 2. 生成時間戳
         const ts = new Date().getTime();
         lastGeneratedTimestamp = ts; 
 
@@ -14444,18 +14458,27 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             timestamp: ts,
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false }),
             
-            // ★★★ 關鍵初始狀態 ★★★
-            isSynced: false,       // 還沒同步
-            hasBeenSynced: false   // 從來沒上傳過 (保護它不被當作「被刪除的檔案」)
+            // 初始狀態：False (保護它是新草稿)
+            isSynced: false,       
+            hasBeenSynced: false   
         };
 
-        store.add(record);
-        console.log("本地紀錄已儲存 (等待同步)");
+        // 使用 Promise 確保寫入 IndexedDB 完成
+        await new Promise((resolve, reject) => {
+            const req = store.add(record);
+            req.onsuccess = resolve;
+            req.onerror = reject;
+        });
+
+        console.log("本地紀錄已建立，開始同步...");
         
-        // 3. 觸發同步
+        // ★★★ 核心修訂：加上 await ★★★
+        // 這會強制等待 syncHistoryToFirebase -> merge -> updateLocalHistoryWithMergedData (變為 TRUE)
+        // 整個流程跑完，這個函數才會結束
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            syncHistoryToFirebase(true); 
+            await syncHistoryToFirebase(true); 
+            console.log("同步完成，狀態已鎖定為 TRUE");
         }
 
     } catch (error) {
