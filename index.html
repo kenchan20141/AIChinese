@@ -14409,22 +14409,17 @@ function captureContainerHTML(containerId) {
 	
 // 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
 // === 修改後：儲存紀錄 (保留閱卷員追問區，但移除輸入框) ===
-// === 修改後：儲存紀錄 (設定時間戳標記) ===
+// === 修改後：儲存紀錄 (加入 hasBeenSynced 初始化) ===
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
-        // 1. 清理 HTML (保留聊天室結構，只移除輸入框，這是為了初始存檔乾淨)
+        // 1. 清理 HTML
         if (aiContent && typeof aiContent === 'string') {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
-            
-            // 移除輸入區
             const inputAreas = tempDiv.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer');
             inputAreas.forEach(el => el.remove());
-            
-            // 移除按鈕
             const continueBtns = tempDiv.querySelectorAll('button, .btn-icon-action, .canvas-send-btn');
             continueBtns.forEach(el => el.remove());
-
             aiContent = tempDiv.innerHTML;
         }
 
@@ -14432,7 +14427,6 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
 
-        // 2. 生成並記錄時間戳 (關鍵步驟：全域變數更新)
         const ts = new Date().getTime();
         lastGeneratedTimestamp = ts; 
 
@@ -14445,11 +14439,14 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             scoreData: scoreData, 
             timestamp: ts,
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false }),
-            isSynced: false
+            
+            // ★★★ 設定初始狀態 ★★★
+            isSynced: false,
+            hasBeenSynced: false // 這是新生成的，還沒上傳過雲端
         };
 
         store.add(record);
-        console.log("本地紀錄已儲存 (初始建立，含閱卷員追問區)");
+        console.log("本地紀錄已儲存");
         
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
@@ -14710,7 +14707,7 @@ async function syncHistoryToFirebase(isSilent = false) {
 }
 
 // 2. 輔助函式：合併算法 (核心邏輯)
-// 2. 輔助函式：合併算法 (已修復：優先保留本地未同步的新修訂，防止對話消失)
+// 2. 輔助函式：合併算法 (修復版：支援即時刪除與保留新草稿)
 function mergeHistoryRecords(localRecords, cloudRecords) {
     const mergedMap = new Map();
     
@@ -14731,21 +14728,25 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         
         // 檢查雲端是否已經有這筆資料
         if (mergedMap.has(key)) {
-            // ★★★ 安全修復邏輯 ★★★
-            // 只有當本地資料明確標記為 isSynced: false (代表剛修改過/剛追問過)
-            // 我們才強制使用本地版本覆蓋雲端版本。
-            // 否則，我們依然信任雲端版本 (保持原有邏輯，確保安全性)。
+            // 如果雲端有，但本地標記為未同步 (代表剛追問過/修改過)，優先使用本地版本
             if (localRecord.isSynced === false) {
                 mergedMap.set(key, localRecord);
                 console.log(`[同步保護] 保留本地新對話/修訂：${localRecord.title}`);
             }
         } else {
-            // 雲端沒有這筆資料 (處理刪除邏輯)
-            if (localRecord.isSynced) {
-                // 情況 1：本地說是已同步，但雲端沒有 -> 代表老師在雲端刪了 -> 本地跟著刪 (不加入 Map)
-                console.log(`移除已在雲端被刪除的項目：${localRecord.title}`);
-            } else {
-                // 情況 2：本地沒標籤 -> 代表是全新生成的 -> 保留 (準備上傳)
+            // --- 雲端沒有這筆資料 (可能是老師刪除了，或是這是新草稿) ---
+            
+            // 判斷 1: 如果這筆資料擁有 hasBeenSynced = true 標記
+            // 代表它曾經上傳過雲端，現在雲端沒了，說明是被老師刪除了 -> 跟著刪除 (不加入 Map)
+            if (localRecord.hasBeenSynced === true) {
+                console.log(`移除已在雲端被刪除的項目 (同步刪除)：${localRecord.title}`);
+            } 
+            // 判斷 2: 舊有的判斷 (兼容舊資料)
+            else if (localRecord.isSynced === true && localRecord.hasBeenSynced === undefined) {
+                console.log(`移除已在雲端被刪除的項目 (舊版兼容)：${localRecord.title}`);
+            }
+            // 判斷 3: 否則視為全新的草稿 (剛生成還沒上傳)，必須保留
+            else {
                 mergedMap.set(key, localRecord);
             }
         }
@@ -14755,9 +14756,8 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 
-
 	
-// 3. 輔助函式：更新本地 IndexedDB
+// 3. 輔助函式：更新本地 IndexedDB (修復版：加入 hasBeenSynced 標記)
 async function updateLocalHistoryWithMergedData(mergedRecords, db) {
     let localDb = db;
     if (!localDb) {
@@ -14777,12 +14777,12 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
 
         // B. 寫入資料
         for (const record of mergedRecords) {
-            // 移除舊的 ID，讓 IndexedDB 重新分配，解決 id 衝突
+            // 移除舊的 ID，讓 IndexedDB 重新分配
             delete record.id; 
             
-            // ★★★ 關鍵：寫入本地時，確保加上 isSynced: true ★★★
-            // 這樣下次同步時，系統就知道這筆資料「已經存在過雲端」了
+            // ★★★ 關鍵：標記為已同步，且「曾經同步過」 ★★★
             record.isSynced = true;
+            record.hasBeenSynced = true; // 新增這行：這是防刪除判斷的關鍵
             
             store.put(record); 
         }
@@ -14794,7 +14794,6 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
         console.error("更新本地資料庫錯誤", e);
     }
 }
-
 // ================= UI 導航邏輯 =================
 
 // 變數儲存當前導航狀態
@@ -15812,7 +15811,6 @@ async function saveHistoryEdits(id) {
     const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
     const saveBtn = document.getElementById(`history-save-btn-${id}`);
  
-    // UI 鎖定
     const originalIcon = saveBtn.innerHTML;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     saveBtn.disabled = true;
@@ -15822,7 +15820,6 @@ async function saveHistoryEdits(id) {
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
-        // 1. 讀取本地舊紀錄
         const getRequest = store.get(id);
         
         getRequest.onsuccess = function(event) {
@@ -15830,24 +15827,22 @@ async function saveHistoryEdits(id) {
             if (record) {
                 const oldTimestamp = record.timestamp;
  
-                // 2. 更新內容
                 if (userContentEl) record.userContent = userContentEl.innerText;
                 if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
  
-                // 更新時間戳
                 const newTimestamp = new Date().getTime();
                 record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
+                // ★★★ 重置同步狀態 ★★★
                 if (record.isSynced) delete record.isSynced;
+                record.hasBeenSynced = false; // 視為新紀錄，防止被誤刪
  
-                // 3. 寫回本地
                 const putRequest = store.put(record);
                 
                 putRequest.onsuccess = async function() {
                     console.log("本地紀錄已更新");
  
-                    // 4. 刪除雲端舊檔
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
                         try {
@@ -15865,25 +15860,17 @@ async function saveHistoryEdits(id) {
                         }
                     }
                     
-                    // 5. 觸發同步 (這會重整 ID)
                     await syncHistoryToFirebase(true);
  
-                    // 6. 找回新 ID
                     const newId = await findIdByTimestamp(newTimestamp);
                     
                     if (newId) {
-                        // A. 重新加載視窗內容 (更新按鈕 ID)
                         await viewHistoryDetail(newId);
                         
-                        // ★★★ 關鍵新增：在背景刷新列表，讓卡片 ID 也同步更新 ★★★
-                        // 檢查目前是否在列表頁面，如果是，就刷新它
                         if (typeof currentSubFunctionFilter !== 'undefined' &&
                             document.getElementById('historyLevel3').style.display !== 'none') {
                             
-                            // 保持當前的主題色索引，如果沒有則預設 1
                             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-                            
-                            // 靜默刷新列表 (這會更新卡片上的 onclick ID)
                             enterHistoryList(currentSubFunctionFilter, themeIndex);
                         }
  
@@ -15891,7 +15878,6 @@ async function saveHistoryEdits(id) {
                     } else {
                         alert("✅ 修訂已儲存！\n請重新打開紀錄以進行繳交。");
                         closeHistoryModal();
-                        // 刷新列表以顯示新紀錄
                         if (typeof currentSubFunctionFilter !== 'undefined') {
                             enterHistoryList(currentSubFunctionFilter, currentThemeIndex || 1);
                         }
