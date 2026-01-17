@@ -14407,8 +14407,6 @@ function captureContainerHTML(containerId) {
 
 
 	
-// 1. 修改 saveToHistory：存入 IndexedDB 後自動觸發雲端同步
-// === 修改後：儲存紀錄 (保留閱卷員追問區，但移除輸入框) ===
 // === 修改後：儲存紀錄 (初始化同步狀態) ===
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
@@ -14464,7 +14462,6 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         console.error("儲存紀錄失敗:", error);
     }
 }
-
 
 // === 全域變數：記錄最新生成的歷史紀錄時間戳 (用於聊天即時存檔) ===
 let lastGeneratedTimestamp = null;
@@ -14713,6 +14710,9 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
 // ==========================================
 // === 3. 更新本地資料庫 (保持不變，確認寫入) ===
 // ==========================================
+// ==========================================
+// === 3. 更新本地資料庫 (標記 hasBeenSynced) ===
+// ==========================================
 async function updateLocalHistoryWithMergedData(mergedRecords, db) {
     let localDb = db;
     if (!localDb) {
@@ -14753,7 +14753,7 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
 // === 4. 自動同步監聽器 (二合一終極版) ===
 // ==========================================
 
-// 定義全域變數以儲存監聽器參照 (確保可以移除)
+// 定義全域變數以儲存監聽器參照
 let autoSyncListenerRef = null;    // 用於歷史紀錄
 let autoProfileListenerRef = null; // 用於身份狀態 (轉班)
 let isSyncingLock = false;         // 同步鎖，防止無限迴圈
@@ -14777,7 +14777,6 @@ function startAutoSyncListener() {
     autoSyncListenerRef.on('value', (snapshot) => {
         
         // 如果目前正在執行本地發起的同步，忽略這次訊號
-        // 這能防止：本地刪除 -> 觸發雲端更新 -> 雲端回傳訊號 -> 本地又執行同步 的多餘迴圈
         if (isSyncingLock) {
             console.log("忽略自身寫入導致的回彈訊號");
             return;
@@ -14797,35 +14796,17 @@ function startAutoSyncListener() {
         });
     });
 
-    // --- 部分 B：身份狀態監聽 (保留自動轉班功能) ---
-
-    // 1. 先移除舊的身份監聽器
-    if (autoProfileListenerRef) {
-        autoProfileListenerRef.off();
-    }
-    
-    // 2. 設定路徑
+    // --- 部分 B：身份狀態監聽 (保留你原有的轉班功能) ---
+    if (autoProfileListenerRef) autoProfileListenerRef.off();
     const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
     autoProfileListenerRef = database.ref(profilePath);
-
-    // 3. 監聽資料變化
     autoProfileListenerRef.on('value', (snapshot) => {
         const val = snapshot.val();
-
         if (!val) {
-            // 情況 1: 資料消失 (代表老師剛剛執行了轉班/升班操作，把學生移走了)
-            console.log("⚠️ 偵測到當前班級資料消失，正在搜尋新位置...");
-            
-            // 立即停止監聽舊路徑，防止報錯
             autoProfileListenerRef.off(); 
             if (autoSyncListenerRef) autoSyncListenerRef.off();
-
-            // 觸發全校搜尋 -> 彈出班號視窗
             findStudentNewLocation(s.name);
-        } 
-        else if (!val.number || val.number === "") {
-            // 情況 2: 資料還在，但班號被清空 (可能是原地升班或資料重置)
-            console.log("⚠️ 偵測到班號需更新，彈出視窗...");
+        } else if (!val.number || val.number === "") {
             promptForNewClassNumber(s, profilePath);
         }
     });
@@ -16060,11 +16041,8 @@ function enableTitleEditing(titleEl, id) {
     });
 }
 
-/**
- * 更新 IndexedDB 中的標題
- */
+// === 修正版：聊天室即時存檔 (保護同步狀態) ===
 async function updateHistoryChat() {
-    // 檢查是否有鎖定的時間戳，如果沒有則無法定位紀錄
     if (!lastGeneratedTimestamp) {
         console.warn("未設定時間戳，無法儲存對話。");
         return; 
@@ -16072,53 +16050,38 @@ async function updateHistoryChat() {
 
     console.log("正在更新聊天紀錄到歷史檔案...");
 
-    // ★★★ 智能判斷來源 ★★★
-    // 優先找結果畫布 (Result Canvas)，因為追問通常發生在這裡
     let sourceElement = document.getElementById("resultCanvasBody");
-    
-    // 如果畫布沒顯示，或者是空的，嘗試找歷史紀錄視窗 (History Modal)
     const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
     
     if (isCanvasHidden) {
         sourceElement = document.getElementById("historyModalContent");
     }
 
-    if (!sourceElement) {
-        console.error("找不到對話內容容器，存檔取消。");
-        return;
-    }
+    if (!sourceElement) return;
     
-    // 使用 cloneNode 捕捉當前狀態，以免影響畫面顯示
     const clone = sourceElement.cloneNode(true);
-
-    // 1. 清理：移除所有輸入框 (Input/Textarea)，只留對話內容
     const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
     inputAreas.forEach(el => el.remove());
     
-    // 2. 清理：移除所有操作按鈕
     const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn, .history-save-btn, .morandi-save-float-btn');
     buttons.forEach(el => el.remove());
 
-    // 3. 保護圖表：給予 Canvas 明確樣式，防止存檔後圖表變成 0 高度
     const clonedCanvases = clone.querySelectorAll('canvas');
     clonedCanvases.forEach((canvas) => {
         canvas.style.width = '100%';
         canvas.style.height = '350px';
         canvas.style.display = 'block';
-        canvas.removeAttribute('id'); // 移除 ID 以免衝突
+        canvas.removeAttribute('id');
     });
 
-    // 4. 獲取最終 HTML
     const newAiContent = clone.innerHTML;
 
-    // 5. 寫入 IndexedDB
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         const index = store.index('timestamp'); 
 
-        // 使用時間戳查找紀錄
         const request = index.get(lastGeneratedTimestamp);
 
         request.onsuccess = function(event) {
@@ -16127,25 +16090,26 @@ async function updateHistoryChat() {
                 // 更新內容
                 data.aiContent = newAiContent;
                 
-                // ★★★ 關鍵動作：標記為「未同步」 ★★★
-                // 這會告訴 mergeHistoryRecords：「這筆資料剛更新過，請優先使用它，不要被雲端覆蓋！」
+                // ★★★ 關鍵修訂：標記狀態 ★★★
+                // isSynced: false -> 代表內容有變更，需要上傳到雲端
+                // hasBeenSynced -> 保持不變 (如果它是舊紀錄，這裡會是 true，這很重要！)
                 delete data.isSynced; 
                 data.isSynced = false; 
+                
+                // 如果這是一個從未上傳過的新紀錄，確保 hasBeenSynced 被初始化
+                if (data.hasBeenSynced === undefined) {
+                    data.hasBeenSynced = false;
+                }
 
-                // 寫回本地資料庫
                 const updateRequest = store.put(data);
                 
                 updateRequest.onsuccess = function() {
-                    console.log("聊天紀錄已即時更新至本地 DB (標記為未同步)");
-                    
-                    // 觸發雲端同步，將這筆新資料推送到雲端
+                    console.log("聊天紀錄已更新 (準備上傳)");
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
-                        syncHistoryToFirebase(true); // 靜默同步
+                        syncHistoryToFirebase(true); // 觸發同步
                     }
                 };
-            } else {
-                console.warn("找不到對應時間戳的紀錄，無法更新聊天。");
             }
         };
     } catch (e) {
@@ -16153,6 +16117,7 @@ async function updateHistoryChat() {
     }
 }
 
+	
 // === 雙擊/單擊 衝突解決方案 ===
 let titleClickTimer = null;
 
