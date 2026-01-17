@@ -18267,132 +18267,74 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-// =======================================================
-// === [最終修復版] 在線狀態系統 (含舊用戶自動無縫遷移) ===
-// =======================================================
-function initPresenceSystem() {
-    // 延遲 2 秒執行，確保 Firebase 與 LocalStorage 已就緒
-    setTimeout(() => {
-        if (typeof database === 'undefined') return;
+// ★★★★★ 請將代碼貼在這裡 (原本的內容之下，script 結束標籤之上) ★★★★★
 
-        const connectedRef = database.ref('.info/connected');
-        let myPresenceRef = null;
+    // =======================================================
+    // === [新增] 在線狀態自動報到系統 (Presence System) ===
+    // =======================================================
+    function initPresenceSystem() {
+        // 延遲執行，確保 Firebase 已初始化且本地存儲已讀取
+        setTimeout(() => {
+            if (typeof database === 'undefined') return;
 
-        // 取得 UI 狀態燈 (左下角按鈕內的點)
-        const statusDot = document.querySelector('.online-dot');
+            // 1. 監聽連線狀態
+            const connectedRef = database.ref('.info/connected');
 
-        // 輔助：更新燈號顏色
-        const setStatusColor = (color) => {
-            if (statusDot) {
-                statusDot.style.animation = 'none';
-                statusDot.style.backgroundColor = color;
-                statusDot.style.boxShadow = `0 0 8px ${color}`;
-            }
-        };
-
-        // 定義寫入狀態的函式
-        const setOnlineStatus = () => {
-            // 🟡 黃燈：嘗試連線中
-            setStatusColor('#ffeb3b'); 
-
-            const s = JSON.parse(localStorage.getItem('studentProfile'));
-            const user = firebase.auth().currentUser;
-            
-            let myUid = "";
-            let userData = {};
-
-            // A. 判斷身分 (已登入的學生/老師) - 這些人不受影響
-            if (s && s.name && user) {
-                myUid = user.uid;
-                userData = {
-                    name: s.name,
-                    grade: s.grade,
-                    class: s.class,
-                    role: 'student',
-                    timestamp: firebase.database.ServerValue.TIMESTAMP,
-                    device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
-                };
-            } else {
-                // B. 訪客 / 未驗證 (問題就在這裡)
-                let guestId = localStorage.getItem('sansi_guest_uuid');
-                
-                // ====================================================
-                // ★★★ 無縫修復核心：自動檢測並替換舊 ID ★★★
-                // ====================================================
-                // 如果 ID 不存在，或者 ID 不是以 'guest_' 開頭 (舊版用戶)
-                if (!guestId || !String(guestId).startsWith('guest_')) {
-                    console.log("🔧 系統：偵測到舊版或無效 ID，正在自動修復...");
+            connectedRef.on('value', (snap) => {
+                if (snap.val() === true) {
+                    // === 連線成功，準備資料 ===
                     
-                    // 生成符合 Firebase Rules 的新 ID
-                    guestId = 'guest_' + Math.random().toString(36).substr(2, 9);
-                    
-                    // 強制覆蓋舊的 LocalStorage，完成遷移
-                    localStorage.setItem('sansi_guest_uuid', guestId);
+                    // 獲取用戶資料
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+                    let myUid = "";
+                    let userData = {};
+
+                    // A. 判斷身分
+                    if (s && s.name) {
+                        // --- 已登入用戶 (學生/老師/特許) ---
+                        const user = firebase.auth().currentUser;
+                        myUid = user ? user.uid : `stu_${s.grade}${s.class}_${s.name}`;
+                        
+                        // 準備寫入的資料
+                        userData = {
+                            name: s.name,
+                            grade: s.grade,
+                            class: s.class,
+                            timestamp: firebase.database.ServerValue.TIMESTAMP,
+                            device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+                        };
+                    } else {
+                        // --- 訪客 ---
+                        let guestId = localStorage.getItem('sansi_guest_uuid');
+                        if (!guestId) {
+                            guestId = 'guest_' + Math.random().toString(36).substr(2, 9);
+                            localStorage.setItem('sansi_guest_uuid', guestId);
+                        }
+                        myUid = guestId;
+
+                        userData = {
+                            name: "訪客",
+                            grade: "Guest",
+                            class: "Visitor",
+                            timestamp: firebase.database.ServerValue.TIMESTAMP
+                        };
+                    }
+
+                    // B. 執行 Firebase 動作
+                    const myPresenceRef = database.ref(`online_users/${myUid}`);
+
+                    // 關鍵指令：當客戶端斷線時，自動刪除這筆資料
+                    myPresenceRef.onDisconnect().remove().then(() => {
+                        // 斷線指令設定成功後，寫入當前狀態
+                        myPresenceRef.set(userData);
+                    });
                 }
-                
-                myUid = guestId; // 使用 (可能是剛修復的) 正確 ID
+            });
+        }, 2000); // 延遲 2 秒啟動
+    }
 
-                // 設定寫入資料
-                if (s && s.name) {
-                     userData = {
-                        name: s.name + " (未驗證)",
-                        grade: s.grade,
-                        class: s.class,
-                        role: 'guest_student',
-                        timestamp: firebase.database.ServerValue.TIMESTAMP
-                    };
-                } else {
-                    userData = {
-                        name: "訪客",
-                        grade: "Guest",
-                        class: "Visitor",
-                        role: 'guest',
-                        timestamp: firebase.database.ServerValue.TIMESTAMP
-                    };
-                }
-            }
-
-            // C. 執行 Firebase 動作
-            myPresenceRef = database.ref(`online_users/${myUid}`);
-
-            // 建立斷線移除機制，然後寫入資料
-            myPresenceRef.onDisconnect().remove()
-                .then(() => {
-                    return myPresenceRef.set(userData);
-                })
-                .then(() => {
-                    // 🟢 綠燈：成功上線
-                    // console.log("✅ 在線狀態同步成功:", myUid);
-                    setStatusColor('#4caf50'); 
-                    if(statusDot) statusDot.style.animation = 'pulse-green 2s infinite';
-                })
-                .catch((err) => {
-                    // 🔴 紅燈：寫入失敗 (通常是 Rules 擋住，但經過上面修復後應該不會發生)
-                    console.error("❌ 在線狀態寫入失敗:", err);
-                    setStatusColor('#f44336'); 
-                });
-        };
-
-        // 1. 監聽連線狀態
-        connectedRef.on('value', (snap) => {
-            if (snap.val() === true) {
-                setOnlineStatus();
-            } else {
-                setStatusColor('#ff9800'); // 橘色：離線
-            }
-        });
-
-        // 2. 監聽頁面喚醒 (手機切換 App 回來時立即重連)
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                setTimeout(setOnlineStatus, 1000);
-            }
-        });
-
-    }, 2000); 
-}
     // 啟動報到系統
-document.addEventListener('DOMContentLoaded', initPresenceSystem);
+    document.addEventListener('DOMContentLoaded', initPresenceSystem);
 
 
 
