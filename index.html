@@ -8785,10 +8785,26 @@ function getCanvasChatHTML(type) {
 }
 
 async function sendCanvasMessage() {
-    const inputEl = document.getElementById("canvasChatInput");
-    const historyBox = document.getElementById("canvasChatHistoryBox");
-    const sendBtn = document.getElementById("canvasChatSendBtn");
+    // 根據當前介面，動態尋找輸入框與按鈕
+    // 因為在歷史紀錄視窗裡，ID 可能會重複，所以優先找離按鈕最近的輸入框
+    let sendBtn = document.getElementById("canvasChatSendBtn");
     
+    // 如果找不到 (可能在歷史視窗裡)，嘗試透過事件觸發點尋找 (更穩健)
+    if (!sendBtn && window.event) {
+        sendBtn = window.event.target.closest('button');
+    }
+    
+    if (!sendBtn) return; // 防呆
+
+    // 尋找對應的輸入框與歷史區域
+    const container = sendBtn.closest('.canvas-chat-container');
+    if (!container) return;
+
+    const inputEl = container.querySelector('textarea');
+    const historyBox = container.querySelector('.canvas-chat-history');
+    
+    if (!inputEl || !historyBox) return;
+
     const userText = sanitizeHTML(inputEl.value.trim());
     if (!userText) return;
 
@@ -8809,67 +8825,43 @@ async function sendCanvasMessage() {
     historyBox.appendChild(aiBubble);
     historyBox.scrollTop = historyBox.scrollHeight;
 
-    const historyText = canvasChatHistory.map(h => `${h.role}: ${h.content}`).join("\n");
+    // 抓取之前的對話紀錄 (從 DOM 抓取，確保所見即所得)
+    // 這裡我們簡單抓取最後 5 則對話，避免 Prompt 太長
+    const bubbles = Array.from(historyBox.querySelectorAll('.message-bubble'));
+    let historyText = "";
+    bubbles.slice(-6, -1).forEach(b => { // 排除剛加的 Loading bubble
+        const role = b.classList.contains('ai-message') ? "Teacher" : "Student";
+        historyText += `${role}: ${b.innerText}\n`;
+    });
     
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
     
-    // 設定語氣與閱卷員
-    const toneEls = [
-        document.getElementById("writingTone"), 
-        document.getElementById("readingTone"), 
-        document.getElementById("expandTone"), 
-        document.getElementById("argumentWritingTone"),
-        document.getElementById("argumentOutlineTone")
-    ];
-    
-    for (let el of toneEls) {
-        if (el && el.offsetParent !== null && el.value === "chen") {
-            toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
-            activeReviewer = "陳SIR";
-            break;
-        }
+    // 嘗試偵測當前語氣設定 (如果在主畫面)
+    const toneEl = document.getElementById("writingTone") || document.getElementById("argumentWritingTone");
+    if (toneEl && toneEl.value === "chen") {
+        toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
+        activeReviewer = "陳SIR";
     }
 
     // 構建 Prompt
-    let promptContext = "";
-    switch (currentContextType) {
-        case 'narrative_writing':
-        case 'argument_writing':
-        case 'narrative_outline':
-        case 'argument_outline':
-        case 'expand_comment':
-        case 'reading_comment':
-            promptContext = `【背景資料】學生提交了一份作業，你已經給出了點評/改寫。\n原文：${currentContextContent}\n你的點評：${currentContextReview}\n【任務】針對學生的問題回應。`;
-            break;
-        case 'narrative_guide':
-        case 'argument_guide':
-        case 'expand_guide':
-        case 'reading_guide':
-            promptContext = `【背景資料】你提供了指引。\n題目：${currentContextContent}\n你的指引：${currentContextReview}\n【任務】引導學生如何利用指引。`;
-            break;
-        case 'narrative_elements':
-            promptContext = `【背景資料】你生成了物象。\n背景：${currentContextContent}\n物象列表：${currentContextReview}\n【任務】教導如何運用。`;
-            break;
-        default:
-            promptContext = `【背景資料】正在進行中文科學習討論。`;
-    }
-
+    let promptContext = `【背景資料】\n${currentContextContent || "學生提交的作業"}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 500)}...`;
+    
     const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
 
     try {
-        // 使用閱讀專用 API (通常較穩定)
         const response = await callReadingAPI(fullPrompt);
         let formattedResponse = response.replace(/\n/g, '<br>');
         formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // 更新 UI
         aiBubble.innerHTML = formattedResponse;
         
-        // 更新記憶體中的歷史
-        canvasChatHistory.push({ role: "Student", content: userText });
-        canvasChatHistory.push({ role: "Teacher", content: response });
-
-        // ★★★ 關鍵新增：AI 回應後，立即更新歷史紀錄！ ★★★
-        await updateHistoryChat();
+        // ★★★ 關鍵：呼叫存檔 ★★★
+        // 確保 DOM 渲染完成後再存檔
+        setTimeout(async () => {
+            await updateHistoryChat();
+        }, 100);
 
     } catch (error) {
         aiBubble.innerHTML = "抱歉，連線發生錯誤，請重試。";
@@ -14449,50 +14441,53 @@ let lastGeneratedTimestamp = null;
 // ==========================================
 // === [新增] 聊天室即時存檔助手函數 ===
 // ==========================================
+// ==========================================
+// === [修訂版] 聊天室即時存檔助手函數 ===
+// ==========================================
 async function updateHistoryChat() {
-    if (!lastGeneratedTimestamp) return; // 如果沒有剛生成的紀錄，就不動作
+    if (!lastGeneratedTimestamp) {
+        console.warn("未設定時間戳，無法儲存對話。");
+        return; 
+    }
 
     console.log("正在更新聊天紀錄到歷史檔案...");
 
-    // 1. 捕捉當前畫布的最新狀態 (含新氣泡)
-    // 我們使用 cloneNode 來處理，以免影響螢幕上的顯示
+    // ★★★ 關鍵修復 1：智慧判斷來源容器 ★★★
+    // 優先找結果畫布 (Result Canvas)，如果沒顯示，則找歷史視窗 (History Modal)
     let sourceElement = document.getElementById("resultCanvasBody");
     
-    // 如果 Canvas 沒顯示，嘗試抓取對應的舊版聊天容器 (兼容舊版介面)
-    if (!sourceElement || sourceElement.style.display === 'none' || sourceElement.innerHTML.trim() === "") {
-        // 嘗試抓取舊版容器，視乎當前功能
-        if (document.getElementById("writingChatHistory") && document.getElementById("writingChatHistory").style.display !== 'none') {
-            // 注意：舊版介面分散在不同 div，這裡主要針對 Canvas 介面優化
-            // 若您使用舊版介面，建議統一轉向使用 ResultCanvas
-        }
+    // 檢查畫布是否不可見或無內容
+    const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
+    
+    if (isCanvasHidden) {
+        // 嘗試切換來源為歷史紀錄模態視窗
+        sourceElement = document.getElementById("historyModalContent");
     }
 
-    if (!sourceElement) return;
+    if (!sourceElement) {
+        console.error("找不到任何可用的對話內容容器 (Canvas 或 HistoryModal)");
+        return;
+    }
     
+    // 使用 cloneNode 捕捉當前狀態
     const clone = sourceElement.cloneNode(true);
 
     // 2. 執行「移除輸入框」的邏輯 (確保歷史紀錄乾淨，只留對話)
-    // 移除 Canvas 聊天室的輸入區
-    const inputAreas = clone.querySelectorAll('.canvas-input-area');
+    const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
     inputAreas.forEach(el => el.remove());
-
-    // 移除舊版聊天室的輸入區 (如果存在於 Canvas 中)
-    const oldInputAreas = clone.querySelectorAll('#writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
-    oldInputAreas.forEach(el => el.remove());
     
-    // 移除所有按鈕 (例如「繼續討論」、「發送」等，不應保留在歷史紀錄)
-    const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn');
+    // 移除所有按鈕
+    const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn, .history-save-btn, .morandi-save-float-btn');
     buttons.forEach(el => el.remove());
 
     // 3. 處理 Chart.js Canvas (避免圖表在 clone 後消失)
-    // 我們給予 Canvas 明確的樣式，以便 viewHistoryDetail 可以重新繪圖
+    // 給予 Canvas 明確樣式，防止存檔後圖表變成 0高度
     const clonedCanvases = clone.querySelectorAll('canvas');
     clonedCanvases.forEach((canvas) => {
         canvas.style.width = '100%';
         canvas.style.height = '350px';
         canvas.style.display = 'block';
-        // 移除 ID 以免衝突
-        canvas.removeAttribute('id');
+        canvas.removeAttribute('id'); // 移除 ID 以免衝突
     });
 
     // 4. 獲取處理後的 HTML
@@ -14503,9 +14498,9 @@ async function updateHistoryChat() {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const index = store.index('timestamp'); // 使用時間戳索引找回紀錄
+        const index = store.index('timestamp'); 
 
-        // 使用我們全域變數記住的時間戳來查找
+        // 使用時間戳查找紀錄
         const request = index.get(lastGeneratedTimestamp);
 
         request.onsuccess = function(event) {
@@ -14514,8 +14509,10 @@ async function updateHistoryChat() {
                 // 更新內容
                 data.aiContent = newAiContent;
                 
-                // 標記為未同步，這樣才會觸發雲端更新 (重要！)
-                if (data.isSynced) delete data.isSynced;
+                // ★★★ 關鍵修復 2：標記為未同步 ★★★
+                // 這會告訴 mergeHistoryRecords：「我是最新版本，請優先使用我！」
+                delete data.isSynced; 
+                data.isSynced = false; 
 
                 // 寫回本地資料庫
                 const updateRequest = store.put(data);
@@ -14536,7 +14533,6 @@ async function updateHistoryChat() {
         console.error("更新聊天紀錄失敗:", e);
     }
 }
-
 
 
 	
@@ -14687,6 +14683,7 @@ async function syncHistoryToFirebase(isSilent = false) {
 }
 
 // 2. 輔助函式：合併算法 (核心邏輯)
+// 2. 輔助函式：合併算法 (已修復：優先保留本地未同步的新修訂，防止對話消失)
 function mergeHistoryRecords(localRecords, cloudRecords) {
     const mergedMap = new Map();
     
@@ -14695,40 +14692,44 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         return `${r.category}_${r.subFunction}_${r.title}_${r.timestamp}`;
     };
 
-    // A. 雲端資料是「權威」，無條件放入
+    // A. 先放入雲端資料 (這是預設的權威版本)
     cloudRecords.forEach(record => {
         mergedMap.set(generateKey(record), record);
     });
 
-    // B. 處理本地資料
+    // B. 處理本地資料 (進行衝突檢測)
     localRecords.forEach(localRecord => {
         if(!localRecord) return;
         const key = generateKey(localRecord);
         
         // 檢查雲端是否已經有這筆資料
         if (mergedMap.has(key)) {
-            // 如果雲端有，代表兩邊都有，我們保留雲端的 (因為它帶有最新的 isSynced 標籤)
+            // ★★★ 安全修復邏輯 ★★★
+            // 只有當本地資料明確標記為 isSynced: false (代表剛修改過/剛追問過)
+            // 我們才強制使用本地版本覆蓋雲端版本。
+            // 否則，我們依然信任雲端版本 (保持原有邏輯，確保安全性)。
+            if (localRecord.isSynced === false) {
+                mergedMap.set(key, localRecord);
+                console.log(`[同步保護] 保留本地新對話/修訂：${localRecord.title}`);
+            }
         } else {
-            // ★★★ 核心判斷：為什麼雲端沒有這筆資料？ ★★★
-            
+            // 雲端沒有這筆資料 (處理刪除邏輯)
             if (localRecord.isSynced) {
-                // 情況 1：這筆資料本地有「已同步」標籤，但雲端卻找不到。
-                // 結論：這代表「老師在雲端刪掉了它」。
-                // 動作：捨棄它 (等於在本地也刪除)。
+                // 情況 1：本地說是已同步，但雲端沒有 -> 代表老師在雲端刪了 -> 本地跟著刪 (不加入 Map)
                 console.log(`移除已在雲端被刪除的項目：${localRecord.title}`);
             } else {
-                // 情況 2：這筆資料本地「沒有」標籤。
-                // 結論：這代表「這是學生離線新寫的，還沒上傳過」。
-                // 動作：保留它 (準備上傳)。
+                // 情況 2：本地沒標籤 -> 代表是全新生成的 -> 保留 (準備上傳)
                 mergedMap.set(key, localRecord);
             }
         }
     });
 
-    // C. 轉回陣列並排序
+    // C. 轉回陣列並排序 (最新的在最上面)
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 
+
+	
 // 3. 輔助函式：更新本地 IndexedDB
 async function updateLocalHistoryWithMergedData(mergedRecords, db) {
     let localDb = db;
@@ -15536,6 +15537,10 @@ async function viewHistoryDetail(id) {
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
+                // ★★★ 關鍵修復：鎖定當前紀錄的時間戳 ★★★
+                // 這樣稍後如果在視窗內進行 AI 追問，系統才知道要更新哪一筆紀錄
+                lastGeneratedTimestamp = record.timestamp;
+
                 // 1. 計算主題色
                 let themeIndex = 1;
                 if (HISTORY_STRUCTURE[record.category]) {
@@ -15636,42 +15641,29 @@ async function viewHistoryDetail(id) {
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
  
-                // 8. ★★★ 核心修復：重繪圖表邏輯 (含學習報告) ★★★
+                // 8. 重繪圖表邏輯 (含學習報告)
                 setTimeout(() => {
-                    // A. 單篇文章的雷達圖
                     if (record.category !== "學習報告" && record.scoreData && record.scoreData.radar) {
                         const canvasEl = modalContent.querySelector('.radar-chart-container canvas') || modalContent.querySelector('canvas');
                         if (canvasEl) {
                             renderSingleRadarChart(canvasEl, record.scoreData.radar);
                         }
                     }
-                    
-                    // B. 學習報告的雙雷達圖 (★ 關鍵邏輯 ★)
                     else if (record.category === "學習報告" && record.scoreData) {
-                        console.log("正在還原學習報告圖表...");
-
-                        // 1. 繪製敘事抒情圖表
                         if (record.scoreData["敘事抒情"] && record.scoreData["敘事抒情"].radar) {
-                            // 根據結構找到對應的 Canvas
                             const narrBadge = modalContent.querySelector('.badge-narrative');
                             if (narrBadge) {
                                 const section = narrBadge.closest('.report-section');
                                 const narrCanvas = section ? section.querySelector('canvas') : null;
-                                if (narrCanvas) {
-                                    renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
-                                }
+                                if (narrCanvas) renderReportRadarChart(narrCanvas, record.scoreData["敘事抒情"].radar);
                             }
                         }
-
-                        // 2. 繪製議論圖表
                         if (record.scoreData["議論"] && record.scoreData["議論"].radar) {
                             const argBadge = modalContent.querySelector('.badge-argument');
                             if (argBadge) {
                                 const section = argBadge.closest('.report-section');
                                 const argCanvas = section ? section.querySelector('canvas') : null;
-                                if (argCanvas) {
-                                    renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
-                                }
+                                if (argCanvas) renderReportRadarChart(argCanvas, record.scoreData["議論"].radar);
                             }
                         }
                     }
@@ -15680,7 +15672,6 @@ async function viewHistoryDetail(id) {
         };
     } catch (e) { console.error(e); }
 }
-
 	
 // 輔助函式：繪製單篇雷達圖
 function renderSingleRadarChart(canvasEl, radarData) {
@@ -16022,31 +16013,93 @@ function enableTitleEditing(titleEl, id) {
 /**
  * 更新 IndexedDB 中的標題
  */
-async function updateHistoryTitleInDB(id, newTitle) {
+async function updateHistoryChat() {
+    // 檢查是否有鎖定的時間戳，如果沒有則無法定位紀錄
+    if (!lastGeneratedTimestamp) {
+        console.warn("未設定時間戳，無法儲存對話。");
+        return; 
+    }
+
+    console.log("正在更新聊天紀錄到歷史檔案...");
+
+    // ★★★ 智能判斷來源 ★★★
+    // 優先找結果畫布 (Result Canvas)，因為追問通常發生在這裡
+    let sourceElement = document.getElementById("resultCanvasBody");
+    
+    // 如果畫布沒顯示，或者是空的，嘗試找歷史紀錄視窗 (History Modal)
+    const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
+    
+    if (isCanvasHidden) {
+        sourceElement = document.getElementById("historyModalContent");
+    }
+
+    if (!sourceElement) {
+        console.error("找不到對話內容容器，存檔取消。");
+        return;
+    }
+    
+    // 使用 cloneNode 捕捉當前狀態，以免影響畫面顯示
+    const clone = sourceElement.cloneNode(true);
+
+    // 1. 清理：移除所有輸入框 (Input/Textarea)，只留對話內容
+    const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
+    inputAreas.forEach(el => el.remove());
+    
+    // 2. 清理：移除所有操作按鈕
+    const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn, .history-save-btn, .morandi-save-float-btn');
+    buttons.forEach(el => el.remove());
+
+    // 3. 保護圖表：給予 Canvas 明確樣式，防止存檔後圖表變成 0 高度
+    const clonedCanvases = clone.querySelectorAll('canvas');
+    clonedCanvases.forEach((canvas) => {
+        canvas.style.width = '100%';
+        canvas.style.height = '350px';
+        canvas.style.display = 'block';
+        canvas.removeAttribute('id'); // 移除 ID 以免衝突
+    });
+
+    // 4. 獲取最終 HTML
+    const newAiContent = clone.innerHTML;
+
+    // 5. 寫入 IndexedDB
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        
-        // 1. 獲取舊紀錄
-        const getRequest = store.get(id);
-        
-        getRequest.onsuccess = function(event) {
+        const index = store.index('timestamp'); 
+
+        // 使用時間戳查找紀錄
+        const request = index.get(lastGeneratedTimestamp);
+
+        request.onsuccess = function(event) {
             const data = event.target.result;
             if (data) {
-                // 2. 修改標題
-                data.title = newTitle;
+                // 更新內容
+                data.aiContent = newAiContent;
                 
-                // 3. 寫回 DB
-                const putRequest = store.put(data);
-                putRequest.onsuccess = function() {
-                    console.log(`紀錄 ID ${id} 標題已更新為: ${newTitle}`);
+                // ★★★ 關鍵動作：標記為「未同步」 ★★★
+                // 這會告訴 mergeHistoryRecords：「這筆資料剛更新過，請優先使用它，不要被雲端覆蓋！」
+                delete data.isSynced; 
+                data.isSynced = false; 
+
+                // 寫回本地資料庫
+                const updateRequest = store.put(data);
+                
+                updateRequest.onsuccess = function() {
+                    console.log("聊天紀錄已即時更新至本地 DB (標記為未同步)");
+                    
+                    // 觸發雲端同步，將這筆新資料推送到雲端
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+                    if (s) {
+                        syncHistoryToFirebase(true); // 靜默同步
+                    }
                 };
+            } else {
+                console.warn("找不到對應時間戳的紀錄，無法更新聊天。");
             }
         };
     } catch (e) {
-        console.error("更新標題失敗:", e);
-        alert("標題更新失敗，請重試。");
+        console.error("更新聊天紀錄失敗:", e);
     }
 }
 
