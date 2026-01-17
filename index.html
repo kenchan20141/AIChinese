@@ -10110,167 +10110,74 @@ localStorage.removeItem("argumentOutlineData");
 }
 }
 
-	// 替換舊的 submitArgumentOutline 函式
-async function submitArgumentOutline() {
-    const submitBtn = document.getElementById('submitArgumentOutlineBtn');
-    submitBtn.disabled = true;
+// ==========================================
+// === 修訂：提交議論指引 (加入 await) ===
+// ==========================================
+async function submitArgumentGuide() {
+    const submitBtn = document.getElementById('submitArgumentGuideBtn');
+    submitBtn.disabled = true; 
     hideAllSaveHtmlButtons();
 
     try {
-        const topic = localStorage.getItem("argumentCurrentTopic");
-        if (!topic) { alert("請先設定題目"); return; }
+        const topic = document.getElementById("argumentGuideTopic").value.trim();
+        const point = document.getElementById("argumentGuidePoint").value.trim();
+        const evidence = document.getElementById("argumentGuideEvidence").value.trim();
+        const argument = document.getElementById("argumentGuideArgument").value.trim();
         
-        const table = document.getElementById("argumentOutlineTable");
-        const rows = table.rows;
-        let outlineContent = [];
-        let outlineRawText = "";
-
-        for (let i = 1; i < rows.length; i++) {
-            const part = rows[i].cells[0].innerText;
-            const pointTextarea = rows[i].cells[1].querySelector("textarea");
-            const evidenceTextarea = rows[i].cells[2].querySelector("textarea");
-            const point = pointTextarea ? pointTextarea.value.trim() : "";
-            const evidence = evidenceTextarea ? evidenceTextarea.value.trim() : "";
-            if (!point || !evidence) { alert("請填寫所有大綱表格"); return; }
-            outlineContent.push({ part, point, evidence });
-            outlineRawText += `[${part}] 論點：${point} / 論據：${evidence}\n`;
+        if (!topic) {
+            alert("請輸入題目");
+            return; 
         }
 
-        const tone = document.getElementById("argumentOutlineTone").value;
+        const note = categories["議論"].guideNote;
+        const prompt = `請根據以下輸入提供參考建議。要求：
+1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
+2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
+3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
+4. 輸出分為相應的部分：### 參考論點、### 參考論據、### 參考論證
+5. 每個部分以段落形式呈現
+題目：${topic}
+論點：${point || "無"}
+論據：${evidence || "無"}
+論證：${argument || "無"}
+教學筆記：${note}`;
+
+        showLoading("陳SIR 正在思考指引...");
         
-        // ★★★ 語氣指令 ★★★
-        let toneInstruction = "請用嚴肅正經的語氣進行點評和建議。";
-        if (tone === "chen") {
-            toneInstruction = `
-            【重要語氣指令】：
-            1. 在「=== 點評及建議 ===」和「=== 改寫說明 ===」部分：你必須扮演陳SIR，使用**輕鬆、幽默**的口吻，並**大量使用 Emoji** (如 😂, 🤔, ✨, 🔥)，表示揶揄時會用🤌這個EMOJI。
-            2. 在「=== 改寫後的大綱 ===」部分：為了確保學習參考價值，這部分**必須保持絕對嚴肅、學術的風格**，僅提供高質素的內容，**嚴禁使用 Emoji**。`;
-        }
-
-        const note = categories["議論"].outlineCommentNote;
-        const prompt = `請根據以下大綱內容進行點評和建議，並提供改寫後的大綱。
-        ${toneInstruction}
-        要求：
-        1. 在「=== 點評及建議 ===」部分，為每個結構段提供點評和建議。使用「[part]」標記每個結構段的開始，例如「[起]」，然後在下一行「點評：」後跟點評內容，再下一行「建議：」後跟建議內容。
-        2. 在「=== 改寫後的大綱 ===」部分，為每個結構段提供改寫後的「論點」和「論據及論證」。使用「[part]」標記每個結構段的開始，然後在下一行「論點：」後跟內容，再下一行「論據及論證：」後跟內容。
-        3. 在「=== 改寫說明 ===」部分，提供不超過兩點的改寫說明，每點以「1. 」和「2. 」開始。
-        4. 請確保內容簡潔明了，不可以顯示「--- ###」。不要使用Markdown表格。
-        題目：${topic}
-        用戶輸入的大綱：
-        | 部份 | 論點 | 論據及論證 |
-        |------|------|------------|
-        ${outlineContent.map(item => `| ${item.part} | ${item.point} | ${item.evidence} |`).join("\n")}
-        教學筆記：${note}`;
-
-        showLoading("陳SIR 正在審視大綱...");
-
-        const response = await callAPI(prompt, 0);
+        const guide = await callReadingAPI(prompt);
         
-        currentContextContent = outlineRawText;
-        currentContextReview = response;
+        currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
+        currentContextReview = guide;
 
-        // 解析 Response
-        const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
-        const commentIndex = sections.indexOf("點評及建議");
-        const rewriteIndex = sections.indexOf("改寫後的大綱");
-        const explanationIndex = sections.indexOf("改寫說明");
-        const commentPart = commentIndex !== -1 ? sections[commentIndex + 1] : "";
-        const rewritePart = rewriteIndex !== -1 ? sections[rewriteIndex + 1] : "";
-        const explanationPart = explanationIndex !== -1 ? sections[explanationIndex + 1].trim() : "";
-
-        function parseCommentPart(commentPart) {
-            const comments = {};
-            const regex = /\[(.+?)\]\s*點評：\s*(.+?)(?=\s*建議：|\s*\[|$)/gs;
-            const suggestionRegex = /\[(.+?)\]\s*點評：.+?\s*建議：\s*(.+?)(?=\s*\[|$)/gs;
-            let match;
-            while ((match = regex.exec(commentPart)) !== null) {
-                const part = match[1];
-                comments[part] = comments[part] || {};
-                comments[part].comment = match[2].trim();
-            }
-            while ((match = suggestionRegex.exec(commentPart)) !== null) {
-                const part = match[1];
-                comments[part] = comments[part] || {};
-                comments[part].suggestion = match[2].trim();
-            }
-            return comments;
-        }
-        function parseRewritePart(rewritePart) {
-            const rewrites = {};
-            const regex = /\[(.+?)\]\s*論點：\s*(.+?)(?=\s*論據及論證：|\s*\[|$)/gs;
-            const evidenceRegex = /\[(.+?)\]\s*論點：.+?\s*論據及論證：\s*(.+?)(?=\s*\[|$)/gs;
-            let match;
-            while ((match = regex.exec(rewritePart)) !== null) {
-                const part = match[1];
-                rewrites[part] = rewrites[part] || {};
-                rewrites[part].point = match[2].trim();
-            }
-            while ((match = evidenceRegex.exec(rewritePart)) !== null) {
-                const part = match[1];
-                rewrites[part] = rewrites[part] || {};
-                rewrites[part].evidence = match[2].trim();
-            }
-            return rewrites;
-        }
-        
-        const comments = parseCommentPart(commentPart);
-        const rewrites = parseRewritePart(rewritePart);
-
-        let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="argumentCommentTable"><tr><th style="width:10%">部份</th><th style="width:15%">論點</th><th style="width:20%">論據及論證</th><th style="width:27.5%">點評</th><th style="width:27.5%">建議</th></tr>`;
-        outlineContent.forEach(item => {
-            const comment = comments[item.part]?.comment || "未生成點評";
-            const suggestion = comments[item.part]?.suggestion || "未生成建議";
-            commentTableHTML += `<tr><td>${item.part}</td><td>${item.point}</td><td>${item.evidence}</td><td>${comment}</td><td>${suggestion}</td></tr>`;
+        const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
+        let guideHTML = "<h3>陳SIR指引：</h3><table>";
+        guideParts.forEach(part => {
+            const [title, ...content] = part.split("\n").filter(line => line.trim());
+            guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
         });
-        commentTableHTML += "</table></div>";
+        guideHTML += "</table>";
 
-        let rewriteTableHTML = `<h3>改寫後的大綱：</h3><div class="table-container"><table id="argumentRewriteTable"><tr><th style="width:15%">部份</th><th style="width:40%">論點</th><th style="width:45%">論據及論證</th></tr>`;
-        outlineContent.forEach(item => {
-            const rewrite = rewrites[item.part] || { point: "未生成論點", evidence: "未生成論據及論證" };
-            rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.point || "未生成論點"}</td><td>${rewrite.evidence || "未生成論據及論證"}</td></tr>`;
-        });
-        rewriteTableHTML += "</table></div>";
+        guideHTML += getCanvasChatHTML('argument_guide');
 
-        let explanationHTML = '';
-        if (explanationPart) {
-            const points = explanationPart.split(/\s*(?=\d\.\s*)/).filter(p => p.trim());
-            explanationHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>改寫說明</h3>`;
-            points.forEach(point => {
-                const match = point.match(/^(\d)\.\s*(.*)$/s);
-                if (match) {
-                    const number = match[1];
-                    const text = match[2];
-                    explanationHTML += `<div class="explanation-point"><div class="explanation-number">${number}</div><div class="explanation-text">${text}</div></div>`;
-                }
-            });
-            explanationHTML += `</div></div>`;
-        }
+        openResultCanvas("議論文寫作指引");
+        document.getElementById("resultCanvasBody").innerHTML = guideHTML;
 
-        openResultCanvas("議論文大綱建議");
-        const resultContainer = document.getElementById("resultCanvasBody");
-        const fullAiResultHtml = commentTableHTML + rewriteTableHTML + explanationHTML + getCanvasChatHTML('argument_outline');
-        resultContainer.innerHTML = fullAiResultHtml;
-        resultContainer.style.width = "100%";
+        const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
         
-        let userInputHistoryStr = `題目：${topic}`;
+        // ★★★ 核心修訂：加上 await ★★★
+        // 確保這裡跑完，isSynced 已經變為 true
+        await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
-        // ★★★ 修訂處：加上 await ★★★
-        await saveToHistory(
-            "議論", 
-            "大綱點評", 
-            topic, 
-            userInputHistoryStr, 
-            fullAiResultHtml 
-        );
-
     } catch (error) {
-        console.error("提交議論大綱時出錯:", error);
-        alert("點評生成失敗，請重試");
+        console.error("提交指引時出錯:", error);
+        alert("指引生成失敗，請重試");
     } finally {
-        submitBtn.disabled = false;
-        hideLoading();
+        submitBtn.disabled = false; 
+        hideLoading(); // Loading 消失時，資料肯定已同步完成
     }
 }
+
+	
 
 async function submitArgumentWriting() {
     const submitBtn = document.getElementById('submitArgumentWritingBtn');
@@ -10512,27 +10419,23 @@ function handleAllScopeChange(checkbox) {
     }
 }
 
-// ==========================================
-// === 修訂：提交議論指引 (加入 await) ===
-// ==========================================
+// 提交議論指引
 async function submitArgumentGuide() {
-    const submitBtn = document.getElementById('submitArgumentGuideBtn');
-    submitBtn.disabled = true; 
-    hideAllSaveHtmlButtons();
+const submitBtn = document.getElementById('submitArgumentGuideBtn');
+submitBtn.disabled = true; // 禁用按鈕
+	hideAllSaveHtmlButtons();
 
-    try {
-        const topic = document.getElementById("argumentGuideTopic").value.trim();
-        const point = document.getElementById("argumentGuidePoint").value.trim();
-        const evidence = document.getElementById("argumentGuideEvidence").value.trim();
-        const argument = document.getElementById("argumentGuideArgument").value.trim();
-        
-        if (!topic) {
-            alert("請輸入題目");
-            return; 
-        }
-
-        const note = categories["議論"].guideNote;
-        const prompt = `請根據以下輸入提供參考建議。要求：
+try {
+const topic = document.getElementById("argumentGuideTopic").value.trim();
+const point = document.getElementById("argumentGuidePoint").value.trim();
+const evidence = document.getElementById("argumentGuideEvidence").value.trim();
+const argument = document.getElementById("argumentGuideArgument").value.trim();
+if (!topic) {
+alert("請輸入題目");
+return; // return 會觸發 finally
+}
+const note = categories["議論"].guideNote;
+let prompt = `請根據以下輸入提供參考建議。要求：
 1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
 2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
 3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
@@ -10543,11 +10446,11 @@ async function submitArgumentGuide() {
 論據：${evidence || "無"}
 論證：${argument || "無"}
 教學筆記：${note}`;
+showLoading("陳SIR 正在思考...");
 
-        showLoading("陳SIR 正在思考指引...");
-        
-        const guide = await callReadingAPI(prompt);
-        
+// 【核心修訂】改用閱讀專用的 API 函式
+const guide = await callReadingAPI(prompt);
+ // 設定聊天室上下文
         currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
         currentContextReview = guide;
 
@@ -10559,27 +10462,26 @@ async function submitArgumentGuide() {
         });
         guideHTML += "</table>";
 
+        // ★★★ 加入聊天室 ★★★
         guideHTML += getCanvasChatHTML('argument_guide');
 
         openResultCanvas("議論文寫作指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
 
+        // 儲存 (移除聊天室)
         const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
+        saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
-        // ★★★ 核心修訂：加上 await ★★★
-        // 確保這裡跑完，isSynced 已經變為 true
-        await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
-        
+    
     } catch (error) {
         console.error("提交指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
         submitBtn.disabled = false; 
-        hideLoading(); // Loading 消失時，資料肯定已同步完成
+        hideLoading();
     }
 }
 
-	
 // 通用 API 調用函數 (加入 50 秒超時)
 async function callAPI(prompt, temperature = null) {
 	// ★★★ 新增：額度檢查 ★★★
@@ -11161,16 +11063,19 @@ async function submitWritingGuide() {
         // 這會自動生成對話框，並且 sendCanvasMessage 會讀取上面的 currentContext 變數
         finalHTML += getCanvasChatHTML('narrative_guide');
 
-         openResultCanvas("解題指引");
+        // === 打開畫布並寫入內容 ===
+        openResultCanvas("解題指引");
         const resultContainer = document.getElementById("resultCanvasBody");
         resultContainer.innerHTML = finalHTML;
 
-        // ★★★ 修訂處：加上 await ★★★
+        // === 儲存歷史紀錄 ===
         // 新的邏輯：完整儲存 (包含聊天室介面)
-        await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, finalHTML);
+await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, finalHTML);
         
         // 顯示儲存按鈕 (如果有的話)
         hideAllSaveHtmlButtons();
+   
+
 
     } catch (error) {
         console.error("解題指引生成失敗:", error);
@@ -11331,15 +11236,13 @@ async function submitWriting() {
             // ★★★ 加入聊天室介面 ★★★
             elementsHTML += getCanvasChatHTML('narrative_elements');
 
-               openResultCanvas("生成的敘事物象");
+            openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             
             // 儲存時移除聊天室 HTML (以免歷史紀錄過長)
             const historyHTML = elementsHTML.split('<div class="canvas-chat-container">')[0];
-            
-            // ★★★ 修訂處 1：加上 await ★★★
-            await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
-        }
+           await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
+        } 
         // ==========================================
         // 模式三：文章點評 (保持不變)
         // ==========================================
@@ -11593,22 +11496,9 @@ function displayOutlineComment(response, content) {
     }
     
     openResultCanvas("敘事大綱點評結果");
-            const resultContainer = document.getElementById("resultCanvasBody");
-            // 注意：這裡應該是呼叫 displayOutlineComment 後儲存
-            // 請確認 displayOutlineComment 執行後，我們抓取內容儲存
-
-            const structureName = structure === "fourPart" ? "起承轉合" : "三線";
-            let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
-            
-            // ★★★ 修訂處 2：加上 await ★★★
-            await saveToHistory(
-                "敘事抒情", 
-                "大綱點評", 
-                topic, 
-                userContentForHistory, 
-                document.getElementById("resultCanvasBody").innerHTML 
-            );
-        }
+    const resultContainer = document.getElementById("resultCanvasBody");
+    resultContainer.innerHTML = commentTableHTML + rewriteTableHTML + explanationHTML + getCanvasChatHTML('narrative_outline');
+}
 
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存問題)
 // 替換舊的 submitReading 函式 (修正歷史紀錄儲存變數錯誤)
@@ -11746,8 +11636,10 @@ async function submitReading() {
             openResultCanvas("閱讀理解點評");
             document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             
-            // ★★★ 修訂處 1 (點評)：加上 await ★★★
-            await saveToHistory(
+            // ★★★ 修正這裡 ★★★
+            // 原本錯誤：saveToHistory("閱讀", "指引", ..., guideHTML)
+            // 修正後：使用 "點評" 作為子功能，並儲存 finalHTML
+            saveToHistory(
                 "閱讀", 
                 "點評", 
                 question || "閱讀練習", 
@@ -11755,7 +11647,7 @@ async function submitReading() {
                 finalHTML
             );
 
-        } else { 
+        } else { // guide
             const guideParts = result.split("###").map(part => part.trim()).filter(part => part);
             guideHTML = "<h3>陳SIR指引：</h3>";
 
@@ -11796,7 +11688,7 @@ async function submitReading() {
             // ★★★ 加入聊天室 (指引) ★★★
             guideHTML += getCanvasChatHTML('reading_guide');
 
-             openResultCanvas("閱讀理解指引");
+            openResultCanvas("閱讀理解指引");
             document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             
             // ★★★ 修訂處 2 (指引)：加上 await ★★★
@@ -12361,15 +12253,16 @@ async function submitExpandComment() {
         // ★★★ 加入聊天室 ★★★
         finalHTML += getCanvasChatHTML('expand_comment');
 
-       openResultCanvas("整合拓展點評");
+        openResultCanvas("整合拓展點評");
         document.getElementById("resultCanvasBody").innerHTML = finalHTML;
         
+        // 儲存時移除聊天室 HTML 結構以保持乾淨，或直接儲存也可（saveToHistory 內部會處理輸入框移除）
         const historyHTML = finalHTML; 
         
-        // ★★★ 修訂處：加上 await ★★★
-        await saveToHistory(
+        // ★★★ 關鍵修復：正確呼叫儲存函數 ★★★
+       await saveToHistory(
             "整合拓展", 
-            "點評", 
+            "點評", // 確保子功能名稱正確
             title || "無題目", 
             `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, 
             historyHTML
@@ -12455,16 +12348,11 @@ async function submitExpandGuide() {
         openResultCanvas("整合拓展指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
         
+        // 儲存歷史紀錄 (移除聊天室)
         const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
+        saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, historyHTML);
         
-        // ★★★ 修訂處：加上 await ★★★
-        await saveToHistory(
-            "整合拓展", 
-            "指引", 
-            title, 
-            `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, 
-            historyHTML
-        );
+        
 
     } catch (error) {
         console.error("提交整合拓展指引時出錯:", error);
@@ -13903,16 +13791,16 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     // 使用 captureContainerHTML 確保儲存時雷達圖不消失 (記得要用不轉圖片的修復版)
     // 使用 captureContainerHTML 確保儲存時雷達圖不消失
-    // 使用 captureContainerHTML 確保儲存時雷達圖不消失
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
-    // ★★★ 修訂處：加上 await ★★★
-    await saveToHistory(
+     await saveToHistory(
+        // ★★★ 這一行必須保留，不能改！它會自動判斷是敘事還是議論 ★★★
         uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
+        
         "文章點評", 
         topic || "無題目", 
         `題目：${topic}\n\n文章：${fullTextContent}`, 
-        htmlContent, 
+        htmlContent, // 這裡傳入完整的 HTML (含聊天室) 即可
         scoresForDisplay 
     );
 }
@@ -14426,7 +14314,6 @@ function captureContainerHTML(containerId) {
 
 
 	
-// === 修改後：儲存紀錄 (初始化同步狀態) ===
 // ==========================================
 // === 修訂：儲存紀錄 (強制等待同步完成) ===
 // ==========================================
@@ -14483,88 +14370,6 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
 
     } catch (error) {
         console.error("儲存紀錄失敗:", error);
-    }
-}
-
-// === 全域變數：記錄最新生成的歷史紀錄時間戳 (用於聊天即時存檔) ===
-let lastGeneratedTimestamp = null;
-
-// === [修訂版] 聊天室即時存檔助手函數 ===
-async function updateHistoryChat() {
-    if (!lastGeneratedTimestamp) {
-        console.warn("未設定時間戳，無法儲存對話。");
-        return; 
-    }
-
-    console.log("正在更新聊天紀錄到歷史檔案...");
-
-    // 1. 智能判斷來源容器
-    let sourceElement = document.getElementById("resultCanvasBody");
-    const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
-    
-    if (isCanvasHidden) {
-        sourceElement = document.getElementById("historyModalContent");
-    }
-
-    if (!sourceElement) return;
-    
-    // 2. 捕捉內容並清理
-    const clone = sourceElement.cloneNode(true);
-    const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
-    inputAreas.forEach(el => el.remove());
-    
-    const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn, .history-save-btn, .morandi-save-float-btn');
-    buttons.forEach(el => el.remove());
-
-    const clonedCanvases = clone.querySelectorAll('canvas');
-    clonedCanvases.forEach((canvas) => {
-        canvas.style.width = '100%';
-        canvas.style.height = '350px';
-        canvas.style.display = 'block';
-        canvas.removeAttribute('id');
-    });
-
-    const newAiContent = clone.innerHTML;
-
-    // 3. 寫入 IndexedDB
-    try {
-        const db = await openHistoryDB();
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const index = store.index('timestamp'); 
-
-        const request = index.get(lastGeneratedTimestamp);
-
-        request.onsuccess = function(event) {
-            const data = event.target.result;
-            if (data) {
-                // 更新內容
-                data.aiContent = newAiContent;
-                
-                // ★★★ 關鍵修訂：標記狀態 ★★★
-                // isSynced: false -> 代表內容有變更，需要上傳到雲端
-                // hasBeenSynced -> 保持不變 (如果它是舊紀錄，這裡會是 true，這很重要！)
-                delete data.isSynced; 
-                data.isSynced = false; 
-                
-                // 如果這是一個從未上傳過的新紀錄，確保 hasBeenSynced 被初始化
-                if (data.hasBeenSynced === undefined) {
-                    data.hasBeenSynced = false;
-                }
-
-                const updateRequest = store.put(data);
-                
-                updateRequest.onsuccess = function() {
-                    console.log("聊天紀錄已更新 (準備上傳)");
-                    const s = JSON.parse(localStorage.getItem('studentProfile'));
-                    if (s) {
-                        syncHistoryToFirebase(true); // 觸發同步
-                    }
-                };
-            }
-        };
-    } catch (e) {
-        console.error("更新聊天紀錄失敗:", e);
     }
 }
 
