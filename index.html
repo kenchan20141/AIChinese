@@ -6109,8 +6109,7 @@ select:focus, select:hover {
 
 
 
-	// === 全域變數：記錄最新生成的歷史紀錄時間戳 (用於聊天即時存檔) ===
-let lastGeneratedTimestamp = null;
+
 
 // 全域變數：記錄當天(或本次會話) API 循環失敗的次數
 let globalApiCycleFailures = 0;
@@ -8832,7 +8831,7 @@ async function sendCanvasMessage() {
         }
     }
 
-    // 構建 Prompt (保持原有邏輯)
+    // 構建 Prompt
     let promptContext = "";
     switch (currentContextType) {
         case 'narrative_writing':
@@ -8859,10 +8858,13 @@ async function sendCanvasMessage() {
     const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
 
     try {
+        // 使用閱讀專用 API (通常較穩定)
         const response = await callReadingAPI(fullPrompt);
         let formattedResponse = response.replace(/\n/g, '<br>');
         formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         aiBubble.innerHTML = formattedResponse;
+        
+        // 更新記憶體中的歷史
         canvasChatHistory.push({ role: "Student", content: userText });
         canvasChatHistory.push({ role: "Teacher", content: response });
 
@@ -8877,7 +8879,6 @@ async function sendCanvasMessage() {
         historyBox.scrollTop = historyBox.scrollHeight;
     }
 }
-
 
 
 
@@ -11018,8 +11019,6 @@ async function continueWritingGuideDiscussion() {
         writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
 
         // ★★★ 關鍵新增：更新歷史紀錄 ★★★
-        // 注意：此函數通常用於舊版介面，若已轉用 Canvas Chat 則此函數可能不再被呼叫
-        // 但為了保險起見，我們加入更新邏輯
         await updateHistoryChat();
 
     } catch (error) {
@@ -11030,7 +11029,6 @@ async function continueWritingGuideDiscussion() {
         continueBtn.disabled = false;
     }
 }
-
 
 // ==========================================
 // === 修訂：解題指引提交函數 (含追問聊天室功能) ===
@@ -11922,7 +11920,7 @@ async function continueArgumentDiscussion() {
     const tone = document.getElementById("argumentWritingTone").value;
     let toneNote = tone === "chen" ? categories["課外書籍"].chatNote : categories["課外書籍"].seriousChatNote;
     
-    const prompt = `我是一位高中生，你正在點評我的議論文。\n原文：${currentArgumentArticle}\n對話紀錄：${conversationHistoryForPrompt}\n請針對我最新的追問，用日常的語言簡潔地回應我，不要過於理論化，必須詳細分析並給出例子。請不要使用括號解釋你的目的。回應字數不要超過180字。${toneNote}`;
+    const prompt = `我是一位高中生，你正在點評我的議論文。\n原文：${currentArgumentArticle}\n對話紀錄：${conversationHistoryForPrompt}\n請針對最新追問回應。${toneNote}`;
     
     try {
         const aiResponse = await callReadingAPI(prompt);
@@ -14395,7 +14393,7 @@ function captureContainerHTML(containerId) {
 // === 修改後：儲存紀錄 (設定時間戳標記) ===
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
-        // 1. 清理 HTML (保留聊天室結構，只移除輸入框)
+        // 1. 清理 HTML (保留聊天室結構，只移除輸入框，這是為了初始存檔乾淨)
         if (aiContent && typeof aiContent === 'string') {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
@@ -14405,7 +14403,7 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             inputAreas.forEach(el => el.remove());
             
             // 移除按鈕
-            const continueBtns = tempDiv.querySelectorAll('button, .btn-icon-action');
+            const continueBtns = tempDiv.querySelectorAll('button, .btn-icon-action, .canvas-send-btn');
             continueBtns.forEach(el => el.remove());
 
             aiContent = tempDiv.innerHTML;
@@ -14415,9 +14413,9 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
 
-        // 2. 生成並記錄時間戳 (關鍵步驟)
+        // 2. 生成並記錄時間戳 (關鍵步驟：全域變數更新)
         const ts = new Date().getTime();
-        lastGeneratedTimestamp = ts; // ★ 全域變數更新
+        lastGeneratedTimestamp = ts; 
 
         const record = {
             category: category,
@@ -14432,7 +14430,7 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         };
 
         store.add(record);
-        console.log("本地紀錄已儲存 (含閱卷員追問區)");
+        console.log("本地紀錄已儲存 (初始建立，含閱卷員追問區)");
         
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
@@ -14445,6 +14443,9 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
 }
 
 
+// === 全域變數：記錄最新生成的歷史紀錄時間戳 (用於聊天即時存檔) ===
+let lastGeneratedTimestamp = null;
+
 // ==========================================
 // === [新增] 聊天室即時存檔助手函數 ===
 // ==========================================
@@ -14455,15 +14456,14 @@ async function updateHistoryChat() {
 
     // 1. 捕捉當前畫布的最新狀態 (含新氣泡)
     // 我們使用 cloneNode 來處理，以免影響螢幕上的顯示
-    // 優先抓取 Result Canvas，如果沒有，嘗試抓取舊版容器 (兼容性)
     let sourceElement = document.getElementById("resultCanvasBody");
     
-    // 如果 Canvas 沒顯示，嘗試抓取對應的舊版聊天容器 (視乎當前功能)
-    if (!sourceElement || sourceElement.innerHTML.trim() === "") {
-        if (document.getElementById("writingGuideChatHistory") && document.getElementById("writingGuideChatHistory").style.display !== 'none') {
-            // 特殊情況：舊版解題指引
-            // 這裡比較複雜，因為舊版結構不同，但為了統一，建議主要依賴 Canvas。
-            // 若您的解題指引已改用 Canvas，則不需要此 else if
+    // 如果 Canvas 沒顯示，嘗試抓取對應的舊版聊天容器 (兼容舊版介面)
+    if (!sourceElement || sourceElement.style.display === 'none' || sourceElement.innerHTML.trim() === "") {
+        // 嘗試抓取舊版容器，視乎當前功能
+        if (document.getElementById("writingChatHistory") && document.getElementById("writingChatHistory").style.display !== 'none') {
+            // 注意：舊版介面分散在不同 div，這裡主要針對 Canvas 介面優化
+            // 若您使用舊版介面，建議統一轉向使用 ResultCanvas
         }
     }
 
@@ -14472,29 +14472,40 @@ async function updateHistoryChat() {
     const clone = sourceElement.cloneNode(true);
 
     // 2. 執行「移除輸入框」的邏輯 (確保歷史紀錄乾淨，只留對話)
-    const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer');
+    // 移除 Canvas 聊天室的輸入區
+    const inputAreas = clone.querySelectorAll('.canvas-input-area');
     inputAreas.forEach(el => el.remove());
+
+    // 移除舊版聊天室的輸入區 (如果存在於 Canvas 中)
+    const oldInputAreas = clone.querySelectorAll('#writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
+    oldInputAreas.forEach(el => el.remove());
     
-    // 移除按鈕
-    const buttons = clone.querySelectorAll('button, .btn-icon-action');
+    // 移除所有按鈕 (例如「繼續討論」、「發送」等，不應保留在歷史紀錄)
+    const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn');
     buttons.forEach(el => el.remove());
 
-    // 處理 Canvas (避免圖表消失) - 給予固定高度
+    // 3. 處理 Chart.js Canvas (避免圖表在 clone 後消失)
+    // 我們給予 Canvas 明確的樣式，以便 viewHistoryDetail 可以重新繪圖
     const clonedCanvases = clone.querySelectorAll('canvas');
     clonedCanvases.forEach((canvas) => {
+        canvas.style.width = '100%';
         canvas.style.height = '350px';
         canvas.style.display = 'block';
+        // 移除 ID 以免衝突
+        canvas.removeAttribute('id');
     });
 
+    // 4. 獲取處理後的 HTML
     const newAiContent = clone.innerHTML;
 
-    // 3. 更新 IndexedDB
+    // 5. 更新 IndexedDB
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         const index = store.index('timestamp'); // 使用時間戳索引找回紀錄
 
+        // 使用我們全域變數記住的時間戳來查找
         const request = index.get(lastGeneratedTimestamp);
 
         request.onsuccess = function(event) {
@@ -14503,20 +14514,22 @@ async function updateHistoryChat() {
                 // 更新內容
                 data.aiContent = newAiContent;
                 
-                // 標記為未同步，觸發雲端更新
+                // 標記為未同步，這樣才會觸發雲端更新 (重要！)
                 if (data.isSynced) delete data.isSynced;
 
-                // 寫回
+                // 寫回本地資料庫
                 const updateRequest = store.put(data);
                 
                 updateRequest.onsuccess = function() {
-                    console.log("聊天紀錄已更新至本地 DB");
+                    console.log("聊天紀錄已即時更新至本地 DB");
                     // 觸發雲端同步
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     if (s) {
-                        syncHistoryToFirebase(true);
+                        syncHistoryToFirebase(true); // 靜默同步
                     }
                 };
+            } else {
+                console.warn("找不到對應時間戳的紀錄，無法更新聊天。");
             }
         };
     } catch (e) {
