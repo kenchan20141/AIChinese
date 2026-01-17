@@ -14549,109 +14549,78 @@ async function updateHistoryChat() {
 	
 	
 // ==========================================
-// === 1. 核心同步函數 (修復版：增強刪除偵測) ===
+// === [DEBUG版] 2. 合併算法 ===
 // ==========================================
-async function syncHistoryToFirebase(isSilent = false) {
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) {
-        if (!isSilent) alert("請先綁定身份");
-        return;
-    }
+function mergeHistoryRecords(localRecords, cloudRecords) {
+    console.log("--- [DEBUG] 開始執行合併邏輯 ---");
+    const mergedMap = new Map();
     
-    let btn = null;
-    let originalText = "";
-    if (!isSilent && typeof event !== 'undefined' && event && event.target) {
-        btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
-        if (btn) {
-            originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 處理中...';
-            btn.disabled = true;
-        }
-    }
+    // 生成唯一鍵
+    const generateKey = (r) => {
+        // 為了避免 undefined 導致 key 錯誤，加強保護
+        const ts = r.timestamp ? Number(r.timestamp) : 0;
+        return `${r.category}_${r.subFunction}_${r.title}_${ts}`;
+    };
+
+    // A. 先放入雲端資料
+    cloudRecords.forEach(record => {
+        const key = generateKey(record);
+        mergedMap.set(key, record);
+    });
     
-    try {
-        const db = await openHistoryDB();
+    console.log(`[DEBUG] 雲端基礎 Map 大小: ${mergedMap.size}`);
+
+    // B. 處理本地資料
+    localRecords.forEach(localRecord => {
+        if (!localRecord) return;
+        const key = generateKey(localRecord);
+        const title = localRecord.title;
         
-        // A. 獲取本地資料
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const localRecords = await new Promise((resolve) => {
-            const req = store.getAll();
-            req.onsuccess = e => resolve(e.target.result);
-            req.onerror = () => resolve([]);
-        });
-        
-        // B. 獲取雲端資料
-        const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-        const cloudSnapshot = await database.ref(path).once('value');
-        const cloudData = cloudSnapshot.val();
-        let cloudRecords = [];
- 
-        // 轉為陣列 (處理 null 或物件結構)
-        if (cloudData) {
-            if (Array.isArray(cloudData)) {
-                cloudRecords = cloudData.filter(item => item !== null);
-            } else if (typeof cloudData === 'object') {
-                cloudRecords = Object.values(cloudData);
-            }
-        }
-        
-        // 為雲端資料加上標記
-        cloudRecords = cloudRecords.map(r => ({ ...r, isSynced: true }));
-        
-        // C. 執行智能合併 (此處會調用上面修訂過的 mergeHistoryRecords)
-        const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
-        
-        // D. 寫回雲端
-        await database.ref(path).set(mergedRecords);
-        
-        // E. 寫回本地
-        await updateLocalHistoryWithMergedData(mergedRecords, db);
-        
-        console.log(`[同步] 完成。本地: ${localRecords.length} -> 最終: ${mergedRecords.length}`);
-        
-        if (!isSilent) alert("✅ 同步完成！資料已更新。");
-        
-        // F. 強制刷新 UI
-        // 1. 如果正在列表頁面，刷新列表
-        const level3 = document.getElementById('historyLevel3');
-        if (level3 && level3.style.display !== 'none') {
-            if (typeof currentSubFunctionFilter !== 'undefined') {
-                const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-                enterHistoryList(currentSubFunctionFilter, themeIndex);
+        // --- 情況 1：雲端也有這筆資料 ---
+        if (mergedMap.has(key)) {
+            // 雲端有，本地也有
+            if (localRecord.isSynced === false) {
+                // 本地有修改，覆蓋雲端
+                console.log(`[DEBUG] [${title}] 本地有新修改 -> 覆蓋雲端版本`);
+                mergedMap.set(key, localRecord);
+            } else {
+                // 完全同步，使用雲端版本 (預設已在 Map 中，不做事)
+                // console.log(`[DEBUG] [${title}] 雙方同步 -> 保持原樣`);
             }
         } 
-        // 2. 如果正在查看詳情，檢查該紀錄是否還存在
-        else if (document.getElementById('historyModal').style.display === 'flex') {
-            const modalTitleEl = document.getElementById('historyModalTitle');
-            // 簡單檢查標題是否存在於合併後的紀錄中
-            // 這裡使用 lastGeneratedTimestamp 全域變數會更準確 (如果有的話)
-            const currentTimestamp = window.lastGeneratedTimestamp;
-            
-            if (currentTimestamp) {
-                const exists = mergedRecords.some(r => Number(r.timestamp) === Number(currentTimestamp));
-                if (!exists) {
-                    alert("此紀錄已被移除。");
-                    closeHistoryModal();
-                    // 嘗試刷新列表背景
-                    if (typeof currentSubFunctionFilter !== 'undefined') {
-                        enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
-                    }
-                }
+        // --- 情況 2：雲端沒有這筆資料 (關鍵!) ---
+        else {
+            const hasBeenSynced = localRecord.hasBeenSynced;
+            const isSynced = localRecord.isSynced;
+
+            console.log(`[DEBUG] [${title}] 雲端缺失 | hasBeenSynced: ${hasBeenSynced} | isSynced: ${isSynced}`);
+
+            // ★ 判斷邏輯
+            if (hasBeenSynced === true) {
+                console.log(`[DEBUG] ❌ [${title}] 判定為【雲端已刪除】，執行本地刪除 (不加入 Map)`);
+                // 這裡不執行 set，就等於刪除了
+            } 
+            else if (isSynced === true) {
+                // 理論上 hasBeenSynced 應該涵蓋了這點，但也許是舊數據
+                console.log(`[DEBUG] ❌ [${title}] 狀態為已同步但雲端無，判定為刪除`);
+            }
+            else {
+                // hasBeenSynced 是 false 且 isSynced 是 false
+                console.log(`[DEBUG] ✅ [${title}] 判定為【新草稿】，保留並上傳`);
+                mergedMap.set(key, localRecord);
             }
         }
- 
-    } catch (err) {
-        console.error("同步失敗:", err);
-        if (!isSilent) alert("❌ 同步失敗: " + err.message);
-    } finally {
-        if (btn && originalText) {
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-        }
-    }
+    });
+
+    console.log(`[DEBUG] 合併結束，最終筆數: ${mergedMap.size}`);
+    console.log("--------------------------------");
+
+    // C. 轉回陣列
+    return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 
+
+	
 // ==========================================
 // === 2. 合併算法 (修復版：嚴格執行雲端刪除) ===
 // ==========================================
