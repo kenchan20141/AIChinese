@@ -17969,7 +17969,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-   // 3. 記錄訪問 (Log Visit) - 同時寫入 全校、班級、個別學生
+// === 3. 記錄訪問 (Log Visit) - 高效分流版 ===
 async function logVisitOnce() {
     if (typeof firebase === 'undefined' || !database) return;
     
@@ -17977,7 +17977,7 @@ async function logVisitOnce() {
     const identity = getIdentity();
     const uid = identity.id;
 
-    // Session 鎖 (防止刷新重複計數)
+    // Session 鎖
     const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
     if (sessionStorage.getItem(sessionKey)) return; 
 
@@ -17991,27 +17991,31 @@ async function logVisitOnce() {
         const updates = {};
         const increment1 = firebase.database.ServerValue.increment(1);
         
-        // 1. 全校路徑
-        const globalPath = `stats_view/${y}/${m}/${d}/global`;
+        // 1. 全校路徑 (stats_global/YYYY/MM/DD)
+        const globalPath = `stats_global/${y}/${m}/${d}`;
         updates[`${globalPath}/visits`] = increment1;
 
         if (identity.type === 'student') {
-            // 2. 班級路徑
-            const classPath = `stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}`;
+            const classKey = `${identity.grade}${identity.class}`;
+            const studentKey = identity.id.split('_').pop(); // 名字
+
+            // 2. 班級路徑 (stats_classes/6A/YYYY/MM/DD)
+            const classPath = `stats_classes/${classKey}/${y}/${m}/${d}`;
             updates[`${classPath}/visits`] = increment1;
 
-            // ★★★ 3. 新增：個別學生路徑 (這就是您要的數據！) ★★★
-            const studentPath = `stats_view/${y}/${m}/${d}/students/${identity.grade}/${identity.class}/${identity.id.split('_').pop()}`; // 用名字當Key
+            // 3. 學生路徑 (stats_students/6A/陳大文/YYYY/MM/DD)
+            // 注意：Firebase Key 不能含 '.' '$' '#' '[' ']'，名字需已在 getIdentity 處理過
+            const studentPath = `stats_students/${classKey}/${studentKey}/${y}/${m}/${d}`;
             updates[`${studentPath}/visits`] = increment1;
 
             if (isFirstTimeToday) {
                 updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
                 updates[`${globalPath}/unique`] = increment1;
                 updates[`${classPath}/unique`] = increment1;
-                // 個別學生不需要 unique 計數，因為 visits > 0 就代表他來了
+                // 個別學生不需要 unique，因為他就是一個人
             }
         } else {
-            // 訪客邏輯
+            // 訪客
             if (isFirstTimeToday) {
                 updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
                 updates[`${globalPath}/unique`] = increment1;
@@ -18020,35 +18024,37 @@ async function logVisitOnce() {
 
         await database.ref().update(updates);
         sessionStorage.setItem(sessionKey, 'true');
-        console.log("📍 [Stats] 訪問次數已上傳 (含個別學生)");
+        console.log("📍 [Stats] 訪問計數已分流上傳");
 
     } catch (e) {
         console.error("Stats Error:", e);
     }
 }
 
-// 4. 上傳 1 分鐘 (固定 +60s) - 同時寫入 全校、班級、個別學生
+// 4. 上傳 1 分鐘 (分流版)
 function uploadOneMinute() {
     if (typeof firebase === 'undefined' || !database) return;
     
-    logVisitOnce(); // 確保有点名
+    logVisitOnce(); // 確保有點名
 
     const { y, m, d } = getDateParts();
     const identity = getIdentity();
+    const studentKey = identity.id.split('_').pop();
     
     const updates = {};
     const increment60 = firebase.database.ServerValue.increment(60);
 
-    // 1. 全校時長
-    updates[`stats_view/${y}/${m}/${d}/global/duration`] = increment60;
+    // 1. 全校
+    updates[`stats_global/${y}/${m}/${d}/duration`] = increment60;
 
     if (identity.type === 'student') {
-        // 2. 班級時長
-        updates[`stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}/duration`] = increment60;
+        const classKey = `${identity.grade}${identity.class}`;
         
-        // ★★★ 3. 新增：個別學生時長 ★★★
-        const studentPath = `stats_view/${y}/${m}/${d}/students/${identity.grade}/${identity.class}/${identity.id.split('_').pop()}`;
-        updates[`${studentPath}/duration`] = increment60;
+        // 2. 班級
+        updates[`stats_classes/${classKey}/${y}/${m}/${d}/duration`] = increment60;
+        
+        // 3. 學生
+        updates[`stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/duration`] = increment60;
     }
 
     database.ref().update(updates).catch(e => console.error(e));
