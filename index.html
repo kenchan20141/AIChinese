@@ -14521,12 +14521,16 @@ async function updateHistoryChat() {
                 // 更新內容
                 data.aiContent = newAiContent;
                 
-                // ★★★ 關鍵：標記為未同步，強制覆蓋雲端舊檔 ★★★
+                // ★★★ 關鍵修訂：標記狀態 ★★★
+                // isSynced: false -> 代表內容有變更，需要上傳到雲端
+                // hasBeenSynced -> 保持不變 (如果它是舊紀錄，這裡會是 true，這很重要！)
                 delete data.isSynced; 
                 data.isSynced = false; 
                 
-                // 注意：這裡不需要動 hasBeenSynced，如果它本來是 true (舊紀錄)，它依然是 true
-                // 如果它是剛剛生成的 (false)，它依然是 false。這樣邏輯是正確的。
+                // 如果這是一個從未上傳過的新紀錄，確保 hasBeenSynced 被初始化
+                if (data.hasBeenSynced === undefined) {
+                    data.hasBeenSynced = false;
+                }
 
                 const updateRequest = store.put(data);
                 
@@ -14559,7 +14563,6 @@ async function syncHistoryToFirebase(isSilent = false) {
     
     let btn = null;
     let originalText = "";
-    // UI 反饋：如果是由按鈕觸發，加入 Loading 效果
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
         btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
         if (btn) {
@@ -14572,23 +14575,22 @@ async function syncHistoryToFirebase(isSilent = false) {
     try {
         const db = await openHistoryDB();
         
-        // A. 獲取本地資料 (IndexedDB)
+        // A. 獲取本地資料
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
-        const localRecords = await new Promise((resolve, reject) => {
+        const localRecords = await new Promise((resolve) => {
             const req = store.getAll();
             req.onsuccess = e => resolve(e.target.result);
             req.onerror = () => resolve([]);
         });
         
-        // B. 獲取雲端資料 (Firebase)
-        // 注意：反引號語法確保正確
+        // B. 獲取雲端資料
         const path = `students/${s.grade}/${s.class}/${s.name}/history`;
         const cloudSnapshot = await database.ref(path).once('value');
         const cloudData = cloudSnapshot.val();
         let cloudRecords = [];
  
-        // 轉為陣列 (處理 Firebase 可能回傳物件或 null 的情況)
+        // 轉為陣列 (處理 null 或物件結構)
         if (cloudData) {
             if (Array.isArray(cloudData)) {
                 cloudRecords = cloudData.filter(item => item !== null);
@@ -14597,41 +14599,47 @@ async function syncHistoryToFirebase(isSilent = false) {
             }
         }
         
-        // 為雲端資料加上標記，方便合併時識別
+        // 為雲端資料加上標記
         cloudRecords = cloudRecords.map(r => ({ ...r, isSynced: true }));
         
-        console.log(`[同步] 本地: ${localRecords.length} 筆, 雲端: ${cloudRecords.length} 筆`);
- 
-        // C. 執行智能合併 (這是決定保留或刪除的關鍵步驟)
+        // C. 執行智能合併 (此處會調用上面修訂過的 mergeHistoryRecords)
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
         
-        // D. 寫回雲端 (確保雲端與合併結果一致)
+        // D. 寫回雲端
         await database.ref(path).set(mergedRecords);
         
-        // E. 寫回本地 (更新 IndexedDB)
+        // E. 寫回本地
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         
-        console.log(`[同步] 完成。最終保留: ${mergedRecords.length} 筆`);
+        console.log(`[同步] 完成。本地: ${localRecords.length} -> 最終: ${mergedRecords.length}`);
         
         if (!isSilent) alert("✅ 同步完成！資料已更新。");
         
         // F. 強制刷新 UI
-        // 無論使用者在哪個層級，都嘗試刷新列表
-        if (document.getElementById('historyLevel3') && document.getElementById('historyLevel3').style.display !== 'none') {
+        // 1. 如果正在列表頁面，刷新列表
+        const level3 = document.getElementById('historyLevel3');
+        if (level3 && level3.style.display !== 'none') {
             if (typeof currentSubFunctionFilter !== 'undefined') {
-                // 傳入 true 作為第三個參數，代表「強制刷新」
                 const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
                 enterHistoryList(currentSubFunctionFilter, themeIndex);
             }
-        } else if (document.getElementById('historyModal').style.display === 'flex') {
-            // 如果正在看詳情，卻發現該紀錄被刪了，應該關閉視窗
-            const modalTitle = document.getElementById('historyModalTitle').innerText;
-            const stillExists = mergedRecords.some(r => r.title && modalTitle.includes(r.title));
-            if (!stillExists) {
-                alert("此紀錄已被移除。");
-                closeHistoryModal();
-                if (typeof currentSubFunctionFilter !== 'undefined') {
-                    enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
+        } 
+        // 2. 如果正在查看詳情，檢查該紀錄是否還存在
+        else if (document.getElementById('historyModal').style.display === 'flex') {
+            const modalTitleEl = document.getElementById('historyModalTitle');
+            // 簡單檢查標題是否存在於合併後的紀錄中
+            // 這裡使用 lastGeneratedTimestamp 全域變數會更準確 (如果有的話)
+            const currentTimestamp = window.lastGeneratedTimestamp;
+            
+            if (currentTimestamp) {
+                const exists = mergedRecords.some(r => Number(r.timestamp) === Number(currentTimestamp));
+                if (!exists) {
+                    alert("此紀錄已被移除。");
+                    closeHistoryModal();
+                    // 嘗試刷新列表背景
+                    if (typeof currentSubFunctionFilter !== 'undefined') {
+                        enterHistoryList(currentSubFunctionFilter, typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1);
+                    }
                 }
             }
         }
@@ -14653,7 +14661,7 @@ async function syncHistoryToFirebase(isSilent = false) {
 function mergeHistoryRecords(localRecords, cloudRecords) {
     const mergedMap = new Map();
     
-    // 生成唯一鍵 (確保 timestamp 轉為數字，避免型別不符導致無法匹配)
+    // 生成唯一鍵
     const generateKey = (r) => {
         return `${r.category}_${r.subFunction}_${r.title}_${Number(r.timestamp)}`;
     };
@@ -14670,38 +14678,38 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
         
         // --- 情況 1：雲端也有這筆資料 ---
         if (mergedMap.has(key)) {
-            // 如果本地是「未同步」狀態 (isSynced: false)，代表學生剛編輯過/追問過
-            // 這時候我們要用本地的新版本，覆蓋雲端的舊版本
+            // 如果本地有新修改 (例如剛聊完天)，用本地覆蓋雲端舊版
             if (localRecord.isSynced === false) {
                 mergedMap.set(key, localRecord);
-                console.log(`[保留修訂] 本地有新進度，覆蓋雲端：${localRecord.title}`);
             }
-            // 否則，使用 Map 裡已經存在的雲端版本 (不做動作)
+            // 否則使用雲端版本
         } 
         // --- 情況 2：雲端沒有這筆資料 (關鍵判斷) ---
         else {
-            // 判斷：這筆資料應該被刪除，還是應該被上傳？
+            // 判斷：這筆資料是被刪除了，還是還沒上傳的新草稿？
             
-            // 如果本地顯示 `isSynced: true` (已同步) 或者 `hasBeenSynced: true` (曾上傳過)
-            // 代表它「應該」在雲端上。但現在雲端沒有它。
-            // 結論：它被老師/系統從雲端刪除了。
-            // 動作：本地也要刪除 (不加入 Map)。
-            if (localRecord.isSynced === true || localRecord.hasBeenSynced === true) {
-                console.log(`[同步刪除] 雲端已移除，同步刪除本地紀錄：${localRecord.title}`);
+            // ★★★ 關鍵修復邏輯 ★★★
+            // 如果 hasBeenSynced 為 true，代表它曾經存在於雲端。
+            // 現在雲端沒了，代表它被刪除了。無論 isSynced 是 true 還是 false，都應該刪除。
+            // (這解決了「剛聊完天就被刪除，結果變成幽靈檔案」的問題)
+            if (localRecord.hasBeenSynced === true) {
+                console.log(`[同步刪除] 雲端已移除 (曾同步過)，刪除本地紀錄：${localRecord.title}`);
+                // 不加入 Map = 刪除
             } 
-            // 否則 (isSynced: false 且 hasBeenSynced: false/undefined)
-            // 代表這是剛生成、還沒來得及上傳的新草稿。
-            // 動作：保留它，稍後上傳。
+            // 如果 isSynced 為 true，代表它認為自己已備份，但雲端沒有，也視為被刪除
+            else if (localRecord.isSynced === true) {
+                console.log(`[同步刪除] 雲端已移除 (狀態為已同步)，刪除本地紀錄：${localRecord.title}`);
+            }
+            // 只有當它是「從未上傳過」的新草稿 (hasBeenSynced=false 且 isSynced=false) 時，才保留
             else {
                 mergedMap.set(key, localRecord);
             }
         }
     });
 
-    // C. 轉回陣列並按時間倒序排列 (最新的在最上面)
+    // C. 轉回陣列並按時間倒序排列
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
-
 // ==========================================
 // === 3. 更新本地資料庫 (保持不變，確認寫入) ===
 // ==========================================
