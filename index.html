@@ -9244,32 +9244,41 @@ guideNote: "必須用繁體字。根據用戶輸入的題目、論點、論據�
 
 // === 修訂：動漫卡片選擇邏輯 (包含音效 + 延遲動畫) ===
 
+// === 修訂：動漫卡片選擇邏輯 (包含音效 + 延遲動畫) ===
+
 // 1. 選取所有新的卡片元素
 const categoryCards = document.querySelectorAll('.anime-card');
 const clickSound = document.getElementById('ui-click-sound');
 
 // 2. 為每個卡片添加點擊事件
 categoryCards.forEach(card => {
-    card.addEventListener('click', function() {
+    card.addEventListener('click', function(e) {
+        // ★★★ 核心修復：使用 e.currentTarget 鎖定當前點擊的元素 ★★★
+        const targetCard = e.currentTarget;
+
         // A. 播放清脆音效
         if (clickSound) {
             clickSound.currentTime = 0; 
             clickSound.volume = 1.0;    
-            clickSound.play().catch(e => console.log("音效播放被瀏覽器阻擋:", e));
+            clickSound.play().catch(err => console.log("音效播放被瀏覽器阻擋:", err));
         }
 
         // B. 立即添加視覺效果 (讓卡片變色/發光)
-        // 先移除其他卡片的 active，避免多選視覺錯亂
-        categoryCards.forEach(c => c.classList.remove('active'));
-        this.classList.add('active');
-
-        // C. 獲取目標 Container ID
-        const containerId = this.id.replace('Btn', 'Container');
+        // 先移除所有動漫卡片的 active 樣式
+        document.querySelectorAll('.anime-card').forEach(c => c.classList.remove('active'));
         
-        // D. 【關鍵修改】設置延遲，讓動畫跑完 500ms 後才切換畫面
-        setTimeout(() => {
-            showContainer(containerId, this);
-        }, 500); // 這裡設定 500 毫秒，你可以根據需要調整 (例如 300 或 800)
+        // 只為當前點擊的這張卡片加上 active
+        targetCard.classList.add('active');
+
+        // C. 獲取目標 Container ID (確保有點擊到有 ID 的卡片)
+        if (targetCard.id) {
+            const containerId = targetCard.id.replace('Btn', 'Container');
+            
+            // D. 設置延遲，讓動畫跑完 500ms 後才切換畫面
+            setTimeout(() => {
+                showContainer(containerId, targetCard);
+            }, 500); 
+        }
     });
 });
 
