@@ -4,12 +4,12 @@
 
 <meta http-equiv="Content-Security-Policy" content="
 default-src 'self'; 
-script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.comfunction captureContainerH https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com; 
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com; 
 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://onesignal.com; 
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com https://*.googleusercontent.com;
 media-src 'self' https://youfulca.com https://*.streamable.com https://assets.mixkit.co https://taira-komori.net;
-connect-src 'self' https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications https://api.onesignal.com;
+connect-src 'self' https://corsproxy.io https://docs.google.com https://*.googleusercontent.com https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications https://api.onesignal.com;
 frame-src 'self' https://streamable.com https://kenchan20141.pyscriptapps.com https://kenchan20141.github.io https://sansi.vercel.app https://lyricschi.vercel.app https://penpalchi.vercel.app https://litstudy.vercel.app https://621d05f47d591.site123.me https://script.google.com https://www.i2ocr.com https://*.firebaseapp.com https://onesignal.com;
 object-src 'none';
 base-uri 'self';
@@ -134,7 +134,15 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
         <i class="fas fa-home"></i>
         <span>返回主頁</span>
     </button>
-    
+
+<!-- 精選文章按鈕 -->
+<!-- 精選文章按鈕 (修改 onclick) -->
+<button class="side-menu-item" onclick="checkFeaturedAccess()">
+    <i class="fas fa-book-open"></i>
+    <span>文萃</span>
+</button>
+
+		  
     <!-- 5. 音樂播放器 -->
     <button class="side-menu-item" onclick="toggleMusicPlayer()">
         <i class="fas fa-music"></i>
@@ -6180,6 +6188,364 @@ select:focus, select:hover {
         grid-template-columns: 1fr; /* 強制單欄 */
     }
 }
+
+/* === 全螢幕閱讀模式專用樣式 === */
+#featuredDetailView {
+    position: fixed;         /* 強制固定定位，覆蓋全頁 */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #fdfcf8; /* 米白護眼底色 */
+    z-index: 25000;          /* 確保在最上層 */
+    overflow-y: auto;        /* 允許內容捲動 */
+    display: none;           /* 預設隱藏 */
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* 閱讀內容容器 (限制寬度以利閱讀) */
+.read-mode-container {
+    max-width: 800px;        /* 最佳閱讀寬度 */
+    margin: 60px auto 100px auto; /* 上方留白給標題，下方留白 */
+    padding: 40px;
+    background-color: #fff;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.05);
+    border-radius: 12px;
+    position: relative;
+    /* 原稿紙背景效果 */
+    background-image: linear-gradient(to bottom, transparent 29px, #f0f0f0 30px);
+    background-size: 100% 30px;
+    line-height: 30px;
+}
+
+/* 右上角懸浮返回鍵 */
+.detail-back-btn {
+    position: fixed;
+    top: 20px;
+    right: 25px;
+    z-index: 25001; /* 比內容層更高 */
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #666;
+    border: 1px solid #ddd;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(5px);
+}
+
+.detail-back-btn:hover {
+    background-color: #d69a92; /* 莫蘭迪紅 */
+    color: white;
+    transform: rotate(-90deg); /* 趣味旋轉效果 */
+    border-color: #d69a92;
+}
+
+/* 作者與標題排版 */
+
+
+.detail-title-text {
+    font-size: 2.2rem;
+    font-weight: bold;
+    font-family: 'Noto Serif TC', serif;
+    margin-bottom: 15px;
+    line-height: 1.4;
+}
+
+.detail-meta-info {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.1rem;
+}
+
+.detail-author {
+    color: #8d6e63; /* 莫蘭迪深褐 (與標題區分) */
+    font-weight: bold;
+    padding: 2px 10px;
+    background-color: #efebe9;
+    border-radius: 20px;
+}
+
+.detail-date {
+    color: #9e9e9e;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+/* 手機版適配 */
+@media (max-width: 600px) {
+    .read-mode-container {
+        width: 100%;
+        margin: 0;
+        padding: 80px 20px 40px 20px; /* 上方留更多空間給手機狀態列與返回鍵 */
+        border-radius: 0;
+        box-shadow: none;
+        min-height: 100%;
+        background-image: none; /* 手機版移除格線，增加易讀性 */
+    }
+    .detail-title-text { font-size: 1.8rem; }
+    .detail-back-btn { top: 15px; right: 15px; }
+}
+
+
+	/* === 全螢幕閱讀模式調整 (V2) === */
+
+/* 閱讀內容容器：改為 90% 寬度，善用螢幕空間 */
+.read-mode-container {
+    width: 90% !important;        /* 核心修訂：寬度維持 90% */
+    max-width: 1200px !important; /* 放寬最大寬度，避免在大螢幕太窄 */
+    margin: 60px auto 100px auto; 
+    padding: 50px 40px;           /* 內部留白 */
+    background-color: #fff;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.05);
+    border-radius: 12px;
+    position: relative;
+    /* 原稿紙背景效果 (保持不變) */
+    background-image: linear-gradient(to bottom, transparent 29px, #f0f0f0 30px);
+    background-size: 100% 30px;
+    line-height: 30px;
+    box-sizing: border-box; /* 確保 padding 不會撐破 90% */
+}
+
+/* 標題與作者區塊容器 */
+.detail-header-group {
+    display: flex;
+    flex-direction: column; /* 垂直排列 */
+    align-items: center;    /* 水平置中 */
+      /* ↓↓↓ 修改這兩行 ↓↓↓ */
+    margin-bottom: 15px !important;  /* 原本是 40px，改為 15px */
+    padding-bottom: 15px !important; /* 原本是 25px，改為 15px */
+    
+    border-bottom: 2px dashed #e0ddd7;
+    padding-bottom: 25px;
+}
+
+/* 篇名樣式 */
+.detail-title-text {
+    font-size: 2.4rem;
+    font-weight: bold;
+    font-family: 'Noto Serif TC', serif;
+    margin-bottom: 20px; /* 與作者名的距離 */
+    line-height: 1.4;
+    text-align: center;
+}
+
+/* 作者名專屬容器 (修訂需求一) */
+.detail-author-box {
+    display: inline-block;
+    padding: 8px 25px;
+    background-color: #f5f5f5;      /* 淺灰底色 */
+    border-radius: 4px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    /* 已移除 border-left 色條 */
+}
+
+.detail-author-text {
+    color: #5d4037;
+    font-size: 1.1rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+/* 日期樣式 */
+.detail-date {
+    margin-top: 10px;
+    color: #9e9e9e;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+/* 手機版適配 */
+@media (max-width: 600px) {
+read-mode-container {
+        /* 1. 容器寬度：維持 90%，讓螢幕左右兩側有空隙 */
+        width: 90% !important;
+        
+        /* 2. 內部間距：由 20px 增加至 30px，解決文字太貼邊的問題 */
+        padding: 60px 30px 40px 30px !important; 
+        
+        background-image: none; /* 手機版移除格線 */
+        
+        /* 確保長單字不會撐爆容器 */
+        overflow-wrap: break-word; 
+    }
+    
+    .detail-title-text { font-size: 1.8rem; }
+    .detail-author-box { padding: 6px 20px; }
+}
+
+
+
+/* 3. 作者標籤容器微調 */
+.list-author-tag {
+    margin-top: 10px;       /* 與上方標題保持距離 */
+    display: inline-block;
+    padding: 4px 12px;
+    background-color: #f5f5f5;
+    color: #8d6e63;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    /* 無色條 */
+}
+
+/* 4. 日期樣式：固定在右側 */
+.article-item-date {
+    white-space: nowrap;    /* 日期不換行 */
+    flex-shrink: 0;         /* 確保日期不會被壓縮 */
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: #aaa;
+}
+
+/* 手機版微調 */
+@media (max-width: 600px) {
+    .article-item {
+        align-items: flex-start !important; /* 手機版日期靠上對齊比較好看 */
+    }
+    .article-item-date {
+        margin-top: 5px; /* 對齊標題 */
+        font-size: 0.8rem;
+    }
+}
+
+
+
+/* === 極致緊湊版：賞析樣式 === */
+
+/* 1. 外層容器 */
+.analysis-container {
+  /* ↓↓↓ 修改這兩行 ↓↓↓ */
+    margin-top: 30px !important;    /* 原本是 50px，改為 30px */
+    padding-top: 20px !important;   /* 原本是 30px，改為 20px */
+    border-top: 1px solid #d1cdc5; 
+    position: relative;
+}
+
+/* 2. 賞析標題 */
+.analysis-header {
+    text-align: center;
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #8d6e63;
+    
+   /* ↓↓↓ 確保下方無多餘留白 ↓↓↓ */
+    margin-bottom: 5px !important; 
+    padding-bottom: 0 !important;
+    line-height: 1.2; 
+    
+    letter-spacing: 2px;
+ 
+}
+
+/* 標題上方的裝飾符號 */
+.analysis-header::before {
+    content: '✦';
+    display: block;
+    font-size: 1.2rem;
+    color: #b6a6ca;
+    margin-bottom: 5px; 
+}
+
+/* 3. 賞析內容本體 */
+.analysis-body {
+    font-size: 1.15rem;
+    line-height: 30px;
+    text-align: justify;
+    white-space: pre-wrap;
+    color: #4a4a4a;
+    background-color: transparent;
+    padding: 0;
+    border: none;
+    
+    /* ★★★ 修改 2：移除容器頂部留白 ★★★ */
+    margin-top: 0;
+}
+
+/* ★★★ 修改 3 (最關鍵)：強制移除「第一段文字」的預設上邊距 ★★★ */
+/* 瀏覽器通常會給 p 標籤預設約 20px 的上邊距，這裡把它改成 5px */
+.analysis-body p:first-child {
+    margin-top: 0px !important; 
+}
+
+/* 其他段落保持間距 */
+.analysis-body p {
+    margin-bottom: 2em;
+}
+
+/* 最後一段移除下邊距 */
+.analysis-body p:last-child {
+    margin-bottom: 0;
+}
+
+/* 手機版微調 */
+@media (max-width: 600px) {
+    .analysis-body {
+        font-size: 1rem;
+        line-height: 1.8;
+    }
+}
+
+
+/* ========================================= */
+/* === [新增] 1. 側邊選單主頁鍵 (灰藍色) === */
+/* ========================================= */
+#sideMenuHomeBtn {
+    /* 莫蘭迪灰藍色背景，帶一點透明度以融入深色選單 */
+    background-color: rgba(122, 139, 154, 0.5) !important; 
+    border: 1px solid rgba(169, 183, 198, 0.3) !important;
+    margin-top: 10px;    /* 與上方功能鍵區隔 */
+    margin-bottom: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+#sideMenuHomeBtn:hover {
+    background-color: rgba(122, 139, 154, 0.9) !important;
+    transform: scale(1.05);
+    border-color: #fff !important;
+}
+
+#sideMenuHomeBtn i {
+    color: #e3e8ee !important; /* 圖示顏色更亮一點 */
+}
+
+/* ========================================= */
+/* === [新增] 2. 低調閱讀進度條 === */
+/* ========================================= */
+#readingProgressBarContainer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px; /* 極細，不佔空間 */
+    background: transparent;
+    z-index: 25002; /* 確保在最上層，但在提示窗之下 */
+    pointer-events: none; /* 關鍵：讓滑鼠點擊穿透，不影響閱讀 */
+    opacity: 0; /* 預設隱藏，捲動時才顯示 */
+    transition: opacity 0.3s ease;
+}
+
+#readingProgressBar {
+    height: 100%;
+    width: 0%;
+    /* 莫蘭迪漸層色：灰綠 -> 霧霾藍 */
+    background: linear-gradient(90deg, #8fa398, #7da3c0); 
+    box-shadow: 0 0 8px rgba(125, 163, 192, 0.6); /* 微微發光 */
+    border-radius: 0 2px 2px 0;
+    transition: width 0.1s ease-out; /* 順滑移動 */
+}
+	
+	
+	
 	
 	
 </style>
@@ -6265,6 +6631,55 @@ observer.observe(document.body, { childList: true, subtree: true });
 </div>
 
 
+
+<!-- 文萃容器 (原：精選文章容器) -->
+<div id="featuredContainer" class="box" style="display: none;">
+    
+    
+    <!-- 列表視圖 -->
+    <div id="featuredListView">
+        <!-- 搜尋列 -->
+      <!-- 搜尋列 -->
+<div class="search-bar-wrapper">
+    <!-- ★★★ 修改處：placeholder 改為 "搜尋標題或作者..." ★★★ -->
+  <input type="text" id="articleSearchInput" class="no-modal-editor" placeholder="搜尋標題或作者..." oninput="searchArticles()">
+</div>
+
+        <!-- 文章列表 -->
+        <div id="articleListContainer" class="article-list">
+            <!-- JS 將自動生成列表 -->
+            <div style="text-align:center; color:#999; padding:20px;">載入中...</div>
+        </div>
+
+        <!-- 分頁控制 -->
+        <div class="pagination-controls">
+            <button id="prevPageBtn" onclick="changeArticlePage(-1)" disabled><i class="fas fa-chevron-left"></i></button>
+            <span id="pageIndicator">1 / 1</span>
+            <button id="nextPageBtn" onclick="changeArticlePage(1)" disabled><i class="fas fa-chevron-right"></i></button>
+        </div>
+    </div>
+
+    <!-- 詳情視圖 (預設隱藏) -->
+    <div id="featuredDetailView" style="display: none;">
+        <div class="article-actions">
+            <button class="back-icon-btn" onclick="backToArticleList()" title="返回列表">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+        </div>
+        
+        <div class="article-content-paper">
+            <h3 id="detailTitle" class="article-title"></h3>
+            <div id="detailDate" class="article-date"></div>
+            <div class="article-separator"></div>
+            <div id="detailBody" class="article-body"></div>
+        </div>
+    </div>
+</div>
+
+
+
+
+	
 <div id="hitokoto-container" class="box">
 <div id="hitokoto"></div>
 <div id="hitokoto-footer">
@@ -6672,6 +7087,251 @@ transform: scale(1.15);
     .top { line-height: 100px; }
     .flap::before { line-height: 100px; }
 }
+
+
+/* === 精選文章專用樣式 === */
+
+/* 搜尋列 */
+.search-bar-wrapper {
+    position: relative;
+    margin-bottom: 25px;
+    width: 100%;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+#articleSearchInput {
+    width: 100%;
+    padding: 12px 40px 12px 15px;
+    border: 2px solid #e0ddd7;
+    border-radius: 25px;
+    background-color: #fdfcf8;
+    color: #5e5e5e;
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+#articleSearchInput:focus {
+    border-color: #8fa398; /* 莫蘭迪綠 */
+    box-shadow: 0 4px 10px rgba(143, 163, 152, 0.2);
+    outline: none;
+}
+
+.search-icon {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #aaa;
+}
+
+/* 文章列表項目 */
+.article-item {
+    background-color: #fdfcf8;
+    border-bottom: 1px dashed #d1cdc5; /* 虛線分隔 */
+    padding: 20px 15px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.article-item:hover {
+    background-color: rgba(143, 163, 152, 0.1); /* 懸停時淡淡的綠 */
+    padding-left: 25px; /* 輕微移動效果 */
+}
+
+/* 1. 列表卡片：恢復橫向排列，讓日期能待在右邊 */
+.article-item {
+    display: flex !important;
+    flex-direction: row !important;       /* 橫向排列：左邊內容，右邊日期 */
+    align-items: center !important;       /* 垂直置中 */
+    justify-content: space-between !important; /* 左右撐開 */
+    padding: 20px 25px !important;
+}
+
+/* 2. 左側內容群組：包含標題和作者 (垂直排列) */
+.article-left-group {
+    display: flex;
+    flex-direction: column; /* 垂直堆疊 */
+    align-items: flex-start; /* 靠左對齊 */
+    flex: 1;                 /* 佔據中間剩餘空間 */
+    padding-right: 20px;     /* 避免文字碰到日期 */
+    min-width: 0;            /* 關鍵：防止 Flex 子元素內容過長溢出 */
+}
+
+
+/* 列表標題樣式微調 */
+.article-item-title {
+    width: 100%;
+    line-height: 1.4;
+    margin-bottom: 5px;
+    display: block; /* 確保佔滿一行 */
+}
+
+/* 列表下方資訊列 (作者與日期) */
+.article-meta-row {
+    width: 100%;
+    display: flex;
+    justify-content: space-between; /* 作者靠左，日期靠右 */
+    align-items: center;
+}
+
+/* 確保日期字體不跑版 */
+.article-item-date {
+    white-space: nowrap;
+    margin-left: 10px;
+}
+
+	
+.article-item-title {
+    font-size: 1.1rem;
+    color: #5d4037;
+    font-weight: bold;
+    font-family: 'Noto Serif TC', serif;
+}
+
+.article-item-date {
+    font-size: 0.85rem;
+    color: #999;
+    font-family: 'Courier New', monospace;
+    min-width: 90px;
+    text-align: right;
+}
+
+/* 分頁控制 */
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 30px;
+    gap: 20px;
+}
+
+.pagination-controls button {
+    background: transparent;
+    border: 1px solid #e0ddd7;
+    color: #8fa398;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pagination-controls button:hover:not(:disabled) {
+    background-color: #8fa398;
+    color: white;
+}
+
+.pagination-controls button:disabled {
+    color: #eee;
+    border-color: #eee;
+    cursor: default;
+}
+
+#pageIndicator {
+    color: #888;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+}
+
+/* 文章詳情頁 (紙張風格) */
+.article-actions {
+    margin-bottom: 20px;
+}
+
+.back-icon-btn {
+    background: transparent;
+    border: 2px solid #d69a92; /* 莫蘭迪紅 */
+    color: #d69a92;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+}
+
+.back-icon-btn:hover {
+    background-color: #d69a92;
+    color: white;
+    transform: translateX(-5px);
+}
+
+.article-content-paper {
+    background-color: #fdfcf8;
+    border: 1px solid #e0ddd7;
+    border-radius: 8px;
+    padding: 40px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+    /* 模仿信紙背景 */
+    background-image: linear-gradient(to bottom, transparent 29px, #f0f0f0 30px);
+    background-size: 100% 30px;
+    line-height: 30px; /* 配合格線 */
+}
+
+.article-title {
+    font-size: 1.8rem;
+    color: #2A9689; /* 主題綠 */
+    text-align: center;
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+
+.article-date {
+    text-align: center;
+    color: #aaa;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+.article-separator {
+    height: 1px;
+    background: transparent;
+    border-top: 2px dashed #d69a92;
+    margin: 0 auto 30px auto;
+    width: 50px;
+}
+
+.article-body {
+    font-size: 1.15rem;
+    color: #4a4a4a;
+    text-align: justify;
+    white-space: pre-wrap; /* 保留換行 */
+}
+
+/* 讓段落之間有行距 */
+.article-body p {
+    margin-bottom: 2em; /* 段落間距 */
+}
+
+@media (max-width: 600px) {
+    .article-content-paper {
+        padding: 20px;
+        line-height: 1.8; /* 手機版取消格線對齊，以易讀為主 */
+        background-image: none;
+    }
+    .article-title {
+        font-size: 1.4rem;
+    }
+}
+
+
+
+
+
+
+
+
+	
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
@@ -14198,7 +14858,8 @@ window.returnToHome = function() {
         '#argumentContainer[style*="display: block"], ' +
         '#historyContainer[style*="display: block"], ' +
         '#toolsContainer2[style*="display: flex"], ' + 
-        '#studentCloudModal[style*="display: block"]' // <--- 新增這行偵測
+        '#studentCloudModal[style*="display: block"], ' + 
+		'featuredContainer', // <--- 加入這行
     );
 
     // 2. 如果找到了正在顯示的頁面，先播動畫
@@ -18344,6 +19005,413 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 
+<script>
+
+
+// === 精選文章功能模組 ===
+
+// ★★★ 請將此處替換為你的 Google Sheet CSV 連結 ★★★
+const GOOGLE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRt4b9-3SQzTWVEVBwdvZcMV8HQ2CLv9lQVyAoMvINSrYqIPNtYsIRVwD9g6__Ulxn12RCRiSvibQBo/pub?output=csv";
+
+let allArticles = [];       // 儲存所有文章
+let filteredArticles = [];  // 儲存搜尋後的文章
+let currentArticlePage = 1;
+const ARTICLES_PER_PAGE = 10;
+
+
+// === [新增] 檢查登入狀態才能進入文萃 ===
+function checkFeaturedAccess() {
+    // 檢查是否有學生資料
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    
+    if (s) {
+        // 已登入，正常開啟
+        openFeaturedArticles();
+    } else {
+        // 未登入，顯示莫蘭迪風格提示窗
+        // 收起側邊選單
+        document.getElementById('sideMenu').classList.remove('active');
+        document.getElementById('sideMenuToggle').classList.remove('active');
+        
+        // 顯示提示
+        document.getElementById('loginRequiredModal').style.display = 'flex';
+        if (navigator.vibrate) navigator.vibrate(30); // 輕微震動回饋
+    }
+}
+
+
+
+	
+// 1. 打開精選文章頁面
+async function openFeaturedArticles() {
+    // 隱藏其他容器 (直接呼叫你的通用隱藏邏輯，或手動隱藏)
+    const containers = ['writingContainer', 'readingContainer', 'booksContainer', 'expandContainer', 'argumentContainer', 'historyContainer', 'toolsContainer2', 'studentCloudModal', 'mainMenuBox', 'hitokoto-container', 'dse-countdown-box', 'toolsBox'];
+    containers.forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.style.display = 'none';
+    });
+    document.querySelector('.title-container').style.display = 'none';
+    
+    // 顯示本容器
+    const container = document.getElementById('featuredContainer');
+    container.style.display = 'block';
+    
+    // 恢復列表視圖
+    backToArticleList();
+    
+    // 收起側邊欄
+    document.getElementById('sideMenu').classList.remove('active');
+    document.getElementById('sideMenuToggle').classList.remove('active');
+    
+    // 顯示返回主頁按鈕
+    document.getElementById('sideMenuHomeBtn').style.display = 'flex';
+
+    // 載入資料 (如果尚未載入)
+    if (allArticles.length === 0) {
+        await fetchArticles();
+    }
+}
+
+// 2. 從 Google Sheet 抓取資料 (修正 CORS 版)
+// 2. 從 Google Sheet 抓取資料 (防快取 + Debug版)
+async function fetchArticles() {
+    const listContainer = document.getElementById('articleListContainer');
+    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
+
+    try {
+        // ★★★ 關鍵修正：加入 "&t=" + Date.now() 強制刷新快取 ★★★
+        // 注意：這能避開瀏覽器快取，但如果是 Google 伺服器還沒更新，仍需等待幾分鐘
+        const noCacheUrl = GOOGLE_CSV_URL + "&t=" + Date.now();
+        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(noCacheUrl);
+        
+        const response = await fetch(proxyUrl);
+        const data = await response.text();
+        
+        // ★★★ Debug：在瀏覽器控制台印出抓到的資料 ★★★
+        console.log("【Google Sheet 原始資料】:\n", data);
+
+        // 解析 CSV
+        allArticles = parseCSV(data);
+        
+        console.log("【解析後的文章數】:", allArticles.length);
+
+        // 初始狀態：顯示所有文章
+        filteredArticles = allArticles;
+        currentArticlePage = 1;
+        renderArticleList();
+        
+    } catch (error) {
+        console.error("載入文章失敗:", error);
+        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請稍後再試。<br><small>(' + error.message + ')</small></div>';
+    }
+}
+
+// 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
+function parseCSV(text) {
+    const rows = [];
+    let currentRow = [];
+    let currentCell = '';
+    let inQuote = false;
+
+    // 統一換行符號
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const nextChar = text[i + 1];
+
+        if (inQuote) {
+            if (char === '"' && nextChar === '"') {
+                currentCell += '"';
+                i++; // 跳過下一個引號
+            } else if (char === '"') {
+                inQuote = false;
+            } else {
+                currentCell += char;
+            }
+        } else {
+            if (char === '"') {
+                inQuote = true;
+            } else if (char === ',') {
+                currentRow.push(currentCell.trim());
+                currentCell = '';
+            } else if (char === '\n') {
+                currentRow.push(currentCell.trim());
+                
+                // ★★★ 修改處：新增讀取第 5 欄 (Index 4) 為賞析 ★★★
+                if (currentRow.length >= 3) {
+                    rows.push({
+                        date: currentRow[0],        // 第一欄：日期
+                        title: currentRow[1],       // 第二欄：標題
+                        author: currentRow[2] || '佚名', // 第三欄：作者
+                        content: currentRow[3] || '',    // 第四欄：正文
+                        analysis: currentRow[4] || ''    // 第五欄：賞析 (新增)
+                    });
+                }
+                currentRow = [];
+                currentCell = '';
+            } else {
+                currentCell += char;
+            }
+        }
+    }
+
+    // 處理最後一行
+    if (currentCell || currentRow.length > 0) {
+        currentRow.push(currentCell.trim());
+        if (currentRow.length >= 3) {
+            rows.push({
+                date: currentRow[0],
+                title: currentRow[1],
+                author: currentRow[2] || '佚名',
+                content: currentRow[3] || '',
+                analysis: currentRow[4] || '' // 確保最後一行也讀取
+            });
+        }
+    }
+
+    // 移除標題列 (Header)
+    return rows.slice(1);
+}
+
+// === 莫蘭迪色系定義 (用於標題輪替) ===
+const MORANDI_TITLES = [
+    '#5e7067', // 深灰綠
+    '#7da3c0', // 霧霾藍
+    '#a692c2', // 香芋紫
+    '#d69a92', // 豆沙紅
+    '#c7b299', // 奶茶棕
+    '#6a7a7d'  // 鐵灰藍
+];
+
+// 4. 渲染文章列表 (修訂：標題作者靠左堆疊，日期固定靠右)
+function renderArticleList() {
+    const listContainer = document.getElementById('articleListContainer');
+    listContainer.innerHTML = '';
+
+    if (filteredArticles.length === 0) {
+        listContainer.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">找不到相關文章。</div>';
+        updatePagination(0);
+        return;
+    }
+
+    const start = (currentArticlePage - 1) * ARTICLES_PER_PAGE;
+    const end = start + ARTICLES_PER_PAGE;
+    const pageItems = filteredArticles.slice(start, end);
+
+    pageItems.forEach((article, index) => {
+        const realIndex = start + index;
+        // 依順序分配不同的莫蘭迪色給標題
+        const titleColor = MORANDI_TITLES[realIndex % MORANDI_TITLES.length];
+        
+        const item = document.createElement('div');
+        item.className = 'article-item';
+        item.onclick = () => showArticleDetail(realIndex);
+        
+        item.innerHTML = `
+            <!-- 左側群組：標題 (上) + 作者 (下) -->
+            <div class="article-left-group">
+                <div class="article-item-title" style="color: ${titleColor}; font-size: 1.35rem; margin-bottom: 0;">
+                    ${article.title}
+                </div>
+                
+                <span class="list-author-tag">
+                    ${article.author}
+                </span>
+            </div>
+
+            <!-- 右側：日期 (獨立存在) -->
+            <div class="article-item-date">
+                ${article.date}
+            </div>
+        `;
+        listContainer.appendChild(item);
+    });
+
+    updatePagination(Math.ceil(filteredArticles.length / ARTICLES_PER_PAGE));
+}
+
+	
+// 5. 更新分頁按鈕狀態
+function updatePagination(totalPages) {
+    document.getElementById('pageIndicator').innerText = `${currentArticlePage} / ${totalPages || 1}`;
+    document.getElementById('prevPageBtn').disabled = (currentArticlePage <= 1);
+    document.getElementById('nextPageBtn').disabled = (currentArticlePage >= totalPages || totalPages === 0);
+}
+
+// 6. 換頁邏輯
+function changeArticlePage(delta) {
+    currentArticlePage += delta;
+    renderArticleList();
+    // 滾動回頂部
+    document.getElementById('featuredContainer').scrollIntoView({ behavior: 'smooth' });
+}
+
+// 7. 搜尋邏輯 (修訂：同時搜尋標題與作者)
+// 7. 搜尋邏輯 (修訂：防止彈窗干擾 + 同時搜尋標題與作者)
+function searchArticles() {
+    // 1. 獲取輸入框
+    const searchInput = document.getElementById('articleSearchInput');
+    if (!searchInput) return;
+
+    // 2. 獲取輸入值 (轉小寫)
+    const query = searchInput.value.trim().toLowerCase();
+    
+    // 3. 確保有資料可搜
+    if (!allArticles || allArticles.length === 0) {
+        return;
+    }
+
+    // 4. 執行搜尋
+    if (!query) {
+        // 如果清空了搜尋框，顯示全部
+        filteredArticles = allArticles;
+    } else {
+        // 同時比對標題 OR 作者
+        filteredArticles = allArticles.filter(article => {
+            const title = String(article.title || "").toLowerCase();
+            const author = String(article.author || "").toLowerCase();
+            
+            // 只要標題或作者其中一個包含關鍵字，就保留
+            return title.includes(query) || author.includes(query);
+        });
+    }
+    
+    // 5. 重置回第一頁並渲染
+    currentArticlePage = 1; 
+    renderArticleList();
+}
+// 8. 顯示文章詳情 (修訂：作者容器化 + 移除羽毛 + 90%寬度結構)
+// 8. 顯示文章詳情 (修訂：加入進度條與行內樣式版)
+function showArticleDetail(index) {
+    const article = filteredArticles[index];
+    if (!article) return;
+
+    // 取得標題顏色
+    const titleColor = MORANDI_TITLES[index % MORANDI_TITLES.length];
+    const detailView = document.getElementById('featuredDetailView');
+    
+    // 1. 處理正文 (第一段去間距)
+    const contentParagraphs = article.content.split('\n').filter(p => p.trim());
+    const contentHtml = contentParagraphs.map((p, i) => {
+        if (i === 0) {
+            return `<p style="margin-top: 0 !important; padding-top: 0 !important; margin-bottom: 1.5em;">${p}</p>`;
+        }
+        return `<p style="margin-bottom: 1.5em;">${p}</p>`;
+    }).join('');
+
+    // 2. 處理賞析
+    let analysisHtmlBlock = '';
+    if (article.analysis && article.analysis.trim() !== '') {
+        const analysisParagraphs = article.analysis.split('\n').filter(p => p.trim());
+        const analysisText = analysisParagraphs.map((p, i) => {
+            if (i === 0) {
+                return `<p style="margin-top: 0 !important; padding-top: 0 !important; margin-bottom: 1.5em;">${p}</p>`;
+            }
+            return `<p style="margin-bottom: 1.5em;">${p}</p>`;
+        }).join('');
+        
+        analysisHtmlBlock = `
+            <div class="analysis-container" style="margin-top: 20px !important; padding-top: 15px !important; border-top: 1px solid #d1cdc5;">
+                <div class="analysis-header" style="text-align: center; font-size: 1.4rem; font-weight: bold; color: #8d6e63; margin-bottom: 10px !important; line-height: 1.2;">文章賞析</div>
+                <div class="analysis-body" style="margin-top: 0 !important;">
+                    ${analysisText}
+                </div>
+            </div>
+        `;
+    }
+
+    // 3. 組合 HTML (新增進度條 HTML)
+    detailView.innerHTML = `
+        <!-- 進度條容器 -->
+        <div id="readingProgressBarContainer">
+            <div id="readingProgressBar"></div>
+        </div>
+
+        <!-- 右上角固定返回鍵 -->
+        <button class="detail-back-btn" onclick="backToArticleList()" title="返回列表">
+            <i class="fas fa-times"></i>
+        </button>
+
+        <div class="read-mode-container">
+            <!-- 標題與作者 -->
+            <div class="detail-header-group" style="display: flex; flex-direction: column; align-items: center; border-bottom: 2px dashed #e0ddd7; margin-bottom: 15px !important; padding-bottom: 10px !important;">
+                <div class="detail-title-text" style="color: ${titleColor}; font-size: 2.4rem; font-weight: bold; margin-bottom: 15px; text-align: center; line-height: 1.4;">
+                    ${article.title}
+                </div>
+                <div class="detail-author-box" style="display: inline-block; padding: 6px 20px; background-color: #f5f5f5; border-radius: 4px; margin-bottom: 10px;">
+                    <span class="detail-author-text" style="color: #5d4037; font-weight: bold;">${article.author}</span>
+                </div>
+                <div class="detail-date" style="color: #9e9e9e; font-family: 'Courier New', monospace; font-size: 0.9rem;">${article.date}</div>
+            </div>
+
+            <!-- 正文 -->
+            <div class="article-body" id="fullArticleBody" style="font-size: 1.15rem; color: #4a4a4a; text-align: justify; line-height: 1.8;">
+                ${contentHtml}
+            </div>
+
+            <!-- 賞析 -->
+            ${analysisHtmlBlock}
+        </div>
+    `;
+
+    // 顯示全螢幕視窗
+    detailView.style.display = 'block';
+    
+    // 鎖定背景頁面捲動
+    document.body.style.overflow = 'hidden'; 
+
+    // === [新增] 綁定滾動監聽事件 ===
+    const progressBar = document.getElementById('readingProgressBar');
+    const progressContainer = document.getElementById('readingProgressBarContainer');
+
+    // 這裡綁定的是 detailView (因為它是 fixed 且 overflow-y: auto 的滾動容器)
+    detailView.onscroll = function() {
+        const scrollTop = detailView.scrollTop;
+        const docHeight = detailView.scrollHeight;
+        const winHeight = detailView.clientHeight;
+        
+        // 計算百分比
+        const scrollPercent = (scrollTop / (docHeight - winHeight)) * 100;
+        
+        // 更新寬度
+        progressBar.style.width = scrollPercent + "%";
+
+        // 優化體驗：只在開始滾動後才顯示進度條，避免一開始擋住視線
+        if (scrollTop > 10) {
+            progressContainer.style.opacity = '1';
+        } else {
+            progressContainer.style.opacity = '0';
+        }
+    };
+}
+	
+// 9. 返回列表 (關閉全螢幕)
+function backToArticleList() {
+    const detailView = document.getElementById('featuredDetailView');
+    
+    // 隱藏視窗
+    detailView.style.display = 'none';
+    
+    // ★★★ 恢復背景頁面捲動 ★★★
+    document.body.style.overflow = 'auto';
+    
+    // 確保列表顯示 (通常它一直都在，只是被蓋住了)
+    document.getElementById('featuredListView').style.display = 'block';
+}
+
+// 更新：在全域的 returnToHome 函式中加入隱藏 featuredContainer
+// 請記得在你的 window.returnToHome = function() {...} 裡面的 containers 陣列加入 'featuredContainer'
+
+	
+</script>
+
+
+
+
+
+	
+
 
 
 
@@ -18392,6 +19460,31 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+
+
+<!-- === [新增] 閱讀進度條 (將會被 JS 插入或控制) === -->
+<!-- 註：此元素實際上會透過 JS 動態控制，這裡先預備視窗結構 -->
+<div id="loginRequiredModal" class="backup-alert-overlay">
+    <div class="backup-alert-card">
+        <div class="backup-alert-icon" style="color: #7da3c0;"> <!-- 改為灰藍色圖示 -->
+            <i class="fas fa-lock"></i>
+        </div>
+        <div class="backup-alert-title" style="color: #546e7a;">會員限定</div>
+        <div class="backup-alert-desc">
+            此功能為會員專屬。<br>
+            請先登入或註冊學校帳號以閱覽。
+        </div>
+        <div class="backup-btn-group">
+            <button class="backup-btn btn-stay" onclick="document.getElementById('loginRequiredModal').style.display='none'">稍後</button>
+            <button class="backup-btn" style="background-color: #7da3c0; color: white; box-shadow: 0 4px 12px rgba(125, 163, 192, 0.4);" onclick="document.getElementById('loginRequiredModal').style.display='none'; openStudentLoginModal();">
+                <i class="fas fa-sign-in-alt"></i> 登入
+            </button>
+        </div>
+    </div>
+</div>
+
+
+
 
 	
 	
