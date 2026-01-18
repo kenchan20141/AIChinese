@@ -72,7 +72,8 @@
 
         .seal {
             position: absolute; 
-            bottom: 18%; 
+            /* 修改處：由 35% 改為 39%，讓紅印向上移動靠近箭嘴 */
+            bottom: 29%; 
             left: 50%; transform: translateX(-50%);
             width: 40px; height: 40px;
             border: 2px solid #A84646; color: #A84646;
@@ -87,28 +88,28 @@
         }
 
         /* --- 2. 手機版專屬調整 (Max Width 768px) --- */
-           @media (max-width: 768px) {
-    
-    .title-container {
-        /* 原本改太高是 30%，現在改為 35% (往下移一點) */
-        top: 37%; 
-    }
+        @media (max-width: 768px) {
+            .title-container {
+                /* 原本改太高是 30%，現在改為 35% (往下移一點) */
+                top: 37%; 
+            }
 
-    .cta-text {
-        /* 原本改太高是 48%，現在改為 53% (保持相對距離往下移) */
-        top: 57%; 
-    }
+            .cta-text {
+                /* 原本改太高是 48%，現在改為 53% (保持相對距離往下移) */
+                top: 57%; 
+            }
 
-    .seal {
+                .seal {
         /* 原本改太高是 28%，現在改為 23% (讓印章也沈下來一點) */
-        bottom: 30%; 
+        bottom: 31%; 
     }
 
-    .char {
-        /* 字體大小保持不變 */
-        font-size: 34vw; 
-    }
 
+            .char {
+                /* 字體大小保持不變 */
+                font-size: 34vw; 
+            }
+        }
 
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -126,7 +127,6 @@
 
         @keyframes fadeIn { to { opacity: 0.7; } }
         @keyframes fadeInText { to { opacity: 0.6; } }
-
     </style>
 </head>
 <body>
@@ -148,9 +148,10 @@
         const char2 = document.getElementById('char2');
         const chars = [char1, char2];
 
+        // 初始化滑鼠位置在中心，避免一開始沒有互動
         let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         let isExploding = false;
-        let animationFrameId = null; // 用來管理動畫ID
+        let animationFrameId = null;
 
         const physics = [
             { x: 0, y: 0, rot: 0, targetX: 0, targetY: 0, targetRot: 0 },
@@ -159,8 +160,10 @@
 
         const updateMouse = (x, y) => { mouse.x = x; mouse.y = y; };
 
+        // 監聽電腦滑鼠移動
         window.addEventListener('mousemove', (e) => updateMouse(e.clientX, e.clientY));
         
+        // 監聽手機觸控
         const handleTouch = (e) => {
             updateMouse(e.touches[0].clientX, e.touches[0].clientY);
         };
@@ -169,40 +172,29 @@
 
         // --- 核心修復：處理「上一頁」的狀態重置 ---
         window.addEventListener('pageshow', (event) => {
-            // event.persisted 為 true 代表頁面是從 BFCache (上一頁快取) 讀取的
             if (event.persisted) {
                 resetPageAnimation();
             }
         });
 
         function resetPageAnimation() {
-            // 1. 重置變數
             isExploding = false;
-            
-            // 2. 移除 CSS class，讓字體大小和不透明度恢復
             document.body.classList.remove('exploding');
-            
-            // 3. 將遮罩隱藏
             overlay.style.opacity = 0;
-            
-            // 4. 清除 JS 添加的 inline style，讓元素回到 CSS 定義的狀態
             seal.style.opacity = "";
             seal.style.transition = "";
             ctaText.style.opacity = "";
             ctaText.style.transition = "";
             
-            // 5. 確保物理動畫重新啟動
             cancelAnimationFrame(animationFrameId);
             animate();
         }
-        // ----------------------------------------
 
         function handleClick() {
             if(!isExploding) {
                 isExploding = true;
                 document.body.classList.add('exploding');
                 
-                // 為了讓過渡平滑，這裡使用 inline style，但在 pageshow 時要記得清掉
                 seal.style.transition = "opacity 0.3s";
                 seal.style.opacity = 0;
                 ctaText.style.transition = "opacity 0.3s";
@@ -226,7 +218,6 @@
         });
 
         function animate() {
-            // 如果正在爆炸中，停止迴圈 (這就是為什麼上一頁回來會不動的原因，因為迴圈死掉了)
             if (isExploding) return;
 
             chars.forEach((char, index) => {
@@ -238,6 +229,7 @@
                 const dy = mouse.y - charCenterY;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 
+                // 這裡保留了設定：電腦版(>=600)半徑為 400，手機版(<600)半徑為 250
                 const radius = window.innerWidth < 600 ? 250 : 400; 
 
                 if (dist < radius) {
@@ -256,23 +248,20 @@
                 }
 
                 const ease = 0.08; 
+                // 修復：補完被截斷的物理計算邏輯
                 physics[index].x += (physics[index].targetX - physics[index].x) * ease;
                 physics[index].y += (physics[index].targetY - physics[index].y) * ease;
                 physics[index].rot += (physics[index].targetRot - physics[index].rot) * ease;
 
-                char.style.transform = `translate3d(${physics[index].x}px, ${physics[index].y}px, 0) rotate(${physics[index].rot}deg)`;
+                // 應用變形
+                char.style.transform = `translate(${physics[index].x}px, ${physics[index].y}px) rotate(${physics[index].rot}deg)`;
             });
-            
-            // 記錄 ID 以便管理
+
             animationFrameId = requestAnimationFrame(animate);
         }
 
+        // 啟動動畫
         animate();
-
-        window.addEventListener('resize', () => {
-            mouse.x = window.innerWidth / 2; 
-            mouse.y = window.innerHeight / 2;
-        });
     </script>
 </body>
 </html>
