@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>神思 Sansi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        @font-face {
+            font-family: 'MyCustomFont';
+            font-weight: normal;
+            font-style: normal;
+            src: url('./custom.ttf') format('truetype');
+            font-display: block; /* 改為 block，確保字體載入前不顯示後備字體，避免閃爍 */
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: #E8E6E1; 
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            cursor: pointer;
+            font-family: 'MyCustomFont', 'Noto Serif TC', serif;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body::before {
+            content: "";
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+            opacity: 0.6; pointer-events: none; z-index: 0;
+        }
+
+        canvas { 
+            display: block; 
+            position: absolute; top: 0; left: 0; z-index: 1;
+            /* 安全的 GPU 加速方式，不會造成畫面消失 */
+            transform: translateZ(0); 
+            will-change: opacity;
+        }
+
+        .seal {
+            position: absolute; bottom: 18%; left: 50%; transform: translateX(-50%);
+            width: 40px; height: 40px;
+            border: 2px solid #A84646; color: #A84646;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+            font-family: "Noto Serif TC", serif !important; 
+            opacity: 0; animation: fadeIn 2s ease-in forwards 0.5s; 
+            z-index: 2; letter-spacing: 2px; writing-mode: vertical-rl;
+            pointer-events: none;
+        }
+
+        .cta-text {
+            position: absolute;
+            top: 58%; left: 50%; transform: translateX(-50%);
+            font-size: 13px; color: #555;
+            font-family: "Noto Serif TC", serif;
+            letter-spacing: 4px;
+            opacity: 0; animation: fadeInText 1.5s ease-in forwards 1s; 
+            z-index: 2; pointer-events: none; text-align: center;
+        }
+        
+        .cta-text::after {
+            content: "↓"; display: block; margin-top: 5px; font-size: 12px; opacity: 0.6;
+        }
+
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #E8E6E1; opacity: 0; pointer-events: none;
+            transition: opacity 0.8s ease-in-out; 
+            z-index: 10;
+        }
+
+        @keyframes fadeIn { to { opacity: 0.7; } }
+        @keyframes fadeInText { to { opacity: 0.6; } }
+
+    </style>
+</head>
+<body>
+    <div id="overlay"></div>
+    <div class="cta-text">點擊前往</div>
+    <div class="seal" id="seal">神思</div>
+    <canvas id="canvas1"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas1');
+        
+        // --- 修正：移除導致白畫面的 desynchronized 參數 ---
+        // 只保留最基礎的 context，這樣兼容性最好
+        const ctx = canvas.getContext('2d'); 
+        
+        const overlay = document.getElementById('overlay');
+        const seal = document.getElementById('seal');
+        const ctaText = document.querySelector('.cta-text');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let particleArray = [];
+        let isExploding = false;
+        
+        const fontName = 'MyCustomFont';
+        const mouse = { x: undefined, y: undefined, radius: 100 }
+
+        // --- 事件監聽 ---
+        window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
+        window.addEventListener('mouseout', () => { mouse.x = undefined; mouse.y = undefined; });
+        const handleTouch = (e) => {
+            // 移除 preventDefault 以允許某些原生行為，避免某些瀏覽器卡死，但在點擊邏輯中處理跳轉
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        };
+        window.addEventListener('touchmove', handleTouch, { passive: true });
+        window.addEventListener('touchstart', handleTouch, { passive: true });
+        window.addEventListener('touchend', () => { mouse.x = undefined; mouse.y = undefined; });
+
+        function handleClick() {
+            if(!isExploding) {
+                isExploding = true;
+                if (mouse.x === undefined) {
+                    mouse.x = canvas.width / 2;
+                    mouse.y = canvas.height / 2;
+                }
+                mouse.radius = 5000; 
+
+                seal.style.transition = "opacity 0.3s";
+                seal.style.opacity = 0;
+                ctaText.style.transition = "opacity 0.3s";
+                ctaText.style.opacity = 0;
+
+                setTimeout(() => {
+                    overlay.style.opacity = 1; 
+                    setTimeout(() => {
+                        window.location.href = "index2.html"; 
+                    }, 400); 
+                }, 300); 
+            }
+        }
+
+        window.addEventListener('click', handleClick);
+        let isDragging = false;
+        window.addEventListener('touchmove', () => isDragging = true);
+        window.addEventListener('touchend', () => {
+            if (!isDragging) handleClick();
+            isDragging = false;
+        });
+
+        class Particle {
+            constructor(x, y){
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.baseX = x;
+                this.baseY = y;
+                this.density = (Math.random() * 30) + 1;
+                
+                this.r = 62 + Math.random() * 20;
+                this.g = 78 + Math.random() * 20;
+                this.b = 80 + Math.random() * 20;
+                this.a = 0.3 + Math.random() * 0.5; 
+                this.size = 1.2; 
+            }
+            
+            draw(){
+                ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.a})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            update(){
+                if (isExploding) {
+                    this.x += (Math.random() - 0.5) * 30;
+                    this.y += (Math.random() - 0.5) * 30;
+                    this.a -= 0.02; 
+                    if (this.a < 0) this.a = 0;
+                    return;
+                }
+
+                if (mouse.x !== undefined && mouse.y !== undefined) {
+                    let dx = mouse.x - this.x;
+                    let dy = mouse.y - this.y;
+                    let distSq = dx*dx + dy*dy; 
+                    let radSq = mouse.radius * mouse.radius;
+                    
+                    if (distSq < radSq){
+                        let distance = Math.sqrt(distSq);
+                        let forceDirectionX = dx / distance;
+                        let forceDirectionY = dy / distance;
+                        let force = (mouse.radius - distance) / mouse.radius;
+                        let directionX = forceDirectionX * force * this.density;
+                        let directionY = forceDirectionY * force * this.density;
+
+                        this.x -= directionX;
+                        this.y -= directionY;
+                        return; 
+                    }
+                }
+
+                if (this.x !== this.baseX){
+                    let dx = this.x - this.baseX;
+                    this.x -= dx/15; 
+                }
+                if (this.y !== this.baseY){
+                    let dy = this.y - this.baseY;
+                    this.y -= dy/15;
+                }
+            }
+        }
+
+        function init(){
+            particleArray = [];
+            
+            let fontSize = window.innerWidth < 600 ? 
+                           window.innerWidth * 0.3 : 
+                           Math.min(window.innerWidth, window.innerHeight) * 0.22;
+            
+            ctx.font =  `700 ${fontSize}px "${fontName}", "Noto Serif TC", serif`; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'white'; 
+            
+            let yOffset = window.innerHeight * 0.40;
+            ctx.fillText('神思', canvas.width/2, yOffset); 
+            
+            const textCoordinates = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // 像素級採樣
+            const gap = 1; 
+
+            for (let y = 0, y2 = textCoordinates.height; y < y2; y += gap){
+                for (let x = 0, x2 = textCoordinates.width; x < x2; x += gap){
+                    // --- 修正：將閾值從 128 降到 30 ---
+                    // 確保即使字體渲染得比較淡，也能被轉換成粒子
+                    if (textCoordinates.data[(y * 4 * textCoordinates.width) + (x * 4) + 3] > 30){
+                        particleArray.push(new Particle(x, y));
+                    }
+                }
+            }
+        }
+
+        function animate(){
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particleArray.length; i++){
+                particleArray[i].draw();
+                particleArray[i].update();
+            }
+            requestAnimationFrame(animate);
+        }
+
+        // --- 字體載入策略 ---
+        // 確保至少有一種 Serif 字體可用，並嘗試載入自定義字體
+        document.fonts.ready.then(function() {
+            // 給予瀏覽器額外 100ms 進行字體光柵化
+            setTimeout(() => {
+                init();
+                animate();
+            }, 100); 
+        });
+
+        let resizeTimeout;
+        window.addEventListener('resize', function(){
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                init();
+            }, 200);
+        });
+    </script>
+</body>
+</html>
