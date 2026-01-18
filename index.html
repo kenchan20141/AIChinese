@@ -19083,9 +19083,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // === 精選文章功能模組 ===
 
-// ★★★ 請將此處替換為你的 Google Sheet CSV 連結 ★★★
-const GOOGLE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRt4b9-3SQzTWVEVBwdvZcMV8HQ2CLv9lQVyAoMvINSrYqIPNtYsIRVwD9g6__Ulxn12RCRiSvibQBo/pub?output=csv";
-
+const ENCRYPTED_CSV_URL = "aHR0cHM6Ly9kb2NzLmdvb2dsZS5jb20vc3ByZWFkc2hlZXRzL2QvZS8yUEFDWC0xdlJ0NGI5LTNTUXpUV1ZFVkJ3ZHZaY01WOEhRMkNwdjlQUXZ5QW9NdklOU3JZcUlQTnRZc0lSVndEOWc2X19VbHhuMTJSQ1JpU3ZpYlFCby9wdWI/b3V0cHV0PWNzdg==";
 let allArticles = [];       // 儲存所有文章
 let filteredArticles = [];  // 儲存搜尋後的文章
 let currentArticlePage = 1;
@@ -19145,54 +19143,86 @@ async function openFeaturedArticles() {
     }
 }
 
-// 2. 從 Google Sheet 抓取資料 (修正 CORS 版)
-// 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
+// === 權限檢查與解密函式 ===
+function getProtectedUrl() {
+    // 讀取登入資料
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    
+    // 1. 檢查是否已登入
+    if (!s || !s.email) {
+        throw new Error("此內容為內部資源，請先登入學校帳號。");
+    }
+
+    // 2. 檢查是否為學校成員 (或特許用戶)
+    const SPECIAL_USER_B64 = 'a2VuY2hhbjIwMTUxQGdtYWlsLmNvbQ==';
+    const SPECIAL_USER_2_B64 = 'Y2hhbnN1bWx1aTIwMDVAZ21haWwuY29t';
+    
+    const isSchoolEmail = s.email.endsWith('@ccckyc.edu.hk');
+    const isSpecial = (s.email === atob(SPECIAL_USER_B64) || s.email === atob(SPECIAL_USER_2_B64));
+
+    if (!isSchoolEmail && !isSpecial) {
+        throw new Error("權限不足：僅限 @ccckyc.edu.hk 成員存取。");
+    }
+
+    // 3. 通過驗證，解密真實網址 (atob 是瀏覽器內建解碼功能)
+    return atob(ENCRYPTED_CSV_URL);
+}
+
+// === 2. 抓取資料主函式 (移除 Proxy，改為直連) ===
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
-    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
+    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在驗證身份並讀取文章...</div>';
 
     try {
-        // 1. 原始 Google Sheet 連結
-        const googleCsvUrl = GOOGLE_CSV_URL; 
+        // A. 獲取網址 (這一步會進行權限檢查)
+        // 如果沒登入，這裡會直接報錯 (跳到 catch)，絕對不會發出網絡請求
+        const googleCsvUrl = getProtectedUrl(); 
         
-        // 2. 加入時間戳記 (防快取)
+        // B. 加入時間戳記 (防止手機瀏覽器顯示舊資料)
         const targetUrl = googleCsvUrl + "&t=" + Date.now();
 
-        // 3. 使用 corsproxy.io 繞過瀏覽器限制
-        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
-        
-        const response = await fetch(proxyUrl);
+        // C. 直接 Fetch (不使用 corsproxy)
+        // 注意：Google Sheet 必須設為「公開 (Publish to web)」，否則這裡會失敗
+        const response = await fetch(targetUrl);
 
-        // 4. 檢查回應狀態
         if (!response.ok) {
-            throw new Error(`連線失敗: ${response.status}`);
+            throw new Error(`連線失敗 (${response.status})，請確認 Google Sheet 設定為公開。`);
         }
 
         const data = await response.text();
         
-        // 5. 檢查資料是否為有效的 CSV
-        if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：Google Sheet 回傳了網頁而非資料，請確認連結權限是否為「知道連結的人均可檢視」。");
+        // D. 資料檢查 (避免讀到 Google 登入頁面的 HTML)
+        if (data.trim().startsWith("<") || data.includes("<!DOCTYPE")) {
+            throw new Error("讀取錯誤：請確認 Google Sheet 已發佈且未勾選 'Restrict access'。");
         }
 
-        // 6. 解析 CSV 並 ★★★ 反轉排序 (最新的排最前) ★★★
-        // parseCSV(data) 讀出來是 [舊, ..., 新]
-        // 加上 .reverse() 後變成 [新, ..., 舊]
+        // E. 解析與排序 (新文章在最前)
         allArticles = parseCSV(data).reverse(); 
         
-        console.log("【解析後的文章數】:", allArticles.length);
+        console.log("成功載入文章數:", allArticles.length);
 
-        // 7. 渲染畫面
+        // F. 渲染畫面
         filteredArticles = allArticles;
         currentArticlePage = 1;
         renderArticleList();
         
     } catch (error) {
-        console.error("載入文章失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，可能需檢查 Google Sheet 權限或網絡連線。<br><small>(' + error.message + ')</small></div>';
+        console.error("載入失敗:", error);
+        
+        // 根據錯誤類型顯示不同圖示
+        let iconHtml = '<i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>';
+        
+        if (error.message.includes("權限") || error.message.includes("登入")) {
+            iconHtml = '<i class="fas fa-lock" style="font-size: 2rem; margin-bottom: 10px;"></i>';
+        }
+
+        listContainer.innerHTML = `
+            <div style="text-align:center; color:#d69a92; padding:30px;">
+                ${iconHtml}<br>
+                ${error.message}
+            </div>`;
     }
 }
-
 
 	
 // 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
