@@ -19146,52 +19146,55 @@ async function openFeaturedArticles() {
 }
 
 // 2. 從 Google Sheet 抓取資料 (修正 CORS 版)
-// 2. 從 Google Sheet 抓取資料 (直接連線版)
+// 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
     listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
 
     try {
-        // 1. 設定 Google Sheet 的原始連結
-        // 注意：這裡直接使用你的 csv 連結，不加任何 proxy 前綴
+        // 1. 原始 Google Sheet 連結
         const googleCsvUrl = GOOGLE_CSV_URL; 
         
-        // 2. 加入時間戳記以防止瀏覽器快取舊資料
-        // 使用 (&) 或 (?) 取決於網址原本有沒有參數，你的網址已有 ?output=csv，所以這裡用 &
-        const noCacheUrl = googleCsvUrl + "&t=" + Date.now();
-        
-        // 3. 直接 Fetch (不透過代理)
-        const response = await fetch(noCacheUrl);
+        // 2. 加入時間戳記 (防快取)
+        const targetUrl = googleCsvUrl + "&t=" + Date.now();
 
-        // ★★★ 安全檢查：確保回應是成功的 (200 OK) ★★★
+        // 3. 使用 corsproxy.io 繞過瀏覽器限制
+        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
+        
+        const response = await fetch(proxyUrl);
+
+        // 4. 檢查回應狀態
         if (!response.ok) {
             throw new Error(`連線失敗: ${response.status}`);
         }
 
         const data = await response.text();
         
-        // ★★★ 安全檢查：防止 Google 回傳錯誤頁面 (例如登入頁或驗證頁) ★★★
-        // 如果內容是 HTML 開頭 (<!DOCTYPE 或 <html)，代表這不是 CSV
-        if (data.trim().startsWith("<") || data.includes("<!DOCTYPE")) {
-            throw new Error("讀取失敗：Google Sheet 回傳了網頁而非資料，請檢查發佈設定。");
+        // 5. 檢查資料是否為有效的 CSV
+        if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
+            throw new Error("讀取失敗：Google Sheet 回傳了網頁而非資料，請確認連結權限是否為「知道連結的人均可檢視」。");
         }
 
-        // 4. 解析 CSV
-        allArticles = parseCSV(data);
+        // 6. 解析 CSV 並 ★★★ 反轉排序 (最新的排最前) ★★★
+        // parseCSV(data) 讀出來是 [舊, ..., 新]
+        // 加上 .reverse() 後變成 [新, ..., 舊]
+        allArticles = parseCSV(data).reverse(); 
         
         console.log("【解析後的文章數】:", allArticles.length);
 
-        // 初始狀態：顯示所有文章
+        // 7. 渲染畫面
         filteredArticles = allArticles;
         currentArticlePage = 1;
         renderArticleList();
         
     } catch (error) {
         console.error("載入文章失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請稍後再試。<br><small>(' + error.message + ')</small></div>';
+        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，可能需檢查 Google Sheet 權限或網絡連線。<br><small>(' + error.message + ')</small></div>';
     }
 }
 
+
+	
 // 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
 function parseCSV(text) {
     const rows = [];
