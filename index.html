@@ -6,17 +6,10 @@
     <title>神思 Sansi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+    <!-- 引入 Noto Serif TC，包含 700 和 900 字重以增強粒子厚度 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
     
     <style>
-        @font-face {
-            font-family: 'MyCustomFont';
-            font-weight: normal;
-            font-style: normal;
-            src: url('./custom.ttf') format('truetype');
-            font-display: swap; 
-        }
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
@@ -25,12 +18,14 @@
             height: 100vh;
             width: 100vw;
             cursor: pointer;
-            font-family: 'MyCustomFont', 'Noto Serif TC', serif;
+            /* 統一使用 Noto Serif TC */
+            font-family: 'Noto Serif TC', serif;
             -webkit-user-select: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* 背景噪點紋理 */
         body::before {
             content: "";
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -41,11 +36,8 @@
         canvas { 
             display: block; 
             position: absolute; top: 0; left: 0; z-index: 1;
-            /* --- GPU 強制加速關鍵 CSS --- */
-            transform: translate3d(0, 0, 0); /* 強制開啟硬體加速層 */
-            backface-visibility: hidden;     /* 避免閃爍 */
-            perspective: 1000px;
-            will-change: transform;          /* 提示瀏覽器此元素會頻繁變動 */
+            transform: translateZ(0); 
+            will-change: opacity;
         }
 
         .seal {
@@ -54,7 +46,8 @@
             border: 2px solid #A84646; color: #A84646;
             display: flex; align-items: center; justify-content: center;
             font-size: 14px;
-            font-family: "Noto Serif TC", serif !important; 
+            font-weight: 700;
+            font-family: "Noto Serif TC", serif; 
             opacity: 0; animation: fadeIn 2s ease-in forwards 0.5s; 
             z-index: 2; letter-spacing: 2px; writing-mode: vertical-rl;
             pointer-events: none;
@@ -64,6 +57,7 @@
             position: absolute;
             top: 58%; left: 50%; transform: translateX(-50%);
             font-size: 13px; color: #555;
+            font-weight: 500;
             font-family: "Noto Serif TC", serif;
             letter-spacing: 4px;
             opacity: 0; animation: fadeInText 1.5s ease-in forwards 1s; 
@@ -94,13 +88,7 @@
 
     <script>
         const canvas = document.getElementById('canvas1');
-        
-        // --- GPU 加速核心設定 ---
-        const ctx = canvas.getContext('2d', { 
-            willReadFrequently: true, // 優化 getImageData 讀取速度
-            alpha: true,              // 允許透明背景合成
-            desynchronized: true      // 關鍵：解除渲染同步鎖，允許 GPU 直接繪製 (降低延遲)
-        });
+        const ctx = canvas.getContext('2d'); 
         
         const overlay = document.getElementById('overlay');
         const seal = document.getElementById('seal');
@@ -112,18 +100,19 @@
         let particleArray = [];
         let isExploding = false;
         
-        const fontName = 'MyCustomFont';
+        // 修改為 Noto Serif TC
+        const fontName = 'Noto Serif TC'; 
         const mouse = { x: undefined, y: undefined, radius: 100 }
 
+        // --- 事件監聽 ---
         window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
         window.addEventListener('mouseout', () => { mouse.x = undefined; mouse.y = undefined; });
         const handleTouch = (e) => {
-            e.preventDefault();
             mouse.x = e.touches[0].clientX;
             mouse.y = e.touches[0].clientY;
         };
-        window.addEventListener('touchmove', handleTouch, { passive: false });
-        window.addEventListener('touchstart', handleTouch, { passive: false });
+        window.addEventListener('touchmove', handleTouch, { passive: true });
+        window.addEventListener('touchstart', handleTouch, { passive: true });
         window.addEventListener('touchend', () => { mouse.x = undefined; mouse.y = undefined; });
 
         function handleClick() {
@@ -143,7 +132,7 @@
                 setTimeout(() => {
                     overlay.style.opacity = 1; 
                     setTimeout(() => {
-                        window.location.href = "https://kenchan20141.github.io/AIChinese/"; 
+                        window.location.href = "index2.html"; 
                     }, 400); 
                 }, 300); 
             }
@@ -165,21 +154,19 @@
                 this.baseY = y;
                 this.density = (Math.random() * 30) + 1;
                 
+                // 粒子顏色保持原有的水墨/深灰風格
                 this.r = 62 + Math.random() * 20;
                 this.g = 78 + Math.random() * 20;
                 this.b = 80 + Math.random() * 20;
                 this.a = 0.3 + Math.random() * 0.5; 
-                
-                // 維持您要求的細膩度
                 this.size = 1.2; 
             }
             
             draw(){
-                // 這裡保留 arc (圓形)，確保墨水邊緣的圓潤感完全不變
                 ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.a})`;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill(); // 移除了 closePath，對於填滿的圓形來說是不必要的，能省一點點計算
+                ctx.fill();
             }
 
             update(){
@@ -194,7 +181,7 @@
                 if (mouse.x !== undefined && mouse.y !== undefined) {
                     let dx = mouse.x - this.x;
                     let dy = mouse.y - this.y;
-                    let distSq = dx*dx + dy*dy; // 優化：使用距離平方比較，減少 Math.sqrt 開根號運算
+                    let distSq = dx*dx + dy*dy; 
                     let radSq = mouse.radius * mouse.radius;
                     
                     if (distSq < radSq){
@@ -225,12 +212,12 @@
         function init(){
             particleArray = [];
             
-            // 維持修正後的字體與位置
             let fontSize = window.innerWidth < 600 ? 
                            window.innerWidth * 0.3 : 
                            Math.min(window.innerWidth, window.innerHeight) * 0.22;
             
-            ctx.font =  `700 ${fontSize}px "${fontName}", "Noto Serif TC", serif`; 
+            // 使用 900 (Heavy) 字重，確保宋體的線條足夠粗，能夠生成足夠的粒子
+            ctx.font =  `900 ${fontSize}px "${fontName}", serif`; 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = 'white'; 
@@ -240,13 +227,13 @@
             
             const textCoordinates = ctx.getImageData(0, 0, canvas.width, canvas.height);
             
-            // 維持高密度 (像素級)
+            // 如果還是覺得慢，可以將這裡的 gap 改為 2，會減少粒子數量但提高性能
             const gap = 1; 
 
             for (let y = 0, y2 = textCoordinates.height; y < y2; y += gap){
                 for (let x = 0, x2 = textCoordinates.width; x < x2; x += gap){
-                    // 閾值維持 128，確保字體邊緣銳利
-                    if (textCoordinates.data[(y * 4 * textCoordinates.width) + (x * 4) + 3] > 128){
+                    // 閾值保持較低，捕捉宋體的細節
+                    if (textCoordinates.data[(y * 4 * textCoordinates.width) + (x * 4) + 3] > 30){
                         particleArray.push(new Particle(x, y));
                     }
                 }
@@ -262,6 +249,7 @@
             requestAnimationFrame(animate);
         }
 
+        // 使用 document.fonts.ready 確保 Google Fonts 下載完畢後才開始生成粒子
         document.fonts.ready.then(function() {
             setTimeout(() => {
                 init();
