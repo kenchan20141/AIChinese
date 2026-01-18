@@ -13233,26 +13233,39 @@ svg.appendChild(line);
 });
 }
 
-// Listeners for Tool 2 (工具一覽展開邏輯)
+// Listeners for Tool 2 (工具一覽展開邏輯 - 已修復背景殘留)
 document.getElementById('expandToolsBtn2').addEventListener('click', function() {
-    // 1. ★★★ 強制關閉其他兩個全螢幕介面 ★★★
+    // 1. ★★★ 強制關閉其他全螢幕介面 ★★★
     document.getElementById('historyContainer').style.display = 'none';
     document.getElementById('studentCloudModal').style.display = 'none';
+    document.getElementById('featuredContainer').style.display = 'none'; // <--- ★★★ 關鍵新增 ★★★
 
-    // 2. 顯示語薈
+    // 2. 隱藏主頁元素 (解決打開語薈後關閉時看到主頁殘留的問題)
+    document.querySelector('.title-container').style.display = 'none';
+    document.getElementById('hitokoto-container').style.display = 'none';
+    document.getElementById('mainMenuBox').style.display = 'none';
+    document.getElementById('toolsBox').style.display = 'none';
+    const dseBox = document.getElementById('dse-countdown-box');
+    if (dseBox) dseBox.style.display = 'none';
+
+    // 3. 顯示語薈
     const container = document.getElementById('toolsContainer2');
     container.style.display = 'flex';
     document.body.style.overflow = 'hidden'; // 鎖定捲動
     document.querySelector('#toolsContainer2 .main-container').classList.add('loaded');
     
-    // 3. 按鈕狀態調整
+    // 4. 按鈕狀態調整
     document.getElementById('homeBtn').style.display = 'none';
     document.getElementById('sideMenuHomeBtn').style.display = 'flex';
     
-    // 確保雲端按鈕顯示 (因為離開了雲端介面)
+    // 確保雲端按鈕顯示
     const cloudBtn = document.getElementById('sideMenuCloudBtn');
     if (cloudBtn) cloudBtn.style.display = 'flex';
     
+    // 收起側邊選單
+    document.getElementById('sideMenu').classList.remove('active');
+    document.getElementById('sideMenuToggle').classList.remove('active');
+
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(drawConnectors, 100);
 });
@@ -14872,9 +14885,9 @@ function toggleMusicPlayer() {
 const performReturnToHomeLogic = window.returnToHome || function() {}; // 備份舊邏輯引用(如果有的話)
 
 // === 優化版：帶動畫的返回主頁 (修復滾動鎖定與視窗殘留) ===
-// === 優化版：帶動畫的返回主頁 (已修復：自動關閉課業狀態) ===
+// === 優化版：帶動畫的返回主頁 (已修復：加入 featuredContainer 隱藏) ===
 window.returnToHome = function() {
-    // 1. 找出當前正在顯示的容器 (加入 studentCloudModal)
+    // 1. 找出當前正在顯示的容器 (加入 featuredContainer)
     const activeContainer = document.querySelector(
         '#writingContainer[style*="display: block"], ' +
         '#readingContainer[style*="display: block"], ' +
@@ -14884,7 +14897,7 @@ window.returnToHome = function() {
         '#historyContainer[style*="display: block"], ' +
         '#toolsContainer2[style*="display: flex"], ' + 
         '#studentCloudModal[style*="display: block"], ' + 
-		'featuredContainer', // <--- 加入這行
+        '#featuredContainer[style*="display: block"]' // <--- ★★★ 關鍵：加入這行偵測 ★★★
     );
 
     // 2. 如果找到了正在顯示的頁面，先播動畫
@@ -14893,7 +14906,7 @@ window.returnToHome = function() {
 
         // 3. 等待動畫播完再執行清理
         setTimeout(() => {
-            // A. 隱藏所有主要功能容器 (加入 studentCloudModal)
+            // A. 隱藏所有主要功能容器 (加入 featuredContainer)
             const containers = [
                 'writingContainer', 
                 'readingContainer', 
@@ -14902,7 +14915,8 @@ window.returnToHome = function() {
                 'argumentContainer', 
                 'historyContainer', 
                 'toolsContainer2',
-                'studentCloudModal' // <--- 關鍵：加入課業狀態視窗 ID
+                'studentCloudModal',
+                'featuredContainer' // <--- ★★★ 關鍵：加入這個 ID 到隱藏列表 ★★★
             ];
             
             containers.forEach(id => {
@@ -14915,7 +14929,7 @@ window.returnToHome = function() {
                 }
             });
 
-            // ★★★ B. 關鍵修復：解鎖頁面捲動 (因為課業狀態鎖住了它) ★★★
+            // B. 解鎖頁面捲動
             document.body.style.overflow = 'auto'; 
             document.body.style.height = 'auto'; 
 
@@ -14973,6 +14987,12 @@ window.returnToHome = function() {
                 const vIframe = document.getElementById('videoIframe');
                 if (vIframe) vIframe.src = '';
             }
+            
+            // L. 關閉文萃詳情頁 (確保下次打開是列表)
+            const featuredDetail = document.getElementById('featuredDetailView');
+            if (featuredDetail) featuredDetail.style.display = 'none';
+            const featuredList = document.getElementById('featuredListView');
+            if (featuredList) featuredList.style.display = 'block';
 
             // M. 滾動到頂部
             window.scrollTo({ top: 0, behavior: 'instant' });
@@ -15000,7 +15020,6 @@ window.returnToHome = function() {
         location.reload(); 
     }
 };
-
 // ==========================================
 // === IndexedDB 歷史紀錄系統 (V2 層級版) ===
 // ==========================================
@@ -15409,15 +15428,16 @@ let currentCategoryFilter = null;
 let currentSubFunctionFilter = null;
 
 // 4. 開啟歷史頁面 (進入第一層)
-// 4. 開啟歷史頁面 (進入第一層)
+// 4. 開啟歷史頁面 (已修復：加入文萃隱藏)
 function openHistoryContainer() {
-    // 1. 定義要隱藏的所有容器 (加入 'toolsContainer2' 和 'studentCloudModal')
+    // 1. 定義要隱藏的所有容器
     const containers = [
         'writingContainer', 'readingContainer', 'booksContainer', 
         'expandContainer', 'argumentContainer', 'mainMenuBox', 
         'hitokoto-container', 'dse-countdown-box', 'toolsBox',
-        'toolsContainer2',      // <--- 關閉語薈
-        'studentCloudModal'     // <--- 關閉學生雲端
+        'toolsContainer2',      
+        'studentCloudModal',
+        'featuredContainer'     // <--- ★★★ 關鍵：加入文萃容器 ★★★
     ];
     
     containers.forEach(id => {
@@ -15426,7 +15446,7 @@ function openHistoryContainer() {
     });
     document.querySelector('.title-container').style.display = 'none';
     
-    // 2. ★★★ 關鍵：解鎖捲動 (因為語薈和學生雲端都會鎖住捲動) ★★★
+    // 2. 解鎖捲動
     document.body.style.overflow = 'auto'; 
 
     // 3. 顯示歷史容器
@@ -15437,14 +15457,17 @@ function openHistoryContainer() {
     const homeBtn = document.getElementById('sideMenuHomeBtn');
     if (homeBtn) homeBtn.style.display = 'flex';
     
-    // 確保雲端按鈕顯示 (因為離開了雲端介面)
     const cloudBtn = document.getElementById('sideMenuCloudBtn');
     if (cloudBtn) cloudBtn.style.display = 'flex';
 
     document.getElementById('sideMenu').classList.remove('active');
+    document.getElementById('sideMenuToggle').classList.remove('active');
 
     // 渲染第一層
     renderHistoryCategories();
+    
+    // 強制滾動到頂部 (防止視窗還停留在下方)
+    window.scrollTo({ top: 0, behavior: 'instant' });
 }
 // 5. 渲染第一層：主範疇
 // ==========================================
@@ -16826,13 +16849,20 @@ async function sendStudentNotification(studentName, title, message) {
 
 	
 
-// === 1. 修改打開「學生雲端中心」的函式 ===
+// === 修改打開「學生雲端中心」的函式 (已修復：加入文萃隱藏) ===
 function openStudentLoginModal() {
     const modal = document.getElementById('studentCloudModal');
     if (modal) {
-        // 1. ★★★ 強制關閉其他兩個全螢幕介面 ★★★
+        // 1. ★★★ 強制關閉其他全螢幕介面 ★★★
         document.getElementById('historyContainer').style.display = 'none';
         document.getElementById('toolsContainer2').style.display = 'none';
+        document.getElementById('featuredContainer').style.display = 'none'; // <--- ★★★ 關鍵新增 ★★★
+
+        // 同時隱藏主頁背景元素，防止透視
+        document.querySelector('.title-container').style.display = 'none';
+        document.getElementById('hitokoto-container').style.display = 'none';
+        document.getElementById('mainMenuBox').style.display = 'none';
+        document.getElementById('dse-countdown-box').style.display = 'none';
 
         // 2. 顯示視窗並鎖定捲動
         modal.style.display = 'block'; 
@@ -16842,15 +16872,12 @@ function openStudentLoginModal() {
         checkStudentLogin();
 
         // 4. --- UI 按鈕狀態切換 ---
-        // 隱藏「雲端同步」按鈕 (因為已經在雲端介面了)
         const cloudBtn = document.getElementById('sideMenuCloudBtn');
         if (cloudBtn) cloudBtn.style.display = 'none';
 
-        // 顯示「返回主頁」按鈕
         const homeBtn = document.getElementById('sideMenuHomeBtn');
         if (homeBtn) homeBtn.style.display = 'flex';
 
-        // 隱藏左上角浮動的返回按鈕
         const floatHomeBtn = document.getElementById('homeBtn');
         if (floatHomeBtn) floatHomeBtn.style.display = 'none';
 
