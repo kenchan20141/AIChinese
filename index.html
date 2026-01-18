@@ -6,8 +6,8 @@
     <title>神思 Sansi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- 引入 Noto Serif TC，包含 700 和 900 字重以增強粒子厚度 -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
+    <!-- 引入志芒行書 (Zhi Mang Xing) 與 Noto Serif TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
     
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -18,11 +18,10 @@
             height: 100vh;
             width: 100vw;
             cursor: pointer;
-            /* 統一使用 Noto Serif TC */
-            font-family: 'Noto Serif TC', serif;
             -webkit-user-select: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+            font-family: "Noto Serif TC", serif;
         }
 
         /* 背景噪點紋理 */
@@ -33,11 +32,41 @@
             opacity: 0.6; pointer-events: none; z-index: 0;
         }
 
-        canvas { 
-            display: block; 
-            position: absolute; top: 0; left: 0; z-index: 1;
-            transform: translateZ(0); 
-            will-change: opacity;
+        /* 主標題容器 */
+        .title-container {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            display: flex;
+            gap: 15px;
+            pointer-events: none; 
+            /* 移除 mix-blend-mode 以避免某些螢幕渲染模糊，改用實色 */
+        }
+
+        /* 單個文字樣式 - 極致清晰版 */
+        .char {
+            display: block;
+            font-family: 'Zhi Mang Xing', cursive;
+            
+            /* 顏色還原：基於粒子 RGB(72, 88, 90) 計算出的 Hex */
+            color: #48585A; 
+            
+            font-size: clamp(80px, 25vw, 220px); 
+            line-height: 1;
+            white-space: nowrap;
+            
+            /* 字體平滑處理，確保邊緣銳利 */
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+            
+            /* 僅在 transform 上做優化，避免過度 rasterize */
+            will-change: transform; 
+            /* 移除所有陰影與濾鏡 */
+            text-shadow: none;
+            filter: none;
         }
 
         .seal {
@@ -51,6 +80,8 @@
             opacity: 0; animation: fadeIn 2s ease-in forwards 0.5s; 
             z-index: 2; letter-spacing: 2px; writing-mode: vertical-rl;
             pointer-events: none;
+            /* 確保印章也清晰 */
+            -webkit-font-smoothing: antialiased; 
         }
 
         .cta-text {
@@ -58,10 +89,10 @@
             top: 58%; left: 50%; transform: translateX(-50%);
             font-size: 13px; color: #555;
             font-weight: 500;
-            font-family: "Noto Serif TC", serif;
             letter-spacing: 4px;
             opacity: 0; animation: fadeInText 1.5s ease-in forwards 1s; 
             z-index: 2; pointer-events: none; text-align: center;
+            -webkit-font-smoothing: antialiased;
         }
         
         .cta-text::after {
@@ -72,7 +103,14 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: #E8E6E1; opacity: 0; pointer-events: none;
             transition: opacity 0.8s ease-in-out; 
-            z-index: 10;
+            z-index: 20;
+        }
+
+        /* 點擊後的擴散動畫 */
+        .exploding .char {
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            transform: scale(4) !important; /* 放大 */
         }
 
         @keyframes fadeIn { to { opacity: 0.7; } }
@@ -82,48 +120,51 @@
 </head>
 <body>
     <div id="overlay"></div>
+    
+    <div class="title-container" id="titleContainer">
+        <span class="char" id="char1">神</span>
+        <span class="char" id="char2">思</span>
+    </div>
+
     <div class="cta-text">點擊前往</div>
     <div class="seal" id="seal">神思</div>
-    <canvas id="canvas1"></canvas>
 
     <script>
-        const canvas = document.getElementById('canvas1');
-        const ctx = canvas.getContext('2d'); 
-        
         const overlay = document.getElementById('overlay');
         const seal = document.getElementById('seal');
         const ctaText = document.querySelector('.cta-text');
-        
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        const char1 = document.getElementById('char1');
+        const char2 = document.getElementById('char2');
+        const chars = [char1, char2];
 
-        let particleArray = [];
+        let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         let isExploding = false;
-        
-        // 修改為 Noto Serif TC
-        const fontName = 'Noto Serif TC'; 
-        const mouse = { x: undefined, y: undefined, radius: 100 }
+
+        const physics = [
+            { x: 0, y: 0, rot: 0, targetX: 0, targetY: 0, targetRot: 0 },
+            { x: 0, y: 0, rot: 0, targetX: 0, targetY: 0, targetRot: 0 }
+        ];
 
         // --- 事件監聽 ---
-        window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
-        window.addEventListener('mouseout', () => { mouse.x = undefined; mouse.y = undefined; });
+        const updateMouse = (x, y) => {
+            mouse.x = x;
+            mouse.y = y;
+        };
+
+        window.addEventListener('mousemove', (e) => updateMouse(e.clientX, e.clientY));
+        
         const handleTouch = (e) => {
-            mouse.x = e.touches[0].clientX;
-            mouse.y = e.touches[0].clientY;
+            updateMouse(e.touches[0].clientX, e.touches[0].clientY);
         };
         window.addEventListener('touchmove', handleTouch, { passive: true });
         window.addEventListener('touchstart', handleTouch, { passive: true });
-        window.addEventListener('touchend', () => { mouse.x = undefined; mouse.y = undefined; });
 
+        // 點擊跳轉邏輯
         function handleClick() {
             if(!isExploding) {
                 isExploding = true;
-                if (mouse.x === undefined) {
-                    mouse.x = canvas.width / 2;
-                    mouse.y = canvas.height / 2;
-                }
-                mouse.radius = 5000; 
-
+                document.body.classList.add('exploding');
+                
                 seal.style.transition = "opacity 0.3s";
                 seal.style.opacity = 0;
                 ctaText.style.transition = "opacity 0.3s";
@@ -146,125 +187,59 @@
             isDragging = false;
         });
 
-        class Particle {
-            constructor(x, y){
-                this.x = Math.random() * canvas.width;
-                this.y = Math.random() * canvas.height;
-                this.baseX = x;
-                this.baseY = y;
-                this.density = (Math.random() * 30) + 1;
-                
-                // 粒子顏色保持原有的水墨/深灰風格
-                this.r = 62 + Math.random() * 20;
-                this.g = 78 + Math.random() * 20;
-                this.b = 80 + Math.random() * 20;
-                this.a = 0.3 + Math.random() * 0.5; 
-                this.size = 1.2; 
-            }
-            
-            draw(){
-                ctx.fillStyle = `rgba(${this.r}, ${this.g}, ${this.b}, ${this.a})`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
+        // --- 動畫核心 ---
+        function animate() {
+            if (isExploding) return;
 
-            update(){
-                if (isExploding) {
-                    this.x += (Math.random() - 0.5) * 30;
-                    this.y += (Math.random() - 0.5) * 30;
-                    this.a -= 0.02; 
-                    if (this.a < 0) this.a = 0;
-                    return;
-                }
+            chars.forEach((char, index) => {
+                const rect = char.getBoundingClientRect();
+                const charCenterX = rect.left + rect.width / 2;
+                const charCenterY = rect.top + rect.height / 2;
 
-                if (mouse.x !== undefined && mouse.y !== undefined) {
-                    let dx = mouse.x - this.x;
-                    let dy = mouse.y - this.y;
-                    let distSq = dx*dx + dy*dy; 
-                    let radSq = mouse.radius * mouse.radius;
+                const dx = mouse.x - charCenterX;
+                const dy = mouse.y - charCenterY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // 感應半徑
+                const radius = window.innerWidth < 600 ? 250 : 400; 
+
+                if (dist < radius) {
+                    const force = (radius - dist) / radius;
                     
-                    if (distSq < radSq){
-                        let distance = Math.sqrt(distSq);
-                        let forceDirectionX = dx / distance;
-                        let forceDirectionY = dy / distance;
-                        let force = (mouse.radius - distance) / mouse.radius;
-                        let directionX = forceDirectionX * force * this.density;
-                        let directionY = forceDirectionY * force * this.density;
+                    // 斥力移動計算
+                    const moveX = -(dx / dist) * force * 40; 
+                    const moveY = -(dy / dist) * force * 40;
+                    
+                    // 輕微旋轉
+                    const rotate = dx * 0.04 * force;
 
-                        this.x -= directionX;
-                        this.y -= directionY;
-                        return; 
-                    }
+                    physics[index].targetX = moveX;
+                    physics[index].targetY = moveY;
+                    physics[index].targetRot = rotate;
+                } else {
+                    physics[index].targetX = 0;
+                    physics[index].targetY = 0;
+                    physics[index].targetRot = 0;
                 }
 
-                if (this.x !== this.baseX){
-                    let dx = this.x - this.baseX;
-                    this.x -= dx/15; 
-                }
-                if (this.y !== this.baseY){
-                    let dy = this.y - this.baseY;
-                    this.y -= dy/15;
-                }
-            }
-        }
+                // 物理緩動 (Lerp)
+                const ease = 0.08; 
+                physics[index].x += (physics[index].targetX - physics[index].x) * ease;
+                physics[index].y += (physics[index].targetY - physics[index].y) * ease;
+                physics[index].rot += (physics[index].targetRot - physics[index].rot) * ease;
 
-        function init(){
-            particleArray = [];
-            
-            let fontSize = window.innerWidth < 600 ? 
-                           window.innerWidth * 0.3 : 
-                           Math.min(window.innerWidth, window.innerHeight) * 0.22;
-            
-            // 使用 900 (Heavy) 字重，確保宋體的線條足夠粗，能夠生成足夠的粒子
-            ctx.font =  `900 ${fontSize}px "${fontName}", serif`; 
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = 'white'; 
-            
-            let yOffset = window.innerHeight * 0.40;
-            ctx.fillText('神思', canvas.width/2, yOffset); 
-            
-            const textCoordinates = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            
-            // 如果還是覺得慢，可以將這裡的 gap 改為 2，會減少粒子數量但提高性能
-            const gap = 1; 
+                // 應用變換：使用 translate3d 確保硬件加速，但不加 blur
+                char.style.transform = `translate3d(${physics[index].x}px, ${physics[index].y}px, 0) rotate(${physics[index].rot}deg)`;
+            });
 
-            for (let y = 0, y2 = textCoordinates.height; y < y2; y += gap){
-                for (let x = 0, x2 = textCoordinates.width; x < x2; x += gap){
-                    // 閾值保持較低，捕捉宋體的細節
-                    if (textCoordinates.data[(y * 4 * textCoordinates.width) + (x * 4) + 3] > 30){
-                        particleArray.push(new Particle(x, y));
-                    }
-                }
-            }
-        }
-
-        function animate(){
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            for (let i = 0; i < particleArray.length; i++){
-                particleArray[i].draw();
-                particleArray[i].update();
-            }
             requestAnimationFrame(animate);
         }
 
-        // 使用 document.fonts.ready 確保 Google Fonts 下載完畢後才開始生成粒子
-        document.fonts.ready.then(function() {
-            setTimeout(() => {
-                init();
-                animate();
-            }, 100); 
-        });
+        animate();
 
-        let resizeTimeout;
-        window.addEventListener('resize', function(){
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-                init();
-            }, 200);
+        window.addEventListener('resize', () => {
+            mouse.x = window.innerWidth / 2; 
+            mouse.y = window.innerHeight / 2;
         });
     </script>
 </body>
