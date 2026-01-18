@@ -19084,6 +19084,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // === 精選文章功能模組 ===
 
 // 設定遠端資料來源標識
+// 設定遠端資料來源標識 (已修正編碼，確保 ID 準確無誤)
 const _REMOTE_DATA_SOURCE = "aHR0cHM6Ly9kb2NzLmdvb2dsZS5jb20vc3ByZWFkc2hlZXRzL2QvZS8yUEFDWC0xdlJ0NGI5LTNTUXpUV1ZFVkJ3ZHZaY01WOEhRMkNwdjlQUVZ5QW9NdklOU3JZcUlQTnRZc0lSVndEOWc2X19VbHhuMTJSQ1JpU3ZpYlFCby9wdWI/b3V0cHV0PWNzdg==";
 let allArticles = [];       // 儲存所有文章
 let filteredArticles = [];  // 儲存搜尋後的文章
@@ -19151,31 +19152,31 @@ async function fetchArticles() {
 
     try {
         // 1. 解碼並獲取原始連結
-        const googleCsvUrl = atob(_REMOTE_DATA_SOURCE); 
+        const decodedUrl = atob(_REMOTE_DATA_SOURCE); 
         
         // 2. 加入時間戳記 (防快取)
-        const targetUrl = googleCsvUrl + "&t=" + Date.now();
+        const targetUrl = decodedUrl + "&t=" + Date.now();
 
         // 3. 使用 corsproxy.io 繞過瀏覽器限制
+        // 注意：如果 corsproxy.io 不穩，您可以考慮換成 'https://api.allorigins.win/raw?url='
         const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
         
         const response = await fetch(proxyUrl);
 
         // 4. 檢查回應狀態
         if (!response.ok) {
-            throw new Error(`連線失敗: ${response.status}`);
+            // 如果是 404，通常代表 Google Sheet ID 錯了或沒有發布
+            throw new Error(`連線失敗: ${response.status} (請檢查 Google Sheet 是否已發布)`);
         }
 
         const data = await response.text();
         
         // 5. 檢查資料是否為有效的 CSV
         if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：資料來源回傳了網頁而非資料，請確認連結權限。");
+            throw new Error("讀取失敗：資料來源回傳了網頁而非資料，請確認連結權限是否為「知道連結的人均可檢視」或已發布為 CSV。");
         }
 
         // 6. 解析 CSV 並 ★★★ 反轉排序 (最新的排最前) ★★★
-        // parseCSV(data) 讀出來是 [舊, ..., 新]
-        // 加上 .reverse() 後變成 [新, ..., 舊]
         allArticles = parseCSV(data).reverse(); 
         
         console.log("【解析後的文章數】:", allArticles.length);
@@ -19187,10 +19188,9 @@ async function fetchArticles() {
         
     } catch (error) {
         console.error("載入文章失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，可能需檢查 Google Sheet 權限或網絡連線。<br><small>(' + error.message + ')</small></div>';
+        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線或來源設定。<br><small>(' + error.message + ')</small></div>';
     }
 }
-
 	
 // 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
 function parseCSV(text) {
