@@ -6571,6 +6571,27 @@ read-mode-container {
 }
 	
 	
+/* === [標題自動縮放] 專用樣式 === */
+.auto-fit-title {
+    white-space: nowrap; /* 預設強迫單行，讓程式偵測寬度 */
+    overflow: hidden;
+    text-overflow: ellipsis; /* 暫時的省略號，防止計算前爆版 */
+    transition: font-size 0.1s; /* 讓縮放平滑一點 */
+    display: block;
+    width: 100%;
+}
+
+/* 當程式判斷真的太長，縮到最小還放不下時，會加入這 class */
+.auto-fit-wrap {
+    white-space: normal !important; /* 允許換行 */
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: break-word; /* 確保長單詞也能換行 */
+}
+
+
+
+
 	
 	
 </style>
@@ -19249,7 +19270,7 @@ const MORANDI_TITLES = [
     '#6a7a7d'  // 鐵灰藍
 ];
 
-// 4. 渲染文章列表 (修訂：標題作者靠左堆疊，日期固定靠右)
+// 4. 渲染文章列表 (修訂：加入標題自動縮放邏輯)
 function renderArticleList() {
     const listContainer = document.getElementById('articleListContainer');
     listContainer.innerHTML = '';
@@ -19266,17 +19287,18 @@ function renderArticleList() {
 
     pageItems.forEach((article, index) => {
         const realIndex = start + index;
-        // 依順序分配不同的莫蘭迪色給標題
         const titleColor = MORANDI_TITLES[realIndex % MORANDI_TITLES.length];
         
         const item = document.createElement('div');
         item.className = 'article-item';
         item.onclick = () => showArticleDetail(realIndex);
         
+        // ★★★ 修改重點：
+        // 1. 為標題加上 class="article-item-title auto-fit-title"
+        // 2. 移除行內 style 的 font-size，改由 JS 控制
         item.innerHTML = `
-            <!-- 左側群組：標題 (上) + 作者 (下) -->
-            <div class="article-left-group">
-                <div class="article-item-title" style="color: ${titleColor}; font-size: 1.35rem; margin-bottom: 0;">
+            <div class="article-left-group" style="width: calc(100% - 100px);"> <!-- 預留空間給日期 -->
+                <div class="article-item-title auto-fit-title" style="color: ${titleColor}; margin-bottom: 0;">
                     ${article.title}
                 </div>
                 
@@ -19285,7 +19307,6 @@ function renderArticleList() {
                 </span>
             </div>
 
-            <!-- 右側：日期 (獨立存在) -->
             <div class="article-item-date">
                 ${article.date}
             </div>
@@ -19294,8 +19315,16 @@ function renderArticleList() {
     });
 
     updatePagination(Math.ceil(filteredArticles.length / ARTICLES_PER_PAGE));
-}
 
+    // ★★★ 關鍵：DOM 生成後，立即執行縮放計算 ★★★
+    // 列表標題：最大 22px (約 1.35rem)，最小 16px
+    setTimeout(() => {
+        const titles = document.querySelectorAll('#articleListContainer .auto-fit-title');
+        titles.forEach(el => {
+            fitTextToContainer(el, 16, 22);
+        });
+    }, 0);
+}
 	
 // 5. 更新分頁按鈕狀態
 function updatePagination(totalPages) {
@@ -19347,36 +19376,30 @@ function searchArticles() {
     renderArticleList();
 }
 // 8. 顯示文章詳情 (修訂：作者容器化 + 移除羽毛 + 90%寬度結構)
-// 8. 顯示文章詳情 (修訂：加入進度條與行內樣式版)
+// 8. 顯示文章詳情 (修訂：加入標題自動縮放邏輯)
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
 
-    // 取得標題顏色
     const titleColor = MORANDI_TITLES[index % MORANDI_TITLES.length];
     const detailView = document.getElementById('featuredDetailView');
     
-    // 1. 處理正文 (第一段去間距)
+    // 1. 處理正文
     const contentParagraphs = article.content.split('\n').filter(p => p.trim());
     const contentHtml = contentParagraphs.map((p, i) => {
-        if (i === 0) {
-            return `<p style="margin-top: 0 !important; padding-top: 0 !important; margin-bottom: 1.5em;">${p}</p>`;
-        }
+        if (i === 0) return `<p style="margin-top: 0 !important; padding-top: 0 !important; margin-bottom: 1.5em;">${p}</p>`;
         return `<p style="margin-bottom: 1.5em;">${p}</p>`;
     }).join('');
 
-  // 2. 處理賞析
+    // 2. 處理賞析
     let analysisHtmlBlock = '';
     if (article.analysis && article.analysis.trim() !== '') {
         const analysisParagraphs = article.analysis.split('\n').filter(p => p.trim());
         const analysisText = analysisParagraphs.map((p, i) => {
-            if (i === 0) {
-                return `<p style="margin-top: 0 !important; padding-top: 0 !important; margin-bottom: 1.5em;">${p}</p>`;
-            }
+            if (i === 0) return `<p style="margin-top: 0 !important; padding-top: 0 !important; margin-bottom: 1.5em;">${p}</p>`;
             return `<p style="margin-bottom: 1.5em;">${p}</p>`;
         }).join('');
         
-        // ★★★ 請修改下方這個區塊的 style ★★★
         analysisHtmlBlock = `
             <div class="analysis-container" style="margin-top: 40px !important; padding-top: 40px !important; border-top: 1px dashed #d1cdc5;">
                 <div class="analysis-header" style="text-align: center; font-size: 1.4rem; font-weight: bold; color: #8d6e63; margin-bottom: 15px !important; line-height: 1.2;">文章賞析</div>
@@ -19387,63 +19410,61 @@ function showArticleDetail(index) {
         `;
     }
 
-    // 3. 組合 HTML (新增進度條 HTML)
+    // 3. 組合 HTML
+    // ★★★ 修改重點：標題加入 class="detail-title-text auto-fit-title"
     detailView.innerHTML = `
-        <!-- 進度條容器 -->
         <div id="readingProgressBarContainer">
             <div id="readingProgressBar"></div>
         </div>
 
-        <!-- 右上角固定返回鍵 -->
         <button class="detail-back-btn" onclick="backToArticleList()" title="返回列表">
             <i class="fas fa-times"></i>
         </button>
 
         <div class="read-mode-container">
-            <!-- 標題與作者 -->
             <div class="detail-header-group" style="display: flex; flex-direction: column; align-items: center; border-bottom: 2px dashed #e0ddd7; margin-bottom: 15px !important; padding-bottom: 10px !important;">
-                <div class="detail-title-text" style="color: ${titleColor}; font-size: 2.4rem; font-weight: bold; margin-bottom: 15px; text-align: center; line-height: 1.4;">
+                
+                <!-- 標題區域 -->
+                <div class="detail-title-text auto-fit-title" id="detailTitleText" style="color: ${titleColor}; font-weight: bold; margin-bottom: 15px; text-align: center; line-height: 1.4;">
                     ${article.title}
                 </div>
+
                 <div class="detail-author-box" style="display: inline-block; padding: 6px 20px; background-color: #f5f5f5; border-radius: 4px; margin-bottom: 10px;">
                     <span class="detail-author-text" style="color: #5d4037; font-weight: bold;">${article.author}</span>
                 </div>
                 <div class="detail-date" style="color: #9e9e9e; font-family: 'Courier New', monospace; font-size: 0.9rem;">${article.date}</div>
             </div>
 
-            <!-- 正文 -->
             <div class="article-body" id="fullArticleBody" style="font-size: 1.15rem; color: #4a4a4a; text-align: justify; line-height: 1.8;">
                 ${contentHtml}
             </div>
 
-            <!-- 賞析 -->
             ${analysisHtmlBlock}
         </div>
     `;
 
-    // 顯示全螢幕視窗
     detailView.style.display = 'block';
-    
-    // 鎖定背景頁面捲動
     document.body.style.overflow = 'hidden'; 
 
-    // === [新增] 綁定滾動監聽事件 ===
-    const progressBar = document.getElementById('readingProgressBar');
-    const progressContainer = document.getElementById('readingProgressBarContainer');
+    // ★★★ 關鍵：視窗打開後，立即計算標題大小 ★★★
+    // 詳情頁標題：最大 38px (約 2.4rem)，最小 24px
+    setTimeout(() => {
+        const titleEl = document.getElementById('detailTitleText');
+        if (titleEl) {
+            fitTextToContainer(titleEl, 24, 38);
+        }
+    }, 0);
 
-    // 這裡綁定的是 detailView (因為它是 fixed 且 overflow-y: auto 的滾動容器)
+    // 綁定滾動監聽
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
         const winHeight = detailView.clientHeight;
-        
-        // 計算百分比
         const scrollPercent = (scrollTop / (docHeight - winHeight)) * 100;
+        const progressBar = document.getElementById('readingProgressBar');
+        const progressContainer = document.getElementById('readingProgressBarContainer');
         
-        // 更新寬度
         progressBar.style.width = scrollPercent + "%";
-
-        // 優化體驗：只在開始滾動後才顯示進度條，避免一開始擋住視線
         if (scrollTop > 10) {
             progressContainer.style.opacity = '1';
         } else {
@@ -19473,7 +19494,42 @@ function backToArticleList() {
 </script>
 
 
+<script>
 
+/**
+ * 自動縮放文字大小函數
+ * @param {HTMLElement} element - 要調整的 DOM 元素
+ * @param {number} minSize - 最小字體大小 (px)
+ * @param {number} maxSize - 最大(原始)字體大小 (px)
+ */
+function fitTextToContainer(element, minSize, maxSize) {
+    // 1. 重置狀態
+    element.style.fontSize = maxSize + "px";
+    element.classList.remove('auto-fit-wrap');
+    
+    // 2. 獲取容器可用寬度 (減去 padding)
+    // 這裡我們假設父容器有 padding，或者直接抓父容器寬度
+    // 為了保險，我們直接比較 scrollWidth (實際文字寬) 與 clientWidth (可視寬)
+    
+    let currentSize = maxSize;
+
+    // 3. 迴圈縮小字體 (當 實際寬度 > 可視寬度 且 字體 > 最小值)
+    while (element.scrollWidth > element.clientWidth && currentSize > minSize) {
+        currentSize -= 1; // 每次縮小 1px
+        element.style.fontSize = currentSize + "px";
+    }
+
+    // 4. 判斷是否還是太寬 (已縮到最小)
+    // 這裡加個 2px 的緩衝區以防邊緣誤差
+    if (element.scrollWidth > element.clientWidth + 2) {
+        // 真的太長了，只好換行
+        element.style.fontSize = minSize + "px"; // 鎖定在最小字體
+        element.classList.add('auto-fit-wrap');  // 允許換行
+    }
+}
+
+	
+</script>
 
 
 	
