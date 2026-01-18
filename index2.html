@@ -18777,7 +18777,7 @@ async function logVisitOnce() {
     }
 }
 
-// 4. 上傳 1 分鐘 (分流版)
+// 4. 上傳 1 分鐘 (分流版 - 已修復全校時長統計)
 function uploadOneMinute() {
     if (typeof firebase === 'undefined' || !database) return;
     
@@ -18785,21 +18785,26 @@ function uploadOneMinute() {
 
     const { y, m, d } = getDateParts();
     const identity = getIdentity();
-    const studentKey = identity.id.split('_').pop();
     
     const updates = {};
     const increment60 = firebase.database.ServerValue.increment(60);
 
-    // 1. 全校
+    // 1. 全域總覽 (Global - 含訪客)
     updates[`stats_global/${y}/${m}/${d}/duration`] = increment60;
 
+    // ★★★ 2. 針對學生身分，寫入全校、班級與個人數據 ★★★
     if (identity.type === 'student') {
         const classKey = `${identity.grade}${identity.class}`;
-        
-        // 2. 班級
+        // 確保 studentKey 存在，如果沒有則從 ID 解析
+        const studentKey = identity.id.split('_').pop(); 
+
+        // [新增] 寫入全校統計路徑 (這是您之前遺漏的關鍵一行)
+        updates[`stats_school/${y}/${m}/${d}/duration`] = increment60;
+
+        // 3. 班級
         updates[`stats_classes/${classKey}/${y}/${m}/${d}/duration`] = increment60;
         
-        // 3. 學生
+        // 4. 學生個人
         updates[`stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/duration`] = increment60;
     }
 
