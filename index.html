@@ -30,10 +30,10 @@
             opacity: 0.6; pointer-events: none; z-index: 0;
         }
 
-        /* --- 1. 電腦版/預設 (保持您原本滿意的樣子) --- */
+        /* --- 1. 電腦版/預設 --- */
         .title-container {
             position: absolute;
-            top: 40%; /* 電腦版原位 */
+            top: 40%; 
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 10;
@@ -46,7 +46,6 @@
             display: block;
             font-family: 'Zhi Mang Xing', cursive;
             color: #48585A; 
-            /* 電腦版維持原有的響應式 */
             font-size: clamp(80px, 25vw, 220px); 
             line-height: 1;
             white-space: nowrap;
@@ -57,7 +56,7 @@
 
         .cta-text {
             position: absolute;
-            top: 58%; /* 電腦版原位 */
+            top: 58%; 
             left: 50%; transform: translateX(-50%);
             font-size: 13px; color: #555;
             font-weight: 500;
@@ -73,7 +72,7 @@
 
         .seal {
             position: absolute; 
-            bottom: 18%; /* 電腦版原位 */
+            bottom: 18%; 
             left: 50%; transform: translateX(-50%);
             width: 40px; height: 40px;
             border: 2px solid #A84646; color: #A84646;
@@ -88,7 +87,7 @@
         }
 
         /* --- 2. 手機版專屬調整 (Max Width 768px) --- */
-       @media (max-width: 768px) {
+           @media (max-width: 768px) {
     
     .title-container {
         /* 原本改太高是 30%，現在改為 35% (往下移一點) */
@@ -102,14 +101,14 @@
 
     .seal {
         /* 原本改太高是 28%，現在改為 23% (讓印章也沈下來一點) */
-        bottom: 29%; 
+        bottom: 28%; 
     }
 
     .char {
         /* 字體大小保持不變 */
         font-size: 34vw; 
     }
-}
+
 
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -118,6 +117,7 @@
             z-index: 20;
         }
 
+        /* 爆炸效果 CSS */
         .exploding .char {
             transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
             opacity: 0;
@@ -150,6 +150,7 @@
 
         let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         let isExploding = false;
+        let animationFrameId = null; // 用來管理動畫ID
 
         const physics = [
             { x: 0, y: 0, rot: 0, targetX: 0, targetY: 0, targetRot: 0 },
@@ -166,14 +167,47 @@
         window.addEventListener('touchmove', handleTouch, { passive: true });
         window.addEventListener('touchstart', handleTouch, { passive: true });
 
+        // --- 核心修復：處理「上一頁」的狀態重置 ---
+        window.addEventListener('pageshow', (event) => {
+            // event.persisted 為 true 代表頁面是從 BFCache (上一頁快取) 讀取的
+            if (event.persisted) {
+                resetPageAnimation();
+            }
+        });
+
+        function resetPageAnimation() {
+            // 1. 重置變數
+            isExploding = false;
+            
+            // 2. 移除 CSS class，讓字體大小和不透明度恢復
+            document.body.classList.remove('exploding');
+            
+            // 3. 將遮罩隱藏
+            overlay.style.opacity = 0;
+            
+            // 4. 清除 JS 添加的 inline style，讓元素回到 CSS 定義的狀態
+            seal.style.opacity = "";
+            seal.style.transition = "";
+            ctaText.style.opacity = "";
+            ctaText.style.transition = "";
+            
+            // 5. 確保物理動畫重新啟動
+            cancelAnimationFrame(animationFrameId);
+            animate();
+        }
+        // ----------------------------------------
+
         function handleClick() {
             if(!isExploding) {
                 isExploding = true;
                 document.body.classList.add('exploding');
+                
+                // 為了讓過渡平滑，這裡使用 inline style，但在 pageshow 時要記得清掉
                 seal.style.transition = "opacity 0.3s";
                 seal.style.opacity = 0;
                 ctaText.style.transition = "opacity 0.3s";
                 ctaText.style.opacity = 0;
+                
                 setTimeout(() => {
                     overlay.style.opacity = 1; 
                     setTimeout(() => {
@@ -192,6 +226,7 @@
         });
 
         function animate() {
+            // 如果正在爆炸中，停止迴圈 (這就是為什麼上一頁回來會不動的原因，因為迴圈死掉了)
             if (isExploding) return;
 
             chars.forEach((char, index) => {
@@ -203,7 +238,6 @@
                 const dy = mouse.y - charCenterY;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 
-                // 根據螢幕寬度調整感應半徑
                 const radius = window.innerWidth < 600 ? 250 : 400; 
 
                 if (dist < radius) {
@@ -228,7 +262,9 @@
 
                 char.style.transform = `translate3d(${physics[index].x}px, ${physics[index].y}px, 0) rotate(${physics[index].rot}deg)`;
             });
-            requestAnimationFrame(animate);
+            
+            // 記錄 ID 以便管理
+            animationFrameId = requestAnimationFrame(animate);
         }
 
         animate();
