@@ -19084,7 +19084,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // === 精選文章功能模組 ===
 
 // ★★★ 請將此處替換為你的 Google Sheet CSV 連結 ★★★
-const GOOGLE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRt4b9-3SQzTWVEVBwdvZcMV8HQ2CLv9lQVyAoMvINSrYqIPNtYsIRVwD9g6__Ulxn12RCRiSvibQBo/pub?output=csv";
+const GOOGLE_CSV_URL = "https://script.google.com/macros/s/AKfycbwqRJpCKSFultpnpbn0UZQGxUn3d7JHmT739FgM5nKrdvTYQjDtdjtHBsaIsDU9nw0E3w/exec";
 
 let allArticles = [];       // 儲存所有文章
 let filteredArticles = [];  // 儲存搜尋後的文章
@@ -19146,22 +19146,21 @@ async function openFeaturedArticles() {
 }
 
 // 2. 從 Google Sheet 抓取資料 (修正 CORS 版)
-// 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
     listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
 
     try {
-        // 1. 原始 Google Sheet 連結
-        const googleCsvUrl = GOOGLE_CSV_URL; 
-        
-        // 2. 加入時間戳記 (防快取)
-        const targetUrl = googleCsvUrl + "&t=" + Date.now();
+        // 1. 取得全域變數中的 URL (這應該是你換成 /exec 結尾的 GAS 網址)
+        let targetUrl = GOOGLE_CSV_URL;
 
-        // 3. 使用 corsproxy.io 繞過瀏覽器限制
-        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
-        
-        const response = await fetch(proxyUrl);
+        // 2. 加入時間戳記 (防止瀏覽器快取舊資料)
+        const separator = targetUrl.includes('?') ? '&' : '?';
+        targetUrl += separator + "t=" + Date.now();
+
+        // 3. ★★★ 修正重點：直接 fetch，移除 corsproxy ★★★
+        // Google Apps Script (GAS) 部署為 Web App 後支援跨域 (CORS)，直接讀取即可
+        const response = await fetch(targetUrl);
 
         // 4. 檢查回應狀態
         if (!response.ok) {
@@ -19171,13 +19170,12 @@ async function fetchArticles() {
         const data = await response.text();
         
         // 5. 檢查資料是否為有效的 CSV
+        // 如果 GAS 權限設定錯誤 (例如沒設為「任何人」)，Google 會回傳 HTML 登入頁面，這裡會擋下來
         if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：Google Sheet 回傳了網頁而非資料，請確認連結權限是否為「知道連結的人均可檢視」。");
+            throw new Error("讀取失敗：回傳了網頁而非數據。請確認 Google Apps Script 部署權限是否已設為「任何人 (Anyone)」。");
         }
 
         // 6. 解析 CSV 並 ★★★ 反轉排序 (最新的排最前) ★★★
-        // parseCSV(data) 讀出來是 [舊, ..., 新]
-        // 加上 .reverse() 後變成 [新, ..., 舊]
         allArticles = parseCSV(data).reverse(); 
         
         console.log("【解析後的文章數】:", allArticles.length);
@@ -19189,7 +19187,7 @@ async function fetchArticles() {
         
     } catch (error) {
         console.error("載入文章失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，可能需檢查 Google Sheet 權限或網絡連線。<br><small>(' + error.message + ')</small></div>';
+        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線。<br><small>(' + error.message + ')</small></div>';
     }
 }
 
