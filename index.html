@@ -16,22 +16,11 @@
             overflow: hidden;
             height: 100vh;
             width: 100vw;
-            
-            /* --- 核心修改 1: 預設鎖死所有互動 --- */
-            cursor: default; /* 預設為箭頭，不讓用家以為可以點 */
-            pointer-events: none; /* 物理層面禁止任何點擊/觸控 */
-            
+            cursor: pointer;
             -webkit-user-select: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
             font-family: "Noto Serif TC", serif;
-            transition: cursor 0.3s;
-        }
-
-        /* --- 核心修改 2: 只有當加上 .interactive 類別後才解鎖 --- */
-        body.interactive {
-            cursor: pointer; /* 變回手指 */
-            pointer-events: auto; /* 恢復點擊功能 */
         }
 
         body::before {
@@ -41,6 +30,7 @@
             opacity: 0.6; pointer-events: none; z-index: 0;
         }
 
+        /* --- 1. 電腦版/預設 --- */
         .title-container {
             position: absolute;
             top: 40%; 
@@ -71,9 +61,7 @@
             font-size: 13px; color: #555;
             font-weight: 500;
             letter-spacing: 4px;
-            opacity: 0; 
-            /* 注意：這裡有 1s 的 delay，JS 會等待這個時間 */
-            animation: fadeInText 1.5s ease-in forwards 1s; 
+            opacity: 0; animation: fadeInText 1.5s ease-in forwards 1s; 
             z-index: 2; pointer-events: none; text-align: center;
             -webkit-font-smoothing: antialiased;
         }
@@ -84,6 +72,7 @@
 
         .seal {
             position: absolute; 
+            /* 修改處：由 35% 改為 39%，讓紅印向上移動靠近箭嘴 */
             bottom: 29%; 
             left: 50%; transform: translateX(-50%);
             width: 40px; height: 40px;
@@ -98,11 +87,28 @@
             -webkit-font-smoothing: antialiased; 
         }
 
+        /* --- 2. 手機版專屬調整 (Max Width 768px) --- */
         @media (max-width: 768px) {
-            .title-container { top: 37%; }
-            .cta-text { top: 57%; }
-            .seal { bottom: 31%; }
-            .char { font-size: 34vw; }
+            .title-container {
+                /* 原本改太高是 30%，現在改為 35% (往下移一點) */
+                top: 37%; 
+            }
+
+            .cta-text {
+                /* 原本改太高是 48%，現在改為 53% (保持相對距離往下移) */
+                top: 57%; 
+            }
+
+                .seal {
+        /* 原本改太高是 28%，現在改為 23% (讓印章也沈下來一點) */
+        bottom: 31%; 
+    }
+
+
+            .char {
+                /* 字體大小保持不變 */
+                font-size: 34vw; 
+            }
         }
 
         #overlay {
@@ -112,6 +118,7 @@
             z-index: 20;
         }
 
+        /* 爆炸效果 CSS */
         .exploding .char {
             transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
             opacity: 0;
@@ -140,36 +147,11 @@
         const char1 = document.getElementById('char1');
         const char2 = document.getElementById('char2');
         const chars = [char1, char2];
+
+        // 初始化滑鼠位置在中心，避免一開始沒有互動
         let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         let isExploding = false;
         let animationFrameId = null;
-
-        // 記錄頁面開始加載的時間
-        const startTime = Date.now();
-
-        // --- 核心邏輯：等待資源載入 + 等待 CSS 動畫延遲 ---
-        window.addEventListener('load', () => {
-            const currentTime = Date.now();
-            const elapsedTime = currentTime - startTime;
-            
-            // "cta-text" 的 CSS animation-delay 是 1000ms (1秒)
-            // 為了確保文字已經開始浮現，我們設定最小等待時間為 1200ms
-            const minWaitTime = 1200; 
-            
-            // 計算還需要等待多久
-            let remainingTime = 0;
-            if (elapsedTime < minWaitTime) {
-                remainingTime = minWaitTime - elapsedTime;
-            }
-
-            console.log(`Resources loaded. Waiting additional ${remainingTime}ms for animations to start.`);
-
-            setTimeout(() => {
-                // 解鎖頁面互動
-                document.body.classList.add('interactive');
-                console.log("Interaction enabled.");
-            }, remainingTime);
-        });
 
         const physics = [
             { x: 0, y: 0, rot: 0, targetX: 0, targetY: 0, targetRot: 0 },
@@ -178,16 +160,17 @@
 
         const updateMouse = (x, y) => { mouse.x = x; mouse.y = y; };
 
-        // 雖然 pointer-events: none 禁止了點擊，但我們仍然允許滑鼠移動事件以保留物理效果
-        // 因為 pointer-events: none 會讓 body 接收不到 hover，所以這裡我們綁定到 window
+        // 監聽電腦滑鼠移動
         window.addEventListener('mousemove', (e) => updateMouse(e.clientX, e.clientY));
         
+        // 監聽手機觸控
         const handleTouch = (e) => {
             updateMouse(e.touches[0].clientX, e.touches[0].clientY);
         };
         window.addEventListener('touchmove', handleTouch, { passive: true });
         window.addEventListener('touchstart', handleTouch, { passive: true });
 
+        // --- 核心修復：處理「上一頁」的狀態重置 ---
         window.addEventListener('pageshow', (event) => {
             if (event.persisted) {
                 resetPageAnimation();
@@ -203,17 +186,11 @@
             ctaText.style.opacity = "";
             ctaText.style.transition = "";
             
-            // 確保返回時也是解鎖狀態
-            document.body.classList.add('interactive');
-
             cancelAnimationFrame(animationFrameId);
             animate();
         }
 
         function handleClick() {
-            // 雙重保險：如果 body 還沒解鎖，程式碼也不執行
-            if (!document.body.classList.contains('interactive')) return;
-
             if(!isExploding) {
                 isExploding = true;
                 document.body.classList.add('exploding');
@@ -232,14 +209,10 @@
             }
         }
 
-        // 因為 pointer-events: none，click 事件在 CSS 解鎖前根本不會觸發
-        // 但保留這個監聽器處理點擊後的邏輯
         window.addEventListener('click', handleClick);
-
         let isDragging = false;
         window.addEventListener('touchmove', () => isDragging = true);
         window.addEventListener('touchend', () => {
-            if (!document.body.classList.contains('interactive')) return;
             if (!isDragging) handleClick();
             isDragging = false;
         });
@@ -256,6 +229,7 @@
                 const dy = mouse.y - charCenterY;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 
+                // 這裡保留了設定：電腦版(>=600)半徑為 400，手機版(<600)半徑為 250
                 const radius = window.innerWidth < 600 ? 250 : 400; 
 
                 if (dist < radius) {
@@ -274,16 +248,19 @@
                 }
 
                 const ease = 0.08; 
+                // 修復：補完被截斷的物理計算邏輯
                 physics[index].x += (physics[index].targetX - physics[index].x) * ease;
                 physics[index].y += (physics[index].targetY - physics[index].y) * ease;
                 physics[index].rot += (physics[index].targetRot - physics[index].rot) * ease;
 
+                // 應用變形
                 char.style.transform = `translate(${physics[index].x}px, ${physics[index].y}px) rotate(${physics[index].rot}deg)`;
             });
 
             animationFrameId = requestAnimationFrame(animate);
         }
 
+        // 啟動動畫
         animate();
     </script>
 </body>
