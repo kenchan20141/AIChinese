@@ -19082,9 +19082,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 // === 精選文章功能模組 ===
-
-// 設定遠端資料來源標識
-// 設定遠端資料來源標識 (已修正編碼，確保 ID 準確無誤)
+// 設定遠端資料來源標識 (Google Sheet 直連專用編碼)
 const _REMOTE_DATA_SOURCE = "aHR0cHM6Ly9kb2NzLmdvb2dsZS5jb20vc3ByZWFkc2hlZXRzL2QvZS8yUEFDWC0xdlJ0NGI5LTNTUXpUV1ZFVkJ3ZHZaY01WOEhRMkNwdjlQUVZ5QW9NdklOU3JZcUlQTnRZc0lSVndEOWc2X19VbHhuMTJSQ1JpU3ZpYlFCby9wdWI/b3V0cHV0PWNzdg==";
 let allArticles = [];       // 儲存所有文章
 let filteredArticles = [];  // 儲存搜尋後的文章
@@ -19146,34 +19144,34 @@ async function openFeaturedArticles() {
 }
 
 // 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
+// 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
+// 2. 從 Google Sheet 抓取資料 (直連版：移除 Proxy，速度更快更安全)
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
     listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
 
     try {
-        // 1. 解碼並獲取原始連結
+        // 1. 解碼還原真實網址
         const decodedUrl = atob(_REMOTE_DATA_SOURCE); 
         
-        // 2. 加入時間戳記 (防快取)
+        // 2. 加入時間戳記 (防止瀏覽器快取舊資料)
         const targetUrl = decodedUrl + "&t=" + Date.now();
 
-        // 3. 使用 corsproxy.io 繞過瀏覽器限制
-        // 注意：如果 corsproxy.io 不穩，您可以考慮換成 'https://api.allorigins.win/raw?url='
-        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(targetUrl);
-        
-        const response = await fetch(proxyUrl);
+        // 3. ★★★ 關鍵修改：直接連線 (Direct Fetch) ★★★
+        // 移除了 corsproxy.io，直接向 Google 發出請求
+        const response = await fetch(targetUrl);
 
         // 4. 檢查回應狀態
         if (!response.ok) {
-            // 如果是 404，通常代表 Google Sheet ID 錯了或沒有發布
-            throw new Error(`連線失敗: ${response.status} (請檢查 Google Sheet 是否已發布)`);
+            throw new Error(`連線失敗: ${response.status} (請確認 Google Sheet 是否已發布為 CSV)`);
         }
 
         const data = await response.text();
         
-        // 5. 檢查資料是否為有效的 CSV
+        // 5. 簡單驗證資料是否為 CSV 格式 (防止 Google 回傳登入頁面 HTML)
+        // 檢查開頭是否包含 HTML 標籤，如果有，代表網址權限不對
         if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：資料來源回傳了網頁而非資料，請確認連結權限是否為「知道連結的人均可檢視」或已發布為 CSV。");
+            throw new Error("讀取失敗：Google 回傳了網頁而非資料，請確認試算表已執行「檔案 -> 共用 -> 發布到網路」。");
         }
 
         // 6. 解析 CSV 並 ★★★ 反轉排序 (最新的排最前) ★★★
@@ -19188,7 +19186,7 @@ async function fetchArticles() {
         
     } catch (error) {
         console.error("載入文章失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線或來源設定。<br><small>(' + error.message + ')</small></div>';
+        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線。<br><small>(' + error.message + ')</small></div>';
     }
 }
 	
