@@ -6893,6 +6893,54 @@ read-mode-container {
     transform: scale(1.15); /* 讓用戶感覺到可以點擊取消 */
 }
 	
+/* ========================================= */
+/* === [修復] 書籤按鈕顏色邏輯 === */
+/* ========================================= */
+
+/* 1. 未收藏狀態的 Hover：強制白底 + 琥珀色圖示 (覆蓋原本的綠底) */
+#detailBookmarkBtn:not(.bookmarked):hover {
+    background-color: #fff !important;       /* 強制保持白底 */
+    color: var(--bookmark-color) !important; /* 圖示變琥珀色 */
+    border-color: var(--bookmark-color) !important;
+    transform: scale(1.1);
+}
+
+/* 2. 已收藏狀態的 Hover：保持琥珀色底 (稍微變深或透明度變化) */
+#detailBookmarkBtn.bookmarked:hover {
+    background-color: var(--bookmark-color) !important; /* 保持琥珀色底 */
+    color: white !important;
+    border-color: var(--bookmark-color) !important;
+    opacity: 0.9; /* 輕微視覺回饋 */
+}
+
+/* ========================================= */
+/* === [新增] 討論區大按鈕樣式 === */
+/* ========================================= */
+.big-chat-trigger-btn {
+    background-color: #8fa398; /* 莫蘭迪灰綠 */
+    color: white;
+    border: none;
+    width: 70px;  /* 設定寬度 */
+    height: 70px; /* 設定高度 (正方形) */
+    border-radius: 50%; /* 變成圓形 */
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(143, 163, 152, 0.4);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px; /* 圖示大小 */
+    margin-bottom: 20px;
+}
+
+.big-chat-trigger-btn:hover {
+    transform: scale(1.15) rotate(15deg); /* 懸停時放大並旋轉 */
+    box-shadow: 0 8px 25px rgba(143, 163, 152, 0.6);
+    background-color: #7d9186; /* 稍微變深 */
+}
+
+
+
 	
 	
 </style>
@@ -19558,7 +19606,6 @@ function toggleBookmarkMode() {
 }
 
 // 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
-// 2. 從 Google Sheet 抓取資料 (直連版：直接讀取 CSV)
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
     listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
@@ -19567,26 +19614,28 @@ async function fetchArticles() {
         // 1. 解碼還原網址
         const decodedUrl = atob(_REMOTE_DATA_SOURCE); 
         
-        // 2. 加入時間戳記 (防止瀏覽器快取)
-        // 您的網址已經有 '?output=csv'，所以這裡必須用 '&' 來連接參數
-        const targetUrl = decodedUrl + "&t=" + Date.now();
+        // 2. 使用 CORS Proxy (適用於 Localhost 開發)
+        // 使用 corsproxy.io 前綴
+        const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(decodedUrl);
+        
+        // 3. 加入時間戳記 (防止快取)
+        const targetUrl = proxyUrl + "&t=" + Date.now();
 
-        // 3. 直接連線 (Direct Fetch)
+        // 4. 連線
         const response = await fetch(targetUrl);
 
-        // 4. 檢查回應狀態
         if (!response.ok) {
-            throw new Error(`連線失敗: ${response.status} (請確認 Google Sheet 是否已發布)`);
+            throw new Error(`連線失敗: ${response.status}`);
         }
 
         const data = await response.text();
         
-        // 5. 驗證資料是否為 CSV 格式 (防止 Google 回傳登入頁面 HTML)
+        // 5. 驗證資料
         if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：Google 回傳了網頁而非資料，請確認網址解碼後正確無誤。");
+            throw new Error("讀取失敗：回傳了網頁而非 CSV 資料。");
         }
 
-        // 6. 解析 CSV 並反轉排序 (最新的排最前)
+        // 6. 解析 CSV 並反轉排序
         allArticles = parseCSV(data).reverse(); 
         
         console.log("【解析後的文章數】:", allArticles.length);
@@ -19601,6 +19650,7 @@ async function fetchArticles() {
         listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線。<br><small>(' + error.message + ')</small></div>';
     }
 }
+
 
 	
 // 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
@@ -19812,10 +19862,64 @@ function handleDetailBookmarkClick(encodedTitle) {
 
 
 
+// === [更新] 懸空落款動畫邏輯 (含蓋章音效 + 消失效果) ===
+function toggleFeaturedChat() {
+    const btn = document.getElementById('showFeaturedChatBtn');
+    const chatArea = document.getElementById('featuredChatArea');
+    const toggleContainer = document.getElementById('chatToggleButtonContainer');
+    const hintText = toggleContainer.querySelector('div');
+    
+    if (btn && chatArea && toggleContainer) {
+        
+        // --- 0. 播放落款音效 ---
+        const stampSound = new Audio('落款.mp3');
+        stampSound.volume = 1.0; 
+        // 嘗試播放 (使用者有點擊動作，通常不會被瀏覽器阻擋)
+        stampSound.play().catch(e => console.log("音效播放失敗 (請檢查 CSP 設定):", e));
 
+        // 1. 隱藏下方的提示文字
+        if(hintText) hintText.style.opacity = '0';
 
+        // 2. 初始化按鈕狀態 (準備落下)
+        btn.style.transition = 'none'; 
+        btn.style.opacity = '0'; // 先隱藏，配合 keyframe 的起始狀態
+        
+        // 3. 執行「落款」動畫
+        setTimeout(() => {
+            // 套用 CSS 動畫 (0.5秒完成)
+            btn.style.animation = 'stamp-slam 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards';
+            
+            // 同步改變樣式：變成實心紅底
+            btn.style.backgroundColor = '#d69a92';
+            btn.style.color = '#fff';
+            btn.style.borderColor = '#d69a92';
+            btn.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.3), 0 0 15px rgba(214, 154, 146, 0.6)'; 
+            
+            // 手機震動回饋 (配合音效更有感)
+            if (navigator.vibrate) navigator.vibrate(50);
+        }, 50);
+
+        // 4. 動畫結束後，讓印章消失並顯示內容
+        // 50ms (啟動) + 500ms (動畫) + 250ms (定格停留) = 800ms
+        setTimeout(() => {
+            // A. 印章容器淡出
+            toggleContainer.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+            toggleContainer.style.opacity = '0';
+            toggleContainer.style.transform = 'scale(0.9)'; 
+
+            // B. 等待淡出完成後，移除按鈕並顯示對話
+            setTimeout(() => {
+                toggleContainer.style.display = 'none'; 
+                chatArea.style.display = 'block'; 
+                
+                // 自動捲動
+                chatArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 400);
+
+        }, 800); 
+    }
+}
 	
-// 5. 修訂：顯示文章詳情 (加入書籤按鈕 HTML + 陳SIR討論區)
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
@@ -19827,10 +19931,10 @@ function showArticleDetail(index) {
     const titleColor = MORANDI_TITLES[index % MORANDI_TITLES.length];
     const detailView = document.getElementById('featuredDetailView');
     
-    // ★★★ 新增：設定聊天室上下文 (讓 LLM 讀得到這篇文章) ★★★
-    // 這一步非常關鍵，sendCanvasMessage 會讀取這個變數
+    // 設定聊天室上下文
     currentContextContent = `【文章標題】${article.title}\n【作者】${article.author}\n\n【文章正文】\n${article.content}\n\n【文章賞析】\n${article.analysis || "（無賞析資料）"}`;
-    currentContextReview = "（這是精選文章的閱讀討論）"; // 佔位符
+    currentContextType = 'featured_discussion';
+    currentContextReview = "（這是精選文章的閱讀討論）"; 
     
     // 處理正文
     const contentHtml = article.content.split('\n').filter(p => p.trim()).map((p, i) => {
@@ -19844,8 +19948,8 @@ function showArticleDetail(index) {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
         }).join('');
         analysisHtmlBlock = `
-        <div class="analysis-container" style="margin-top: 40px !important; padding-top: 40px !important; border-top: 1px dashed #d1cdc5;">
-            <div class="analysis-header" style="text-align: center; font-size: 1.4rem; font-weight: bold; color: #8d6e63; margin-bottom: 15px !important; line-height: 1.2;">文章賞析</div>
+        <div class="analysis-container" style="margin-top: 50px !important; padding-top: 40px !important; border-top: 1px dashed #d1cdc5;">
+            <div class="analysis-header" style="text-align: center; font-size: 1.4rem; font-weight: bold; color: #8d6e63; margin-bottom: 20px !important; line-height: 1.2; letter-spacing: 2px;">文章賞析</div>
             <div class="analysis-body" style="margin-top: 0 !important; font-size: 1.05rem !important;">${analysisText}</div>
         </div>`;
     }
@@ -19853,13 +19957,22 @@ function showArticleDetail(index) {
     const safeContent = encodeURIComponent(article.content);
     const safeTitle = encodeURIComponent(article.title);
 
-    // ★★★ 新增：取得聊天室 HTML (類型設為 featured_discussion) ★★★
-    // 這裡我們修改標題文字，讓它顯示為「與陳SIR討論」
+    // 取得聊天室 HTML
     let chatHTML = getCanvasChatHTML('featured_discussion');
-    chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); // 替換標題文字
-    chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); // 替換歡迎語
+    chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); 
+    chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); 
 
     detailView.innerHTML = `
+        <!-- ★★★ 注入落款動畫專用 CSS ★★★ -->
+        <style>
+            @keyframes stamp-slam {
+                0% { opacity: 0; transform: scale(3) rotate(-5deg); } /* 懸空高處 */
+                60% { opacity: 1; transform: scale(0.9) rotate(-3deg); } /* 用力砸下 (輕微壓扁) */
+                80% { transform: scale(1.05) rotate(-3deg); } /* 輕微回彈 */
+                100% { opacity: 1; transform: scale(1) rotate(-3deg); } /* 定格 */
+            }
+        </style>
+
         <div id="readingProgressBarContainer"><div id="readingProgressBar"></div></div>
 
         <!-- 右上角懸浮按鈕群組 -->
@@ -19879,8 +19992,8 @@ function showArticleDetail(index) {
         </div>
 
         <div class="read-mode-container">
-            <div class="detail-header-group" style="display: flex; flex-direction: column; align-items: center; border-bottom: 2px dashed #e0ddd7; margin-bottom: 15px !important; padding-bottom: 10px !important;">
-                <div class="detail-title-text auto-fit-title" id="detailTitleText" style="color: ${titleColor}; font-weight: bold; margin-bottom: 15px; text-align: center; width: 100%;">
+            <div class="detail-header-group" style="display: flex; flex-direction: column; align-items: center; border-bottom: 2px dashed #e0ddd7; margin-bottom: 25px !important; padding-bottom: 15px !important;">
+                <div class="detail-title-text auto-fit-title" id="detailTitleText" style="color: ${titleColor}; font-weight: bold; margin-bottom: 20px; text-align: center; width: 100%;">
                     ${article.title}
                 </div>
                 <div class="detail-author-box" style="display: inline-block; padding: 6px 20px; background-color: #f5f5f5; border-radius: 4px; margin-bottom: 10px;">
@@ -19894,9 +20007,61 @@ function showArticleDetail(index) {
             </div>
             ${analysisHtmlBlock}
             
-            <!-- ★★★ 插入討論區 (在最下方) ★★★ -->
-            <div style="margin-top: 50px;">
-                ${chatHTML}
+            <!-- ★★★ [新設計] 討論區觸發按鈕 (落款版) ★★★ -->
+            <div style="margin-top: 80px; margin-bottom: 30px;">
+                
+                <!-- 1. 按鈕容器 -->
+                <div id="chatToggleButtonContainer" style="text-align: center;">
+                    
+                    <!-- 裝飾線 -->
+                    <div style="height: 1px; background: linear-gradient(to right, transparent, #e0ddd7, transparent); width: 50%; margin: 0 auto 30px auto;"></div>
+
+                    <button id="showFeaturedChatBtn" onclick="toggleFeaturedChat()" 
+                        style="
+                            /* 印章核心樣式 (初始狀態：空心) */
+                            width: 60px; 
+                            height: 60px; 
+                            background-color: transparent; 
+                            color: #d69a92; /* 莫蘭迪紅 */
+                            border: 3px solid #d69a92;
+                            border-radius: 8px; 
+                            
+                            /* 文字排版 (水平) */
+                            font-family: 'Noto Serif TC', serif;
+                            font-size: 1.1rem;
+                            font-weight: 900; 
+                            line-height: 1;   
+                            padding: 0;
+                            
+                            /* 初始角度 */
+                            transform: rotate(-3deg); 
+                            
+                            /* 互動 */
+                            cursor: pointer;
+                            transition: all 0.3s ease;
+                            display: inline-flex;
+                            align-items: center;
+                            justify-content: center;
+                        "
+                        onmouseover="this.style.transform='rotate(0deg) scale(1.1)';"
+                        onmouseout="this.style.transform='rotate(-3deg) scale(1)';"
+                        title="點擊落款"
+                    >
+                        討論
+                    </button>
+                    
+                    <div style="margin-top: 15px; color: #a1887f; font-size: 0.8rem; font-family: 'Noto Serif TC', serif; opacity: 0.6; letter-spacing: 2px; transform: scale(0.9); transition: opacity 0.5s;">
+                        [ 點 擊 落 款 ]
+                    </div>
+                </div>
+
+                <!-- 2. 隱藏的聊天室容器 -->
+                <div id="featuredChatArea" style="display: none; text-align: left; animation: fadeIn 1s ease; margin-top: 30px;">
+                    <!-- 分隔線 (顯示聊天室時才出現) -->
+                    <div style="height: 1px; background: linear-gradient(to right, transparent, #e0ddd7, transparent); width: 80%; margin: 0 auto 30px auto;"></div>
+                    ${chatHTML}
+                </div>
+
             </div>
         </div>
     `;
@@ -19909,7 +20074,7 @@ function showArticleDetail(index) {
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
     }, 50);
 
-    // 滾動監聽 (保持不變)
+    // 滾動監聽
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
@@ -19931,7 +20096,6 @@ function showArticleDetail(index) {
         }
     };
 }
-
 
 
 	
