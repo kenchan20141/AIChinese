@@ -9865,7 +9865,7 @@ function getCanvasChatHTML(type) {
             <div class="message-bubble ai-message">你好！對於剛才的點評或改寫，有甚麼想進一步了解的嗎？歡迎追問！😊</div>
         </div>
         <div class="canvas-input-area">
-            <textarea id="canvasChatInput" class="no-modal-editor" placeholder="在此輸入你的問題... (例如：為何這裡要這樣改？)"></textarea>
+            <textarea id="canvasChatInput" class="no-modal-editor" placeholder="在此輸入你的問題... "></textarea>
             <button id="canvasChatSendBtn" class="canvas-send-btn" onclick="sendCanvasMessage()" title="發送">
                 <i class="fas fa-paper-plane"></i>
             </button>
@@ -9875,10 +9875,9 @@ function getCanvasChatHTML(type) {
 
 async function sendCanvasMessage() {
     // 根據當前介面，動態尋找輸入框與按鈕
-    // 因為在歷史紀錄視窗裡，ID 可能會重複，所以優先找離按鈕最近的輸入框
     let sendBtn = document.getElementById("canvasChatSendBtn");
     
-    // 如果找不到 (可能在歷史視窗裡)，嘗試透過事件觸發點尋找 (更穩健)
+    // 如果找不到 (可能在歷史視窗裡)，嘗試透過事件觸發點尋找
     if (!sendBtn && window.event) {
         sendBtn = window.event.target.closest('button');
     }
@@ -9914,27 +9913,37 @@ async function sendCanvasMessage() {
     historyBox.appendChild(aiBubble);
     historyBox.scrollTop = historyBox.scrollHeight;
 
-    // 抓取之前的對話紀錄 (從 DOM 抓取，確保所見即所得)
-    // 這裡我們簡單抓取最後 5 則對話，避免 Prompt 太長
+    // 抓取之前的對話紀錄
     const bubbles = Array.from(historyBox.querySelectorAll('.message-bubble'));
     let historyText = "";
     bubbles.slice(-6, -1).forEach(b => { // 排除剛加的 Loading bubble
-        const role = b.classList.contains('ai-message') ? "Teacher" : "Student";
+        const role = b.classList.contains('ai-message') ? "陳SIR" : "學生";
         historyText += `${role}: ${b.innerText}\n`;
     });
     
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
     
-    // 嘗試偵測當前語氣設定 (如果在主畫面)
-    const toneEl = document.getElementById("writingTone") || document.getElementById("argumentWritingTone");
-    if (toneEl && toneEl.value === "chen") {
-        toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
+    // ★★★ 修改：判斷是否為精選文章討論模式 ★★★
+    if (currentContextType === 'featured_discussion') {
+        toneNote = "你現在是陳SIR。請用書面語回應，輕鬆又見認真，**必須使用大量Emoji** 🤌✨，請多運用比喻及生活化的例子，以引導學生思考文章的深層含義。";
         activeReviewer = "陳SIR";
+    } else {
+        // 原有的語氣偵測邏輯
+        const toneEl = document.getElementById("writingTone") || document.getElementById("argumentWritingTone");
+        if (toneEl && toneEl.value === "chen") {
+            toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
+            activeReviewer = "陳SIR";
+        }
     }
 
     // 構建 Prompt
-    let promptContext = `【背景資料】\n${currentContextContent || "學生提交的作業"}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 500)}...`;
+    let promptContext = "";
+    if (currentContextType === 'featured_discussion') {
+        promptContext = currentContextContent; // 直接使用整篇內容
+    } else {
+        promptContext = `【背景資料】\n${currentContextContent || "學生提交的作業"}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 500)}...`;
+    }
     
     const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
 
@@ -9946,11 +9955,12 @@ async function sendCanvasMessage() {
         // 更新 UI
         aiBubble.innerHTML = formattedResponse;
         
-        // ★★★ 關鍵：呼叫存檔 ★★★
-        // 確保 DOM 渲染完成後再存檔
-        setTimeout(async () => {
-            await updateHistoryChat();
-        }, 100);
+        // ★★★ 修改：如果是精選文章討論，不執行儲存 ★★★
+        if (currentContextType !== 'featured_discussion') {
+            setTimeout(async () => {
+                await updateHistoryChat();
+            }, 100);
+        }
 
     } catch (error) {
         aiBubble.innerHTML = "抱歉，連線發生錯誤，請重試。";
@@ -9960,7 +9970,6 @@ async function sendCanvasMessage() {
         historyBox.scrollTop = historyBox.scrollHeight;
     }
 }
-
 
 
 	
@@ -19592,6 +19601,7 @@ async function fetchArticles() {
         listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線。<br><small>(' + error.message + ')</small></div>';
     }
 }
+
 	
 // 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
 function parseCSV(text) {
@@ -19805,25 +19815,29 @@ function handleDetailBookmarkClick(encodedTitle) {
 
 
 	
-// 5. 修訂：顯示文章詳情 (加入書籤按鈕 HTML)
-// 請確保此函數取代原有的 showArticleDetail
+// 5. 修訂：顯示文章詳情 (加入書籤按鈕 HTML + 陳SIR討論區)
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
 
     // 檢查狀態
     const isSaved = isArticleBookmarked(article.title);
-    // 根據狀態設定初始樣式
     const bookmarkClass = isSaved ? 'bookmarked' : '';
     
     const titleColor = MORANDI_TITLES[index % MORANDI_TITLES.length];
     const detailView = document.getElementById('featuredDetailView');
     
-    // 處理正文與賞析 (保持不變)
+    // ★★★ 新增：設定聊天室上下文 (讓 LLM 讀得到這篇文章) ★★★
+    // 這一步非常關鍵，sendCanvasMessage 會讀取這個變數
+    currentContextContent = `【文章標題】${article.title}\n【作者】${article.author}\n\n【文章正文】\n${article.content}\n\n【文章賞析】\n${article.analysis || "（無賞析資料）"}`;
+    currentContextReview = "（這是精選文章的閱讀討論）"; // 佔位符
+    
+    // 處理正文
     const contentHtml = article.content.split('\n').filter(p => p.trim()).map((p, i) => {
         return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
     }).join('');
 
+    // 處理賞析
     let analysisHtmlBlock = '';
     if (article.analysis && article.analysis.trim() !== '') {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
@@ -19839,27 +19853,26 @@ function showArticleDetail(index) {
     const safeContent = encodeURIComponent(article.content);
     const safeTitle = encodeURIComponent(article.title);
 
+    // ★★★ 新增：取得聊天室 HTML (類型設為 featured_discussion) ★★★
+    // 這裡我們修改標題文字，讓它顯示為「與陳SIR討論」
+    let chatHTML = getCanvasChatHTML('featured_discussion');
+    chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); // 替換標題文字
+    chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); // 替換歡迎語
+
     detailView.innerHTML = `
         <div id="readingProgressBarContainer"><div id="readingProgressBar"></div></div>
 
         <!-- 右上角懸浮按鈕群組 -->
         <div class="detail-action-group">
-            <!-- ★ 書籤按鍵 (第一個) ★ -->
             <button id="detailBookmarkBtn" class="detail-float-btn ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤">
                 <i class="fas fa-bookmark"></i>
             </button>
-
-            <!-- 慢讀按鍵 -->
             <button class="detail-float-btn" onclick="startSlowRead('${safeContent}')" title="開始慢讀">
                 <i class="fas fa-book-reader"></i>
             </button>
-            
-            <!-- 設定按鍵 -->
             <button class="detail-float-btn" onclick="openReaderSettings()" title="慢讀設定">
                 <i class="fas fa-cog"></i>
             </button>
-            
-            <!-- 關閉按鍵 -->
             <button class="detail-float-btn close-mode" onclick="backToArticleList()" title="返回列表">
                 <i class="fas fa-times"></i>
             </button>
@@ -19880,6 +19893,11 @@ function showArticleDetail(index) {
                 ${contentHtml}
             </div>
             ${analysisHtmlBlock}
+            
+            <!-- ★★★ 插入討論區 (在最下方) ★★★ -->
+            <div style="margin-top: 50px;">
+                ${chatHTML}
+            </div>
         </div>
     `;
 
@@ -19891,7 +19909,7 @@ function showArticleDetail(index) {
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
     }, 50);
 
-    // 滾動監聽
+    // 滾動監聽 (保持不變)
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
