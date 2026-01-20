@@ -9,13 +9,12 @@ style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.goog
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
 img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com https://*.googleusercontent.com;
 media-src 'self' https://youfulca.com https://*.streamable.com https://assets.mixkit.co https://taira-komori.net;
-connect-src 'self' https://sansi.kenchan20151.workers.dev https://corsproxy.io https://docs.google.com https://*.googleusercontent.com https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications https://api.onesignal.com;
+connect-src 'self' https://corsproxy.io https://docs.google.com https://*.googleusercontent.com https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications https://api.onesignal.com;
 frame-src 'self' https://streamable.com https://kenchan20141.pyscriptapps.com https://kenchan20141.github.io https://sansi.vercel.app https://lyricschi.vercel.app https://penpalchi.vercel.app https://litstudy.vercel.app https://621d05f47d591.site123.me https://script.google.com https://www.i2ocr.com https://*.firebaseapp.com https://onesignal.com;
 object-src 'none';
 base-uri 'self';
 form-action 'self';
 ">
-
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9867,18 +9866,30 @@ clickedButton.classList.add('active');
 }
 
 
-// ★ 設定 Worker 後端網址 ★
-const CLOUDFLARE_WORKER_URL = "https://sansi.kenchan20151.workers.dev/";
+// API 配置信息
+const API_KEYS = [
+   "pk_D77NeM4n6GnNCYbo",
+"pk_c17y17tQ3BY71cpd",
+"pk_Ax3rRTHkrdTQVIGD",
+"pk_dGVqEggn4T4dwQI3",
+"pk_YIFWnDFts0quviE0"
+];
+// let currentApiKeyIndex = 0; // 這個變數不再需要，可以刪除或註解掉
+const API_URL = "https://gen.pollinations.ai/v1/chat/completions";
+const MODEL = "gemini";
 
-// 所有功能統一指向 Worker，由 Worker 內部分流
-const API_URL = CLOUDFLARE_WORKER_URL;         
-const READING_API_URL = CLOUDFLARE_WORKER_URL; 
-const LLAMA3_API_URL = CLOUDFLARE_WORKER_URL;  
 
-// 模型設定 (這些字串會傳給 Worker，Worker 會根據情況決定是否保留或覆寫)
-const MODEL = "gemini"; 
-const READING_MODEL = "deepseek"; 
-const LLAMA3_MODEL = "gemini";
+// [新增] 閱讀專用 API 配置
+const READING_API_KEYS = [
+   "pk_D77NeM4n6GnNCYbo",
+"pk_c17y17tQ3BY71cpd",
+"pk_Ax3rRTHkrdTQVIGD",
+"pk_dGVqEggn4T4dwQI3",
+"pk_YIFWnDFts0quviE0"
+];
+// let currentReadingApiKeyIndex = 0; // 這個變數不再需要，可以刪除或註解掉
+const READING_API_URL = "https://gen.pollinations.ai/v1/chat/completions";
+const READING_MODEL = "deepseek";
 
 
 // =======================================================
@@ -10041,7 +10052,100 @@ const argumentReviewerPreferences = {
 
 
 
+// [新增] 閱讀專用 API 呼叫函式 (修訂版：解決 400 Bad Request)
+async function callReadingAPI(prompt, temperature = null) {
+    // ★★★ 新增：額度檢查 ★★★
+    if (!checkGuestUsage()) {
+        throw new Error("Guest usage limit exceeded");
+    }
+    
+    let attempts = 0;
+    const maxAttempts = READING_API_KEYS.length;
+    let currentApiKeyIndex = Math.floor(Math.random() * READING_API_KEYS.length);
+    const TIMEOUT_MS = 100000; // 設定 50 秒超時
 
+    while (attempts < maxAttempts) {
+        const controller = new AbortController();
+        globalAbortController = controller;
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+        try {
+            // === 修訂開始：參數調整 ===
+            // 1. 設定預設溫度 (若為 null 則設為 0.7)
+            const finalTemperature = temperature !== null ? temperature : 0.7;
+
+            const requestBody = {
+                model: READING_MODEL, // "deepseek"
+                messages: [{
+                    role: "user",
+                    content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+                }],
+                // 2. 降低 Token 上限 (解決 400 錯誤的核心)
+                // 8000 太高，容易導致 Input + Output 超出模型限制
+                max_tokens: 4000, 
+                temperature: finalTemperature,
+                top_p: 0.95, // 增加穩定性
+                stream: false
+            };
+            // === 修訂結束 ===
+
+            const response = await fetch(READING_API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${READING_API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (response.status === 429) {
+                console.warn(`閱讀 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+                attempts++;
+                continue;
+            }
+
+            if (!response.ok) {
+                // 印出詳細錯誤以便除錯
+                const errorText = await response.text(); 
+                console.error(`API Error Details: ${errorText}`);
+                throw new Error(`API 調用失敗: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            // 防呆檢查：確保 choices 存在
+            if (!data.choices || data.choices.length === 0) {
+                throw new Error("API 回傳格式異常 (無 choices)");
+            }
+
+            let content = data.choices[0].message.content.trim();
+            // 過濾思考標籤
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+
+            if (!content) {
+                throw new Error("API 回應無效或過濾後無內容");
+            }
+
+            return content;
+
+        } catch (error) {
+            clearTimeout(timeoutId);
+            console.error(`使用閱讀 API Key ${currentApiKeyIndex} 時出錯 (嘗試 ${attempts + 1}/${maxAttempts}):`, error);
+            
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % READING_API_KEYS.length;
+            attempts++;
+            
+            if (attempts >= maxAttempts) {
+                trackApiCycleFailure(); 
+                throw new Error("所有 API 密鑰均無法使用或連線超時");
+            }
+        }
+    }
+}
 
 
 /* --------------------------------------
@@ -11533,214 +11637,187 @@ const guide = await callReadingAPI(prompt);
     }
 }
 
-// ★★★ 新增：統一處理 Log 顏色的輔助函數 ★★★
-function logProviderInfo(response, apiName) {
-    const provider = response.headers.get('X-Provider-Log');
-    const debugTraceStr = response.headers.get('X-Debug-Trace');
-
-    // 1. 顯示失敗的嘗試 (如果有)
-    if (debugTraceStr) {
-        try {
-            const traces = JSON.parse(debugTraceStr);
-            traces.forEach(trace => {
-                console.log(`%c[${apiName} Fail] ${trace}`, "color: yellow; background: #333; padding: 2px 5px;");
-            });
-        } catch(e) { console.log("Trace parse error", e); }
-    }
-
-    // 2. 顯示最終成功的服務商 (不同顏色)
-    if (provider) {
-        if (provider.includes("OFFICIAL DEEPSEEK")) {
-            // ★ 備用線路：橙紅色背景，白色文字 (警示)
-            console.log(`%c[${apiName} Success] ${provider}`, "color: #fff; background: #d35400; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
-        } else {
-            // ★ Pollinations：綠色/藍綠色背景 (正常)
-            console.log(`%c[${apiName} Success] ${provider}`, "color: #fff; background: #2A9689; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
-        }
-    }
-}
-
-// ------------------------------------------------------------------
-
-// 1. 通用 API 調用函數
+// 通用 API 調用函數 (加入 50 秒超時)
 async function callAPI(prompt, temperature = null) {
+	// ★★★ 新增：額度檢查 ★★★
     if (!checkGuestUsage()) {
+        // 中斷執行並拋出錯誤，讓外層 catch 處理
         throw new Error("Guest usage limit exceeded"); 
     }
+    let attempts = 0;
+    const maxAttempts = API_KEYS.length;
+    // 每次調用都從一個隨機的索引開始
+    let currentApiKeyIndex = Math.floor(Math.random() * API_KEYS.length);
+    const TIMEOUT_MS = 100000; // 設定 50 秒超時
 
-    const TIMEOUT_MS = 100000;
-    const controller = new AbortController();
-    globalAbortController = controller;
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    while (attempts < maxAttempts) {
+        // 定義超時控制器
+        const controller = new AbortController();
+		globalAbortController = controller; // ★★★ 加入這一行：綁定全域控制器
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-    try {
-        const requestBody = {
-            model: MODEL, 
-            messages: [{
-                role: "user",
-                content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-            }],
-            max_tokens: 8000
-        };
+        try {
+            const requestBody = {
+                model: MODEL,
+                messages: [{
+                    role: "user",
+                    content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+                }],
+                max_tokens: 8000
+            };
 
-        if (temperature !== null) {
-            requestBody.temperature = temperature;
+            if (temperature !== null) {
+                requestBody.temperature = temperature;
+            }
+
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal // 綁定中斷訊號
+            });
+
+            clearTimeout(timeoutId); // 成功收到回應，清除計時器
+
+            if (response.status === 429) {
+                console.warn(`通用 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+                attempts++;
+                continue;
+            }
+
+            if (!response.ok) {
+                throw new Error(`API 調用失敗: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.trim();
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+
+            if (!content) {
+                throw new Error("API 回應無效或過濾後無內容");
+            }
+
+            return content;
+
+        } catch (error) {
+            // 清除計時器以防萬一
+            clearTimeout(timeoutId);
+            
+            console.error(`使用通用 API Key ${currentApiKeyIndex} 時出錯 (嘗試 ${attempts + 1}/${maxAttempts}):`, error);
+            
+            // 無論是網絡錯誤、API錯誤還是超時(AbortError)，都切換下一個 Key
+           currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
+            attempts++;
+            
+            if (attempts >= maxAttempts) {
+                // ★★★ 新增這一行：觸發失敗計數與檢查 ★★★
+                trackApiCycleFailure(); 
+                
+                throw new Error("所有 API 密鑰均無法使用或連線超時");
+            }
         }
-
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        // ★ 調用 Log 函數
-        logProviderInfo(response, "General API");
-
-        if (!response.ok) {
-            throw new Error(`API 調用失敗: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        
-        if (!data.choices || data.choices.length === 0) {
-             throw new Error("API 回傳格式異常 (無 choices)");
-        }
-
-        let content = data.choices[0].message.content.trim();
-        content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
-        if (!content) throw new Error("API 回應無效");
-
-        return content;
-
-    } catch (error) {
-        clearTimeout(timeoutId);
-        console.error("callAPI Error:", error);
-        throw error;
     }
 }
 
-// 2. 閱讀專用 API 調用函數
-async function callReadingAPI(prompt, temperature = null) {
-    if (!checkGuestUsage()) {
-        throw new Error("Guest usage limit exceeded");
-    }
-    
-    const TIMEOUT_MS = 100000; 
-    const controller = new AbortController();
-    globalAbortController = controller;
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+// =======================================================
+// === 【全新增設】Llama-3 驗證模型專用 API 呼叫函式 ===
+// =======================================================
+const LLAMA3_API_KEYS = [
+   "pk_D77NeM4n6GnNCYbo",
+"pk_c17y17tQ3BY71cpd",
+"pk_Ax3rRTHkrdTQVIGD",
+"pk_dGVqEggn4T4dwQI3",
+"pk_YIFWnDFts0quviE0"
+];
+const LLAMA3_API_URL = "https://gen.pollinations.ai/v1/chat/completions";
+const LLAMA3_MODEL = "gemini"; // 指定新的驗證模型
 
-    try {
-        const finalTemperature = temperature !== null ? temperature : 0.7;
-
-        const requestBody = {
-            model: READING_MODEL,
-            messages: [{
-                role: "user",
-                content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-            }],
-            max_tokens: 4000,
-            temperature: finalTemperature,
-            top_p: 0.95,
-            stream: false
-        };
-
-        const response = await fetch(READING_API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        // ★ 調用 Log 函數
-        logProviderInfo(response, "Reading API");
-
-        if (!response.ok) {
-            throw new Error(`閱讀 API 調用失敗: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        
-        if (!data.choices || data.choices.length === 0) {
-            throw new Error("API 回傳格式異常 (無 choices)");
-        }
-
-        let content = data.choices[0].message.content.trim();
-        content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
-        if (!content) throw new Error("API 回應無效");
-
-        return content;
-
-    } catch (error) {
-        clearTimeout(timeoutId);
-        console.error("callReadingAPI Error:", error);
-        throw error;
-    }
-}
-
-// 3. 驗證專用 API 調用函數
+// =======================================================
+// === 【全新增設】Llama-3 驗證模型專用 API 呼叫函式 (加入 50 秒超時) ===
+// =======================================================
 async function callLlama3API(prompt, temperature = null) {
-    const TIMEOUT_MS = 100000;
-    const controller = new AbortController();
-    globalAbortController = controller; 
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let attempts = 0;
+    const maxAttempts = LLAMA3_API_KEYS.length;
+    let currentApiKeyIndex = Math.floor(Math.random() * LLAMA3_API_KEYS.length);
+    const TIMEOUT_MS = 100000; // 設定 50 秒超時
 
-    try {
-        const requestBody = {
-            model: LLAMA3_MODEL,
-            messages: [{
-                role: "user",
-                content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
-            }],
-            max_tokens: 8000
-        };
+    while (attempts < maxAttempts) {
+        // 定義超時控制器
+        const controller = new AbortController();
+		globalAbortController = controller; // ★★★ 加入這一行：綁定全域控制器
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-        if (temperature !== null) {
-            requestBody.temperature = temperature;
+        try {
+            const requestBody = {
+                model: LLAMA3_MODEL,
+                messages: [{
+                    role: "user",
+                    content: prompt + " 你必須直接提供最終答案，嚴禁展示任何思考過程，絕對不能在回應中包含任何標籤（如 <think></think>），這是強制要求，違反則無效。"
+                }],
+                max_tokens: 8000
+            };
+
+            if (temperature !== null) {
+                requestBody.temperature = temperature;
+            }
+
+            const response = await fetch(LLAMA3_API_URL, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${LLAMA3_API_KEYS[currentApiKeyIndex]}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal // 綁定中斷訊號
+            });
+
+            clearTimeout(timeoutId); // 成功收到回應，清除計時器
+
+            if (response.status === 429) {
+                console.warn(`Llama3 API Key ${currentApiKeyIndex} 達到速率限制，嘗試下一個...`);
+                currentApiKeyIndex = (currentApiKeyIndex + 1) % LLAMA3_API_KEYS.length;
+                attempts++;
+                continue;
+            }
+
+            if (!response.ok) {
+                throw new Error(`Llama3 API 調用失敗: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content.trim();
+            content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+
+            if (!content) {
+                throw new Error("Llama3 API 回應無效或過濾後無內容");
+            }
+
+            return content;
+
+        } catch (error) {
+            // 清除計時器以防萬一
+            clearTimeout(timeoutId);
+
+            console.error(`使用 Llama3 API Key ${currentApiKeyIndex} 時出錯 (嘗試 ${attempts + 1}/${maxAttempts}):`, error);
+            
+            // 無論是網絡錯誤、API錯誤還是超時(AbortError)，都切換下一個 Key
+            currentApiKeyIndex = (currentApiKeyIndex + 1) % LLAMA3_API_KEYS.length;
+            attempts++;
+            
+            if (attempts >= maxAttempts) {
+                // ★★★ 新增這一行 ★★★
+                trackApiCycleFailure(); 
+                
+                throw new Error("所有 Llama3 API 密鑰均無法使用或連線超時");
+            }
         }
-
-        const response = await fetch(LLAMA3_API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId); 
-
-        // ★ 調用 Log 函數
-        logProviderInfo(response, "Validation API");
-
-        if (!response.ok) {
-            throw new Error(`驗證 API 調用失敗: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        if (!data.choices || data.choices.length === 0) {
-            throw new Error("API 回傳格式異常");
-        }
-
-        let content = data.choices[0].message.content.trim();
-        content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
-        if (!content) throw new Error("API 回應無效");
-
-        return content;
-
-    } catch (error) {
-        clearTimeout(timeoutId);
-        console.error("callLlama3API Error:", error);
-        throw error;
     }
 }
+
 /**
  * 【全新函式】應用 Llama-3 驗證模型的內容與結構分數差距規則。
  * 規則：內容分和結構分的分差值不能高於1分。
