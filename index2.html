@@ -11556,56 +11556,76 @@ const guide = await callReadingAPI(prompt);
     }
 }
 
-// ★★★ 新增：統一處理 Log 顏色的輔助函數 ★★★
+/**
+* 處理並記錄 API 提供商資訊與偵錯追蹤
+* 針對蘋果設備 (Safari) 強化了錯誤攔截，防止因讀取 Headers 失敗導致的腳本中斷
+*/
 function logProviderInfo(response, apiName) {
-    const provider = response.headers.get('X-Provider-Log');
-    const debugTraceStr = response.headers.get('X-Debug-Trace');
-
-    // 1. 顯示失敗的嘗試 (如果有)
-    if (debugTraceStr) {
-        try {
-            const traces = JSON.parse(debugTraceStr);
-            traces.forEach(trace => {
-                console.log(`%c[${apiName} Fail] ${trace}`, "color: yellow; background: #333; padding: 2px 5px;");
-            });
-        } catch(e) { console.log("Trace parse error", e); }
+    // 1. 基礎防呆：確保 response 物件及其 headers 屬性存在
+    if (!response || !response.headers) {
+        console.log(`[${apiName}] 無法獲取響應內容，跳過標頭紀錄。`);
+        return;
     }
-
-    // 2. 顯示最終成功的服務商 (不同顏色)
-    if (provider) {
-        if (provider.includes("OFFICIAL DEEPSEEK")) {
-            // ★ 備用線路：橙紅色背景，白色文字 (警示)
-            console.log(`%c[${apiName} Success] ${provider}`, "color: #fff; background: #d35400; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
-        } else {
-            // ★ Pollinations：綠色/藍綠色背景 (正常)
-            console.log(`%c[${apiName} Success] ${provider}`, "color: #fff; background: #2A9689; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
+ 
+    try {
+        // 2. 嘗試獲取自定義標頭
+        const provider = response.headers.get('X-Provider-Log');
+        const debugTraceStr = response.headers.get('X-Debug-Trace');
+ 
+        // 3. 處理失敗嘗試的追蹤紀錄 (Debug Trace)
+        if (debugTraceStr) {
+            try {
+                const traces = JSON.parse(debugTraceStr);
+                if (Array.isArray(traces)) {
+                    traces.forEach(trace => {
+                        console.log(`%c[${apiName} Fail] ${trace}`, "color: yellow; background: #333; padding: 2px 5px;");
+                    });
+                }
+            } catch (parseError) {
+                // 解析失敗時不中斷主程式，僅在控制台低調紀錄
+                console.log(`[${apiName}] 無法解析追蹤數據`);
+            }
         }
+ 
+        // 4. 處理最終成功的服務商資訊 (Provider Log)
+        if (provider) {
+            if (provider.includes("OFFICIAL DEEPSEEK")) {
+                // 備用線路 (官方線路)：顯示為橙紅色背景，提醒目前處於高成本或備用狀態
+                console.log(`%c[${apiName} Success] ${provider}`, "color: #fff; background: #d35400; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
+            } else {
+                // 常規線路 (Pollinations 等)：顯示為主題綠色背景
+                console.log(`%c[${apiName} Success] ${provider}`, "color: #fff; background: #2A9689; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;");
+            }
+        }
+ 
+    } catch (e) {
+        // 蘋果瀏覽器 (Safari) 在跨域請求未正確設定 Expose-Headers 時，讀取標頭會拋出錯誤
+        // 透過此 catch 攔截錯誤，確保 UI 流程能繼續執行而不顯示「生成失敗」
+        console.warn(`[${apiName}] 受到瀏覽器安全限制，無法讀取詳細響應標頭。`);
     }
 }
-
 // ------------------------------------------------------------------
 
 // ==========================================
-// === API 呼叫核心函式 (修訂版：支援 Action) ===
+// 1. 通用 API (Gemini) - 蘋果設備相容版
 // ==========================================
-
-// 1. 通用 API (Gemini) - 修復版
 async function callAPI(input, temperature = null) {
     if (!checkGuestUsage()) {
-        throw new Error("Guest usage limit exceeded"); 
+        throw new Error("Guest usage limit exceeded");
     }
-
+ 
     const TIMEOUT_MS = 100000;
-    const controller = new AbortController();
-    globalAbortController = controller;
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
+    // 關鍵修訂：為每次請求建立獨立的控制器
+    const localController = new AbortController();
+    globalAbortController = localController;
+    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
+ 
     try {
         let requestBody = {};
-
+ 
         if (typeof input === 'string') {
             requestBody = {
-                model: MODEL, 
+                model: MODEL,
                 messages: [{ role: "user", content: input }],
                 max_tokens: 8000
             };
@@ -11619,70 +11639,76 @@ async function callAPI(input, temperature = null) {
         } else {
             throw new Error("callAPI 參數錯誤");
         }
-
+ 
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
-
+ 
         const response = await fetch(API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            signal: controller.signal
+            signal: localController.signal
         });
-
+ 
         clearTimeout(timeoutId);
-        logProviderInfo(response, "General API");
-
+ 
         if (!response.ok) {
             throw new Error(`API 調用失敗: ${response.status} ${response.statusText}`);
         }
-
+ 
+        // 蘋果瀏覽器必須先檢查 response 是否存在
+        logProviderInfo(response, "General API");
+ 
         const data = await response.json();
         
-        // ★★★ 增強檢查：防止 trim() 崩潰 ★★★
         if (!data.choices || data.choices.length === 0) {
              throw new Error("API 回傳格式異常 (無 choices)");
         }
-
+ 
         const firstChoice = data.choices[0];
-        // 使用 Optional Chaining (?.) 確保 message 存在，並檢查 content 是否為字串
         if (!firstChoice.message || typeof firstChoice.message.content !== 'string') {
             console.warn("API 回應異常，詳細資料:", data);
-            throw new Error("API 回應內容為空 (Content is missing or null)");
+            throw new Error("API 回應內容為空");
         }
-
+ 
         let content = firstChoice.message.content.trim();
         content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
+ 
         if (!content) throw new Error("API 回應無效 (內容為空字串)");
-
+ 
         return content;
-
+ 
     } catch (error) {
         clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            console.log("General API 请求被取消");
+            return null;
+        }
         console.error("callAPI Error:", error);
         throw error;
     }
 }
-
-// 2. 閱讀專用 API (DeepSeek) - 修復版
+ 
+// ==========================================
+// 2. 閱讀專用 API (DeepSeek) - 蘋果設備相容版
+// ==========================================
 async function callReadingAPI(input, temperature = null) {
     if (!checkGuestUsage()) {
-        throw new Error("Guest usage limit exceeded"); 
+        throw new Error("Guest usage limit exceeded");
     }
-
+ 
     const TIMEOUT_MS = 100000;
-    const controller = new AbortController();
-    globalAbortController = controller;
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
+    const localController = new AbortController();
+    globalAbortController = localController;
+    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
+ 
     try {
         let requestBody = {};
-
+ 
         if (typeof input === 'string') {
             requestBody = {
-                model: READING_MODEL, 
+                model: READING_MODEL,
                 messages: [{ role: "user", content: input }],
                 max_tokens: 4000
             };
@@ -11696,124 +11722,131 @@ async function callReadingAPI(input, temperature = null) {
         } else {
             throw new Error("callReadingAPI 參數錯誤");
         }
-
+ 
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
-
+ 
         const response = await fetch(READING_API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            signal: controller.signal
+            signal: localController.signal
         });
-
+ 
         clearTimeout(timeoutId);
-        logProviderInfo(response, "Reading API");
-
+ 
         if (!response.ok) {
             throw new Error(`閱讀 API 調用失敗: ${response.status} ${response.statusText}`);
         }
-
+ 
+        logProviderInfo(response, "Reading API");
+ 
         const data = await response.json();
         
-        // ★★★ 增強檢查 ★★★
         if (!data.choices || data.choices.length === 0) {
              throw new Error("API 回傳格式異常 (無 choices)");
         }
-
+ 
         const firstChoice = data.choices[0];
         if (!firstChoice.message || typeof firstChoice.message.content !== 'string') {
             console.warn("Reading API 回應異常:", data);
             throw new Error("Reading API 回應內容為空");
         }
-
+ 
         let content = firstChoice.message.content.trim();
         content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
+ 
         if (!content) throw new Error("API 回應無效");
-
+ 
         return content;
-
+ 
     } catch (error) {
         clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            console.log("Reading API 请求被取消");
+            return null;
+        }
         console.error("callReadingAPI Error:", error);
         throw error;
     }
 }
-
-// 3. 驗證專用 API (Llama3 / Gemini 雙驗證) - 修復版
+ 
+// ==========================================
+// 3. 驗證專用 API (Llama3) - 蘋果設備相容版
+// ==========================================
 async function callLlama3API(input, temperature = null) {
     const TIMEOUT_MS = 100000;
-    const controller = new AbortController();
-    globalAbortController = controller; 
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
+    const localController = new AbortController();
+    // 注意：不將 Llama3 的控制器賦值給 globalAbortController，
+    // 避免它在背景執行時被其他功能的「取消」按鈕誤殺。
+    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
+ 
     try {
         let requestBody = {};
-
+ 
         if (typeof input === 'object' && input.action) {
             requestBody = {
-                model: LLAMA3_MODEL, 
-                action: input.action, 
+                model: LLAMA3_MODEL,
+                action: input.action,
                 data: input.data,     
                 max_tokens: 8000
             };
         } else if (typeof input === 'string') {
              requestBody = {
-                model: LLAMA3_MODEL, 
+                model: LLAMA3_MODEL,
                 messages: [{ role: "user", content: input }],
                 max_tokens: 8000
             };
         } else {
             throw new Error("callLlama3API 參數錯誤");
         }
-
+ 
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
-
+ 
         const response = await fetch(LLAMA3_API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            signal: controller.signal
+            signal: localController.signal
         });
-
-        clearTimeout(timeoutId); 
-        logProviderInfo(response, "Validation API");
-
+ 
+        clearTimeout(timeoutId);
+ 
         if (!response.ok) {
             throw new Error(`驗證 API 調用失敗: ${response.status}`);
         }
-
+ 
+        logProviderInfo(response, "Validation API");
+ 
         const data = await response.json();
         
-        // ★★★ 增強檢查：這就是報錯的地方 ★★★
         if (!data.choices || data.choices.length === 0) {
             throw new Error("API 回傳格式異常");
         }
-
+ 
         const firstChoice = data.choices[0];
         
-        // 檢查 content 是否存在且為字串
         if (!firstChoice.message || typeof firstChoice.message.content !== 'string') {
-            console.warn("Llama3 API 回應異常 (無內容):", data);
-            
-            // 這裡可以選擇回傳空字串讓流程繼續，或者拋出錯誤
-            // 為了雙系統驗證不卡死主流程，我們拋出錯誤，讓 Promise.all 捕獲
+            console.warn("Llama3 API 回應異常:", data);
             throw new Error("驗證模型未回傳內容");
         }
-
+ 
         let content = firstChoice.message.content.trim();
         content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
-
+ 
         if (!content) throw new Error("API 回應無效");
-
+ 
         return content;
-
+ 
     } catch (error) {
         clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            console.log("Validation API 请求被取消");
+            return null;
+        }
         console.error("callLlama3API Error:", error);
         throw error;
     }
