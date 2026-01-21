@@ -11096,12 +11096,11 @@ localStorage.removeItem("argumentOutlineData");
 }
 }
 
-// ==========================================
-// === 修訂：提交議論指引 (加入 await) ===
-// ==========================================
-// === 修正版：提交議論指引 (移除前端不存在的 categories 變數) ===
+// === 修正版：提交議論指引 (移除前端不存在的 categories 引用) ===
 async function submitArgumentGuide() {
     const submitBtn = document.getElementById('submitArgumentGuideBtn');
+    if (!submitBtn) return;
+    
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
  
@@ -11119,31 +11118,37 @@ async function submitArgumentGuide() {
  
         showLoading("陳SIR 正在思考指引...");
         
-        // ★ 核心修訂：直接傳送數據，不需要傳送 note，Worker 會自動處理
+        // ★ 核心修訂：不再在前端組合 Prompt，只傳送數據
+        // Worker 會根據 action: "grade_argument" 和 subType: "guide" 自動從後端取出 categories 內容
         const payload = {
             action: "grade_argument",
             data: {
                 subType: "guide",
                 topic: topic,
-                point: point,
-                evidence: evidence,
-                argument: argument
+                point: point || "無",
+                evidence: evidence || "無",
+                argument: argument || "無"
             }
         };
  
+        // 呼叫 API
         const guide = await callReadingAPI(payload);
         
+        // 設定聊天室上下文
         currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
         currentContextReview = guide;
  
+        // 解析並渲染結果
         const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
         let guideHTML = "<h3>陳SIR指引：</h3><table>";
         guideParts.forEach(part => {
-            const [title, ...content] = part.split("\n").filter(line => line.trim());
-            guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
+            const lines = part.split("\n").filter(line => line.trim());
+            const title = lines.shift() || "";
+            guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${lines.join("<br>")}</td></tr>`;
         });
         guideHTML += "</table>";
  
+        // 加入追問聊天室
         guideHTML += getCanvasChatHTML('argument_guide');
  
         openResultCanvas("議論文寫作指引");
@@ -11160,10 +11165,6 @@ async function submitArgumentGuide() {
         hideLoading();
     }
 }
-
-
-
-	
 
 // ==========================================
 // === 議論文提交函式 (單系統) ===
@@ -11491,68 +11492,7 @@ function handleAllScopeChange(checkbox) {
     }
 }
 
-// 提交議論指引
-async function submitArgumentGuide() {
-const submitBtn = document.getElementById('submitArgumentGuideBtn');
-submitBtn.disabled = true; // 禁用按鈕
-	hideAllSaveHtmlButtons();
 
-try {
-const topic = document.getElementById("argumentGuideTopic").value.trim();
-const point = document.getElementById("argumentGuidePoint").value.trim();
-const evidence = document.getElementById("argumentGuideEvidence").value.trim();
-const argument = document.getElementById("argumentGuideArgument").value.trim();
-if (!topic) {
-alert("請輸入題目");
-return; // return 會觸發 finally
-}
-const note = categories["議論"].guideNote;
-let prompt = `請根據以下輸入提供參考建議。要求：
-1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-4. 輸出分為相應的部分：### 參考論點、### 參考論據、### 參考論證
-5. 每個部分以段落形式呈現
-題目：${topic}
-論點：${point || "無"}
-論據：${evidence || "無"}
-論證：${argument || "無"}
-教學筆記：${note}`;
-showLoading("陳SIR 正在思考...");
-
-// 【核心修訂】改用閱讀專用的 API 函式
-const guide = await callReadingAPI(prompt);
- // 設定聊天室上下文
-        currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
-        currentContextReview = guide;
-
-        const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
-        let guideHTML = "<h3>陳SIR指引：</h3><table>";
-        guideParts.forEach(part => {
-            const [title, ...content] = part.split("\n").filter(line => line.trim());
-            guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
-        });
-        guideHTML += "</table>";
-
-        // ★★★ 加入聊天室 ★★★
-        guideHTML += getCanvasChatHTML('argument_guide');
-
-        openResultCanvas("議論文寫作指引");
-        document.getElementById("resultCanvasBody").innerHTML = guideHTML;
-
-        // 儲存 (移除聊天室)
-        const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
-        saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
-        
-    
-    } catch (error) {
-        console.error("提交指引時出錯:", error);
-        alert("指引生成失敗，請重試");
-    } finally {
-        submitBtn.disabled = false; 
-        hideLoading();
-    }
-}
 
 // ★★★ 新增：統一處理 Log 顏色的輔助函數 ★★★
 function logProviderInfo(response, apiName) {
