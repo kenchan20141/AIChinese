@@ -11609,251 +11609,118 @@ function logProviderInfo(response, apiName) {
 // 1. 通用 API (Gemini) - 蘋果設備相容版
 // ==========================================
 async function callAPI(input, temperature = null) {
-    if (!checkGuestUsage()) {
-        throw new Error("Guest usage limit exceeded");
-    }
- 
-    const TIMEOUT_MS = 100000;
+    if (!checkGuestUsage()) throw new Error("Guest usage limit exceeded");
     const localController = new AbortController();
     globalAbortController = localController;
-    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
- 
+    
     try {
         let requestBody = {};
         if (typeof input === 'string') {
             requestBody = { model: MODEL, messages: [{ role: "user", content: input }], max_tokens: 8000 };
-        } else if (typeof input === 'object' && input.action) {
-            requestBody = { model: MODEL, action: input.action, data: input.data, max_tokens: 8000 };
-        } else {
-            throw new Error("callAPI 參數錯誤");
+        } else if (typeof input === 'object') {
+            requestBody = { ...input, model: MODEL, max_tokens: 8000 };
         }
         if (temperature !== null) requestBody.temperature = temperature;
  
-        // 【關鍵：快取破壞】在網址後加上時間戳，強制蘋果瀏覽器重新進行跨域驗證
-        const cacheBusterUrl = API_URL + (API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+        // 加入時間戳防止蘋果設備過度快取
+        const url = API_URL + (API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
  
-        const response = await fetch(cacheBusterUrl, {
+        const response = await fetch(url, {
             method: "POST",
-            mode: "cors",
-            credentials: "omit",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            mode: 'cors', // 顯式設定跨域模式
+            credentials: 'omit', // 蘋果設備建議設定
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
             signal: localController.signal
         });
  
-        clearTimeout(timeoutId);
- 
         if (!response.ok) throw new Error(`API 調用失敗: ${response.status}`);
- 
         logProviderInfo(response, "General API");
  
         const data = await response.json();
-        if (!data.choices || data.choices.length === 0) throw new Error("API 回傳格式異常");
- 
         let content = data.choices[0].message.content.trim();
-        
-        // 【核心修復】蘋果 Safari 不支援正規表示法的 /s 旗標，必須改用 [\s\S]
+        // 修正正則表達式，確保在所有蘋果版本兼容
         content = content.replace(/<think\s*>[\s\S]*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gi, '').trim();
- 
-        if (!content) throw new Error("API 回應內容為空");
         return content;
- 
     } catch (error) {
-        clearTimeout(timeoutId);
         if (error.name === 'AbortError') return null;
-        console.error("callAPI Error:", error);
         throw error;
     }
 }
  
-// ==========================================
-// 2. 閱讀專用 API (DeepSeek) - 蘋果設備相容版
-// ==========================================
+// 2. 閱讀專用 API
 async function callReadingAPI(input, temperature = null) {
-    if (!checkGuestUsage()) throw new Error("Guest usage limit exceeded"); 
- 
-    const TIMEOUT_MS = 100000;
+    if (!checkGuestUsage()) throw new Error("Guest usage limit exceeded");
     const localController = new AbortController();
     globalAbortController = localController;
-    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
  
     try {
         let requestBody = {};
         if (typeof input === 'string') {
             requestBody = { model: READING_MODEL, messages: [{ role: "user", content: input }], max_tokens: 4000 };
-        } else if (typeof input === 'object' && input.action) {
-            requestBody = { model: READING_MODEL, action: input.action, data: input.data, max_tokens: 4000 };
-        } else {
-            throw new Error("callReadingAPI 參數錯誤");
+        } else if (typeof input === 'object') {
+            requestBody = { ...input, model: READING_MODEL, max_tokens: 4000 };
         }
         if (temperature !== null) requestBody.temperature = temperature;
  
-        // 快取破壞網址
-        const cacheBusterUrl = READING_API_URL + (READING_API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+        const url = READING_API_URL + (READING_API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
  
-        const response = await fetch(cacheBusterUrl, {
+        const response = await fetch(url, {
             method: "POST",
-            mode: "cors",
-            credentials: "omit",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: localController.signal
-        });
- 
-        clearTimeout(timeoutId);
-        if (!response.ok) throw new Error(`閱讀 API 調用失敗: ${response.status}`);
- 
-        logProviderInfo(response, "Reading API");
-        const data = await response.json();
-        let content = data.choices[0].message.content.trim();
-        
-        // Regex 兼容性修復
-        content = content.replace(/<think\s*>[\s\S]*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gi, '').trim();
- 
-        return content;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') return null;
-        throw error;
-    }
-}
- 
-async function callLlama3API(input, temperature = null) {
-    const TIMEOUT_MS = 100000;
-    const localController = new AbortController();
-    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
- 
-    try {
-        let requestBody = {};
-        if (typeof input === 'object' && input.action) {
-            requestBody = { model: LLAMA3_MODEL, action: input.action, data: input.data, max_tokens: 8000 };
-        } else if (typeof input === 'string') {
-            requestBody = { model: LLAMA3_MODEL, messages: [{ role: "user", content: input }], max_tokens: 8000 };
-        }
-        if (temperature !== null) requestBody.temperature = temperature;
- 
-        const cacheBusterUrl = LLAMA3_API_URL + (LLAMA3_API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
- 
-        const response = await fetch(cacheBusterUrl, {
-            method: "POST",
-            mode: "cors",
-            credentials: "omit",
+            mode: 'cors',
+            credentials: 'omit',
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
             signal: localController.signal
         });
  
-        clearTimeout(timeoutId); 
-        if (!response.ok) throw new Error(`驗證 API 調用失敗: ${response.status}`);
- 
-        logProviderInfo(response, "Validation API");
-        const data = await response.json();
-        let content = data.choices[0].message.content.trim();
-        
-        // Regex 兼容性修復
-        content = content.replace(/<think\s*>[\s\S]*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gi, '').trim();
- 
-        return content;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') return null;
-        throw error;
-    }
-}
-server-id.de
- 
-async function callReadingAPI(input, temperature = null) {
-    if (!checkGuestUsage()) throw new Error("Guest usage limit exceeded"); 
- 
-    const TIMEOUT_MS = 100000;
-    const localController = new AbortController();
-    globalAbortController = localController;
-    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
- 
-    try {
-        let requestBody = {};
-        if (typeof input === 'string') {
-            requestBody = { model: READING_MODEL, messages: [{ role: "user", content: input }], max_tokens: 4000 };
-        } else if (typeof input === 'object' && input.action) {
-            requestBody = { model: READING_MODEL, action: input.action, data: input.data, max_tokens: 4000 };
-        } else {
-            throw new Error("callReadingAPI 參數錯誤");
-        }
-        if (temperature !== null) requestBody.temperature = temperature;
- 
-        // 快取破壞網址
-        const cacheBusterUrl = READING_API_URL + (READING_API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
- 
-        const response = await fetch(cacheBusterUrl, {
-            method: "POST",
-            mode: "cors",
-            credentials: "omit",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: localController.signal
-        });
- 
-        clearTimeout(timeoutId);
         if (!response.ok) throw new Error(`閱讀 API 調用失敗: ${response.status}`);
- 
         logProviderInfo(response, "Reading API");
+ 
         const data = await response.json();
         let content = data.choices[0].message.content.trim();
-        
-        // Regex 兼容性修復
         content = content.replace(/<think\s*>[\s\S]*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gi, '').trim();
- 
         return content;
     } catch (error) {
-        clearTimeout(timeoutId);
         if (error.name === 'AbortError') return null;
         throw error;
     }
 }
  
+// 3. 驗證 API (Llama3)
 async function callLlama3API(input, temperature = null) {
-    const TIMEOUT_MS = 100000;
     const localController = new AbortController();
-    const timeoutId = setTimeout(() => localController.abort(), TIMEOUT_MS);
- 
     try {
         let requestBody = {};
-        if (typeof input === 'object' && input.action) {
-            requestBody = { model: LLAMA3_MODEL, action: input.action, data: input.data, max_tokens: 8000 };
-        } else if (typeof input === 'string') {
+        if (typeof input === 'object') {
+            requestBody = { ...input, model: LLAMA3_MODEL, max_tokens: 8000 };
+        } else {
             requestBody = { model: LLAMA3_MODEL, messages: [{ role: "user", content: input }], max_tokens: 8000 };
         }
-        if (temperature !== null) requestBody.temperature = temperature;
+        
+        const url = LLAMA3_API_URL + (LLAMA3_API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
  
-        const cacheBusterUrl = LLAMA3_API_URL + (LLAMA3_API_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
- 
-        const response = await fetch(cacheBusterUrl, {
+        const response = await fetch(url, {
             method: "POST",
-            mode: "cors",
-            credentials: "omit",
+            mode: 'cors',
+            credentials: 'omit',
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
             signal: localController.signal
         });
  
-        clearTimeout(timeoutId); 
         if (!response.ok) throw new Error(`驗證 API 調用失敗: ${response.status}`);
- 
         logProviderInfo(response, "Validation API");
+ 
         const data = await response.json();
         let content = data.choices[0].message.content.trim();
-        
-        // Regex 兼容性修復
         content = content.replace(/<think\s*>[\s\S]*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gi, '').trim();
- 
         return content;
     } catch (error) {
-        clearTimeout(timeoutId);
         if (error.name === 'AbortError') return null;
         throw error;
     }
 }
-server-id.de
  
 
 /**
