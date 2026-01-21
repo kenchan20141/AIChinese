@@ -6941,55 +6941,49 @@ read-mode-container {
 }
 
 /* --- 議論指引：莫蘭迪藝術化排版 --- */
+/* --- 議論指引：精煉版莫蘭迪排版 --- */
 .morandi-guide-container {
-    padding: 10px 5px;
+    padding: 10px 0;
     font-family: 'Noto Serif TC', serif;
 }
  
 .guide-section-card {
-    background-color: #fdfcf8; /* 暖米色紙張感 */
+    background-color: #fdfcf8;
     border: 1px solid #e0ddd7;
-    border-radius: 12px;
-    margin-bottom: 30px;
+    border-radius: 8px; /* 圓角稍微縮小，顯得更乾淨 */
+    margin-bottom: 20px;
     overflow: hidden;
-    box-shadow: 0 4px 15px rgba(141, 110, 99, 0.05);
-    animation: fadeInUp 0.5s ease;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
 }
  
 .guide-card-header {
-    background-color: #8fa398; /* 莫蘭迪灰綠色 */
+    background-color: #8fa398; /* 莫蘭迪灰綠 */
     color: white;
-    padding: 15px 25px;
-    font-size: 1.25rem;
+    padding: 12px 20px;
+    font-size: 1.15rem; /* 標題縮小 */
     font-weight: bold;
-    letter-spacing: 3px; /* 增加標題字距 */
+    letter-spacing: 2px;
     display: flex;
     align-items: center;
-    gap: 10px;
-}
- 
-.guide-card-header::before {
-    content: '✦';
-    font-size: 0.9rem;
-    opacity: 0.8;
+    gap: 8px;
 }
  
 .guide-card-body {
-    padding: 30px 35px;
+    padding: 20px 25px; /* 縮減內邊距 */
     color: #4a4a4a;
     
-    /* 核心修訂：極致行距與字距 */
-    line-height: 2.2 !important;
-    letter-spacing: 1.8px !important;
-    font-size: 1.1rem;
+    /* 核心修訂：更紮實的行距與字體 */
+    line-height: 1.8 !important;
+    font-size: 1.0rem !important;
+    letter-spacing: 1.2px !important;
     text-align: justify;
 }
  
-/* 讓內文中的重點加粗並換色 */
-.guide-card-body strong {
-    color: #5e7067;
-    border-bottom: 1px dashed #8fa398;
-    padding-bottom: 2px;
+/* 針對內容中的段落增加微量間距 */
+.guide-card-body br {
+    content: "";
+    display: block;
+    margin: 8px 0;
 }
  
 @keyframes fadeInUp {
@@ -11152,7 +11146,6 @@ localStorage.removeItem("argumentOutlineData");
 }
 
 // === 修正版：提交議論指引 (移除前端不存在的 categories 引用) ===
-// === [完整修訂] 提交議論指引 (莫蘭迪色系 + 高舒適度排版) ===
 async function submitArgumentGuide() {
     const submitBtn = document.getElementById('submitArgumentGuideBtn');
     if (!submitBtn) return;
@@ -11172,9 +11165,9 @@ async function submitArgumentGuide() {
             return;
         }
  
-        showLoading("陳SIR 正在編寫深度指引...");
+        showLoading("陳SIR 正在編寫指引...");
         
-        // 傳送數據至後端
+        // 傳送數據至後端 (已移除 categories 引用)
         const payload = {
             action: "grade_argument",
             data: {
@@ -11188,24 +11181,23 @@ async function submitArgumentGuide() {
  
         const guide = await callReadingAPI(payload);
         
-        // 設定聊天室上下文
         currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
         currentContextReview = guide;
  
-        // --- 開始組裝莫蘭迪風格 HTML ---
+        // --- 組裝 HTML ---
         const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
         
         let guideHTML = `
             <div class="morandi-guide-container">
-                <div style="margin-bottom: 25px; border-bottom: 1px solid #dcd6c8; padding-bottom: 15px;">
-                    <h2 style="color: #5e7067; font-size: 1.6rem; letter-spacing: 4px; margin-bottom: 5px;">${topic}</h2>
-                    <span style="color: #a1887f; font-size: 0.9rem; letter-spacing: 2px;">ARGUMENTATION WRITING GUIDE</span>
+                <div style="margin-bottom: 20px; border-bottom: 1px solid #e0ddd7; padding-bottom: 10px;">
+                    <h2 style="color: #5e7067; font-size: 1.4rem; letter-spacing: 2px; margin: 0;">${topic}</h2>
                 </div>
         `;
  
         guideParts.forEach(part => {
             const lines = part.split("\n").filter(line => line.trim());
             const title = lines.shift() || "指引內容";
+            // 處理換行，讓段落分明但不過寬
             const content = lines.join("<br>");
  
             guideHTML += `
@@ -11216,7 +11208,7 @@ async function submitArgumentGuide() {
             `;
         });
  
-        guideHTML += `</div>`; // 結束容器
+        guideHTML += `</div>`;
  
         // 加入追問聊天室
         guideHTML += getCanvasChatHTML('argument_guide');
@@ -11225,7 +11217,7 @@ async function submitArgumentGuide() {
         openResultCanvas("議論文寫作指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
  
-        // 儲存至歷史紀錄 (會同步至雲端)
+        // 儲存至歷史紀錄
         await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
     } catch (error) {
