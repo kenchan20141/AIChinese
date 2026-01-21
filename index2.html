@@ -3,15 +3,17 @@
 <head>
 
 <meta http-equiv="Content-Security-Policy" content="
-default-src 'self';
-script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.streamable.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com;
-style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://onesignal.com;
+default-src 'self'; 
+script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com; 
+style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://onesignal.com; 
 font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com;
-img-src 'self' https: data:;
-media-src 'self' https:;
-connect-src 'self' https://sansi.kenchan20151.workers.dev https://*.workers.dev https://*.pollinations.ai https://*.firebaseio.com wss://*.firebaseio.com https://www.googleapis.com https://*.googleusercontent.com https://api.onesignal.com https://onesignal.com;
-frame-src 'self' https:;
+img-src 'self' https: data: https://*.streamable.com https://heapanalytics.com https://*.googleusercontent.com;
+media-src 'self' https://youfulca.com https://*.streamable.com https://assets.mixkit.co https://taira-komori.net;
+connect-src 'self' https://sansi.kenchan20151.workers.dev https://corsproxy.io https://docs.google.com https://*.googleusercontent.com https://v1.hitokoto.cn https://chatapi.akash.network https://text.pollinations.ai https://gen.pollinations.ai https://router.huggingface.co https://api.llm7.io https://*.streamable.com https://cdn.jsdelivr.net https://api-fawn-chi.vercel.app https://heapanalytics.com https://*.firebaseio.com wss://*.firebaseio.com https://www.gstatic.com https://www.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://cdn.onesignal.com https://onesignal.com https://onesignal.com/api/v1/notifications https://api.onesignal.com;
+frame-src 'self' https://streamable.com https://kenchan20141.pyscriptapps.com https://kenchan20141.github.io https://sansi.vercel.app https://lyricschi.vercel.app https://penpalchi.vercel.app https://litstudy.vercel.app https://621d05f47d591.site123.me https://script.google.com https://www.i2ocr.com https://*.firebaseapp.com https://onesignal.com;
 object-src 'none';
+base-uri 'self';
+form-action 'self';
 ">
 
 
@@ -11588,24 +11590,20 @@ function logProviderInfo(response, apiName) {
 // === API 呼叫核心函式 (修訂版：支援 Action) ===
 // ==========================================
 
-// ==========================================
-// 1. 通用 API (Gemini/Qwen) - 蘋果相容版
-// ==========================================
+// 1. 通用 API (Gemini) - 修復版
 async function callAPI(input, temperature = null) {
     if (!checkGuestUsage()) {
         throw new Error("Guest usage limit exceeded"); 
     }
- 
+
     const TIMEOUT_MS = 100000;
     const controller = new AbortController();
-    
-    // 將當前控制器賦給全域，以便取消按鈕使用
     globalAbortController = controller;
-    
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
- 
+
     try {
         let requestBody = {};
+
         if (typeof input === 'string') {
             requestBody = {
                 model: MODEL, 
@@ -11619,76 +11617,70 @@ async function callAPI(input, temperature = null) {
                 data: input.data,
                 max_tokens: 8000
             };
+        } else {
+            throw new Error("callAPI 參數錯誤");
         }
- 
+
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
- 
+
         const response = await fetch(API_URL, {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            signal: controller.signal,
-            // --- 蘋果設備修復關鍵參數 ---
-            mode: 'cors',
-            cache: 'no-cache',
-            credentials: 'omit',
-            referrerPolicy: 'no-referrer-when-downgrade'
+            signal: controller.signal
         });
- 
+
         clearTimeout(timeoutId);
         logProviderInfo(response, "General API");
- 
+
         if (!response.ok) {
-            throw new Error(`API 調用失敗: ${response.status}`);
+            throw new Error(`API 調用失敗: ${response.status} ${response.statusText}`);
         }
- 
+
         const data = await response.json();
         
-        if (!data || !data.choices || data.choices.length === 0) {
-             throw new Error("API 回傳格式異常");
+        // ★★★ 增強檢查：防止 trim() 崩潰 ★★★
+        if (!data.choices || data.choices.length === 0) {
+             throw new Error("API 回傳格式異常 (無 choices)");
         }
- 
+
         const firstChoice = data.choices[0];
+        // 使用 Optional Chaining (?.) 確保 message 存在，並檢查 content 是否為字串
         if (!firstChoice.message || typeof firstChoice.message.content !== 'string') {
-            throw new Error("API 回應內容為空");
+            console.warn("API 回應異常，詳細資料:", data);
+            throw new Error("API 回應內容為空 (Content is missing or null)");
         }
- 
+
         let content = firstChoice.message.content.trim();
-        // 移除思考標籤
         content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
- 
+
+        if (!content) throw new Error("API 回應無效 (內容為空字串)");
+
         return content;
- 
+
     } catch (error) {
         clearTimeout(timeoutId);
         console.error("callAPI Error:", error);
         throw error;
     }
 }
- 
-// ==========================================
-// 2. 閱讀專用 API (DeepSeek) - 蘋果相容版
-// ==========================================
+
+// 2. 閱讀專用 API (DeepSeek) - 修復版
 async function callReadingAPI(input, temperature = null) {
     if (!checkGuestUsage()) {
         throw new Error("Guest usage limit exceeded"); 
     }
- 
+
     const TIMEOUT_MS = 100000;
     const controller = new AbortController();
-    
-    // 雙系統驗證時，此處會更新全局控制器
     globalAbortController = controller;
-    
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
- 
+
     try {
         let requestBody = {};
+
         if (typeof input === 'string') {
             requestBody = {
                 model: READING_MODEL, 
@@ -11702,65 +11694,65 @@ async function callReadingAPI(input, temperature = null) {
                 data: input.data,
                 max_tokens: 4000
             };
+        } else {
+            throw new Error("callReadingAPI 參數錯誤");
         }
- 
+
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
- 
+
         const response = await fetch(READING_API_URL, {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            signal: controller.signal,
-            // --- 蘋果設備修復關鍵參數 ---
-            mode: 'cors',
-            cache: 'no-cache',
-            credentials: 'omit'
+            signal: controller.signal
         });
- 
+
         clearTimeout(timeoutId);
         logProviderInfo(response, "Reading API");
- 
+
         if (!response.ok) {
-            throw new Error(`閱讀 API 調用失敗: ${response.status}`);
+            throw new Error(`閱讀 API 調用失敗: ${response.status} ${response.statusText}`);
         }
- 
+
         const data = await response.json();
         
-        if (!data || !data.choices || data.choices.length === 0) {
-             throw new Error("閱讀 API 回傳格式異常");
+        // ★★★ 增強檢查 ★★★
+        if (!data.choices || data.choices.length === 0) {
+             throw new Error("API 回傳格式異常 (無 choices)");
         }
- 
-        let content = data.choices[0].message.content.trim();
+
+        const firstChoice = data.choices[0];
+        if (!firstChoice.message || typeof firstChoice.message.content !== 'string') {
+            console.warn("Reading API 回應異常:", data);
+            throw new Error("Reading API 回應內容為空");
+        }
+
+        let content = firstChoice.message.content.trim();
         content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
- 
+
+        if (!content) throw new Error("API 回應無效");
+
         return content;
- 
+
     } catch (error) {
         clearTimeout(timeoutId);
         console.error("callReadingAPI Error:", error);
         throw error;
     }
 }
- 
-// ==========================================
-// 3. 驗證專用 API (Llama3) - 蘋果相容版
-// ==========================================
+
+// 3. 驗證專用 API (Llama3 / Gemini 雙驗證) - 修復版
 async function callLlama3API(input, temperature = null) {
     const TIMEOUT_MS = 100000;
     const controller = new AbortController();
-    
-    // 注意：雙系統併發時，globalAbortController 會指向最後被呼叫的這個
-    globalAbortController = controller;
-    
+    globalAbortController = controller; 
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
- 
+
     try {
         let requestBody = {};
+
         if (typeof input === 'object' && input.action) {
             requestBody = {
                 model: LLAMA3_MODEL, 
@@ -11774,51 +11766,59 @@ async function callLlama3API(input, temperature = null) {
                 messages: [{ role: "user", content: input }],
                 max_tokens: 8000
             };
+        } else {
+            throw new Error("callLlama3API 參數錯誤");
         }
- 
+
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
- 
+
         const response = await fetch(LLAMA3_API_URL, {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
-            signal: controller.signal,
-            // --- 蘋果設備修復關鍵參數 ---
-            mode: 'cors',
-            cache: 'no-cache',
-            credentials: 'omit'
+            signal: controller.signal
         });
- 
+
         clearTimeout(timeoutId); 
         logProviderInfo(response, "Validation API");
- 
+
         if (!response.ok) {
-            throw new Error(`驗證 API 失敗: ${response.status}`);
+            throw new Error(`驗證 API 調用失敗: ${response.status}`);
         }
- 
+
         const data = await response.json();
         
-        if (!data || !data.choices || data.choices.length === 0) {
-            throw new Error("驗證模型無回應");
+        // ★★★ 增強檢查：這就是報錯的地方 ★★★
+        if (!data.choices || data.choices.length === 0) {
+            throw new Error("API 回傳格式異常");
         }
- 
-        let content = data.choices[0].message.content.trim();
+
+        const firstChoice = data.choices[0];
+        
+        // 檢查 content 是否存在且為字串
+        if (!firstChoice.message || typeof firstChoice.message.content !== 'string') {
+            console.warn("Llama3 API 回應異常 (無內容):", data);
+            
+            // 這裡可以選擇回傳空字串讓流程繼續，或者拋出錯誤
+            // 為了雙系統驗證不卡死主流程，我們拋出錯誤，讓 Promise.all 捕獲
+            throw new Error("驗證模型未回傳內容");
+        }
+
+        let content = firstChoice.message.content.trim();
         content = content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
- 
+
+        if (!content) throw new Error("API 回應無效");
+
         return content;
- 
+
     } catch (error) {
         clearTimeout(timeoutId);
         console.error("callLlama3API Error:", error);
         throw error;
     }
 }
- 
 
 /**
  * 【全新函式】應用 Llama-3 驗證模型的內容與結構分數差距規則。
