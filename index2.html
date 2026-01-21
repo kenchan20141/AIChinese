@@ -2,6 +2,29 @@
 <html lang="zh">
 <head>
 
+<script>
+  // 強制清除舊的 Service Worker，解決正常模式無法連線的問題
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for (let registration of registrations) {
+        // 如果不是目前的 OneSignalWorker，或者為了保險起見全部清除讓它重新註冊
+        registration.unregister();
+        console.log("舊版 Service Worker 已卸載");
+      }
+    });
+  }
+ 
+  // 強制清除瀏覽器快取中的舊標頭 (Cache-Busting)
+  if ('caches' in window) {
+    caches.keys().then(function(names) {
+      for (let name of names) caches.delete(name);
+    });
+  }
+</script>
+
+
+	
+
 <meta http-equiv="Content-Security-Policy" content="
 default-src 'self';
 script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://*.streamable.com https://cdn.heapanalytics.com https://www.gstatic.com https://apis.google.com https://cdn.onesignal.com https://onesignal.com https://api.onesignal.com https://*.firebaseio.com blob:;
@@ -9866,8 +9889,8 @@ clickedButton.classList.add('active');
 }
 
 
-// ★ 設定 Worker 後端網址 ★
-const CLOUDFLARE_WORKER_URL = "https://sansi.kenchan20151.workers.dev/";
+// 加入隨機參數或版本號，強迫瀏覽器重新尋找伺服器
+const CLOUDFLARE_WORKER_URL = "https://sansi.kenchan20151.workers.dev/?v=" + new Date().getTime();
 
 // 所有功能統一指向 Worker，由 Worker 內部分流
 const API_URL = CLOUDFLARE_WORKER_URL;         
