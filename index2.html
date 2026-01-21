@@ -11099,11 +11099,12 @@ localStorage.removeItem("argumentOutlineData");
 // ==========================================
 // === 修訂：提交議論指引 (加入 await) ===
 // ==========================================
+// === 修正版：提交議論指引 (移除前端不存在的 categories 變數) ===
 async function submitArgumentGuide() {
     const submitBtn = document.getElementById('submitArgumentGuideBtn');
-    submitBtn.disabled = true; 
+    submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
-
+ 
     try {
         const topic = document.getElementById("argumentGuideTopic").value.trim();
         const point = document.getElementById("argumentGuidePoint").value.trim();
@@ -11112,29 +11113,29 @@ async function submitArgumentGuide() {
         
         if (!topic) {
             alert("請輸入題目");
-            return; 
+            submitBtn.disabled = false;
+            return;
         }
-
-        const note = categories["議論"].guideNote;
-        const prompt = `請根據以下輸入提供參考建議。要求：
-1. 若只輸入題目，則提供參考論點、參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-2. 若輸入題目和論點，則提供參考論據和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-3. 若輸入題目和論據，則提供參考論點和參考論證（「### 參考論證」的用語要生活化，不要運用過於抽象及理論化的用語，例如「二元對立」等）
-4. 輸出分為相應的部分：### 參考論點、### 參考論據、### 參考論證
-5. 每個部分以段落形式呈現
-題目：${topic}
-論點：${point || "無"}
-論據：${evidence || "無"}
-論證：${argument || "無"}
-教學筆記：${note}`;
-
+ 
         showLoading("陳SIR 正在思考指引...");
         
-        const guide = await callReadingAPI(prompt);
+        // ★ 核心修訂：直接傳送數據，不需要傳送 note，Worker 會自動處理
+        const payload = {
+            action: "grade_argument",
+            data: {
+                subType: "guide",
+                topic: topic,
+                point: point,
+                evidence: evidence,
+                argument: argument
+            }
+        };
+ 
+        const guide = await callReadingAPI(payload);
         
         currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
         currentContextReview = guide;
-
+ 
         const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
         let guideHTML = "<h3>陳SIR指引：</h3><table>";
         guideParts.forEach(part => {
@@ -11142,27 +11143,23 @@ async function submitArgumentGuide() {
             guideHTML += `<tr><th><strong>${title}</strong></th></tr><tr><td>${content.join("<br>")}</td></tr>`;
         });
         guideHTML += "</table>";
-
+ 
         guideHTML += getCanvasChatHTML('argument_guide');
-
+ 
         openResultCanvas("議論文寫作指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
-
-        const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
-        
-        // ★★★ 核心修訂：加上 await ★★★
-        // 確保這裡跑完，isSynced 已經變為 true
+ 
+        // 儲存至歷史紀錄
         await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
     } catch (error) {
         console.error("提交指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
-        submitBtn.disabled = false; 
-        hideLoading(); // Loading 消失時，資料肯定已同步完成
+        submitBtn.disabled = false;
+        hideLoading();
     }
 }
-
 
 
 
