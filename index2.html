@@ -11547,10 +11547,22 @@ function handleAllScopeChange(checkbox) {
 
 
 // ★★★ 新增：統一處理 Log 顏色的輔助函數 ★★★
-function logProviderInfo(response, apiName) {
-    const provider = response.headers.get('X-Provider-Log');
-    const debugTraceStr = response.headers.get('X-Debug-Trace');
- 
+// ★★★ 修改後的 Log 函式 (支援 GAS 回傳格式) ★★★
+function logProviderInfo(dataOrResponse, apiName) {
+    let provider = null;
+    let debugTraceStr = null;
+
+    // 判斷傳入的是 Response 物件(舊版/Worker) 還是 Data 物件(新版/GAS)
+    if (dataOrResponse.headers && typeof dataOrResponse.headers.get === 'function') {
+        // 舊版邏輯 (保留以防萬一)
+        provider = dataOrResponse.headers.get('X-Provider-Log');
+        debugTraceStr = dataOrResponse.headers.get('X-Debug-Trace');
+    } else if (dataOrResponse._provider_log) {
+        // ★ 新版 GAS 邏輯：從 JSON 內容讀取 ★
+        provider = dataOrResponse._provider_log;
+        // 如果你有傳回 trace 也可以在這裡讀取
+    }
+
     // 1. 顯示失敗的嘗試 (如果有)
     if (debugTraceStr) {
         try {
@@ -11560,8 +11572,8 @@ function logProviderInfo(response, apiName) {
             });
         } catch(e) {}
     }
- 
-    // 2. 顯示成功的調用
+
+    // 2. 顯示成功的調用 (顏色設定與原版一致)
     if (provider) {
         if (provider.includes("OFFICIAL DEEPSEEK")) {
             // 官方 DeepSeek：橙紅風格
@@ -11627,6 +11639,10 @@ async function callAPI(input, temperature = null) {
         }
  
         const data = await response.json();
+
+        // ★★★ 新增：讀取並顯示 Log ★★★
+        logProviderInfo(data, "Gemini API");
+
         if (!data.choices || data.choices.length === 0) {
              throw new Error("API 回傳格式異常");
         }
@@ -11689,6 +11705,10 @@ async function callReadingAPI(input, temperature = null) {
         }
  
         const data = await response.json();
+
+        // ★★★ 新增：讀取並顯示 Log ★★★
+        logProviderInfo(data, "Reading API");
+
         let content = data.choices[0].message.content.trim();
         return content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
  
@@ -11743,6 +11763,10 @@ async function callLlama3API(input, temperature = null) {
         }
  
         const data = await response.json();
+
+        // ★★★ 新增：讀取並顯示 Log ★★★
+        logProviderInfo(data, "Llama3 API");
+
         let content = data.choices[0].message.content.trim();
         return content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
  
