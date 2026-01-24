@@ -19116,42 +19116,72 @@ document.addEventListener('DOMContentLoaded', function() {
 
 	<script>
 // ==========================================
-// === [修訂版] 嚴格權限檢查 (零容忍) ===
+// === [修訂版] 嚴格權限檢查 & 錯誤訊息靜音 ===
 // ==========================================
 (function() {
-    // 覆寫權限檢查函式 (Check Guest Usage Override)
+    // 1. 定義一個全域旗標，用來標記「剛剛是否觸發了會員阻擋」
+    window._isGuestBlockActive = false;
+
+    // 2. 升級 window.alert (攔截冗餘錯誤)
+    // 我們保存目前頁面上已經存在的 Alert 函式 (包含莫蘭迪樣式)
+    const existingAlert = window.alert;
+
+    window.alert = function(msg) {
+        // ★ 核心邏輯：如果處於「靜音模式」，且訊息看起來像是 API 錯誤，直接忽略
+        // 這樣就不會蓋在「會員限定」視窗上面
+        if (window._isGuestBlockActive) {
+            console.log("已自動過濾冗餘的錯誤提示:", msg);
+            return; 
+        }
+        // 否則，正常執行原本的 Alert
+        existingAlert(msg);
+    };
+
+    // 3. 覆寫權限檢查函式
     window.checkGuestUsage = function() {
-        // 1. 檢查是否已登入 (讀取本地學生資料)
+        // A. 檢查是否已登入
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         
-        // 2. 如果有資料 -> 放行 (return true)
+        // B. 如果有資料 -> 放行 (return true)
         if (s) {
             return true; 
         }
 
-        // 3. 如果沒資料 -> 直接攔截 (return false)
-        console.warn("[Permission] 未登入用戶嘗試使用生成功能，已攔截。");
+        // C. 如果沒資料 -> 執行阻擋
+        console.warn("[Permission] 未登入用戶嘗試使用，已攔截。");
         
-        // 嘗試收起側邊選單 (優化體驗)
+        // --- 步驟 1：開啟靜音模式 ---
+        // 設定為 true，持續 1.5 秒。這段時間內的「生成失敗」Alert 都會被吃掉。
+        window._isGuestBlockActive = true;
+        setTimeout(() => { window._isGuestBlockActive = false; }, 1500);
+
+        // --- 步驟 2：優化 UI 體驗 ---
+        // 嘗試收起側邊選單，避免遮擋
         const sideMenu = document.getElementById('sideMenu');
         if (sideMenu) sideMenu.classList.remove('active');
         const sideMenuToggle = document.getElementById('sideMenuToggle');
         if (sideMenuToggle) sideMenuToggle.classList.remove('active');
 
-        // 顯示頁面上已有的「會員限定」莫蘭迪風格視窗
+        // 手機震動回饋
+        if (navigator.vibrate) navigator.vibrate(50);
+
+        // --- 步驟 3：顯示漂亮的會員限定視窗 ---
         const modal = document.getElementById('loginRequiredModal');
         
         if (modal) {
             modal.style.display = 'flex';
-            // 手機震動回饋
-            if (navigator.vibrate) navigator.vibrate(50);
         } else {
-            // 防呆備用：如果找不到視窗，用原生 Alert
-            alert("⚠️ 此功能僅限登入用戶使用。\n請先登入學校帳號。");
-            openStudentLoginModal(); // 打開登入牆
+            // 防呆：萬一找不到視窗，才勉強用 Alert (需暫時解除靜音)
+            let tempState = window._isGuestBlockActive;
+            window._isGuestBlockActive = false; 
+            existingAlert("⚠️ 此功能僅限登入用戶使用。\n請先登入學校帳號。");
+            window._isGuestBlockActive = tempState;
+            
+            if (typeof openStudentLoginModal === 'function') openStudentLoginModal();
         }
 
-        return false; // 阻止後續 API 呼叫
+        // 回傳 false 以中斷 API 連線
+        return false; 
     };
 })();
 
