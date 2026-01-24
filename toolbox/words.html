@@ -2553,9 +2553,10 @@ async function fetchVocabulary(options) {
     const { mode, query, difficulty, count, topic } = options;
     let systemPrompt;
     
-    // 變數宣告
+    // ★★★ 修復點：在最外層宣告變數，預設為 false ★★★
     let shouldUsePredefined = false; 
     
+    // 定義統一的 JSON 輸出格式指令
     const jsonFormatInstruction = `{
     "results": [
         {
@@ -2572,26 +2573,32 @@ async function fetchVocabulary(options) {
     ]
     }`;
 
-    // --- 1. 建構 Prompt ---
+    // --- 1. 建構 Prompt (根據模式) ---
     if (mode === 'lookup') {
+        // [查考模式]
         systemPrompt = `你是一個詞彙學家與文學評論家。你的任務是為使用者提供的特定詞彙，提供詳細的解釋和文學例句。
 使用者指定的詞彙: "${query}"
 重要指示:
 1. 你必須提供該詞彙的精確解釋。
-2. 你必須提供五句具高度文學性的例句，每一句都必須引用自【真實世界中繁體中文作家的文學作品】，但【絕對不能】標示作家或作品名稱。
+2. 你必須提供五句具高度文學性的例句，即例句必須有文學的留白，予人有解讀的空間。每一句都必須引用自【真實世界中繁體中文作家的文學作品】，但【絕對不能】標示作家或作品名稱。
 3. 你的回傳內容必須嚴格遵循以下的 JSON 格式，不要包含任何 markdown 語法或額外說明。
 4. 所有文字都必須是繁體中文。
 5. 詞彙要白話一點，不要古典用詞。
 JSON 格式:
 ${jsonFormatInstruction}`;
+
     } else { 
+        // [生成模式] (漫遊詞海)
+        // 檢查是否有未使用的預定義詞彙
         const usedVocabs = new Set(state.lookupHistory.map(item => item.vocab));
         const availablePredefinedVocabs = PREDEFINED_VOCABS.filter(vocab => !usedVocabs.has(vocab));
         const historyVocabs = state.lookupHistory.map(item => item.vocab).join(', ');
         
+        // ★★★ 修復點：這裡變成賦值 (assignment)，而不是宣告 (declaration)
         shouldUsePredefined = !topic && availablePredefinedVocabs.length > 0;
         
         if (shouldUsePredefined) {
+            // [生成模式 - A] 使用預定義詞彙
             const selectedVocabs = [];
             const shuffleArray = [...availablePredefinedVocabs];
             for (let i = shuffleArray.length - 1; i > 0; i--) {
@@ -2605,37 +2612,53 @@ ${jsonFormatInstruction}`;
 使用者指定的詞彙列表: "${selectedVocabsStr}"
 重要指示:
 1. 你必須為列表中的每一個詞彙提供精確解釋。
-2. 你必須提供五句具高度文學性的例句。
-3. 你的回傳內容必須嚴格遵循以下的 JSON 格式，不要包含任何 markdown 語法。
-JSON 格式 (results 陣列中應有 ${selectedVocabs.length} 個物件):
+2. 你必須提供五句具高度文學性的例句，即例句必須有文學的留白，予人有解讀的空間。每一句都必須引用自【真實世界中繁體中文作家的文學作品】，但【絕對不能】標示作家或作品名稱。
+3. 你的回傳內容必須嚴格遵循以下的 JSON 格式，不要包含任何 markdown 語法或額外說明。
+4. 所有文字都必須是繁體中文。
+5. 詞彙要白話一點，不要古典用詞。
+JSON 格式 (results 陣列中應有 ${selectedVocabs.length} 個物件，對應每個指定的詞彙):
 ${jsonFormatInstruction}`;
+
         } else {
+            // [生成模式 - B] AI 全新生成
             let constraints = "";
             let topicDirectives = "";
 
             if (topic) {
-                topicDirectives = `使用者指定主題：【${topic}】。請務必生成與「${topic}」這個概念高度相關的詞彙。`;
+                topicDirectives = `使用者指定主題：【${topic}】。
+                請務必生成與「${topic}」這個概念高度相關、能精準描述、修飾或延伸該主題的詞彙。
+                詞彙與主題的關聯性必須強烈且直觀。`;
                 constraints = "生成的詞彙必須與指定主題有強烈的語意關聯。";
             } else {
                 topicDirectives = "請隨機選擇一個具文學性的主題。";
-                constraints = "生成詞彙不要以「自然景象」為相關，須生成敘事抒情文會運用的詞彙。";
+                constraints = "生成詞彙不要以「自然景象」為相關（例如日、月、星、霧），須生成敘事抒情文會運用的詞彙。不可生成隱含任何比喻的詞彙。";
             }
 
             systemPrompt = `你是一個詞彙學家與文學評論家。你的任務是生成富有文學性的繁體中文詞彙，每個詞只有兩個字或四個字。
 ${topicDirectives}
-使用者設定: 難度 ${difficulty}, 數量 ${count}
+
+使用者設定:
+- 難度（1-3顆星）: ${difficulty} (難度越高，用詞越精確、書面或罕見)
+- 生成數量: ${count}
+
 重要指示:
 1. ${constraints}
-2. 【嚴禁自創新詞】：你生成的每一個詞彙【必須】是真實存在。
-3. 為每個詞彙提供精確解釋及五句文學例句。
-4. 例句必須引用自【真實世界中繁體中文作家的文學作品】，但【絕對不能】標示作家或作品名稱。
-5. 【絕對不能生成以下任何已知詞彙】：${historyVocabs}。
-6. JSON 格式: ${jsonFormatInstruction}`;
+2. 【嚴禁自創新詞】：你生成的每一個詞彙【必須】是真實存在、且在現代繁體中文書面語中實際被使用的詞語。嚴禁自行組合字元創造新詞。
+3. 為每個生成的詞彙提供精確的解釋、以及五句文學例句。例句必須有文學的留白，予人有解讀的空間。
+4. 每一句例句都必須引用自【真實世界中繁體中文作家的文學作品】，但【絕對不能】標示作家或作品名稱。
+5. 生成的詞彙【絕對不能】重複。【絕對不能生成以下任何已知詞彙，否則此生成視為無效】：${historyVocabs}。
+6. 你的回傳內容必須嚴格遵循以下的 JSON 格式，不要包含任何 markdown 語法或額外說明。
+7. 所有文字都必須是繁體中文。
+8. 為了確保每次都能生成全新的內容，請將此唯一請求 ID 納入考量：${Date.now()}。
+
+JSON 格式 (results 陣列中應有 ${count} 個物件):
+${jsonFormatInstruction}`;
         }
     }
 
     // --- 2. 發送 API 請求 ---
     try {
+        // 定義共用的 fetch 邏輯
         const performFetch = async (retryCount = 0) => {
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
@@ -2644,20 +2667,19 @@ ${topicDirectives}
                     messages: [{ role: "user", content: systemPrompt }],
                     response_format: { type: "json_object" },
                     max_tokens: 8192,
-                    temperature: retryCount > 0 ? 1.2 : 1
+                    temperature: retryCount > 0 ? 1.2 : 1 // 重試時提高溫度
                 })
             });
 
             if (!response.ok) throw new Error(`API 請求失敗，狀態碼：${response.status}`);
             const data = await response.json();
-            
+
+            // Log 資訊
             logProviderInfo(data, `VocabFetch(Try:${retryCount})`);
 
-            // ★★★ 檢查後端是否回傳錯誤 (包含 Unauthorized) ★★★
-            if (data.error) {
-                throw new Error(`生成失敗: ${data.error}`);
-            }
+            if (data.error) throw new Error(`生成失敗: ${data.error}`);
 
+            // 同時支援 OpenAI 格式 (choices) 和 Gemini 原生格式 (candidates)
             let content = null;
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 content = data.choices[0].message.content;
@@ -2667,78 +2689,88 @@ ${topicDirectives}
 
             if (!content) {
                 console.error("API 回應結構異常:", data);
-                throw new Error("API 回應格式不正確");
+                throw new Error("API 回應格式不正確 (請查看 Console 確認詳細內容)。");
             }
 
-            // JSON 內容修復
+            // 處理內容清理 (修復常見 JSON 錯誤)
             if (content.includes('"examples"')) {
-                content = content.replace(/"examples"\s*:\s*\[(.*?)\]/gs, (match, ex) => {
-                    const fixed = ex.replace(/"([^"\n\r]*)(?=\s*,?\s*[\}\]])/g, (m, s) => {
-                        if (!m.endsWith('"')) return `"${s}"`; return m;
-                    });
-                    return `"examples":[${fixed}]`;
-                });
+                content = content.replace(
+                    /"examples"\s*:\s*\[(.*?)\]/gs,
+                    (match, examplesContent) => {
+                        const fixedExamples = examplesContent.replace(
+                            /"([^"\n\r]*)(?=\s*,?\s*[\}\]])/g,
+                            (strMatch, strContent) => {
+                                if (!strMatch.endsWith('"')) return `"${strContent}"`;
+                                return strMatch;
+                            }
+                        );
+                        return `"examples":[${fixedExamples}]`;
+                    }
+                );
             }
+            
             return parseJsonFromResponse(content);
         };
 
         // 執行請求
         let parsedData = await performFetch();
         
-        if (!parsedData || !parsedData.results || parsedData.results.length === 0) {
+        // 驗證解析結果
+        if (!parsedData || !parsedData.results || !Array.isArray(parsedData.results) || parsedData.results.length === 0) {
             if (mode === 'generate') {
-                console.warn("重試中...");
+                console.warn("第一次解析失敗，嘗試重試...");
                 parsedData = await performFetch(1);
             }
-            if (!parsedData || !parsedData.results) throw new Error("JSON 格式錯誤無法修復");
+            
+            if (!parsedData || !parsedData.results) {
+                 throw new Error("API 回應的 JSON 內容不完整或格式錯誤，且無法修復。");
+            }
         }
 
+        // 資料後處理與驗證
         const validResults = [];
         parsedData.results.forEach(item => {
             if (!item.vocab || !item.definition) return;
-            if (!item.examples || !Array.isArray(item.examples)) item.examples = [];
-            while(item.examples.length < 5) item.examples.push(`[缺少例句]`);
+            
+            if (!item.examples || !Array.isArray(item.examples)) {
+                item.examples = [];
+            }
+            
+            while(item.examples.length < 5) {
+                item.examples.push(`[缺少例句]`);
+            }
             item.examples = item.examples.slice(0, 5);
+            
             item.type = 'vocab';
-            item.generatedDate = new Date().toISOString();
-            item.id = `${item.generatedDate}-${item.vocab}`;
+            const timestamp = new Date().toISOString();
+            item.generatedDate = timestamp;
+            item.id = `${timestamp}-${item.vocab}`;
+            
             validResults.push(item);
         });
 
-        if (validResults.length === 0) throw new Error("資料不完整");
+        if (validResults.length === 0) {
+            throw new Error("API 回應的所有詞彙資料均不完整。");
+        }
 
+        // ★★★ 修復點：現在這裡可以正確存取 shouldUsePredefined ★★★
         if (mode === 'generate' && !shouldUsePredefined) {
-            const historySet = new Set(state.lookupHistory.map(i => i.vocab));
-            const unique = validResults.filter(r => !historySet.has(r.vocab));
-            if (unique.length === 0) { console.warn("結果重複"); return validResults; }
-            return unique;
+            const historyVocabsSet = new Set(state.lookupHistory.map(item => item.vocab));
+            const uniqueResults = validResults.filter(result => !historyVocabsSet.has(result.vocab));
+            
+            if (uniqueResults.length === 0) {
+                 console.warn("生成結果與歷史紀錄重複。");
+                 return validResults; 
+            }
+            return uniqueResults;
         }
 
         return validResults;
 
     } catch(error) {
         console.error("API Error (Vocab):", error);
-        
-        // 確保按鈕恢復狀態
-        const submitBtn = document.getElementById('submit-btn');
-        if(submitBtn) {
-            setLoading(false, submitBtn);
-        }
-
-        // ★★★ 關鍵修改：攔截 Unauthorized 並強制彈窗 ★★★
-        if (error.message.includes("Unauthorized") || error.message.includes("請先登入") || error.message.includes("Token")) {
-            // 呼叫我們剛剛新增的強制彈窗函式
-            if (typeof forceShowLoginModal === 'function') {
-                forceShowLoginModal();
-            } else {
-                alert("請登入學校帳號 (Token 無效)");
-                window.location.href = '../index2.html';
-            }
-            return null; // 停止執行
-        }
-
-        if (error.message.includes("API 回應格式不正確")) {
-             showError(`處理請求時發生錯誤，請稍後重試。`);
+        if (error.message.includes("API 回應格式不正確") || error.message.includes("is not defined")) {
+             showError(`處理請求時發生錯誤，請稍後重試。(${error.message})`);
         } else {
              showError(`獲取資料時發生錯誤: ${error.message}`);
         }
