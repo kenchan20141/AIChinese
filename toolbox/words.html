@@ -1765,22 +1765,49 @@ input[type="text"]:not(.no-modal-editor):hover {
         }
     };
 
-    // --- 4. 攔截器核心邏輯 ---
+   // --- 4. 攔截器核心邏輯 (修正版：自動注入 Token) ---
     const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
-        // 僅攔截 AI 請求
-        if (typeof url === 'string' && url.includes('pollinations.ai')) {
+        // 定義是否為 AI 請求
+        const isAiRequest = typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'));
+
+        // 1. 準備 Request Options (確保 headers 物件存在)
+        if (isAiRequest) {
+            options = options || {};
+            options.headers = options.headers || {};
             
-            // A. 即時檢查登入狀態 (每次請求都會重新讀取，防止登出後仍能使用)
+            // 嘗試從本地儲存讀取學生資料
+            const sProfile = localStorage.getItem('studentProfile');
+            if (sProfile) {
+                try {
+                    const studentData = JSON.parse(sProfile);
+                    // 【關鍵修正】如果有 Token，自動注入到 Authorization Header
+                    if (studentData.token) {
+                        // 如果是 Headers 物件，使用 set；如果是普通物件，直接賦值
+                        if (options.headers instanceof Headers) {
+                            options.headers.set('Authorization', `Bearer ${studentData.token}`);
+                        } else {
+                            options.headers['Authorization'] = `Bearer ${studentData.token}`;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Token 注入失敗:", e);
+                }
+            }
+        }
+
+        // 2. 權限與額度檢查邏輯
+        if (isAiRequest) {
+            // A. 即時檢查登入狀態 (檢查 studentProfile 是否存在)
             const s = localStorage.getItem('studentProfile');
             
             if (s) {
-                // 已登入：放行
+                // 已登入且 Token 已注入：放行
                 return originalFetch(url, options);
             }
 
-            // B. 未登入：檢查額度
+            // B. 未登入：檢查額度 (訪客邏輯)
             const today = new Date().toLocaleDateString('zh-HK');
             const toolName = document.title || "UnknownTool"; 
             const storageKey = `sansi_guest_usage_${toolName}_${today}`;
@@ -1788,15 +1815,13 @@ input[type="text"]:not(.no-modal-editor):hover {
             let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
 
             // C. 超過額度 -> 阻擋並彈窗
-            if (currentCount >= 1) {
-                // 顯示視窗
+            if (currentCount >= 1) { // 限制訪客只能用 1 次
                 const modal = document.getElementById('sansiLimitModal');
-                modal.style.display = 'flex';
-                // 強制重繪以觸發過渡動畫
-                void modal.offsetWidth; 
-                modal.classList.add('sansi-limit-show');
-
-                // 回傳錯誤以中斷原本程式的執行
+                if (modal) {
+                    modal.style.display = 'flex';
+                    void modal.offsetWidth; 
+                    modal.classList.add('sansi-limit-show');
+                }
                 return Promise.reject(new Error("Guest Limit Exceeded"));
             }
 
@@ -1807,9 +1832,6 @@ input[type="text"]:not(.no-modal-editor):hover {
 
         return originalFetch(url, options);
     };
-    
-    console.log("✅ 神思通用權限鎖 (含登入連結) 已啟動");
-})();
 </script>
 
 
@@ -1823,6 +1845,7 @@ input[type="text"]:not(.no-modal-editor):hover {
 
 
 // 輔助函式：從 API 回應中提取純 JSON（剝離 Markdown 程式碼區塊），並具備強大的容錯截斷修復功能
+// 輔助函式：從 API 回應中提取純 JSON（增強容錯與斷尾修復版）
 function parseJsonFromResponse(content) {
     if (!content) return null;
     
@@ -1838,20 +1861,19 @@ function parseJsonFromResponse(content) {
     } catch (e) {
         console.warn('標準 JSON 解析失敗，嘗試暴力提取模式...', e);
         
-        // 3. 暴力提取模式 (針對未完成/截斷的 JSON 字串)
+        // 3. 暴力提取模式
         try {
             // A. 提取 Vocab (詞彙)
             const vocabMatch = cleanContent.match(/"vocab"\s*:\s*"([^"]+)"/);
             // B. 提取 Definition (定義)
             const definitionMatch = cleanContent.match(/"definition"\s*:\s*"([^"]+)"/);
 
-            // 如果連詞彙或定義都找不到，那就真的沒救了
             if (vocabMatch && definitionMatch) {
                 const extractedVocab = vocabMatch[1];
                 const extractedDef = definitionMatch[1];
                 const extractedExamples = [];
 
-                // C. 提取 Examples (例句) - 不依賴閉合括號
+                // C. 提取 Examples (例句) - 增強版
                 const examplesKeyIndex = cleanContent.indexOf('"examples"');
                 if (examplesKeyIndex !== -1) {
                     const openBracketIndex = cleanContent.indexOf('[', examplesKeyIndex);
@@ -1859,15 +1881,30 @@ function parseJsonFromResponse(content) {
                         // 截取從 '[' 之後的所有內容
                         const rawExamplesPart = cleanContent.substring(openBracketIndex + 1);
                         
-                        // 使用正則表達式尋找所有「完整閉合」的雙引號字串
-                        // 這樣可以自動忽略最後那句沒寫完的斷句
+                        // 正則：尋找完整閉合的字串
                         const strRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
                         let match;
+                        let lastIndex = 0;
                         
                         while ((match = strRegex.exec(rawExamplesPart)) !== null) {
-                            // 排除空字串
                             if(match[1].trim()) {
                                 extractedExamples.push(match[1]);
+                            }
+                            lastIndex = strRegex.lastIndex;
+                        }
+
+                        // 【新增修復邏輯】檢查是否有「斷尾」的最後一句
+                        // 檢查最後一個匹配位置之後，是否還有引號開頭但沒有結尾的內容
+                        const remainingText = rawExamplesPart.substring(lastIndex).trim();
+                        // 如果剩下的文字是以 " 開頭，但後面沒有 " 結尾（或被截斷）
+                        if (remainingText.startsWith('"') && !remainingText.endsWith('"') && !remainingText.includes(']')) {
+                            // 移除開頭的引號
+                            let partialString = remainingText.substring(1);
+                            // 移除可能的逗號或空白
+                            partialString = partialString.replace(/,?\s*$/, '');
+                            if (partialString.trim().length > 0) {
+                                console.log("[JSON修復] 偵測到斷尾例句，嘗試保留:", partialString);
+                                extractedExamples.push(partialString + "……(生成中斷)");
                             }
                         }
                     }
@@ -1884,12 +1921,11 @@ function parseJsonFromResponse(content) {
                     results: [{
                         vocab: extractedVocab,
                         definition: extractedDef,
-                        examples: extractedExamples // 回傳已提取到的完整例句
+                        examples: extractedExamples
                     }]
                 };
             }
             
-            // 若無法提取核心資料，拋出原始錯誤
             throw e; 
 
         } catch (e2) {
@@ -1898,7 +1934,9 @@ function parseJsonFromResponse(content) {
         }
     }
 }
-  
+
+
+	
 // --- Main application logic ---
 function initializeApp() {
 
