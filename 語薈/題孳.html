@@ -2703,30 +2703,53 @@ function generateCustomTextQuestionTypes() {
 
      
 
-   function selectText(textId, element) {
-    // 檢查是否已選中
+ function selectText(textId, element) {
+    // 1. 處理自訂篇章的互斥邏輯 (加入安全檢查)
+    const customItem = document.querySelector('.custom-text-item');
+    if (customItem && customItem.classList.contains('selected')) {
+        customItem.classList.remove('selected');
+        // 清除自訂篇章的選擇狀態
+        if (window.customTextSelections) window.customTextSelections.clear();
+    }
+
+    // 2. 處理當前點擊的邏輯
     if (element.classList.contains('selected')) {
-        // 取消選擇
+        // --- 取消選擇 ---
         element.classList.remove('selected');
+        
         const selectedTexts = getSelectedTexts();
         const index = selectedTexts.findIndex(text => text.id === textId);
         if (index !== -1) {
             selectedTexts.splice(index, 1);
             updateSelectedTexts(selectedTexts);
         }
-        // 隱藏參考題目設定
-        document.getElementById('customReadingConfig').classList.add('hidden');
+        
+        // 隱藏對應的參考題目設定 (加入安全檢查)
+        const customConfig = document.getElementById(`customConfig-${textId}`);
+        if (customConfig) {
+            customConfig.classList.add('hidden');
+        }
+
     } else {
-        // 選中範文
+        // --- 進行選擇 ---
         element.classList.add('selected');
+        
         const selectedText = textLibrary.texts.find(text => text.id === textId);
         if (selectedText) {
             const selectedTexts = getSelectedTexts();
             selectedTexts.push(selectedText);
             updateSelectedTexts(selectedTexts);
         }
-        // 不自動顯示參考題目設定
+        // 選中時不自動顯示參考題目設定，需等待使用者開啟具體題型
     }
+    
+    // 3. 安全隱藏自訂配置區 (加入安全檢查，這是最常報錯的地方)
+    const customReadingConfig = document.getElementById('customReadingConfig');
+    if (customReadingConfig) {
+        customReadingConfig.classList.add('hidden');
+    }
+
+    // 4. 更新輸入框內容
     updateTargetPassage();
 }
 
