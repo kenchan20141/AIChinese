@@ -1729,8 +1729,8 @@ input[type="text"]:not(.no-modal-editor):hover {
                 </div>
                 <div class="sansi-limit-title">需要登入</div>
                 <div class="sansi-limit-desc">
-                    訪客每日體驗額度已耗盡。<br>
-                    請前往「神思」主頁登入學校帳號，即可解鎖無限使用權限。
+     
+                    請前往「神思」主頁登入學校帳號。
                 </div>
                 <div class="sansi-btn-group">
                     <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
@@ -4386,53 +4386,164 @@ function uploadOneMinute() {
 <!-- ======================================================= -->
 <script>
 (function() {
-    const originalFetch = window.fetch;
-    // 攔截包含 script.google.com 的請求
-    const TARGET_URL_PART = "script.google.com"; 
+    // 防止重複注入
+    if (window.SansiInterceptorLoaded) return;
+    window.SansiInterceptorLoaded = true;
 
-    window.fetch = async function(url, options) {
-        // 1. 檢查是否為發往後端的 POST 請求
-        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
-            
-            console.log("[Interceptor] 偵測到後端請求，準備注入 Token...");
-
-            // 2. 等待並獲取最新的 Firebase User
-            const user = await new Promise((resolve) => {
-                if (firebase.auth().currentUser) {
-                    resolve(firebase.auth().currentUser);
-                } else {
-                    // 等待狀態變化 (最多等 2 秒，避免卡死)
-                    const unsubscribe = firebase.auth().onAuthStateChanged(u => {
-                        unsubscribe();
-                        resolve(u);
-                    });
-                    setTimeout(() => resolve(null), 2000);
-                }
-            });
-
-            if (user) {
-                try {
-                    // 3. 強制獲取 Token
-                    const token = await user.getIdToken();
-                    
-                    // 4. 解析原本的 Body 並注入 Token
-                    let bodyData = JSON.parse(options.body);
-                    bodyData.token = token; // ★ 強制注入 Token 供後端驗證
-                    
-                    // 5. 更新 Body
-                    options.body = JSON.stringify(bodyData);
-                    console.log("[Interceptor] Token 注入成功！");
-                } catch (e) {
-                    console.error("[Interceptor] Token 獲取失敗:", e);
-                }
-            } else {
-                console.warn("[Interceptor] 用戶未登入，無法注入 Token (後端可能會拒絕)");
-            }
+    // --- 1. 自動注入莫蘭迪 CSS ---
+    const style = document.createElement('style');
+    style.textContent = `
+        /* 莫蘭迪遮罩 */
+        .sansi-limit-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(253, 252, 248, 0.88); /* 米白高模糊 */
+            backdrop-filter: blur(6px);
+            z-index: 9999999; /* 最高層級 */
+            display: none; justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.3s ease;
         }
-        
-        // 6. 執行請求
+        .sansi-limit-show { opacity: 1; }
+
+        /* 視窗卡片 */
+        .sansi-limit-card {
+            background: #fdfcf8;
+            border: 1px solid #e0ddd7;
+            border-radius: 16px;
+            padding: 30px 25px;
+            width: 90%; max-width: 380px;
+            box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
+            text-align: center;
+            transform: translateY(20px);
+            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+            font-family: 'Noto Serif TC', serif;
+        }
+        .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
+
+        /* 圖示與文字 */
+        .sansi-limit-icon { font-size: 3rem; color: #d69a92; margin-bottom: 15px; } /* 豆沙紅 */
+        .sansi-limit-title { color: #5d4037; font-size: 1.4rem; font-weight: bold; margin: 0 0 10px 0; }
+        .sansi-limit-desc { color: #888; font-size: 1rem; line-height: 1.6; margin-bottom: 25px; text-align: justify; }
+
+        /* 按鈕群組 */
+        .sansi-btn-group { display: flex; gap: 12px; margin-top: 20px; }
+
+        .sansi-limit-btn {
+            border: none; padding: 10px 0; border-radius: 50px;
+            font-size: 0.95rem; font-weight: bold; cursor: pointer;
+            transition: all 0.2s; font-family: 'Noto Serif TC', serif;
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+            text-decoration: none;
+        }
+
+        /* 主按鈕 (前往登入) - 莫蘭迪綠 */
+        .btn-primary { 
+            background: #8fa398; color: white; 
+            box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
+        }
+        .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
+
+        /* 次按鈕 (關閉) - 淺灰 */
+        .btn-secondary { 
+            background: #f0f0f0; color: #777; 
+        }
+        .btn-secondary:hover { background-color: #e5e5e5; }
+    `;
+    document.head.appendChild(style);
+
+    // --- 2. 自動注入 HTML (彈出視窗) ---
+    const modalHTML = `
+        <div id="sansiLimitModal" class="sansi-limit-overlay">
+            <div class="sansi-limit-card">
+                <div class="sansi-limit-icon">
+                    <i class="fas fa-user-lock"></i>
+                    <!-- SVG Fallback if fontawesome not loaded -->
+                     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #d69a92;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </div>
+                <div class="sansi-limit-title">需要登入</div>
+                <div class="sansi-limit-desc">
+                     請前往「神思」主頁登入學校帳號。
+                </div>
+                <div class="sansi-btn-group">
+                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
+                        稍後
+                    </button>
+                    <!-- 點擊直接跳轉至神思主頁 -->
+                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'">
+                        前往登入
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    const div = document.createElement('div');
+    div.innerHTML = modalHTML;
+    document.body.appendChild(div);
+
+    // --- 3. 定義關閉視窗與清理函式 ---
+    window.closeSansiLimitModal = function() {
+        const modal = document.getElementById('sansiLimitModal');
+        if (modal) {
+            modal.classList.remove('sansi-limit-show');
+            setTimeout(() => { modal.style.display = 'none'; }, 300);
+            
+            // 自動嘗試關閉各種工具的 Loading 狀態
+            const submitBtns = document.querySelectorAll('.submit-btn, #submit-btn, #quiz-start-btn');
+            submitBtns.forEach(btn => {
+                btn.disabled = false;
+                const loader = btn.querySelector('.loader');
+                if(loader) loader.remove();
+                const textSpan = btn.querySelector('.btn-text');
+                if(textSpan && btn.dataset.originalText) textSpan.textContent = btn.dataset.originalText;
+            });
+        }
+    };
+
+    // --- 4. 攔截器核心邏輯 ---
+    const originalFetch = window.fetch;
+    
+    window.fetch = async function(url, options) {
+        // ★★★ 修正重點：同時攔截 pollinations.ai (繪圖) 和 script.google.com (文字生成) ★★★
+        const isAiRequest = typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'));
+
+        if (isAiRequest) {
+            
+            // A. 即時檢查登入狀態
+            const s = localStorage.getItem('studentProfile');
+            
+            if (s) {
+                // 已登入：放行
+                return originalFetch(url, options);
+            }
+
+            // B. 未登入：檢查額度
+            const today = new Date().toLocaleDateString('zh-HK');
+            const toolName = document.title || "UnknownTool"; 
+            const storageKey = `sansi_guest_usage_${toolName}_${today}`;
+            
+            let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
+
+            // C. 超過額度 -> 阻擋並彈窗
+            if (currentCount >= 1) { // 限制訪客只能用 1 次
+                // 顯示視窗
+                const modal = document.getElementById('sansiLimitModal');
+                modal.style.display = 'flex';
+                // 強制重繪以觸發過渡動畫
+                void modal.offsetWidth; 
+                modal.classList.add('sansi-limit-show');
+
+                // 回傳錯誤以中斷原本程式的執行
+                return Promise.reject(new Error("Guest Limit Exceeded"));
+            }
+
+            // D. 未超過 -> 記錄並放行
+            localStorage.setItem(storageKey, currentCount + 1);
+            console.log(`[訪客] ${toolName} 使用第 ${currentCount + 1} 次`);
+        }
+
         return originalFetch(url, options);
     };
+    
+    console.log("✅ 神思通用權限鎖 (修正版) 已啟動");
 })();
 </script>
 	
