@@ -17826,9 +17826,8 @@ function manageLoadMoreButton() {
 }
 
 	
-// === 輔助函數：渲染列表 HTML (避免代碼重複) ===
-// === 輔助函數：渲染列表 HTML (CSP 修復版) ===
-// 參數: isSyncing (舊參數), isAppend (新參數: true=附加到底部, false=清空重畫)
+// === 輔助函數：渲染列表 HTML (防重複顯示修復版) ===
+// 參數: dataArray (資料陣列), isSyncing (同步中?), isAppend (是否附加)
 function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
     const listDiv = document.getElementById('assignmentList');
     
@@ -17841,19 +17840,32 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
     const morandiPalette = ['#8fa398', '#94a7b5', '#b6a6ca', '#d69a92', '#c7b299'];
 
     if (isSyncing) {
-        listDiv.innerHTML += `<div>...</div>`;
+        // 如果是同步中，且列表是空的，才顯示 ...
+        if (listDiv.children.length === 0) {
+            listDiv.innerHTML += `<div>...</div>`;
+        }
         return;
     }
 
     dataArray.forEach((item, index) => {
+        const key = item.key; // 獲取課業的唯一 ID (Firebase Key)
+        
+        // ★★★ [核心修復] 防重複檢查 ★★★
+        // 如果畫面上已經有這個 ID 的卡片，直接跳過，不重複渲染
+        if (document.getElementById(`task-card-${key}`)) {
+            return;
+        }
+
         const task = item.task;
         const submission = item.submission;
+        
+        // 為了視覺美觀，使用隨機或輪替顏色
         const themeColor = morandiPalette[index % morandiPalette.length];
 
         let uiClass = '';
         let statusIcon = '';
         let statusText = '';
-        let clickHandler = null; // 用來儲存點擊事件的函數
+        let clickHandler = null; 
         let dateDisplay = new Date(task.timestamp).toLocaleDateString('zh-HK', {month:'2-digit', day:'2-digit'});
 
         if (submission && submission.teacherFeedback && submission.teacherFeedback.status === 'returned') {
@@ -17862,8 +17874,6 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
             statusText = '查看評語';
             submission.topic = task.topic; 
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            
-            // ★★★ 修復重點：直接定義函數，而不是字串 ★★★
             clickHandler = function() { showTeacherFeedback(submissionStr); };
         }
         else if (submission) {
@@ -17873,24 +17883,23 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
             submission.topic = task.topic;
             submission.isPending = true; 
             const submissionStr = encodeURIComponent(JSON.stringify(submission));
-            
-            // ★★★ 修復重點：直接定義函數 ★★★
             clickHandler = function() { showTeacherFeedback(submissionStr); };
         }
         else {
             uiClass = 'status-pending';
             statusIcon = '<i class="fas fa-pen"></i>'; 
             statusText = '未繳交';
-            
-            // ★★★ 修復重點：直接定義函數 ★★★
             clickHandler = function() { goToHistoryForAssignment(task.topic); };
         }
 
         // 建立 DOM 元素
         const cardDiv = document.createElement('div');
-        cardDiv.className = `task-card ${uiClass}`;
         
-        // ★★★ 修復重點：直接將函數賦值給 onclick，移除 eval() ★★★
+        // ★★★ [核心修復] 設定唯一 ID ★★★
+        // 這樣上面的 if 檢查才能生效
+        cardDiv.id = `task-card-${key}`; 
+        
+        cardDiv.className = `task-card ${uiClass}`;
         cardDiv.onclick = clickHandler; 
         
         cardDiv.style.setProperty('--theme-color', themeColor);
@@ -17910,6 +17919,8 @@ function renderAssignmentList(dataArray, isSyncing, isAppend = false) {
         listDiv.appendChild(cardDiv);
     });
 }
+
+	
 	// === 新增：從未繳交課業跳轉至歷史紀錄 ===
 // === 新增：從未繳交課業跳轉至歷史紀錄 (無提示版) ===
 function goToHistoryForAssignment(topic) {
