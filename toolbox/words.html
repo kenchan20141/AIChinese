@@ -2571,7 +2571,6 @@ async function fetchVocabulary(options) {
     }`;
 
     // --- 1. 建構 Prompt (根據模式) ---
-
     if (mode === 'lookup') {
         // [查考模式]
         systemPrompt = `你是一個詞彙學家與文學評論家。你的任務是為使用者提供的特定詞彙，提供詳細的解釋和文學例句。
@@ -2587,11 +2586,9 @@ ${jsonFormatInstruction}`;
 
     } else { 
         // [生成模式] (漫遊詞海)
-        
         // 檢查是否有未使用的預定義詞彙
         const usedVocabs = new Set(state.lookupHistory.map(item => item.vocab));
         const availablePredefinedVocabs = PREDEFINED_VOCABS.filter(vocab => !usedVocabs.has(vocab));
-        
         const historyVocabs = state.lookupHistory.map(item => item.vocab).join(', ');
         
         // 判斷：只有在「沒有指定主題」且「還有預定義詞彙」時，才使用本地預定義詞庫
@@ -2606,7 +2603,6 @@ ${jsonFormatInstruction}`;
                 [shuffleArray[i], shuffleArray[j]] = [shuffleArray[j], shuffleArray[i]];
             }
             selectedVocabs.push(...shuffleArray.slice(0, Math.min(count, availablePredefinedVocabs.length)));
-            
             const selectedVocabsStr = selectedVocabs.join('、');
             
             systemPrompt = `你是一個詞彙學家與文學評論家。你的任務是為以下指定的繁體中文詞彙，提供詳細的解釋和文學例句。
@@ -2621,19 +2617,16 @@ JSON 格式 (results 陣列中應有 ${selectedVocabs.length} 個物件，對應
 ${jsonFormatInstruction}`;
 
         } else {
-            // [生成模式 - B] AI 全新生成 (有主題 或 預定義用盡)
-            
+            // [生成模式 - B] AI 全新生成
             let constraints = "";
             let topicDirectives = "";
 
             if (topic) {
-                // 有主題：專注於主題相關性
                 topicDirectives = `使用者指定主題：【${topic}】。
                 請務必生成與「${topic}」這個概念高度相關、能精準描述、修飾或延伸該主題的詞彙。
                 詞彙與主題的關聯性必須強烈且直觀。`;
                 constraints = "生成的詞彙必須與指定主題有強烈的語意關聯。";
             } else {
-                // 無主題 (且預定義用盡)：隨機生成，但偏向敘事抒情
                 topicDirectives = "請隨機選擇一個具文學性的主題。";
                 constraints = "生成詞彙不要以「自然景象」為相關（例如日、月、星、霧），須生成敘事抒情文會運用的詞彙。不可生成隱含任何比喻的詞彙。";
             }
@@ -2660,12 +2653,10 @@ ${jsonFormatInstruction}`;
         }
     }
 
-    // --- 2. 發送 API 請求 (透過 GAS 後端) ---
-
+    // --- 2. 發送 API 請求 ---
     try {
-        // [情境 1 & 2] 查考模式 或 預定義生成模式 (不需要前端重試邏輯)
-        if (mode === 'lookup' || (mode === 'generate' && !topic && PREDEFINED_VOCABS.filter(v => !new Set(state.lookupHistory.map(i => i.vocab)).has(v)).length > 0)) {
-            
+        // 定義共用的 fetch 邏輯
+        const performFetch = async (retryCount = 0) => {
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -2673,7 +2664,7 @@ ${jsonFormatInstruction}`;
                     messages: [{ role: "user", content: systemPrompt }],
                     response_format: { type: "json_object" },
                     max_tokens: 4096,
-                    temperature: 1
+                    temperature: retryCount > 0 ? 1.2 : 1 // 重試時提高溫度
                 })
             });
 
@@ -2681,292 +2672,117 @@ ${jsonFormatInstruction}`;
             const data = await response.json();
 
             // ★★★ Log 資訊 ★★★
-            logProviderInfo(data, mode === 'lookup' ? "VocabLookup" : "VocabPredefined");
+            logProviderInfo(data, `VocabFetch(Try:${retryCount})`);
 
             if (data.error) throw new Error(`生成失敗: ${data.error}`);
-            if (!data.choices?.[0]?.message?.content) throw new Error("API 回應格式不正確。");
 
-            // 檢查內容是否為有效 JSON 字符串，嘗試修復常見錯誤
-            let content = data.choices[0].message.content;
+            // ★★★ 關鍵修正：同時支援 OpenAI 格式 (choices) 和 Gemini 原生格式 (candidates) ★★★
+            let content = null;
             
-            // 嘗試修復未終止的字符串（如 "那 沒有結束引號）
+            // 優先檢查 OpenAI 格式
+            if (data.choices && data.choices[0] && data.choices[0].message) {
+                content = data.choices[0].message.content;
+            } 
+            // 其次檢查 Gemini 原生格式 (fallback)
+            else if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+                content = data.candidates[0].content.parts[0].text;
+            }
+
+            if (!content) {
+                console.error("API 回應結構異常:", data);
+                throw new Error("API 回應格式不正確 (請查看 Console 確認詳細內容)。");
+            }
+
+            // 處理內容清理 (修復常見 JSON 錯誤)
             if (content.includes('"examples"')) {
-                // 修復未終止的字符串引號
                 content = content.replace(
                     /"examples"\s*:\s*\[(.*?)\]/gs,
                     (match, examplesContent) => {
-                        // 將每個未結束的字符串補上引號
                         const fixedExamples = examplesContent.replace(
                             /"([^"\n\r]*)(?=\s*,?\s*[\}\]])/g,
                             (strMatch, strContent) => {
-                                // 如果匹配到的字符串沒有結束引號，補上
-                                if (!strMatch.endsWith('"')) {
-                                    return `"${strContent}"`;
-                                }
+                                if (!strMatch.endsWith('"')) return `"${strContent}"`;
                                 return strMatch;
                             }
                         );
                         return `"examples":[${fixedExamples}]`;
                     }
                 );
-                
-                // 修復缺少逗號的情況
-                content = content.replace(
-                    /"(\s*)(?=\])/g,
-                    '"$1'
-                );
             }
             
-            const parsedData = parseJsonFromResponse(content);
+            return parseJsonFromResponse(content);
+        };
 
-            if (!parsedData || !parsedData.results || !Array.isArray(parsedData.results) || parsedData.results.length === 0) {
-                // 如果解析失敗，嘗試從原始內容中提取部分數據
-                console.warn("API JSON 解析失敗，嘗試提取部分數據...");
-                
-                // 嘗試提取詞彙和定義
-                const vocabMatch = content.match(/"vocab"\s*:\s*"([^"]+)"/);
-                const definitionMatch = content.match(/"definition"\s*:\s*"([^"]+)"/);
-                
-                if (vocabMatch && definitionMatch) {
-                    // 嘗試提取例句
-                    const examples = [];
-                    const exampleMatches = content.match(/"examples"\s*:\s*\[(.*?)\]/s);
-                    
-                    if (exampleMatches) {
-                        const exampleText = exampleMatches[1];
-                        // 嘗試找到所有被引號包圍的字符串
-                        const quoteMatches = exampleText.match(/"([^"]+)"/g);
-                        if (quoteMatches) {
-                            quoteMatches.forEach(match => {
-                                examples.push(match.replace(/"/g, ''));
-                            });
-                        }
-                    }
-                    
-                    // 確保至少有3個例句
-                    while (examples.length < 3) {
-                        examples.push("例句資料不完整");
-                    }
-                    
-                    // 返回修復後的數據
-                    const fixedResults = [{
-                        vocab: vocabMatch[1],
-                        definition: definitionMatch[1],
-                        examples: examples.slice(0, 5)
-                    }];
-                    
-                    // 資料後處理與驗證
-                    fixedResults.forEach(item => {
-                        while(item.examples.length < 5) {
-                            item.examples.push(`[缺少例句]`);
-                        }
-                        item.examples = item.examples.slice(0, 5);
-                        item.type = 'vocab';
-                        const timestamp = new Date().toISOString();
-                        item.generatedDate = timestamp;
-                        item.id = `${timestamp}-${item.vocab}`;
-                    });
-                    
-                    return fixedResults;
-                }
-                
-                throw new Error("API 回應的 JSON 內容不完整或格式錯誤，且無法修復。");
+        // 執行請求
+        let parsedData = await performFetch();
+        
+        // 驗證解析結果
+        if (!parsedData || !parsedData.results || !Array.isArray(parsedData.results) || parsedData.results.length === 0) {
+            // 如果解析失敗且為生成模式，嘗試簡單重試一次
+            if (mode === 'generate') {
+                console.warn("第一次解析失敗，嘗試重試...");
+                parsedData = await performFetch(1);
             }
-
-            // 資料後處理與驗證
-            parsedData.results.forEach(item => {
-                if (!item.vocab || !item.definition || !item.examples || !Array.isArray(item.examples)) {
-                    console.warn(`詞彙 "${item.vocab || '未知'}" 的資料不完整或格式錯誤，將被過濾。`);
-                    return;
-                }
-                while(item.examples.length < 5) {
-                    item.examples.push(`[缺少例句]`);
-                }
-                item.examples = item.examples.slice(0, 5);
-                item.type = 'vocab';
-                const timestamp = new Date().toISOString();
-                item.generatedDate = timestamp;
-                item.id = `${timestamp}-${item.vocab}`;
-            });
-
-            const validResults = parsedData.results.filter(item => item.vocab && item.definition && item.examples);
-            if(validResults.length === 0) {
-                throw new Error("API 回應的所有詞彙資料均不完整。");
-            }
-            return validResults;
-
-        } else { 
-            // [情境 3] AI 全新生成模式 (需要前端重試邏輯以避免重複)
             
-            let maxRetries = 30; // 前端重試次數 (針對內容重複)
-            let results = null;
-
-            while (maxRetries > 0) {
-                const response = await fetch(CLOUDFLARE_WORKER_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        model: "gemini",
-                        messages: [{ role: "user", content: systemPrompt }],
-                        response_format: { type: "json_object" },
-                        max_tokens: 4096,
-                        temperature: 1.2 // 提高溫度以增加多樣性
-                    })
-                });
-
-                if (!response.ok) throw new Error(`API 請求失敗，狀態碼：${response.status}`);
-                const data = await response.json();
-
-                // ★★★ Log 資訊 ★★★
-                logProviderInfo(data, `VocabGenerate(Try:${31-maxRetries})`);
-
-                if (data.error) {
-                    // 後端錯誤 (如 key 耗盡)，記錄並重試
-                    console.warn(`生成失敗: ${data.error}，剩餘重試次數：${--maxRetries}`);
-                    continue;
-                }
-
-                if (!data.choices?.[0]?.message?.content) throw new Error("API 回應格式不正確。");
-                
-                // 嘗試修復 JSON 內容
-                let content = data.choices[0].message.content;
-                if (content.includes('"examples"')) {
-                    content = content.replace(
-                        /"examples"\s*:\s*\[(.*?)\]/gs,
-                        (match, examplesContent) => {
-                            const fixedExamples = examplesContent.replace(
-                                /"([^"\n\r]*)(?=\s*,?\s*[\}\]])/g,
-                                (strMatch, strContent) => {
-                                    if (!strMatch.endsWith('"')) {
-                                        return `"${strContent}"`;
-                                    }
-                                    return strMatch;
-                                }
-                            );
-                            return `"examples":[${fixedExamples}]`;
-                        }
-                    );
-                }
-                
-                const parsedData = parseJsonFromResponse(content);
-                
-                if (!parsedData.results || !Array.isArray(parsedData.results) || parsedData.results.length === 0) {
-                    // 格式錯誤，重試
-                    console.warn("API JSON 格式錯誤，重試中...");
-                    maxRetries--;
-                    continue;
-                }
-
-                // 資料驗證與補齊
-                parsedData.results.forEach(item => {
-                    if (!item.vocab || !item.definition || !item.examples || !Array.isArray(item.examples)) {
-                        return;
-                    }
-                    while(item.examples.length < 5) item.examples.push(`[缺少例句]`);
-                    item.examples = item.examples.slice(0, 5);
-                    item.type = 'vocab';
-                    const timestamp = new Date().toISOString();
-                    item.generatedDate = timestamp;
-                    item.id = `${timestamp}-${item.vocab}`;
-                });
-
-                let validResults = parsedData.results.filter(item => item.vocab && item.definition && item.examples);
-
-                // --- 關鍵：前端去重邏輯 ---
-                const historyVocabsSet = new Set(state.lookupHistory.map(item => item.vocab));
-                const duplicates = validResults.filter(result => historyVocabsSet.has(result.vocab));
-                
-                if (duplicates.length > 0) {
-                    console.warn(`生成結果有 ${duplicates.length} 個重複，剩餘重試次數：${--maxRetries}`);
-                    continue; // 有重複，重試
-                }
-
-                if (validResults.length === 0) {
-                    throw new Error("API 回應的所有詞彙資料均不完整。");
-                }
-
-                results = validResults; // 成功獲取不重複資料
-                break; // 跳出迴圈
+            // 如果還是失敗，嘗試最後的 fallback 提取 (使用 parseJsonFromResponse 的強力修復能力)
+            if (!parsedData || !parsedData.results) {
+                 throw new Error("API 回應的 JSON 內容不完整或格式錯誤，且無法修復。");
             }
-
-            // Fallback 邏輯 (如果重試全失敗)
-            if (!results) {
-                console.error("重試達上限，啟用 fallback 過濾重複詞彙。");
-                
-                // 最後一次嘗試呼叫 (不檢查重複，只求有結果)
-                const fallbackResponse = await fetch(CLOUDFLARE_WORKER_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        model: "gemini",
-                        messages: [{ role: "user", content: systemPrompt }],
-                        response_format: { type: "json_object" },
-                        max_tokens: 4096,
-                        temperature: 1.2
-                    })
-                });
-
-                if (!fallbackResponse.ok) throw new Error(`Fallback API 請求失敗，狀態碼：${fallbackResponse.status}`);
-                const fallbackData = await fallbackResponse.json();
-                
-                logProviderInfo(fallbackData, "VocabFallback");
-
-                if (fallbackData.error) throw new Error(`生成失敗: ${fallbackData.error}`);
-
-                // 嘗試修復 fallback 內容
-                let fallbackContent = fallbackData.choices?.[0]?.message?.content || '';
-                if (fallbackContent.includes('"examples"')) {
-                    fallbackContent = fallbackContent.replace(
-                        /"examples"\s*:\s*\[(.*?)\]/gs,
-                        (match, examplesContent) => {
-                            const fixedExamples = examplesContent.replace(
-                                /"([^"\n\r]*)(?=\s*,?\s*[\}\]])/g,
-                                (strMatch, strContent) => {
-                                    if (!strMatch.endsWith('"')) {
-                                        return `"${strContent}"`;
-                                    }
-                                    return strMatch;
-                                }
-                            );
-                            return `"examples":[${fixedExamples}]`;
-                        }
-                    );
-                }
-                
-                const fallbackParsed = parseJsonFromResponse(fallbackContent);
-                
-                if (!fallbackParsed.results || !Array.isArray(fallbackParsed.results)) {
-                    throw new Error("Fallback 回應格式錯誤。");
-                }
-
-                fallbackParsed.results.forEach(item => {
-                    if (!item.vocab || !item.definition || !item.examples) return;
-                    while(item.examples.length < 5) item.examples.push(`[缺少例句]`);
-                    item.examples = item.examples.slice(0, 5);
-                    item.type = 'vocab';
-                    const timestamp = new Date().toISOString();
-                    item.generatedDate = timestamp;
-                    item.id = `${timestamp}-${item.vocab}`;
-                });
-
-                let fallbackValid = fallbackParsed.results.filter(item => item.vocab && item.definition && item.examples);
-                
-                // 盡力過濾，如果過濾後沒剩半個，那就報錯
-                const historyVocabsSet = new Set(state.lookupHistory.map(item => item.vocab));
-                results = fallbackValid.filter(result => !historyVocabsSet.has(result.vocab));
-                
-                if (results.length === 0) {
-                    throw new Error("Fallback 後仍無有效不重複詞彙，請稍後重試。");
-                }
-                console.warn(`Fallback 過濾後剩 ${results.length} 個不重複詞彙。`);
-            }
-            return results;
         }
+
+        // 資料後處理與驗證
+        const validResults = [];
+        parsedData.results.forEach(item => {
+            // 基本欄位檢查
+            if (!item.vocab || !item.definition) return;
+            
+            // 確保 examples 存在且為陣列
+            if (!item.examples || !Array.isArray(item.examples)) {
+                item.examples = [];
+            }
+            
+            // 補齊例句
+            while(item.examples.length < 5) {
+                item.examples.push(`[缺少例句]`);
+            }
+            item.examples = item.examples.slice(0, 5);
+            
+            // 附加 metadata
+            item.type = 'vocab';
+            const timestamp = new Date().toISOString();
+            item.generatedDate = timestamp;
+            item.id = `${timestamp}-${item.vocab}`;
+            
+            validResults.push(item);
+        });
+
+        // 檢查是否所有結果都被過濾掉了
+        if (validResults.length === 0) {
+            throw new Error("API 回應的所有詞彙資料均不完整。");
+        }
+
+        // 如果是生成模式，執行去重
+        if (mode === 'generate' && !shouldUsePredefined) {
+            const historyVocabsSet = new Set(state.lookupHistory.map(item => item.vocab));
+            const uniqueResults = validResults.filter(result => !historyVocabsSet.has(result.vocab));
+            
+            if (uniqueResults.length === 0) {
+                 // 如果全部重複，這種情況在嚴格模式下可能需要重試，但為了使用者體驗，
+                 // 這裡我們放寬限制，只提示警告，並回傳原始結果（或您可以選擇拋出錯誤讓使用者重按）
+                 console.warn("生成結果與歷史紀錄重複。");
+                 return validResults; 
+            }
+            return uniqueResults;
+        }
+
+        return validResults;
 
     } catch(error) {
         console.error("API Error (Vocab):", error);
-        if (error instanceof SyntaxError) {
-            showError("API 回傳格式錯誤，無法解析。請重試。");
+        if (error.message.includes("API 回應格式不正確")) {
+             showError(`API 回應格式異常，請稍後重試或檢查網絡。`);
         } else {
-            showError(`獲取資料時發生錯誤: ${error.message}`);
+             showError(`獲取資料時發生錯誤: ${error.message}`);
         }
         return null;
     }
