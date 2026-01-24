@@ -421,19 +421,22 @@
                         <button class="word-count-btn" id="increase-words">+</button>
                     </div>
                 </div>
-                <div class="control-group">
-                    <label>選擇模型</label>
-                     <div class="style-selector">
-                        <label>
-                            <input type="radio" name="model" value="qwen-3-235b-a22b-instruct-2507" checked>
-                            <span>魚木</span>
-                        </label>
-                        <label>
-                            <input type="radio" name="model" value="qwen-3-235b-a22b-instruct-2507">
-                            <span>水心</span>
-                        </label>
-                    </div>
-                </div>
+               <!-- ★★★ 請修改為以下內容 ★★★ -->
+<div class="control-group">
+    <label>選擇模型</label>
+    <div class="style-selector">
+        <label>
+            <!-- 魚木設定為 deepseek -->
+            <input type="radio" name="model" value="deepseek" checked>
+            <span>魚木</span>
+        </label>
+        <label>
+            <!-- 水心設定為 gemini -->
+            <input type="radio" name="model" value="gemini">
+            <span>水心</span>
+        </label>
+    </div>
+</div>
                 <button class="generate-btn" id="generate-btn">生成文章</button>
             </div>
             <div class="output">
@@ -771,11 +774,8 @@
             const outputWordCount = document.getElementById('output-word-count');
             const copyBtn = document.getElementById('copy-btn');
             
-const API_KEYS = [
-  "friend1"
-];
-// let currentApiKeyIndex = 0; // 這個變數不再需要，可以刪除或註解掉
-const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
+// --- 1. 定義新的 GAS 後端網址 ---
+            const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbzaAnSXaaCohL8b92B7bRzhMk3cMr7hhoQc1icKSr_Oy1JLFUPV32jbouJIKfEIgUepeA/exec";
 
             // 索引，用來記錄我們現在該用第幾個 KEY。
             // 程式中，列表的第一個項目是從 0 開始算，所以 0 代表第一個 KEY。
@@ -864,7 +864,7 @@ const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
             }
 
 
-            generateBtn.addEventListener('click', async () => {
+           generateBtn.addEventListener('click', async () => {
                 const topic = topicInput.value.trim();
                 const userGuidelines = guidelinesInput.value.trim();
                 const hiddenInstruction = "引用古今中外論據，偶然要用比喻作論證，不要抄襲《論得失》的論據。此外，要根據題目靈活分段，不要抄襲《論得失》的的分段，只要超過一千字，便必須分為6段或以上。";
@@ -872,6 +872,8 @@ const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
                 const finalGuidelines = userGuidelines 
                     ? `${userGuidelines}\n${hiddenInstruction}` 
                     : hiddenInstruction;
+                
+                // 這裡會讀取你在第一步修改的 value (deepseek 或 gemini)
                 const selectedModel = document.querySelector('input[name="model"]:checked').value;
                 
                 if (!topic) {
@@ -896,22 +898,39 @@ const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
                         systemPrompt += `\n\n[額外創作指引]\n${finalGuidelines}`;
                     }
 
-                    // 建立要發送的資料包
-                    const payload = {
-                        model: selectedModel,
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            { role: 'user', content: `請根據以上所有指示，為題目《${topic}》生成一篇議論文。` }
-                        ],
-                        stream: false
-                    };
+                    // --- 2. 發送請求至 GAS 後端 (修改部分) ---
+                    // 注意：這裡移除了 headers 中的 Authorization，因為 Token Injector 會自動處理
+                    // 也不再使用 generateWithRetry，直接 fetch
+                    const response = await fetch(CLOUDFLARE_WORKER_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            model: selectedModel, // 傳送 "deepseek" 或 "gemini"
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                { role: 'user', content: `請根據以上所有指示，為題目《${topic}》生成一篇議論文。` }
+                            ],
+                            stream: false
+                        })
+                    });
 
-                    // =================================================================
-                    // 【核心修改】 2. 調用我們新的函式，而不是直接 fetch
-                    // =================================================================
-                    // 這個 await 會等待 generateWithRetry 完成。
-                    // 如果成功，它會返回 data；如果所有 key 都失敗，它會拋出錯誤被下面的 catch 捕捉。
-                    const data = await generateWithRetry(payload);
+                    if (!response.ok) {
+                        throw new Error(`API 請求失敗，狀態碼：${response.status}`);
+                    }
+
+                    const data = await response.json();
+
+                    // === [Log Provider Info] 顯示後端調度資訊 (含顏色) ===
+                    if (data._provider_log) {
+                        console.log(
+                            `%c[Backend] Provider: ${data._provider_log}`, 
+                            'background: #2b2d42; color: #8d99ae; padding: 4px 8px; border-radius: 4px; font-weight: bold; border: 1px solid #edf2f4;'
+                        );
+                    }
+                    
+                    // 檢查後端錯誤
+                    if (data.error) {
+                        throw new Error(`Backend Error: ${data.error}`);
+                    }
 
                     const resultText = data.choices[0].message.content;
 
@@ -921,13 +940,10 @@ const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
                     outputToolbar.style.display = 'flex';
 
                 } catch (error) {
-                    // 這個 catch 區塊現在只會在【所有 Key 都失敗後】才會被觸發
                     console.error('生成失敗:', error);
-                    // 顯示最終的錯誤訊息給用戶
-                    essayPlaceholder.textContent = '生成失敗，所有備用線路均無回應，請稍後再試。';
+                    essayPlaceholder.textContent = '生成失敗，請稍後再試。';
                     essayPlaceholder.style.display = 'flex';
                 } finally {
-                    // 無論成功或最終失敗，都還原 UI 狀態
                     generateBtn.disabled = false;
                     generateBtn.textContent = '生成文章';
                     loader.style.display = 'none';
@@ -944,30 +960,112 @@ const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
-<!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+<!-- === 2. Firebase 初始化、持久化與 Token 注入器 === -->
 <script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-    authDomain: "sansidata.firebaseapp.com",
-    projectId: "sansidata",
-    storageBucket: "sansidata.firebasestorage.app",
-    messagingSenderId: "580288358575",
-    appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-    databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
-  };
+    // 1. 定義 Firebase 設定
+    const firebaseConfig = {
+        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+        authDomain: "sansidata.firebaseapp.com",
+        projectId: "sansidata",
+        storageBucket: "sansidata.firebasestorage.app",
+        messagingSenderId: "580288358575",
+        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
+    };
 
-  // ★★★ 修正重點：補上初始化指令 ★★★
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
-  
-  // ★★★ 修正重點：定義 database 變數，下面的程式才抓得到 ★★★
-  var database = firebase.database();
+    // 2. 初始化 Firebase
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    var database = firebase.database();
+    var auth = firebase.auth();
 
-  // (選用) 啟用匿名驗證，確保連線權限更穩定
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
-  });
+    // 3. 啟動監聽與同步邏輯 (持久化)
+    document.addEventListener('DOMContentLoaded', function() {
+        if (auth) {
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+            .then(() => {
+                auth.onAuthStateChanged(async (user) => {
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+                    if (user) {
+                        console.log("[ZiZhen] 🟢 偵測到有效登入:", user.email);
+                        if (!s) {
+                            console.log("[ZiZhen] 正在同步雲端身份...");
+                            try {
+                                const emailKey = btoa(user.email);
+                                const snapshot = await database.ref('email_mapping/' + emailKey).once('value');
+                                const profile = snapshot.val();
+                                if (profile) {
+                                    localStorage.setItem('studentProfile', JSON.stringify(profile));
+                                    // window.location.reload(); // 可選：刷新以更新 UI
+                                }
+                            } catch (e) { console.error("同步失敗:", e); }
+                        }
+                    } else {
+                        console.log("[ZiZhen] ⚪ 未偵測到登入");
+                        if (s) {
+                            console.warn("[ZiZhen] ⚠️ 發現失效的身份資料，執行安全清除...");
+                            localStorage.removeItem('studentProfile');
+                        }
+                    }
+                });
+            })
+            .catch((error) => console.error("[ZiZhen] 持久化設定失敗:", error));
+        }
+    });
+
+    // 4. [核心] 全域請求攔截器 (Auto Token Injector)
+    (function() {
+        // 防止與嚴格鎖衝突，這裡針對後端 API 進行二次攔截
+        const originalFetch = window.fetch; 
+        const TARGET_URL_PART = "script.google.com"; // 攔截發往 GAS 的請求
+
+        window.fetch = async function(url, options) {
+            // 檢查是否為發往後端的 POST 請求
+            if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+                
+                console.log("[TokenInjector] 偵測到後端請求，準備注入 Token...");
+
+                const user = await new Promise((resolve) => {
+                    if (firebase.auth().currentUser) {
+                        resolve(firebase.auth().currentUser);
+                    } else {
+                        const unsubscribe = firebase.auth().onAuthStateChanged(u => {
+                            unsubscribe();
+                            resolve(u);
+                        });
+                        setTimeout(() => resolve(null), 2000);
+                    }
+                });
+
+                if (user) {
+                    try {
+                        const token = await user.getIdToken(true);
+                        // GAS 接收的 body 必須是 JSON 格式
+                        let bodyData = {};
+                        try {
+                             bodyData = JSON.parse(options.body);
+                        } catch(e) {
+                            console.warn("[TokenInjector] Body 非 JSON，嘗試強制封裝");
+                            bodyData = { originalBody: options.body };
+                        }
+                        
+                        bodyData.token = token; // ★ 強制注入 Token
+                        options.body = JSON.stringify(bodyData);
+                        console.log("[TokenInjector] Token 注入成功！");
+                    } catch (e) {
+                        console.error("[TokenInjector] Token 獲取失敗:", e);
+                    }
+                } else {
+                    console.warn("[TokenInjector] 用戶未登入，無法注入 Token");
+                    // 這裡不需阻擋，因為「嚴格權限鎖」已經在前面擋過了
+                }
+            }
+            return originalFetch(url, options);
+        };
+    })();
 </script>
 
 
