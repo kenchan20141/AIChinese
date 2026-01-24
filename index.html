@@ -11,8 +11,16 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            background: url('引導頁背景.png') center/cover fixed;
+       body {
+            /* --- 修改部分：拿掉圖片路徑，保留定位設定 --- */
+            background-color: #E8E6E1; /* 暫時的底色 */
+            background-image: none;    /* 先設為空，等待 JS 填入 */
+            background-position: center;
+            background-size: cover;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            /* ------------------------------------- */
+
             overflow: hidden;
             height: 100vh;
             width: 100vw;
@@ -29,7 +37,6 @@
             background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
             opacity: 0.6; pointer-events: none; z-index: 0;
         }
-
         /* --- 1. 電腦版/預設 --- */
         .title-container {
             position: absolute;
@@ -141,6 +148,39 @@
     <div class="seal" id="seal">神思</div>
 
     <script>
+
+
+// --- 圖片加速代碼 (放在 script 最前面) ---
+        (function() {
+            const imgName = '引導頁背景.png'; // 你的圖片檔名
+            const request = indexedDB.open('SansiCache', 1);
+
+            request.onupgradeneeded = e => e.target.result.createObjectStore('imgs');
+            
+            request.onsuccess = e => {
+                const db = e.target.result;
+                const tx = db.transaction('imgs', 'readonly');
+                const store = tx.objectStore('imgs');
+                const get = store.get(imgName);
+
+                get.onsuccess = () => {
+                    if (get.result) {
+                        // 有緩存：直接讀取，速度最快
+                        document.body.style.backgroundImage = `url(${URL.createObjectURL(get.result)})`;
+                    } else {
+                        // 無緩存：下載並存入
+                        fetch(imgName).then(r => r.blob()).then(blob => {
+                            const tx2 = db.transaction('imgs', 'readwrite');
+                            tx2.objectStore('imgs').put(blob, imgName);
+                            document.body.style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+                        });
+                    }
+                };
+            };
+        })();
+
+
+        
            // --- 新增：定義音效與預加載 ---
         const clickSound = new Audio('引導頁點擊.mp3');
         clickSound.preload = 'auto'; // 嘗試預先下載音檔
