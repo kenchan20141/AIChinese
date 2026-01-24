@@ -2842,6 +2842,64 @@ function generateIndependentQuestionTypes(selectedTexts) {
 
 
 
+// === 修復：補上缺失的 generateQuestionTypeButtons 函數 ===
+
+function generateQuestionTypeButtons(textId) {
+    // 定義閱讀理解的題型列表
+    const types = [
+        { name: '複述', icon: 'fa-copy', color: 'text-blue-500' },
+        { name: '分析', icon: 'fa-search', color: 'text-purple-500' },
+        { name: '印證', icon: 'fa-check-circle', color: 'text-green-500' },
+        { name: '闡明', icon: 'fa-lightbulb', color: 'text-yellow-500' },
+        { name: '意見', icon: 'fa-comment', color: 'text-red-500' },
+        { name: '比較', icon: 'fa-balance-scale', color: 'text-indigo-500' },
+        { name: '選擇', icon: 'fa-list-ul', color: 'text-teal-500' },
+        { name: '自訂', icon: 'fa-edit', color: 'text-gray-500' }
+    ];
+
+    // 生成每個題型的 HTML 卡片
+    return types.map(type => `
+        <div class="question-type-selection bg-white p-6 rounded-2xl border-3 border-transparent hover:border-blue-300 transition-all duration-300" data-type="${type.name}">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center">
+                    <!-- 開關按鈕：綁定 toggleIndependentQuestionType -->
+                    <div class="toggle-switch mr-4" onclick="toggleIndependentQuestionType(this, '${type.name}', '${textId}')">
+                        <div class="toggle-slider"></div>
+                    </div>
+                    <div>
+                        <i class="fas ${type.icon} ${type.color} text-2xl mr-3"></i>
+                        <span class="font-bold text-lg">${type.name}</span>
+                    </div>
+                </div>
+                <!-- 關鍵詞/分數設定按鈕 (自訂題型除外) -->
+                ${type.name !== '自訂' ? `
+                <button class="text-gray-400 hover:text-blue-500 transition-colors" onclick="toggleKeywordInput('${type.name}', '${textId}')" title="設定關鍵詞及分數">
+                    <i class="fas fa-cog"></i>
+                </button>
+                ` : ''}
+            </div>
+            
+            <!-- 數量控制與關鍵詞區域 (預設隱藏，啟用後顯示) -->
+            ${type.name !== '自訂' ? `
+            <div class="quantity-control mt-4" style="display: none;">
+                <button type="button" class="quantity-btn" onclick="adjustIndependentQuantity('${type.name}', '${textId}', -1)">
+                    <i class="fas fa-minus"></i>
+                </button>
+                <input type="number" id="quantity-${type.name}-${textId}" min="1" max="10" value="1" class="quantity-input" readonly>
+                <button type="button" class="quantity-btn" onclick="adjustIndependentQuantity('${type.name}', '${textId}', 1)">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+            <div id="keywords-${type.name}-${textId}" class="keyword-input-section mt-4 hidden space-y-2">
+                <!-- 關鍵詞輸入框將通過 JS updateKeywordInputs 動態生成 -->
+            </div>
+            ` : ''}
+        </div>
+    `).join('');
+}
+
+
+		
 		
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
@@ -3409,72 +3467,39 @@ function updateReferenceNumbers(textId) {
     displayReadingQuestions(allQuestions);
 }
 
+// ==========================================
+// === 前端修復：generateQuestionsForText ===
+// ==========================================
+
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
-    // 獲取非自訂題型的預設數量
+    // 1. 獲取數量
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
                           document.getElementById(`quantity-${questionType}`);
     
-    let quantity = parseInt(quantityInput?.value || 1); // 標準題型的數量
-    let refQAs = [];
+    let quantity = parseInt(quantityInput?.value || 1);
+    let customRefQAs = [];
     let specialInstructions = '';
 
-    // 獲取關鍵詞和分數 (這部分只對非自訂題型有效)
+    // 2. 處理自訂題型 (只負責收集用戶輸入的資料，不負責找範例)
+    if (questionType === '自訂') {
+        customRefQAs = Array.from(document.querySelectorAll(`#referenceQAList-${textId} .reference-qa textarea`))
+            .map(el => el.value.trim())
+            .filter(val => val);
+        quantity = customRefQAs.length;
+    }
+
+    // 3. 處理關鍵詞與分數 (構建 keywordInstructions 字串傳給後端)
+    let keywordInstructions = '';
+    // 只有非自訂題型才需要處理這部分，或者自訂題型也想支援關鍵詞亦可
     const keywords = [];
     const scores = [];
     for (let i = 1; i <= quantity; i++) {
-        const keyword = getKeywordsForQuestion(questionType, textId, i);
-        const score = getScoreForQuestion(questionType, textId, i);
-        keywords.push(keyword);
-        scores.push(score);
+        keywords.push(getKeywordsForQuestion(questionType, textId, i));
+        scores.push(getScoreForQuestion(questionType, textId, i));
     }
 
-    // *** 核心修訂開始 ***
-    if (questionType === '自訂') {
-        // 1. 使用帶有 textId 的特定選擇器，只抓取當前篇章的參考題目
-        refQAs = Array.from(document.querySelectorAll(`#referenceQAList-${textId} .reference-qa textarea`))
-            .map(el => el.value.trim())
-            .filter(val => val);
-        
-        // 2. 根據找到的參考題目數量，來重新確定要生成的題目數量
-        quantity = refQAs.length; 
-    } else {
-        // 對於標準題型，從題庫獲取範例
-        const examples = getQuestionBankExamples(questionType, quantity);
-        refQAs = examples;
-
-        // 處理選擇題的特殊格式指令
-        if (questionType === '選擇') {
-            specialInstructions = `
-重要提醒：這是選擇題型，必須嚴格按照以下格式輸出：
-
-題目[編號]：[題目內容]
-
-選擇題選項容器：
-A. [選項A內容]
-B. [選項B內容]
-C. [選項C內容]
-D. [選項D內容]
-
-答案[編號]：[正確選項字母] [正確選項完整內容]
-步驟[編號]：[答題步驟說明]
-
-每個選擇題必須包含：
-1. 完整的題目內容
-2. 4個選項（A、B、C、D），選項應該合理且有相當高的迷惑性
-3. 正確答案（明確標明選項字母和內容）
-4. 詳細的答題步驟
-5. 4個選項（A、B、C、D）都必須是意思相近的句子，不可以是反義的句子
-
-選項必須放在「選擇題選項容器」下方，確保格式正確。`;
-        }
-    }
-    // *** 核心修訂結束 ***
-
-
-    // 加入關鍵詞和分數要求
-    let keywordInstructions = '';
-    const validKeywords = keywords.filter(k => k.length > 0);
-    const validScores = scores.filter(s => s.length > 0);
+    const validKeywords = keywords.filter(k => k && k.length > 0);
+    const validScores = scores.filter(s => s && s.length > 0);
 
     if (validKeywords.length > 0 || validScores.length > 0) {
         keywordInstructions = `\n\n特別要求：\n`;
@@ -3491,112 +3516,78 @@ D. [選項D內容]
         }
     }
 
-
-    // 重試機制
+    // 4. 重試機制與 API 調用
     let parsed = [];
     let retryCount = 0;
     const maxRetries = 3;
 
     while (retryCount < maxRetries) {
         try {
-            const requestBody = {
-                model: MODEL,
-                messages: [
-                    { role: "system", content: "你是一個閱讀卷題目生成器。" },
-                    { role: "user", content: `請根據以下參考題目與答案，為擬題篇章生成${quantity}個相應的題目和答案，參考答案必須嚴謹根據文本依據擬定：
-
-參考題目與答案：
-${refQAs.map((qa, index) => `題目${index + 1}與答案：${qa}`).join('\n')}
-
-題型類別：${questionType}
-${textTitle ? `篇章名稱：${textTitle}` : ''}
-${specialInstructions}
-${keywordInstructions}
-
-擬題篇章：
-${textContent}
-
-請為擬題篇章生成${quantity}個「${questionType}」題型的題目和答案。生成的題目應符合「${questionType}」題型的特點和要求。必須用繁體中文回應。
-
-${questionType === '選擇' ? `
-請嚴格按照以下格式輸出選擇題，絕對不能偏離：
-
-題目1：[生成的題目1內容]
-
-選擇題選項容器：
-A. [選項A內容]
-B. [選項B內容]
-C. [選項C內容]
-D. [選項D內容]
-
-答案1：[正確選項字母] [正確選項完整內容]
-步驟1：[答題步驟說明]
-
-題目2：[生成的題目2內容]
-
-選擇題選項容器：
-A. [選項A內容]
-B. [選項B內容]
-C. [選項C內容]
-D. [選項D內容]
-
-答案2：[正確選項字母] [正確選項完整內容]
-步驟2：[答題步驟說明]
-
-（依此類推生成所有題目）
-` : `
-請以以下格式輸出生成的題目、答案和步驟：
-題目1：[生成的題目1]
-答案1：[生成的答案1]
-步驟1：[生成的步驟1]
-`}
-
-生成的題目和答案應與參考題目和答案在形式和風格上相似，但內容和題材必須不同。生成的題目不得包含答案內容，答案不得與其他題目混淆。除非題目提及「摘錄」，否則生成的答案中不得直接用開關引號引用原文文本依據，必須將其原文文本依據的白話語譯自然無痕地融入到答案之中。4分的題目，生成的答案字數必須強制控制在210字左右；5分的題目，生成的答案字數必須強制控制在230字左右；6分的題目，生成的答案字數必須強制控制在250字左右。由於是應試文章題目及答案，因此要避免過份具理論哲學性的字眼，必須減少概念模糊的術語，例如「情感載體」、「能動性」、「因果鏈條」、「辯證關係」、「時空的共創」，請用日常化用語。請確保生成的內容不為空白。若無法生成有效內容，則返回「未生成」。
-` }
-                ],
-                max_tokens: 64000
+            // ★★★ 修改重點：不再前端構建 Prompt，而是發送 Action 和 Data ★★★
+            const payload = {
+                action: 'generate_reading', // 對應後端 PROMPT_TEMPLATES 的 key
+                data: {
+                    questionType: questionType,
+                    textContent: textContent,
+                    quantity: quantity,
+                    textTitle: textTitle,
+                    specialInstructions: specialInstructions, // 選擇題的特殊格式要求已在後端處理，這裡留空或傳入額外指示
+                    keywordInstructions: keywordInstructions,
+                    customRefQAs: customRefQAs // 如果是自訂題，把參考題目傳過去
+                }
             };
 
-            const response = await callAPI(requestBody);
-            parsed = questionType === '選擇' ? 
-                parseChoiceResponse(response, quantity) : 
-                parseReadingResponse(response, quantity);
+            // 使用 fetch 發送請求 (因為我們傳的是 payload 結構，不是標準的 openai messages 結構)
+            // 這裡直接模擬 callAPI 的行為，但傳入的是 payload
+            updateProgressBar(20);
+            
+            const response = await fetch(CLOUDFLARE_WORKER_URL, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
 
+            updateProgressBar(60);
+
+            const data = await response.json();
+            logProviderInfo(data, "ReadingGen"); // 使用您的 Log 函數
+
+            if (data.error) throw new Error(data.error);
+            if (!data.choices || !data.choices[0]) throw new Error('API 返回格式錯誤');
+
+            const generatedContent = removeThinkingTags(data.choices[0].message.content);
+            
+            // 解析回應
+            parsed = questionType === '選擇' ? 
+                parseChoiceResponse(generatedContent, quantity) : 
+                parseReadingResponse(generatedContent, quantity);
+
+            // 驗證是否生成失敗
             const hasFailure = parsed.some(item => 
                 item.question.includes('生成失敗') || 
-                item.answer.includes('生成失敗') || 
-                item.steps.includes('生成失敗') ||
-                item.question.includes('未生成') ||
-                item.answer.includes('未生成') ||
-                item.steps.includes('未生成') ||
-                !item.question.trim() ||
-                !item.answer.trim() ||
-                !item.steps.trim()
+                item.answer.includes('生成失敗') ||
+                item.question.includes('未生成')
             );
 
-            if (!hasFailure) {
-                break;
-            } else {
-                retryCount++;
-                console.log(`${questionType}題型第${retryCount}次重試`);
-                if (retryCount >= maxRetries) {
-                    console.error(`${questionType}題型重試${maxRetries}次後仍然失敗`);
-                }
-            }
-        } catch (error) {
+            if (!hasFailure) break;
             retryCount++;
-            console.error(`${questionType}題型生成錯誤，第${retryCount}次重試:`, error);
-            if (retryCount >= maxRetries) {
-                parsed = Array(quantity).fill().map((_, i) => ({
-                    question: `題目${i+1}生成失敗，請檢查網路連接並重試`,
-                    answer: `答案${i+1}生成失敗，請檢查網路連接並重試`,
-                    steps: `步驟${i+1}生成失敗，請檢查網路連接並重試`
-                }));
-            }
+            console.log(`${questionType}題型第${retryCount}次重試`);
+
+        } catch (error) {
+            console.error(error);
+            retryCount++;
         }
     }
 
-    // 為每個題目添加題型標籤和篇章信息
+    // 失敗處理
+    if (parsed.length === 0) {
+         parsed = Array(quantity).fill().map((_, i) => ({
+            question: `題目${i+1}生成失敗，請檢查網絡並重試`,
+            answer: `答案${i+1}生成失敗`,
+            steps: `步驟${i+1}生成失敗`
+        }));
+    }
+
+    // 標記題型屬性
     parsed.forEach(item => {
         item.type = questionType;
         item.textTitle = textTitle;
