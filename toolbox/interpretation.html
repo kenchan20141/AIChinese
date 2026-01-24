@@ -1624,24 +1624,70 @@ const VOCABULARY_WORDS = [
     "贊同", "異議", "附和", "反駁", "認同", "質疑", "相信", "懷疑", "信任", "猜疑",
     "信賴", "提防", "依賴", "獨立", "依靠", "自主", "自立", "依附", "獨立", "依賴"
 ];
-// --- API 配置 ---
-const API_KEYS = [
-  "cmKZ75oSib3G+6/1NqmPKPAAsDuSQ9INaolor2+HQ7rvVu0IAs7WYDNI+4BuxdQUP09EDxdYLU4ugD5qfJFdtIvSVndvfb7nGPtwI++Si/KiAWXjzD7egGWEfdkKZtmzmMMxvmY=",
-    "PFVb0HlCBMxnNxRFDTSR9dGDYZDkRM2onHvM+O55WZqUfIrrEaXkho3N/nNTS3X9MrbJxL7uiiRnYgXsWQS3ijNpEGo5WhyudiBgAPq82BQ9J92kzQHzbirPNYjdNRF1vNkBrDs=",
-    "QI8AeIfibGAj9B0YLK0PS5JIhsKASC1NYe4WJOX6vgV46l+yHWYx5x5o4F+E6SNnegyVbbp3cLoNycWZIPPb+YurR8/DtKTvawpC7HEJKxOJDbwEW+Z1tETVUZUCCeYHucHyvng=",
-    "2shFmXOalAW01Uk5NgnWC0Tn5Jx68lRttomTrFSB3E9V88CMpWdAn5l0IK9Wlrx0Y/uZT5+p4M37LAMza/Bb0O3YGrYA+DNodh+ZK8VGJ3iYaRtc3AVAFguox/AbvO6TEQ6jdXc=",
-    "WSFgAildbs/aSs9zLuFrg+CpsI0IhqI8DExC1bggR/tJ6oxwmwlENch24tnpsXATuNi9XxN88ytVu3Wjxx5exUAYmXqmnb+z9NzFwpfIra4QP9HPl61DejIwEMubLe5ABQcDaV8=",
-    "/yPYPfAboI9nDkEi4Xz5tXTR9oXDqEQ4K+8AArquZkNBLlX8Fa0PaZmo7xm3vdb0KcZ49CYmVZazbg9ZhoHxLgdT5Zd5Jy9wda2iq9v1tCZj94ujwQKrLN9vLKvovZ+bNKNoyqQ=",
-    "XqCcSqpa6zEjlsF4eunLYAdo17OwXrkxRDDNQztwNAyTxVyvhmBMOUmCRWqi2/OIDTQZ1S8KQlH8cOJO8WKzb1ih1GOMt0ry3pdtahdX5K1VtnImcekFRPZxSO1yB+CyTQQDYEc=",
-    "1iZRTIbLtVE5H32tAEWmh9yxYOTt55l3CZ/AFEo/Wo5jR6JsaEc5eo/YGt/UoDIIMQPopBITzixs3i96DnLO2SItMPlSfhSu5PiyqwQOAfXKoTYzaIaq2wVKnb2/hUTMSOwojxw=",
-    "WLNrXFRX1IYiPNzfTNbwp/aOZNnsgOucWyxPgJfW/AbDF0pn+A0rBrHv1n+dn4NPabXYgafd2iP692Qmx8ee8lajuik5XIEExwwAYTCVJhD/qRZSTD6Ng+r0BtVH/S7kN8XxIUg=",
-    "/Fe302EcZcvWfGDwtYBG1VhONf/tUSCz2AOaFL/gmg6ShNYAq3B7KqbvHYiCO8u28JTegRoOYEImjzHFS2tvEa0JjEJ+ULB5A/wuDm0wFN8GIkWNomwOXyBhTjLF3KBDyDXOa6o=",
-    "Y+VEHx3H9A0Nhvz53msdEIRRGaS864UALJ/VGFD6M35Lqg9USD5hhDG2808C2/McScCOpb9l86Peso+bmsA2RhfsbiozTkOPuXgv3FUat3hEUMib9kpqhO8EalWfjVcq7YB2wcM=",
-    "r9mlA6MiQK6CbCHfRqdy2hf2nIp+4jvzZEPbfG1BwdBm6yxLSgy6jJtlpO0x58YoRm/xSqWrARUE4IQ1idviZ3lLPnI6afcSAvUrO03h2vQ4veyLOANxPzNv1AL3L9dgxxPCYUM="
-];
-let currentApiKeyIndex = 0;
-const API_URL_BASE = "https://api.llm7.io/v1/chat/completions";
-const MODEL = "gemini-2.5-flash-lite";
+// ===============================================================
+// === [API 配置] 改為 Google Apps Script 後端 ===
+// ===============================================================
+
+// 您的 GAS 部署網址
+const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbzaAnSXaaCohL8b92B7bRzhMk3cMr7hhoQc1icKSr_Oy1JLFUPV32jbouJIKfEIgUepeA/exec";
+
+// --- 核心 API 調用函數 (修訂版) ---
+async function getApiResponse(prompt, temperature, seed = null) {
+    try {
+        const body = {
+            model: "gemini", // 後端預設模型，也可在此更改
+            messages: [
+                { role: "system", content: "You are a helpful assistant that always responds in Traditional Chinese." },
+                { role: "user", content: prompt }
+            ],
+            temperature: temperature,
+            // 隨機種子 (如果您的 GAS 後端支援 seed 參數)
+            seed: seed 
+        };
+
+        // 發送請求 (Token 會由下方的攔截器自動注入，此處無需處理)
+        const response = await fetch(CLOUDFLARE_WORKER_URL, {
+            method: 'POST',
+            // Google Apps Script Web App 接收 POST 時通常使用 text/plain 以避免 CORS 預檢問題，
+            // 但您的攔截器是針對 JSON 處理。建議此處保持與攔截器相容的 Content-Type。
+            // 這裡不顯式設定 Content-Type，讓瀏覽器或攔截器處理，或者設定為 text/plain
+            body: JSON.stringify(body)
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+
+            // === [Log Provider Info] 顯示後端調度資訊 ===
+            if (data._provider_log) {
+                console.log(
+                    `%c[Backend] Provider: ${data._provider_log}`, 
+                    'background: #2b2d42; color: #8d99ae; padding: 4px 8px; border-radius: 4px; font-weight: bold; border: 1px solid #edf2f4;'
+                );
+            }
+            if (data.trace) {
+                console.warn("[Backend Trace]", data.trace);
+            }
+
+            // 處理錯誤回傳
+            if (data.error) {
+                console.error("Backend Error:", data.error);
+                return "抱歉，伺服器發生錯誤，請檢查權限或稍後再試。";
+            }
+
+            // 回傳內容 (相容 OpenAI 格式)
+            if (data.choices?.[0]?.message?.content) {
+                return data.choices[0].message.content.trim();
+            } else {
+                throw new Error('Invalid API response format');
+            }
+        } else {
+            throw new Error(`HTTP Error: ${response.status}`);
+        }
+    } catch (error) {
+        console.error("API Call Failed:", error);
+        return "抱歉，目前無法連接服務，請檢查網絡或登入狀態。";
+    }
+}
 // --- DOM 元素獲取 ---
 const ui = {
     container: document.querySelector('.container'),
@@ -2185,30 +2231,113 @@ document.addEventListener('DOMContentLoaded', () => {
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
-<!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+<!-- === 2. Firebase 初始化、持久化與 Token 注入器 === -->
 <script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-    authDomain: "sansidata.firebaseapp.com",
-    projectId: "sansidata",
-    storageBucket: "sansidata.firebasestorage.app",
-    messagingSenderId: "580288358575",
-    appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-    databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
-  };
+    // 1. 定義 Firebase 設定
+    const firebaseConfig = {
+        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+        authDomain: "sansidata.firebaseapp.com",
+        projectId: "sansidata",
+        storageBucket: "sansidata.firebasestorage.app",
+        messagingSenderId: "580288358575",
+        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
+    };
 
-  // ★★★ 修正重點：補上初始化指令 ★★★
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
-  
-  // ★★★ 修正重點：定義 database 變數，下面的程式才抓得到 ★★★
-  var database = firebase.database();
+    // 2. 初始化 Firebase
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    var database = firebase.database();
+    var auth = firebase.auth();
 
-  // (選用) 啟用匿名驗證，確保連線權限更穩定
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
-  });
+    // 3. 啟動監聽與同步邏輯 (持久化)
+    document.addEventListener('DOMContentLoaded', function() {
+        if (auth) {
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+            .then(() => {
+                auth.onAuthStateChanged(async (user) => {
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+                    if (user) {
+                        console.log("%c[ZiZhen] 🟢 偵測到有效登入: " + user.email, "color: green; font-weight: bold;");
+                        if (!s) {
+                            console.log("[ZiZhen] 正在同步雲端身份...");
+                            try {
+                                const emailKey = btoa(user.email);
+                                const snapshot = await database.ref('email_mapping/' + emailKey).once('value');
+                                const profile = snapshot.val();
+                                if (profile) {
+                                    localStorage.setItem('studentProfile', JSON.stringify(profile));
+                                    // window.location.reload(); // 可選：若需要刷新 UI 可取消註解
+                                }
+                            } catch (e) { console.error("同步失敗:", e); }
+                        }
+                    } else {
+                        console.log("%c[ZiZhen] ⚪ 未偵測到登入", "color: gray;");
+                        if (s) {
+                            console.warn("[ZiZhen] ⚠️ 發現失效的身份資料，執行安全清除...");
+                            localStorage.removeItem('studentProfile');
+                        }
+                    }
+                });
+            })
+            .catch((error) => console.error("[ZiZhen] 持久化設定失敗:", error));
+        }
+    });
+
+    // 4. [核心] 全域請求攔截器 (Auto Token Injector)
+    (function() {
+        // 防止與嚴格鎖衝突，這裡針對後端 API 進行二次攔截
+        const originalFetch = window.fetch; 
+        const TARGET_URL_PART = "script.google.com"; // 攔截發往 GAS 的請求
+
+        window.fetch = async function(url, options) {
+            // 檢查是否為發往後端的 POST 請求
+            if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+                
+                console.log("[TokenInjector] 偵測到後端請求，準備注入 Token...");
+
+                const user = await new Promise((resolve) => {
+                    if (firebase.auth().currentUser) {
+                        resolve(firebase.auth().currentUser);
+                    } else {
+                        const unsubscribe = firebase.auth().onAuthStateChanged(u => {
+                            unsubscribe();
+                            resolve(u);
+                        });
+                        // 設定 2 秒超時，避免無限等待
+                        setTimeout(() => resolve(null), 2000);
+                    }
+                });
+
+                if (user) {
+                    try {
+                        const token = await user.getIdToken(true);
+                        // GAS 接收的 body 必須是 JSON 格式
+                        let bodyData = {};
+                        try {
+                             bodyData = JSON.parse(options.body);
+                        } catch(e) {
+                            console.warn("[TokenInjector] Body 非 JSON，嘗試強制封裝");
+                            bodyData = { originalBody: options.body };
+                        }
+                        
+                        bodyData.token = token; // ★ 強制注入 Token
+                        options.body = JSON.stringify(bodyData);
+                        console.log("[TokenInjector] Token 注入成功！");
+                    } catch (e) {
+                        console.error("[TokenInjector] Token 獲取失敗:", e);
+                    }
+                } else {
+                    console.warn("[TokenInjector] 用戶未登入，無法注入 Token (後端可能會拒絕請求)");
+                    // 這裡不需阻擋，因為 GAS 後端會回傳 Unauthorized 錯誤，前端 UI 會顯示錯誤訊息
+                }
+            }
+            return originalFetch(url, options);
+        };
+    })();
 </script>
 
 
