@@ -2948,7 +2948,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         quantity = customRefQAs.length;
     }
 
-    // 處理關鍵詞 (保持原有邏輯)
+    // 處理關鍵詞與分數設定 (構建給 AI 的額外指令)
     let keywordInstructions = '';
     const keywords = [];
     const scores = [];
@@ -2983,7 +2983,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
     while (retryCount < maxRetries) {
         try {
             const payload = {
-                token: token, // <--- ★★★ 關鍵修正：必須傳送 Token 給後端 ★★★
+                token: token, // <--- ★★★ 關鍵修正：發送 Token 給 GAS 後端進行 verifyAuth ★★★
                 action: 'generate_reading',
                 data: {
                     questionType: questionType,
@@ -2998,7 +2998,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
             updateProgressBar(20);
             
-            // 注意：這裡假設 CLOUDFLARE_WORKER_URL 實際上就是你的 GAS 部署網址
+            // 使用 POST 發送 JSON Payload 到 Google Apps Script 部署網址
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
@@ -3008,14 +3008,14 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
             const data = await response.json();
             
-            // 使用你的 Log 函數
+            // 使用 Log 函數在 Console 顯示模型供應商資訊
             if (typeof logProviderInfo === 'function') {
                 logProviderInfo(data, "ReadingGen");
             }
 
-            // 檢查後端錯誤
+            // 檢查後端返回的錯誤
             if (data.error) {
-                // 如果是權限錯誤，直接拋出並不重試
+                // 如果是權限錯誤，通常代表 Token 驗證失敗，直接拋出並不重試
                 if (data.error.includes("Unauthorized") || data.error.includes("Token")) {
                     throw new Error("AUTH_ERROR: " + data.error);
                 }
@@ -3024,12 +3024,15 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
             if (!data.choices || !data.choices[0]) throw new Error('API 返回格式錯誤');
 
+            // 移除 AI 的思考標籤 (<think>...</think>)
             const generatedContent = removeThinkingTags(data.choices[0].message.content);
             
+            // 根據題型解析回應文字
             parsed = questionType === '選擇' ? 
                 parseChoiceResponse(generatedContent, quantity) : 
                 parseReadingResponse(generatedContent, quantity);
 
+            // 檢查是否生成了無效內容 (例如 "生成失敗")
             const hasFailure = parsed.some(item => item.question.includes('生成失敗'));
             if (!hasFailure) break;
             
@@ -3039,7 +3042,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         } catch (error) {
             console.error("生成錯誤:", error);
             
-            // 如果是權限錯誤，提示並停止
+            // 如果偵測到身份驗證失敗，顯示提示並停止執行
             if (error.message.includes("AUTH_ERROR") || error.message.includes("Unauthorized")) {
                 alert("⚠️ 身份驗證失敗：後端拒絕了請求。\n可能原因：登入過期或帳號異常。\n請重新整理頁面並重新登入。");
                 hideProgress();
@@ -3050,7 +3053,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         }
     }
 
-    // 失敗處理
+    // 最終失敗處理：若重試次數用盡仍未成功，生成佔位內容
     if (parsed.length === 0) {
          parsed = Array(quantity).fill().map((_, i) => ({
             question: `題目${i+1}生成失敗，請檢查網絡並重試`,
@@ -3059,6 +3062,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         }));
     }
 
+    // 標註題型與篇章名稱
     parsed.forEach(item => {
         item.type = questionType;
         item.textTitle = textTitle;
@@ -3802,7 +3806,7 @@ async function generateEssayQuestions() {
                 const token = await user.getIdToken();
 
                 const payload = {
-                    token: token, // <--- 加入 Token
+                    token: await firebase.auth().currentUser.getIdToken(), // ★ 加入這行
                     action: 'generate_essay',
                     data: {
                         questionType: questionType,
@@ -4057,7 +4061,7 @@ async function generatePracticalQuestions() {
                 const token = await user.getIdToken();
 
                 const payload = {
-                    token: token, // <--- 加入 Token
+                    token: await firebase.auth().currentUser.getIdToken(), // ★ 加入這行
                     action: 'generate_practical',
                     data: {
                         practicalType: practicalType,
@@ -4101,16 +4105,26 @@ async function generatePracticalQuestions() {
 async function callAPI(requestBody, modelOverride = null) {
     updateProgressBar(20);
     
-    // 1. 準備 Payload
+    // --- 關鍵修正：獲取 Token ---
+    const user = firebase.auth().currentUser;
+    if (!user) {
+        alert("請先登入學校帳號！");
+        hideProgress();
+        throw new Error("Login required");
+    }
+    const token = await user.getIdToken(); 
+
     const effectiveModel = modelOverride || MODEL;
     const payload = {
+        token: token,      // ★ 必須加入這行發送給 GAS
+        action: requestBody.action || null, // 確保支援 Action 模式
+        data: requestBody.data || null,
         messages: requestBody.messages, 
         model: effectiveModel,
         max_tokens: requestBody.max_tokens || 64000,
         temperature: 0.7
     };
 
-    // 2. 發送請求 (無需前端 Key)
     const response = await fetch(CLOUDFLARE_WORKER_URL, {
         method: 'POST',
         body: JSON.stringify(payload)
