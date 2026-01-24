@@ -5379,14 +5379,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 <!-- ======================================================= -->
-<!-- === [修復] 統一登入邏輯：自動同步神思身份 === -->
+<!-- === [修復 V2] 統一登入與狀態同步邏輯 (處理憑證過期) === -->
 <!-- ======================================================= -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // 1. 確保 Firebase Auth 已啟動
     if (typeof firebase !== 'undefined' && firebase.auth) {
         
-        // 設定持久化 (與神思主頁一致)
+        // 設定持久化 (確保刷新頁面後登入狀態不見)
         firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
         .then(() => {
             // 2. 監聽登入狀態改變
@@ -5395,42 +5395,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
 
                 if (user) {
+                    // === 情況 A: Firebase 已登入 (正常) ===
                     console.log("[TiZi] 偵測到 Firebase 登入:", user.email);
 
-                    // A. 如果已登入但本地沒資料 (這就是 Bug 的原因)，嘗試從雲端抓回
+                    // 如果已登入但本地沒資料 (罕見)，嘗試從雲端抓回
                     if (!s) {
                         console.log("[TiZi] 本地身份遺失，正在從雲端恢復...");
                         try {
-                            // 使用 Email 的 Base64 作為索引 (與神思邏輯一致)
                             const emailKey = btoa(user.email);
                             const snapshot = await firebase.database().ref('email_mapping/' + emailKey).once('value');
                             const profile = snapshot.val();
 
                             if (profile) {
-                                // 恢復身份到 LocalStorage
                                 localStorage.setItem('studentProfile', JSON.stringify(profile));
                                 console.log("[TiZi] 身份已恢復:", profile.name);
                                 
-                                // 隱藏任何可能已彈出的限制視窗
+                                // 隱藏限制視窗
                                 const limitModal = document.getElementById('sansiLimitModal');
                                 if (limitModal) {
                                     limitModal.classList.remove('sansi-limit-show');
                                     limitModal.style.display = 'none';
                                 }
-                                
-                                // 重新整理頁面以套用權限 (選用，或直接讓攔截器生效)
-                                // window.location.reload(); 
-                            } else {
-                                console.warn("[TiZi] 雲端找不到此帳號的綁定資料");
                             }
                         } catch (e) {
                             console.error("[TiZi] 恢復身份失敗:", e);
                         }
                     } else {
-                        console.log("[TiZi] 身份驗證通過:", s.name);
+                        console.log("[TiZi] 身份驗證通過 (本地+雲端):", s.name);
                     }
                 } else {
-                    console.log("[TiZi] 未偵測到登入狀態，目前為訪客模式");
+                    // === 情況 B: Firebase 未登入 (訪客或憑證過期) ===
+                    console.log("[TiZi] 未偵測到 Firebase 登入狀態");
+
+                    if (s) {
+                        // ★★★ 關鍵修復：幽靈檔案處理 ★★★
+                        // 本地有資料 (s)，但 Firebase 沒登入 (!user)
+                        // 代表憑證已過期或被強制登出，必須清除本地資料，否則會導致 API 權限錯誤
+                        console.warn("[TiZi] ⚠️ 發現殘留身份資料但無有效憑證，視為已登出。");
+                        
+                        // 1. 清除殘留
+                        localStorage.removeItem('studentProfile');
+                        
+                        // 2. 重置為訪客狀態
+                        console.log("[TiZi] 已自動清理舊資料並切換為訪客模式");
+                    } else {
+                        console.log("[TiZi] 目前為訪客模式");
+                    }
                 }
             });
         });
