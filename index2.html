@@ -8315,6 +8315,8 @@ function playEntryAnimation(elementId) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+	   // ★ 加入這一行：啟動背景快取載入
+    loadAndCacheBackground();
 const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
 const hitokotoElement = document.getElementById('hitokoto');
 const hitokotoFromElement = document.getElementById('hitokoto-from');
@@ -15250,14 +15252,15 @@ window.returnToHome = function() {
     }
 };
 // ==========================================
-// === IndexedDB 歷史紀錄系統 (V2 層級版) ===
+// === IndexedDB 歷史紀錄系統 (V2 層級版 + 資源快取) ===
 // ==========================================
 
 const DB_NAME = 'SansiDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // ★ 修改：版本號升級為 2 以觸發結構更新
 const STORE_NAME = 'history';
+const ASSET_STORE_NAME = 'assets'; // ★ 新增：資源儲存區名稱
 
-// 定義層級結構 (主範疇 -> 子功能)
+// 定義層級結構 (保持不變)
 const HISTORY_STRUCTURE = {
     "閱讀": ["點評", "指引"],
     "敘事抒情": ["文章點評", "大綱點評", "解題指引", "敘事物象"],
@@ -15265,24 +15268,80 @@ const HISTORY_STRUCTURE = {
     "整合拓展": ["點評", "指引"]
 };
 
-// 1. 初始化資料庫 (保持不變)
+// 1. 初始化資料庫 (修訂版：加入 assets 儲存區)
 function openHistoryDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
+        
         request.onupgradeneeded = function(event) {
             const db = event.target.result;
+            
+            // 建立歷史紀錄儲存區 (既有邏輯)
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
                 store.createIndex('timestamp', 'timestamp', { unique: false });
                 store.createIndex('category', 'category', { unique: false });
                 store.createIndex('subFunction', 'subFunction', { unique: false });
             }
+
+            // ★ 新增：建立資源快取儲存區 (若不存在則建立)
+            if (!db.objectStoreNames.contains(ASSET_STORE_NAME)) {
+                db.createObjectStore(ASSET_STORE_NAME); 
+            }
         };
+        
         request.onsuccess = function(event) { resolve(event.target.result); };
         request.onerror = function(event) { reject(event.target.error); };
     });
 }
 
+// ★ 新增：背景圖片快取載入邏輯
+async function loadAndCacheBackground() {
+    const bgImageUrl = '背景.png'; // 您的背景圖片檔案名稱 (若您的圖檔名為 引導頁背景.PNG 請在此修改)
+    const bgKey = 'main_background_image';
+
+    try {
+        const db = await openHistoryDB();
+        
+        // 1. 嘗試從 IndexedDB 讀取
+        const tx = db.transaction([ASSET_STORE_NAME], 'readonly');
+        const store = tx.objectStore(ASSET_STORE_NAME);
+        const request = store.get(bgKey);
+
+        request.onsuccess = async (e) => {
+            const cachedBlob = e.target.result;
+
+            if (cachedBlob) {
+                // A. 命中快取：建立 Blob URL 並應用
+                const imgUrl = URL.createObjectURL(cachedBlob);
+                document.body.style.backgroundImage = `url('${imgUrl}')`;
+                console.log("⚡ [Cache] 背景圖片已從 IndexedDB 秒速載入");
+            } else {
+                // B. 無快取：執行下載並儲存
+                console.log("📥 [Cache] 首次下載背景圖片...");
+                try {
+                    const response = await fetch(bgImageUrl);
+                    const blob = await response.blob();
+
+                    // 應用圖片 (讓用戶先看到)
+                    const imgUrl = URL.createObjectURL(blob);
+                    document.body.style.backgroundImage = `url('${imgUrl}')`;
+
+                    // 寫入資料庫 (下次使用)
+                    const writeTx = db.transaction([ASSET_STORE_NAME], 'readwrite');
+                    writeTx.objectStore(ASSET_STORE_NAME).put(blob, bgKey);
+                    console.log("✅ [Cache] 背景圖片已寫入 IndexedDB");
+                } catch (fetchErr) {
+                    console.error("背景圖片下載失敗，使用預設 CSS 載入", fetchErr);
+                }
+            }
+        };
+    } catch (err) {
+        console.error("讀取背景快取失敗:", err);
+    }
+}
+
+	
 // 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
 // ★ 核心輔助：捕捉 HTML (修訂版：只捕捉結構，不轉圖片) ★
 function captureContainerHTML(containerId) {
