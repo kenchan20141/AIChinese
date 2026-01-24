@@ -5504,9 +5504,10 @@ function logProviderInfo(dataOrResponse, apiName) {
         // 發送消息到API
     // 發送消息到 API (GAS 代理版)
 async function sendMessage() {
-    // 檢查 Sansidata (statsAuth) 是否登入
+    // 【核心修訂】檢查 Sansidata (StatsApp) 是否登入
     if (!statsAuth || !statsAuth.currentUser) {
-        alert("【生成權限錯誤】請先登入 Sansidata 認證系統，否則無法使用 AI 生成功能。");
+        alert("你必須先登入 Sansidata 認證系統，才能獲得 AI 生成權限！");
+        // 這裡可以觸發你自定義的 Sansidata 登入視窗
         return;
     }
 
@@ -7227,78 +7228,81 @@ window.addEventListener('click', (e) => {
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
 <script>
 // === Sansidata 核心初始化 (確保全域唯一) ===
-// === Sansidata 核心初始化 (唯一定義區塊) ===
-var statsApp, statsDatabase, statsAuth, statsDb;
+// === Sansidata 獨立系統初始化 ===
+var statsApp, statsDatabase, statsAuth;
 
-var sansiConfig = {
-    apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-    authDomain: "sansidata.firebaseapp.com",
-    projectId: "sansidata",
-    storageBucket: "sansidata.firebasestorage.app",
-    messagingSenderId: "580288358575",
-    appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-    databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
-};
+(function() {
+    const sansiConfig = {
+        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+        authDomain: "sansidata.firebaseapp.com",
+        projectId: "sansidata",
+        storageBucket: "sansidata.firebasestorage.app",
+        messagingSenderId: "580288358575",
+        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
+    };
 
-// 使用 Try-Catch 確保不會因為重複初始化而當機
-try {
+    // 具名初始化，徹底隔絕 喻蛋教室 (Default App) 與 Sansidata (StatsApp)
     if (!firebase.apps.find(app => app.name === "StatsApp")) {
         statsApp = firebase.initializeApp(sansiConfig, "StatsApp");
     } else {
         statsApp = firebase.app("StatsApp");
     }
-    statsDb = statsApp.database();
-    statsDatabase = statsDb; // 重要：修復 logVisitOnce 找不到 statsDatabase 的問題
-    statsAuth = statsApp.auth();
-} catch (e) {
-    console.error("StatsApp 初始化失敗:", e);
-}
 
-// 身份同步與持久化
-if (statsAuth) {
+    statsDatabase = statsApp.database(); // 修復數據模組報錯
+    statsAuth = statsApp.auth();
+
+    // 持久化與身份同步
     statsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
         statsAuth.onAuthStateChanged(async (user) => {
-            const s = JSON.parse(localStorage.getItem('studentProfile'));
             if (user) {
-                console.log("[Sansidata] 🟢 登入:", user.email);
+                console.log("[Sansidata] 🟢 生成權限驗證成功:", user.email);
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (!s) {
                     try {
                         const emailKey = btoa(user.email);
-                        const snapshot = await statsDb.ref('email_mapping/' + emailKey).once('value');
+                        const snapshot = await statsDatabase.ref('email_mapping/' + emailKey).once('value');
                         if (snapshot.exists()) {
                             localStorage.setItem('studentProfile', JSON.stringify(snapshot.val()));
                         }
                     } catch (e) { console.error("同步失敗:", e); }
                 }
             } else {
-                localStorage.removeItem('studentProfile');
+                console.log("[Sansidata] ⚪ 未驗證生成權限");
             }
         });
     });
-}
+})();
 
-// === 自動 Token 注入器 (Fetch 攔截器) ===
+// === 全域請求攔截器 (只針對 Sansidata 注入 Token) ===
 (function() {
     const originalFetch = window.fetch; 
     const TARGET_URL_PART = "script.google.com"; 
 
     window.fetch = async function(url, options) {
         if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+            
+            // 確保從 StatsApp 的 Auth 獲取 Token
             const user = statsAuth ? statsAuth.currentUser : null;
+
             if (user) {
                 try {
                     const token = await user.getIdToken(true);
                     let bodyData = JSON.parse(options.body);
                     bodyData.token = token; // 強制注入 Token
                     options.body = JSON.stringify(bodyData);
-                    console.log("[TokenInjector] 注入 Sansidata Token 成功");
-                } catch (e) { console.error("Token 注入失敗:", e); }
+                    console.log("[TokenInjector] 已成功注入 Sansidata 生成權限 Token");
+                } catch (e) {
+                    console.error("[TokenInjector] Token 獲取失敗:", e);
+                }
+            } else {
+                console.warn("[TokenInjector] 警告：無 Sansidata 登入資訊，請求將被後端拒絕");
             }
-            return originalFetch(url, options);
         }
         return originalFetch(url, options);
     };
 })();
+
 </script>
 
 
@@ -7307,6 +7311,9 @@ if (statsAuth) {
 document.addEventListener('DOMContentLoaded', function() {
     let totalSeconds = 0;
     let timerInterval = null;
+
+    // 立即檢查
+    console.log("🔍 [Stats] 正在檢查統計環境...");
 
     function getDateParts() {
         const now = new Date();
@@ -7323,21 +7330,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (s && s.grade && s.class) {
             const safeName = s.name.replace(/[.#$/[\]]/g, '_'); 
-            return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class };
+            return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class, name: s.name };
         } else {
             let guestID = localStorage.getItem('sansi_guest_uuid');
             if (!guestID) {
                 guestID = 'guest_' + Math.random().toString(36).substr(2, 9);
                 localStorage.setItem('sansi_guest_uuid', guestID);
             }
-            return { type: 'guest', id: guestID, grade: 'Guest', class: 'Visitor' };
+            return { type: 'guest', id: guestID, grade: 'Guest', class: 'Visitor', name: '訪客' };
         }
     }
 
-    // === 記錄訪問 (使用 statsDatabase) ===
     async function logVisitOnce() {
-        // 修改這裡：檢查 statsDatabase
-        if (typeof firebase === 'undefined' || !statsDatabase) return;
+        // 修改這裡：從 window 獲取以確保讀得到
+        const db = window.statsDatabase;
+        if (!db) {
+            console.warn("⚠️ [Stats] 找不到 statsDatabase，停止訪問記錄");
+            return;
+        }
         
         const { y, m, d } = getDateParts();
         const identity = getIdentity();
@@ -7346,10 +7356,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
         if (sessionStorage.getItem(sessionKey)) return; 
 
-        // 修改這裡：使用 statsDatabase
-        const trackingRef = statsDatabase.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
+        console.log(`📍 [Stats] 正在為 ${identity.name} 上傳今日首訪...`);
         
         try {
+            const trackingRef = db.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
             const snap = await trackingRef.once('value');
             const isFirstTimeToday = !snap.exists();
 
@@ -7359,53 +7369,43 @@ document.addEventListener('DOMContentLoaded', function() {
             const globalPath = `stats_global/${y}/${m}/${d}`;
             updates[`${globalPath}/visits`] = increment1;
 
-            const schoolPath = `stats_school/${y}/${m}/${d}`;
-
             if (identity.type === 'student') {
                 const classKey = `${identity.grade}${identity.class}`;
-                const studentKey = identity.id.split('_').pop();
+                const studentKey = identity.name.replace(/[.#$/[\]]/g, '_');
+                const schoolPath = `stats_school/${y}/${m}/${d}`;
 
                 updates[`${schoolPath}/visits`] = increment1;
-                const classPath = `stats_classes/${classKey}/${y}/${m}/${d}`;
-                updates[`${classPath}/visits`] = increment1;
-                const studentPath = `stats_students/${classKey}/${studentKey}/${y}/${m}/${d}`;
-                updates[`${studentPath}/visits`] = increment1;
+                updates[`stats_classes/${classKey}/${y}/${m}/${d}/visits`] = increment1;
+                updates[`stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/visits`] = increment1;
 
                 if (isFirstTimeToday) {
                     updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
                     updates[`${globalPath}/unique`] = increment1;
                     updates[`${schoolPath}/unique`] = increment1;
-                    updates[`${classPath}/unique`] = increment1;
+                    updates[`stats_classes/${classKey}/${y}/${m}/${d}/unique`] = increment1;
                 }
-            } else {
-                if (isFirstTimeToday) {
-                    updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
-                    updates[`${globalPath}/unique`] = increment1;
-                }
+            } else if (isFirstTimeToday) {
+                updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
+                updates[`${globalPath}/unique`] = increment1;
             }
 
-            // 修改這裡：使用 statsDatabase
-            await statsDatabase.ref().update(updates).catch(err => {
-                console.warn("Stats update warning:", err.message);
-            });
+            await db.ref().update(updates);
             sessionStorage.setItem(sessionKey, 'true');
-            console.log("📍 [Stats] 訪問計數已上傳 (Stats App)");
-
+            console.log("✅ [Stats] 訪問計數完成");
         } catch (e) {
-            console.warn("Stats Error:", e);
+            console.error("❌ [Stats] 訪問記錄出錯:", e);
         }
     }
 
-    // === 上傳時長 (使用 statsDatabase) ===
     function uploadOneMinute() {
-        // 修改這裡：檢查 statsDatabase
-        if (typeof firebase === 'undefined' || !statsDatabase) return;
+        const db = window.statsDatabase;
+        if (!db) return;
         
         logVisitOnce(); 
 
         const { y, m, d } = getDateParts();
         const identity = getIdentity();
-        const studentKey = identity.id.includes('_') ? identity.id.split('_').pop() : identity.name; 
+        const studentKey = identity.name.replace(/[.#$/[\]]/g, '_');
         
         const updates = {};
         const increment60 = firebase.database.ServerValue.increment(60);
@@ -7419,16 +7419,21 @@ document.addEventListener('DOMContentLoaded', function() {
             updates[`stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/duration`] = increment60;
         }
 
-        // 修改這裡：使用 statsDatabase
-        statsDatabase.ref().update(updates)
-            .then(() => console.log("✅ [Stats] 時長上傳成功"))
-            .catch(e => console.error("❌ [Stats] 上傳失敗:", e));
+        db.ref().update(updates)
+            .then(() => console.log("⏱️ [Stats] 已累積在線時長 60 秒"))
+            .catch(e => console.error("❌ [Stats] 時長上傳失敗:", e));
     }
 
     function startTimer() {
         if (timerInterval) return;
+        console.log("🚀 [Stats] 計時器已啟動");
         timerInterval = setInterval(() => {
             totalSeconds++;
+            // 每秒鐘靜默計時，每 30 秒在 Console 顯示一次狀態
+            if (totalSeconds % 30 === 0) {
+                console.log(`⏳ [Stats] 當前在線: ${totalSeconds}秒`);
+            }
+            // 到達 30s, 90s, 150s... 時上傳
             if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
@@ -7437,14 +7442,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function pauseTimer() {
         if (timerInterval) {
+            console.log("⏸️ [Stats] 計時暫停");
             clearInterval(timerInterval);
             timerInterval = null;
         }
     }
 
+    // 啟動流程
     setTimeout(() => {
-        logVisitOnce();
-        startTimer();
+        if (window.statsDatabase) {
+            logVisitOnce();
+            startTimer();
+        } else {
+            console.error("❌ [Stats] 啟動失敗：找不到 statsDatabase");
+        }
     }, 3000);
 
     document.addEventListener('visibilitychange', function() {
