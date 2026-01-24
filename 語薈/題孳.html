@@ -2901,38 +2901,15 @@ function generateQuestionTypeButtons(textId) {
 
 		
 		
-// ==========================================
-// === [修復] 閱讀生成函式 (強制 Token 注入) ===
-// ==========================================
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
-    // --- 1. 安全檢查與獲取 Token ---
-    const user = firebase.auth().currentUser;
-    
-    if (!user) {
-        // 如果未登入，嘗試呼叫限制視窗或直接報錯
-        const limitModal = document.getElementById('sansiLimitModal');
-        if (limitModal) {
-            limitModal.style.display = 'flex';
-            setTimeout(() => limitModal.classList.add('sansi-limit-show'), 10);
-        } else {
-            alert("⚠️ 您的登入憑證已失效或尚未登入。\n請重新登入學校帳號。");
-        }
+    // 1. 基本檢查 (僅用於 UI 提示，不負責發送 Token)
+    if (!firebase.auth().currentUser) {
+        alert("⚠️ 系統偵測到您尚未登入或連線逾時，請重新登入後再試。");
         hideProgress();
         return [];
     }
 
-    // 強制刷新 Token 以確保不過期
-    let token;
-    try {
-        token = await user.getIdToken(true);
-    } catch (e) {
-        console.error("Token 獲取失敗:", e);
-        alert("無法獲取安全憑證，請重新登入。");
-        hideProgress();
-        return [];
-    }
-
-    // --- 2. 獲取表單數據 ---
+    // 2. 獲取表單數據
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
                           document.getElementById(`quantity-${questionType}`);
     
@@ -2940,7 +2917,6 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
     let customRefQAs = [];
     let specialInstructions = '';
 
-    // 處理自訂題型
     if (questionType === '自訂') {
         customRefQAs = Array.from(document.querySelectorAll(`#referenceQAList-${textId} .reference-qa textarea`))
             .map(el => el.value.trim())
@@ -2948,7 +2924,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         quantity = customRefQAs.length;
     }
 
-    // 處理關鍵詞與分數設定 (構建給 AI 的額外指令)
+    // 構建關鍵詞指令
     let keywordInstructions = '';
     const keywords = [];
     const scores = [];
@@ -2956,118 +2932,74 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         keywords.push(getKeywordsForQuestion(questionType, textId, i));
         scores.push(getScoreForQuestion(questionType, textId, i));
     }
-
+    
+    // (省略中間構建 keywordInstructions 字串的代碼，保持原樣即可)...
     const validKeywords = keywords.filter(k => k && k.length > 0);
     const validScores = scores.filter(s => s && s.length > 0);
-
     if (validKeywords.length > 0 || validScores.length > 0) {
         keywordInstructions = `\n\n特別要求：\n`;
         for (let i = 0; i < quantity; i++) {
-            if (keywords[i] && keywords[i].length > 0) {
-                keywordInstructions += `第${i + 1}題必須包含關鍵詞「${keywords[i]}」`;
-            }
-            if (scores[i] && scores[i].length > 0) {
-                keywordInstructions += `${keywords[i] && keywords[i].length > 0 ? '，' : `第${i + 1}題`}分數設定為${scores[i]}分`;
-            }
-            if ((keywords[i] && keywords[i].length > 0) || (scores[i] && scores[i].length > 0)) {
-                keywordInstructions += `\n`;
-            }
+            if (keywords[i] && keywords[i].length > 0) keywordInstructions += `第${i + 1}題關鍵詞「${keywords[i]}」`;
+            if (scores[i] && scores[i].length > 0) keywordInstructions += `，分數${scores[i]}分`;
+            keywordInstructions += `\n`;
         }
     }
 
     let parsed = [];
     let retryCount = 0;
-    const maxRetries = 3;
-
-    // --- 3. 發送請求 (包含 Token) ---
-    while (retryCount < maxRetries) {
+    
+    // 3. 發送請求 (無需手動加 Token，攔截器會做)
+    while (retryCount < 3) {
         try {
+            // ★ 注意：這裡不需要再寫 token: ... 了
             const payload = {
-                token: token, // <--- ★★★ 關鍵修正：發送 Token 給 GAS 後端進行 verifyAuth ★★★
                 action: 'generate_reading',
                 data: {
-                    questionType: questionType,
-                    textContent: textContent,
-                    quantity: quantity,
-                    textTitle: textTitle,
-                    specialInstructions: specialInstructions,
-                    keywordInstructions: keywordInstructions,
-                    customRefQAs: customRefQAs
+                    questionType, textContent, quantity, textTitle,
+                    specialInstructions, keywordInstructions, customRefQAs
                 }
             };
 
             updateProgressBar(20);
             
-            // 使用 POST 發送 JSON Payload 到 Google Apps Script 部署網址
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
 
-            updateProgressBar(60);
-
             const data = await response.json();
             
-            // 使用 Log 函數在 Console 顯示模型供應商資訊
-            if (typeof logProviderInfo === 'function') {
-                logProviderInfo(data, "ReadingGen");
-            }
+            if (data.error) throw new Error(data.error); // 讓 catch 捕捉
 
-            // 檢查後端返回的錯誤
-            if (data.error) {
-                // 如果是權限錯誤，通常代表 Token 驗證失敗，直接拋出並不重試
-                if (data.error.includes("Unauthorized") || data.error.includes("Token")) {
-                    throw new Error("AUTH_ERROR: " + data.error);
-                }
-                throw new Error(data.error);
-            }
+            updateProgressBar(80);
 
-            if (!data.choices || !data.choices[0]) throw new Error('API 返回格式錯誤');
-
-            // 移除 AI 的思考標籤 (<think>...</think>)
             const generatedContent = removeThinkingTags(data.choices[0].message.content);
-            
-            // 根據題型解析回應文字
             parsed = questionType === '選擇' ? 
                 parseChoiceResponse(generatedContent, quantity) : 
                 parseReadingResponse(generatedContent, quantity);
 
-            // 檢查是否生成了無效內容 (例如 "生成失敗")
-            const hasFailure = parsed.some(item => item.question.includes('生成失敗'));
-            if (!hasFailure) break;
+            if (!parsed.some(item => item.question.includes('生成失敗'))) break;
             
-            retryCount++;
-            console.log(`${questionType}題型第${retryCount}次重試`);
-
         } catch (error) {
-            console.error("生成錯誤:", error);
+            console.error("生成嘗試失敗:", error);
+            retryCount++;
             
-            // 如果偵測到身份驗證失敗，顯示提示並停止執行
-            if (error.message.includes("AUTH_ERROR") || error.message.includes("Unauthorized")) {
-                alert("⚠️ 身份驗證失敗：後端拒絕了請求。\n可能原因：登入過期或帳號異常。\n請重新整理頁面並重新登入。");
+            // 如果攔截器也失效了 (極少見)，後端會回傳 Unauthorized
+            if (error.message.includes("Unauthorized") || error.message.includes("Token")) {
+                alert("⚠️ 連線授權失敗，請重新整理網頁並重新登入。");
                 hideProgress();
                 return [];
             }
-            
-            retryCount++;
         }
     }
 
-    // 最終失敗處理：若重試次數用盡仍未成功，生成佔位內容
     if (parsed.length === 0) {
          parsed = Array(quantity).fill().map((_, i) => ({
-            question: `題目${i+1}生成失敗，請檢查網絡並重試`,
-            answer: `答案${i+1}生成失敗`,
-            steps: `步驟${i+1}生成失敗`
+            question: `生成失敗，請稍後重試`, answer: `生成失敗`, steps: `生成失敗`
         }));
     }
 
-    // 標註題型與篇章名稱
-    parsed.forEach(item => {
-        item.type = questionType;
-        item.textTitle = textTitle;
-    });
-
+    parsed.forEach(item => { item.type = questionType; item.textTitle = textTitle; });
     return parsed;
 }
 
@@ -5266,6 +5198,70 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     });
+
+
+
+// =======================================================
+// === [核心修復] 全域請求攔截器 (Auto Token Injector) ===
+// =======================================================
+(function() {
+    const originalFetch = window.fetch;
+    const TARGET_URL_PART = "script.google.com"; // 攔截所有發往 GAS 的請求
+
+    window.fetch = async function(url, options) {
+        // 1. 檢查是否為發往後端的 POST 請求
+        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+            
+            console.log("[Interceptor] 偵測到後端請求，準備注入 Token...");
+
+            // 2. 等待並獲取最新的 Firebase User (解決初始化時間差)
+            const user = await new Promise((resolve) => {
+                // 如果 currentUser 已存在，直接返回
+                if (firebase.auth().currentUser) {
+                    resolve(firebase.auth().currentUser);
+                } else {
+                    // 否則等待狀態變化 (最多等 2 秒)
+                    const unsubscribe = firebase.auth().onAuthStateChanged(u => {
+                        unsubscribe();
+                        resolve(u);
+                    });
+                    // 超時機制：如果 2 秒沒反應，假設未登入
+                    setTimeout(() => resolve(null), 2000);
+                }
+            });
+
+            if (user) {
+                try {
+                    // 3. 強制刷新並獲取 Token
+                    const token = await user.getIdToken(true);
+                    
+                    // 4. 解析原本的 Body 並注入 Token
+                    let bodyData = JSON.parse(options.body);
+                    bodyData.token = token; // ★ 強制注入
+                    
+                    // 5. 更新 Body
+                    options.body = JSON.stringify(bodyData);
+                    console.log("[Interceptor] Token 注入成功！");
+                } catch (e) {
+                    console.error("[Interceptor] Token 獲取失敗:", e);
+                    // 這裡不阻擋請求，讓後端去報錯，或者你可以選擇在這裡 alert
+                }
+            } else {
+                console.warn("[Interceptor] 用戶未登入，無法注入 Token");
+                // 這裡可以選擇直接 return Promise.reject("未登入") 來阻止請求發送
+            }
+        }
+        
+        // 6. 執行原始請求
+        return originalFetch(url, options);
+    };
+})();
+
+
+
+
+
+	
 </script>
 
 
