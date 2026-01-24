@@ -72,7 +72,7 @@ form-action 'self';
 
 
 // =======================================================
-// === [核彈級] 全域安全網：攔截 Permission Denied 死循環 ===
+// === [安全版] 全域安全網：攔截權限錯誤並保護紀錄 ===
 // =======================================================
 window.addEventListener('unhandledrejection', function(event) {
     // 偵測錯誤訊息中是否包含關鍵字
@@ -80,35 +80,39 @@ window.addEventListener('unhandledrejection', function(event) {
         (event.reason.code === 'PERMISSION_DENIED') || 
         (event.reason.message && event.reason.message.includes('permission_denied'))
     )) {
-        console.error("🚨 偵測到全域權限錯誤 (死循環保護啟動)");
+        console.error("🚨 偵測到全域權限錯誤 (啟動安全登出)");
         event.preventDefault(); // 阻止錯誤繼續擴散
-        forceLogoutAndClean();  // 執行強制登出
+        forceLogoutAndKeepHistory();  // 執行保護性登出
     }
 });
 
 // 專門處理強制登出的函式
-function forceLogoutAndClean() {
-    // 1. 防止重複觸發 (如果已經在處理中，就停止)
+function forceLogoutAndKeepHistory() {
+    // 1. 防止短時間內重複觸發
     if (sessionStorage.getItem('is_force_logging_out')) return;
     sessionStorage.setItem('is_force_logging_out', 'true');
 
-    // 2. 停止所有 Firebase 監聽 (盡人事)
+    // 2. 停止所有 Firebase 監聽 (停止報錯)
     if (typeof database !== 'undefined') {
         try { database.ref().off(); } catch(e){}
     }
 
-    // 3. 清除所有身分資料
-    localStorage.removeItem('studentProfile');
-    localStorage.removeItem('sansi_read_notifications'); // 清除通知緩存
+    // 3. ★★★ 關鍵：只清除身份資料，不碰歷史紀錄 ★★★
+    // 刪除壞掉的身份檔
+    localStorage.removeItem('studentProfile'); 
+    // 刪除通知緩存 (避免紅點顯示錯誤)
+    localStorage.removeItem('sansi_read_notifications'); 
     
-    // 4. 強制 Firebase 登出 (不等待結果，直接執行下一步)
+    // 注意：我們【沒有】執行 indexedDB.deleteDatabase()
+    // 所以生成紀錄 (IndexedDB) 會完整保留在瀏覽器中
+
+    // 4. 強制 Firebase 登出
     if (typeof auth !== 'undefined') auth.signOut();
 
-    // 5. 簡單粗暴：彈窗後直接刷新頁面
-    // 使用 confirm 會暫停程式執行，避免背景繼續報錯
-    alert("⚠️ 安全警示：\n\n系統偵測到您的帳號權限異常 (Permission Denied)。\n為避免程式卡死，系統將強制登出。\n\n請按「確定」重新載入頁面。");
+    // 5. 提示使用者並重整
+    alert("⚠️ 連線憑證已過期。\n\n系統已自動為您登出以修復連線。\n您的歷史紀錄已安全保留，請重新登入即可。");
     
-    // 6. 釋放鎖定並重整
+    // 6. 釋放鎖定並重整頁面 (這是停止死循環最有效的方法)
     sessionStorage.removeItem('is_force_logging_out');
     window.location.reload();
 }
@@ -17143,7 +17147,7 @@ async function checkStudentLogin() {
     
     // 3. 直接執行，不要使用遞歸重試 (tryLoad)
     try {
-        // 等待 Auth 就緒
+        // 等待 Auth 就緒 (最多等 2 秒，不等太久以免卡住)
         let authWait = 0;
         while (!auth.currentUser && authWait < 10) { 
             await new Promise(r => setTimeout(r, 200));
@@ -17166,10 +17170,10 @@ async function checkStudentLogin() {
     } catch (err) {
         console.error("❌ 登入後載入流程失敗:", err);
         
-        // 如果是權限錯誤，全域安全網會捕捉到。
-        // 如果是其他網路錯誤，這裡單純顯示提示即可，不要重試。
+        // 如果是權限錯誤，全域安全網會捕捉到並處理。
+        // 我們這裡只針對明確的 permission_denied 手動觸發一次，雙重保險。
         if (err.message && err.message.includes("permission_denied")) {
-            forceLogoutAndClean(); // 主動觸發清理
+            forceLogoutAndKeepHistory(); 
         }
     }
 }
