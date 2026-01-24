@@ -65,7 +65,7 @@ form-action 'self';
 <!-- 新增這行：Firebase Authentication -->
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+
 
 
 	<script>
@@ -7873,63 +7873,34 @@ const SPECIAL_USER_B64 = "a2VuY2hhbjIwMTUxQGdtYWlsLmNvbQ==";
  * 檢查訪客每日使用額度
  * @returns {boolean} true=允許繼續, false=阻止
  */
-// 全域變數儲存指紋，避免重複運算
-let _visitorId = null;
-
-async function getVisitorId() {
-    if (_visitorId) return _visitorId;
-    const fp = await FingerprintJS.load();
-    const result = await fp.get();
-    _visitorId = result.visitorId;
-    return _visitorId;
-}
-
-// === 全新：雲端驗證訪客額度 ===
-async function checkGuestUsage() {
-    // 1. 如果已登入 (LocalStorage 有 studentProfile)，直接放行
+function checkGuestUsage() {
+    // 1. 檢查是否已登入 (學生、老師、特許用家)
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (s) {
-        console.log(`[權限] 已登入 (${s.name})，無限使用。`);
+        console.log(`[權限檢查] 用戶已登入 (${s.name})，不設限制。`);
         return true; 
     }
 
-    // 2. 獲取訪客指紋 ID
-    const visitorId = await getVisitorId();
-    const today = new Date().toLocaleDateString('zh-HK').replace(/\//g, '-'); // 格式 2025-01-24
+    // 2. 未登入訪客：檢查 LocalStorage 計數
+    const today = new Date().toLocaleDateString('zh-HK'); // 格式如 2025/1/15
+    const storageKey = `sansi_guest_usage_${today}`;
     
-    // 定義 Firebase路徑: guest_usage/指紋ID/日期
-    const usageRef = database.ref(`guest_usage/${visitorId}/${today}`);
+    // 取得目前次數 (預設為 0)
+    let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
+    
+    console.log(`[權限檢查] 訪客狀態 | 日期: ${today} | 已用次數: ${currentCount} | 上限: 1`);
 
-    try {
-        // 3. 讀取雲端次數
-        const snapshot = await usageRef.once('value');
-        let currentCount = snapshot.val() || 0;
-
-        console.log(`[權限] 訪客 ID: ${visitorId} | 今日已用: ${currentCount}`);
-
-        // 4. 判斷額度 (設定為 1 次)
-        if (currentCount >= 1) {
-            // 觸發你原本的莫蘭迪攔截視窗
-            if (document.getElementById('sansiLimitModal')) {
-                document.getElementById('sansiLimitModal').style.display = 'flex';
-                setTimeout(()=>document.getElementById('sansiLimitModal').classList.add('sansi-limit-show'), 10);
-            } else {
-                alert("⚠️ 訪客每日體驗額度已用完。\n請登入學校帳號以繼續使用。");
-            }
-            return false; // 阻止執行
-        }
-
-        // 5. 額度內：雲端計數 + 1
-        await usageRef.set(currentCount + 1);
-        return true; // 允許執行
-
-    } catch (e) {
-        console.error("權限檢查連線失敗:", e);
-        // 發生錯誤時的保底策略：暫時阻擋，避免漏洞
-        alert("系統連線繁忙，請稍後再試，或直接登入帳號。");
+    if (currentCount >= 1) {
+        alert("⚠️ 訪客每日體驗額度已用完。\n\n請登入學校帳號或註冊以無限使用所有功能。");
+        console.warn("[權限檢查] 攔截：超過每日額度。");
         return false;
     }
+
+    // 3. 增加計數 (在 API 呼叫成功前先扣除，防止併發)
+    localStorage.setItem(storageKey, currentCount + 1);
+    return true;
 }
+
 
 
 
@@ -19147,25 +19118,19 @@ document.addEventListener('DOMContentLoaded', function() {
 // ==========================================
 // === 自動統一訪客額度提示 & 攔截雜訊 ===
 // ==========================================
-// ==========================================
-// === 自動統一訪客額度提示 & 攔截雜訊 (修復 Firebase 寫入版) ===
-// ==========================================
 (function() {
     // 1. 設定一個全域旗標，用來標記「剛剛是否觸發了額度限制」
     window._isGuestLimitTriggered = false;
 
-    // 2. 覆寫權限檢查函式
-    window.checkGuestUsage = async function() { // 注意：這裡改為 async
+    // 2. 覆寫權限檢查函式 (Check Guest Usage Override)
+    window.checkGuestUsage = function() {
         // A. 檢查是否已登入 (學生/老師/特許用家)
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) return true; // 已登入，通過
 
-        // B. 未登入訪客：檢查 LocalStorage 計數 (第一道防線，速度最快)
-        const todayRaw = new Date();
-        const todayStr = todayRaw.toLocaleDateString('zh-HK'); // 本地格式
-        const todayFirebase = todayStr.replace(/\//g, '-');    // Firebase 格式 YYYY-MM-DD
-        
-        const storageKey = `sansi_guest_usage_${todayStr}`;
+        // B. 未登入訪客：檢查 LocalStorage 計數
+        const today = new Date().toLocaleDateString('zh-HK');
+        const storageKey = `sansi_guest_usage_${today}`;
         let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
 
         // C. 如果超過額度 (上限 1 次)
@@ -19178,39 +19143,19 @@ document.addEventListener('DOMContentLoaded', function() {
             // ★ 統一彈出標準提示
             alert("⚠️ 訪客每日體驗額度已用完。\n\n請登入學校帳號或註冊。");
             
-            // ★ 1秒後自動關閉「靜音模式」
+            // ★ 1秒後自動關閉「靜音模式」，恢復正常報錯功能
             setTimeout(() => { window._isGuestLimitTriggered = false; }, 1000);
             
             return false; // 阻止後續執行
         }
 
-        // D. 增加本地計數
+        // D. 增加計數
         localStorage.setItem(storageKey, currentCount + 1);
-
-        // E. ★★★ [修復] 寫入 Firebase guest_usage ★★★
-        try {
-            // 嘗試獲取訪客 ID (優先使用大數據模組生成的 ID，若無則生成隨機 ID)
-            let guestID = localStorage.getItem('sansi_guest_uuid');
-            if (!guestID) {
-                guestID = 'guest_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('sansi_guest_uuid', guestID);
-            }
-
-            // 寫入雲端 (不需等待，避免卡住介面)
-            if (database) {
-                const usageRef = database.ref(`guest_usage/${guestID}/${todayFirebase}`);
-                // 使用 transaction 確保計數準確
-                usageRef.transaction(count => (count || 0) + 1);
-                console.log(`[權限] 已同步訪客使用紀錄至 Firebase: ${guestID}`);
-            }
-        } catch (e) {
-            console.error("Firebase 寫入失敗 (不影響用戶使用):", e);
-        }
-
         return true;
     };
 
-    // 3. 升級 Alert 函式 (過濾雜訊) - 保持不變
+    // 3. 升級 Alert 函式 (過濾雜訊)
+    // 這裡會包裝剛才寫好的莫蘭迪 Alert，增加過濾功能
     const _baseAlert = window.alert;
 
     window.alert = function(message) {
@@ -19228,6 +19173,7 @@ document.addEventListener('DOMContentLoaded', function() {
         _baseAlert(message);
     };
 })();
+
 
 
 
