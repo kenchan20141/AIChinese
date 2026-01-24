@@ -4242,36 +4242,56 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 
+
+
+
 <!-- === 1. Firebase SDK 引入 === -->
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
-<!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+	<!-- === 2. Firebase 初始化與狀態同步 === -->
 <script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-    authDomain: "sansidata.firebaseapp.com",
-    projectId: "sansidata",
-    storageBucket: "sansidata.firebasestorage.app",
-    messagingSenderId: "580288358575",
-    appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-    databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
-  };
+    const firebaseConfig = {
+        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+        authDomain: "sansidata.firebaseapp.com",
+        projectId: "sansidata",
+        storageBucket: "sansidata.firebasestorage.app",
+        messagingSenderId: "580288358575",
+        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
+    };
 
-  // ★★★ 修正重點：補上初始化指令 ★★★
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
-  
-  // ★★★ 修正重點：定義 database 變數，下面的程式才抓得到 ★★★
-  var database = firebase.database();
+    // 初始化 Firebase
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    var database = firebase.database();
+    var auth = firebase.auth();
 
-  // (選用) 啟用匿名驗證，確保連線權限更穩定
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
-  });
+    // 啟動監聽與同步邏輯 (讓神思的登入狀態同步到這裡)
+    document.addEventListener('DOMContentLoaded', function() {
+        if (auth) {
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+            .then(() => {
+                auth.onAuthStateChanged(async (user) => {
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+                    if (user) {
+                        console.log("[Auth] 偵測到 Firebase 登入:", user.email);
+                        // 如果本地沒資料但已登入，嘗試恢復身份 (可選邏輯)
+                        if (!s) {
+                            // 這裡可以加入恢復身份的邏輯，或保持現狀
+                        }
+                    } else {
+                        console.log("[Auth] 未偵測到登入，目前為訪客模式");
+                    }
+                });
+            });
+        }
+    });
 </script>
+
 
 <!-- === [還原版] 神思大數據收集模組 (30秒=1分鐘邏輯) === -->
 <script>
@@ -4548,55 +4568,6 @@ function uploadOneMinute() {
 </script>
 
 
-
-
-
-<!-- === 1. Firebase SDK 引入 === -->
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-
-	<!-- === 2. Firebase 初始化與狀態同步 === -->
-<script>
-    const firebaseConfig = {
-        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-        authDomain: "sansidata.firebaseapp.com",
-        projectId: "sansidata",
-        storageBucket: "sansidata.firebasestorage.app",
-        messagingSenderId: "580288358575",
-        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
-    };
-
-    // 初始化 Firebase
-    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-    }
-    
-    var database = firebase.database();
-    var auth = firebase.auth();
-
-    // 啟動監聽與同步邏輯 (讓神思的登入狀態同步到這裡)
-    document.addEventListener('DOMContentLoaded', function() {
-        if (auth) {
-            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-            .then(() => {
-                auth.onAuthStateChanged(async (user) => {
-                    const s = JSON.parse(localStorage.getItem('studentProfile'));
-                    if (user) {
-                        console.log("[Auth] 偵測到 Firebase 登入:", user.email);
-                        // 如果本地沒資料但已登入，嘗試恢復身份 (可選邏輯)
-                        if (!s) {
-                            // 這裡可以加入恢復身份的邏輯，或保持現狀
-                        }
-                    } else {
-                        console.log("[Auth] 未偵測到登入，目前為訪客模式");
-                    }
-                });
-            });
-        }
-    });
-</script>
 
 	<!-- ======================================================= -->
 <!-- === [核心修復] 全域請求攔截器 (Auto Token Injector) === -->
