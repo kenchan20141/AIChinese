@@ -1672,15 +1672,14 @@ transform: scale(1.1);
 
 
 <!-- =============================================================== -->
-<!-- 2. 神思嚴格權限鎖 (必須登入版) & Token 自動注入器 -->
+<!-- 2. 神思嚴格權限鎖 (等待機制修復版) -->
 <!-- =============================================================== -->
 <script>
 (function() {
-    // 防止重複注入
     if (window.SansiInterceptorLoaded) return;
     window.SansiInterceptorLoaded = true;
 
-    // --- A. 注入莫蘭迪 CSS 樣式 (保持不變) ---
+    // --- 注入 CSS ---
     const style = document.createElement('style');
     style.textContent = `
         .sansi-limit-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(8px); z-index: 9999999; display: none; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.3s ease; }
@@ -1699,7 +1698,7 @@ transform: scale(1.1);
     `;
     document.head.appendChild(style);
 
-    // --- B. 注入提示窗 HTML (文案已修改為會員限定) ---
+    // --- 注入 HTML ---
     const modalHTML = `
         <div id="sansiLimitModal" class="sansi-limit-overlay">
             <div class="sansi-limit-card">
@@ -1710,7 +1709,6 @@ transform: scale(1.1);
                 </div>
                 <div class="sansi-btn-group">
                     <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">取消</button>
-                    <!-- 修改連結指向上一層 -->
                     <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'">
                         <i class="fas fa-sign-in-alt"></i> 前往登入
                     </button>
@@ -1722,76 +1720,77 @@ transform: scale(1.1);
     div.innerHTML = modalHTML;
     document.body.appendChild(div);
 
-    // --- C. 視窗控制函數 ---
     window.closeSansiLimitModal = function() {
         const modal = document.getElementById('sansiLimitModal');
         if (modal) {
             modal.classList.remove('sansi-limit-show');
             setTimeout(() => { modal.style.display = 'none'; }, 300);
-            
-            // 強制隱藏文樞的 Loading 狀態，避免畫面卡死
-            const loadingEl = document.getElementById('loading');
-            if(loadingEl) loadingEl.style.display = 'none';
-            
-            // 恢復按鈕可點擊狀態
-            if (typeof translateBtn !== 'undefined') translateBtn.disabled = false;
-            if (typeof aiSearchBtn !== 'undefined') aiSearchBtn.disabled = false;
+            if (typeof loading !== 'undefined') loading.style.display = 'none';
         }
     };
 
-    // --- D. 核心攔截器 (零容忍版) ---
+    // --- ★★★ 核心攔截器 (Waiting Logic Added) ★★★ ---
     const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
-        // 攔截發往後端 (Google Script) 的 POST 請求
         if (typeof url === 'string' && url.includes('script.google.com') && options && options.method === 'POST') {
             
-            // 1. 檢查登入狀態 (檢查 LocalStorage 是否有學生資料)
-            const s = localStorage.getItem('studentProfile');
-            
-            // 2. 如果沒有資料 (訪客) -> 直接阻擋！
-            if (!s) {
-                console.warn("🚫 未登入用戶嘗試使用，請求已攔截。");
+            console.log("[WenShu] 攔截請求，準備檢查權限...");
 
-                // 顯示登入提示窗
+            // 1. 等待 Firebase 初始化 (最多等 2 秒)
+            // 這一步是解決問題的關鍵！
+            const user = await new Promise((resolve) => {
+                if (firebase.auth().currentUser) {
+                    resolve(firebase.auth().currentUser);
+                } else {
+                    const unsubscribe = firebase.auth().onAuthStateChanged(u => {
+                        unsubscribe();
+                        resolve(u);
+                    });
+                    // 2秒超時機制，避免無限等待
+                    setTimeout(() => resolve(null), 2000);
+                }
+            });
+
+            // 2. 再次檢查 LocalStorage (雙重驗證)
+            const s = localStorage.getItem('studentProfile');
+
+            if (!s) {
+                console.warn("🚫 阻擋：本地無學生資料");
                 const modal = document.getElementById('sansiLimitModal');
                 modal.style.display = 'flex';
-                void modal.offsetWidth; // 觸發重繪
+                void modal.offsetWidth; 
                 modal.classList.add('sansi-limit-show');
                 
-                // 隱藏 Loading
                 const loadingEl = document.getElementById('loading');
                 if(loadingEl) loadingEl.style.display = 'none';
 
-                // 中斷程式執行，回傳錯誤
-                return Promise.reject(new Error("Login Required - Guest Access Denied"));
+                return Promise.reject(new Error("Login Required"));
             }
 
-            // 3. 如果已登入 -> 自動注入 Token
-            if (firebase.auth().currentUser) {
+            // 3. 注入 Token (如果 User 存在)
+            if (user) {
                 try {
-                    // 強制刷新並獲取 Token
-                    const token = await firebase.auth().currentUser.getIdToken(true);
-                    
-                    // 解析原始 Body 並注入 Token
+                    const token = await user.getIdToken();
                     let bodyData = JSON.parse(options.body);
                     bodyData.token = token; 
                     options.body = JSON.stringify(bodyData);
-                    
-                    console.log("✅ [WenShu] 身份驗證通過，Token 已注入。");
+                    console.log("✅ Token 注入成功");
                 } catch (e) {
-                    console.error("Token injection failed:", e);
-                    // 這裡不阻擋，讓後端去報錯
+                    console.error("Token 獲取失敗 (可能憑證已過期):", e);
+                    // 這裡不阻擋，嘗試發送，讓後端決定是否拒絕
                 }
+            } else {
+                console.warn("⚠️ 注意：有學生資料但 Firebase 未連線 (Token 未注入)");
             }
         }
         
-        // 4. 放行請求 (如果是已登入用戶)
         return originalFetch(url, options);
     };
     
-    console.log("🔒 文樞嚴格權限鎖 (必須登入) 已啟動");
+    console.log("🔒 文樞智能權限鎖已啟動");
 })();
+
 </script>
 
 
@@ -2209,8 +2208,14 @@ aiSearchBtn.disabled = false;
 // === 修改後的 callApi 函式 ===
 // === 修改後的 callApi 函式 (顯示 Provider 來源版) ===
 async function callApi(prompt) {
+    // 簡單的防呆，不需要複雜邏輯
+    if (!localStorage.getItem('studentProfile')) {
+        console.log("呼叫 API 時檢測到未登入，將由攔截器處理...");
+    }
+
     try {
         const response = await fetch(API_URL, {
+
             method: 'POST',
             headers: {
                 'Content-Type': 'text/plain;charset=utf-8'
@@ -3590,10 +3595,7 @@ oscillator.stop(now + 0.4);
 </div>
 
 
-<!-- === 1. Firebase SDK 引入 === -->
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
 
 
     <script>
@@ -3816,7 +3818,13 @@ const GUWEN_LIST = [
 
 
 	
-<!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+<!-- ======================================================= -->
+<!-- 1. Firebase SDK 與 初始化 (修正版：防止自動登出) -->
+<!-- ======================================================= -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
@@ -3828,21 +3836,14 @@ const GUWEN_LIST = [
     databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
   };
 
-  // 初始化 Firebase
   if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
   }
   
-  // 定義全域變數
   var database = firebase.database();
   var auth = firebase.auth();
 
-  // 啟用匿名驗證 (確保連線穩定)
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
-  });
-
-  // 監聽並同步身份狀態 (題孳的核心邏輯)
+  // 保持登入狀態持久化
   document.addEventListener('DOMContentLoaded', function() {
       if (auth) {
           auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
@@ -3850,22 +3851,20 @@ const GUWEN_LIST = [
                   const s = JSON.parse(localStorage.getItem('studentProfile'));
                   
                   if (user) {
-                      // 已登入 Firebase
+                      console.log("[WenShu] Firebase 已連線:", user.email);
+                      // 如果本地沒資料但雲端有，嘗試同步 (選用)
                       if (!s) {
-                          // 本地無資料但雲端有登入 -> 同步
                           try {
                               const emailKey = btoa(user.email);
                               const snapshot = await database.ref('email_mapping/' + emailKey).once('value');
-                              const profile = snapshot.val();
-                              if (profile) localStorage.setItem('studentProfile', JSON.stringify(profile));
-                          } catch (e) { console.error("Sync failed", e); }
+                              if (snapshot.val()) localStorage.setItem('studentProfile', JSON.stringify(snapshot.val()));
+                          } catch (e) {}
                       }
                   } else {
-                      // 未登入 Firebase -> 清除本地殘留資料
-                      if (s) {
-                          console.warn("身份憑證過期，清除本地資料");
-                          localStorage.removeItem('studentProfile');
-                      }
+                      // ★★★ 修正重點：這裡什麼都不要做！ ★★★
+                      // 即使 user 是 null，也不要刪除 studentProfile
+                      // 因為這可能是頁面剛載入，Firebase 還在連線中
+                      console.log("[WenShu] 等待 Firebase 驗證或訪客模式...");
                   }
               });
           });
