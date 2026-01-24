@@ -1227,11 +1227,8 @@
             const outputWordCount = document.getElementById('output-word-count');
             const copyBtn = document.getElementById('copy-btn');
             
-const API_KEYS = [
- "friend1"
-];
-// let currentApiKeyIndex = 0; // 這個變數不再需要，可以刪除或註解掉
-const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
+// --- 1. 定義新的 GAS 後端網址 ---
+            const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbzaAnSXaaCohL8b92B7bRzhMk3cMr7hhoQc1icKSr_Oy1JLFUPV32jbouJIKfEIgUepeA/exec";
 
             
             const originalCopyIcon = `<svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-5zm0 16H8V7h11v14z"/></svg>`;
@@ -1269,15 +1266,15 @@ const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
                 });
             });
 
-            generateBtn.addEventListener('click', async () => {
+           generateBtn.addEventListener('click', async () => {
                 const topic = topicInput.value.trim();
-               const userGuidelines = guidelinesInput.value.trim();
-const hiddenInstruction = "句組要長一點，要詳寫現實和回憶片段。";
+                const userGuidelines = guidelinesInput.value.trim();
+                const hiddenInstruction = "句組要長一點，要詳寫現實和回憶片段。";
 
-// 如果使用者有輸入，則將隱藏指令附加在後面；如果沒有，則單獨使用隱藏指令。
-const finalGuidelines = userGuidelines 
-    ? `${userGuidelines}\n${hiddenInstruction}` 
-    : hiddenInstruction;
+                const finalGuidelines = userGuidelines 
+                    ? `${userGuidelines}\n${hiddenInstruction}` 
+                    : hiddenInstruction;
+                
                 const selectedModel = document.querySelector('input[name="model"]:checked').value;
                 const selectedStructure = document.querySelector('input[name="structure"]:checked').value;
 
@@ -1303,7 +1300,7 @@ const finalGuidelines = userGuidelines
                         writingInstructions = document.getElementById('sanxian-notes').textContent;
                     }
 
-                    // 構建核心指令
+                    // 構建核心指令 (保持不變)
                     const systemPrompt = `你是一位世界級的文學作家，擅長創作深刻且富有文學性的敘事抒情文。你的任務是根據用家提供的題目、指引以及【以下指定的寫作框架與要求】，創作一篇高質素的文章。
 
 ---
@@ -1315,7 +1312,7 @@ ${writingInstructions}
 
 1.  **初稿寫作**：根據以下用家要求及你收到的【寫作框架與要求】，創作一篇約 ${wordCount} 字的初稿。
     -   **題目**: 《${topic}》
-    - **創作指引**: ${finalGuidelines} // <--- 在這裡使用新的合併後指引
+    - **創作指引**: ${finalGuidelines}
 
 2.  **內部自我評核 (絕不外洩)**：寫作完成後，你必須立刻化身為一位極其嚴苛的 DSE 語文科評卷員。使用你內置的評分系統（包含5**範文參考和詳細評分準則），對你的初稿進行全面、客觀、嚴謹的評分。你必須在腦中完成一個完整的評分工作紙，計算出「內容」、「表達」、「結構」以及所有細項分數。
 
@@ -1334,15 +1331,12 @@ ${writingInstructions}
 
 請現在開始你的創作。`;
 
-
-                    const response = await fetch(API_URL, {
+                    // --- 2. 發送請求至 GAS 後端 (修改部分) ---
+                    // 注意：這裡移除了 headers 中的 Authorization，因為 Token Injector 會自動處理
+                    const response = await fetch(CLOUDFLARE_WORKER_URL, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${API_KEYS}`
-                        },
                         body: JSON.stringify({
-                            model: selectedModel,
+                            model: "gemini", // 強制使用 gemini 或根據 selectedModel 調整映射
                             messages: [
                                 { role: 'system', content: systemPrompt },
                                 { role: 'user', content: `請根據以上所有指示，為題目《${topic}》生成文章。` }
@@ -1356,6 +1350,20 @@ ${writingInstructions}
                     }
 
                     const data = await response.json();
+
+                    // === [Log Provider Info] 顯示後端調度資訊 ===
+                    if (data._provider_log) {
+                        console.log(
+                            `%c[Backend] Provider: ${data._provider_log}`, 
+                            'background: #2b2d42; color: #8d99ae; padding: 4px 8px; border-radius: 4px; font-weight: bold; border: 1px solid #edf2f4;'
+                        );
+                    }
+                    
+                    // 檢查後端錯誤
+                    if (data.error) {
+                        throw new Error(`Backend Error: ${data.error}`);
+                    }
+
                     const resultText = data.choices[0].message.content;
 
                     // 顯示結果
@@ -1375,9 +1383,6 @@ ${writingInstructions}
                     loader.style.display = 'none';
                 }
             });
-
-            updateWordCountDisplay();
-        });
     </script>
 
 
@@ -1386,30 +1391,112 @@ ${writingInstructions}
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
-<!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+<!-- === 2. Firebase 初始化、持久化與 Token 注入器 === -->
 <script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-    authDomain: "sansidata.firebaseapp.com",
-    projectId: "sansidata",
-    storageBucket: "sansidata.firebasestorage.app",
-    messagingSenderId: "580288358575",
-    appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-    databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
-  };
+    // 1. 定義 Firebase 設定
+    const firebaseConfig = {
+        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+        authDomain: "sansidata.firebaseapp.com",
+        projectId: "sansidata",
+        storageBucket: "sansidata.firebasestorage.app",
+        messagingSenderId: "580288358575",
+        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
+    };
 
-  // ★★★ 修正重點：補上初始化指令 ★★★
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
-  
-  // ★★★ 修正重點：定義 database 變數，下面的程式才抓得到 ★★★
-  var database = firebase.database();
+    // 2. 初始化 Firebase
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    var database = firebase.database();
+    var auth = firebase.auth();
 
-  // (選用) 啟用匿名驗證，確保連線權限更穩定
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
-  });
+    // 3. 啟動監聽與同步邏輯 (持久化)
+    document.addEventListener('DOMContentLoaded', function() {
+        if (auth) {
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+            .then(() => {
+                auth.onAuthStateChanged(async (user) => {
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+                    if (user) {
+                        console.log("[ZiZhen] 🟢 偵測到有效登入:", user.email);
+                        if (!s) {
+                            console.log("[ZiZhen] 正在同步雲端身份...");
+                            try {
+                                const emailKey = btoa(user.email);
+                                const snapshot = await database.ref('email_mapping/' + emailKey).once('value');
+                                const profile = snapshot.val();
+                                if (profile) {
+                                    localStorage.setItem('studentProfile', JSON.stringify(profile));
+                                    // window.location.reload(); // 可選：刷新以更新 UI
+                                }
+                            } catch (e) { console.error("同步失敗:", e); }
+                        }
+                    } else {
+                        console.log("[ZiZhen] ⚪ 未偵測到登入");
+                        if (s) {
+                            console.warn("[ZiZhen] ⚠️ 發現失效的身份資料，執行安全清除...");
+                            localStorage.removeItem('studentProfile');
+                        }
+                    }
+                });
+            })
+            .catch((error) => console.error("[ZiZhen] 持久化設定失敗:", error));
+        }
+    });
+
+    // 4. [核心] 全域請求攔截器 (Auto Token Injector)
+    (function() {
+        // 防止與嚴格鎖衝突，這裡針對後端 API 進行二次攔截
+        const originalFetch = window.fetch; 
+        const TARGET_URL_PART = "script.google.com"; // 攔截發往 GAS 的請求
+
+        window.fetch = async function(url, options) {
+            // 檢查是否為發往後端的 POST 請求
+            if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+                
+                console.log("[TokenInjector] 偵測到後端請求，準備注入 Token...");
+
+                const user = await new Promise((resolve) => {
+                    if (firebase.auth().currentUser) {
+                        resolve(firebase.auth().currentUser);
+                    } else {
+                        const unsubscribe = firebase.auth().onAuthStateChanged(u => {
+                            unsubscribe();
+                            resolve(u);
+                        });
+                        setTimeout(() => resolve(null), 2000);
+                    }
+                });
+
+                if (user) {
+                    try {
+                        const token = await user.getIdToken(true);
+                        // GAS 接收的 body 必須是 JSON 格式
+                        let bodyData = {};
+                        try {
+                             bodyData = JSON.parse(options.body);
+                        } catch(e) {
+                            console.warn("[TokenInjector] Body 非 JSON，嘗試強制封裝");
+                            bodyData = { originalBody: options.body };
+                        }
+                        
+                        bodyData.token = token; // ★ 強制注入 Token
+                        options.body = JSON.stringify(bodyData);
+                        console.log("[TokenInjector] Token 注入成功！");
+                    } catch (e) {
+                        console.error("[TokenInjector] Token 獲取失敗:", e);
+                    }
+                } else {
+                    console.warn("[TokenInjector] 用戶未登入，無法注入 Token");
+                    // 這裡不需阻擋，因為「嚴格權限鎖」已經在前面擋過了
+                }
+            }
+            return originalFetch(url, options);
+        };
+    })();
 </script>
 
 
