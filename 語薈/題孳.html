@@ -2901,16 +2901,19 @@ function generateQuestionTypeButtons(textId) {
 
 		
 		
+// ==========================================
+// === [修訂] 閱讀生成函式 (加入 Token) ===
+// ==========================================
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
+    // 1. 獲取數量
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
                           document.getElementById(`quantity-${questionType}`);
     
     let quantity = parseInt(quantityInput?.value || 1);
-    let specialInstructions = '';
-    let keywordInstructions = '';
     let customRefQAs = [];
+    let specialInstructions = '';
 
-    // 處理自訂題型的參考題目
+    // 2. 處理自訂題型
     if (questionType === '自訂') {
         customRefQAs = Array.from(document.querySelectorAll(`#referenceQAList-${textId} .reference-qa textarea`))
             .map(el => el.value.trim())
@@ -2918,26 +2921,31 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         quantity = customRefQAs.length;
     }
 
-    // 處理關鍵詞 (同原邏輯)
+    // 3. 處理關鍵詞
+    let keywordInstructions = '';
     const keywords = [];
     const scores = [];
     for (let i = 1; i <= quantity; i++) {
         keywords.push(getKeywordsForQuestion(questionType, textId, i));
         scores.push(getScoreForQuestion(questionType, textId, i));
     }
-    
-    // 構建關鍵詞指令 (同原邏輯，簡化)
-    if (keywords.some(k=>k) || scores.some(s=>s)) {
-        keywordInstructions = `\n特別要求：\n`;
-        for (let i = 0; i < quantity; i++) {
-            if (keywords[i]) keywordInstructions += `第${i+1}題必須包含關鍵詞「${keywords[i]}」`;
-            if (scores[i]) keywordInstructions += `${keywords[i]?', ':''}第${i+1}題分數設定為${scores[i]}分`;
-            if (keywords[i] || scores[i]) keywordInstructions += `\n`;
-        }
-    }
 
-    if (questionType === '選擇') {
-        specialInstructions = "（選擇題特殊格式要求已在後端處理）";
+    const validKeywords = keywords.filter(k => k && k.length > 0);
+    const validScores = scores.filter(s => s && s.length > 0);
+
+    if (validKeywords.length > 0 || validScores.length > 0) {
+        keywordInstructions = `\n\n特別要求：\n`;
+        for (let i = 0; i < quantity; i++) {
+            if (keywords[i] && keywords[i].length > 0) {
+                keywordInstructions += `第${i + 1}題必須包含關鍵詞「${keywords[i]}」`;
+            }
+            if (scores[i] && scores[i].length > 0) {
+                keywordInstructions += `${keywords[i] && keywords[i].length > 0 ? '，' : `第${i + 1}題`}分數設定為${scores[i]}分`;
+            }
+            if ((keywords[i] && keywords[i].length > 0) || (scores[i] && scores[i].length > 0)) {
+                keywordInstructions += `\n`;
+            }
+        }
     }
 
     let parsed = [];
@@ -2946,47 +2954,69 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
     while (retryCount < maxRetries) {
         try {
-            // ★★★ 修改重點：發送 Action 和 Data，而不是完整的 Prompt ★★★
-          const payload = {
-    action: 'generate_essay', // 後端就是靠這個字串來識別模板
-    data: {
-        questionType: questionType,
-        quantity: quantity - successfulQuestions.length,
-        customEssayType: customEssayType,
-        customRefQuestions: customRefQuestions,
-        existingKeywordsText: existingKeywordsText
-    }
-};
+            // ★★★ 核心修訂：獲取 Token ★★★
+            const user = firebase.auth().currentUser;
+            if (!user) throw new Error("請先登入 (Auth user is null)");
+            const token = await user.getIdToken();
 
-            // 使用 callAPI 發送，注意 callAPI 內部可能需要微調以支持直接發送 payload
-            // 這裡假設 callAPI 已經被修改為支持傳遞完整 body，或者我們在這裡直接 fetch
-            
+            const payload = {
+                token: token, // <--- 將 Token 放入 Payload
+                action: 'generate_reading',
+                data: {
+                    questionType: questionType,
+                    textContent: textContent,
+                    quantity: quantity,
+                    textTitle: textTitle,
+                    specialInstructions: specialInstructions,
+                    keywordInstructions: keywordInstructions,
+                    customRefQAs: customRefQAs
+                }
+            };
+
             updateProgressBar(20);
+            
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
-            
+
+            updateProgressBar(60);
+
             const data = await response.json();
             logProviderInfo(data, "ReadingGen");
-            
+
+            // 檢查後端錯誤
             if (data.error) throw new Error(data.error);
-            
+            if (!data.choices || !data.choices[0]) throw new Error('API 返回格式錯誤');
+
             const generatedContent = removeThinkingTags(data.choices[0].message.content);
             
             parsed = questionType === '選擇' ? 
                 parseChoiceResponse(generatedContent, quantity) : 
                 parseReadingResponse(generatedContent, quantity);
 
-            // 驗證邏輯 (同原代碼)
             const hasFailure = parsed.some(item => item.question.includes('生成失敗'));
             if (!hasFailure) break;
             retryCount++;
+            console.log(`${questionType}題型第${retryCount}次重試`);
 
         } catch (error) {
-            console.error(error);
+            console.error("生成錯誤:", error);
             retryCount++;
+            // 如果是權限錯誤，停止重試並提示
+            if (error.message.includes("Unauthorized") || error.message.includes("請先登入")) {
+                alert("身份驗證失敗，請重新登入神思。");
+                return []; 
+            }
         }
+    }
+
+    if (parsed.length === 0) {
+         parsed = Array(quantity).fill().map((_, i) => ({
+            question: `題目${i+1}生成失敗，請檢查網絡並重試`,
+            answer: `答案${i+1}生成失敗`,
+            steps: `步驟${i+1}生成失敗`
+        }));
     }
 
     parsed.forEach(item => {
@@ -3689,16 +3719,17 @@ function parseChoiceResponse(response, count) {
 
 
 
+// ==========================================
+// === [修訂] 長文生成函式 (加入 Token) ===
+// ==========================================
 async function generateEssayQuestions() {
     let allQuestions = [];
     const customEssayType = document.querySelector('input[name="customEssayType"]:checked')?.value;
     
-    // 遍歷所有選中的題型
     for (const questionType of selectedWritingTypes) {
         let quantity;
         let customRefQuestions = [];
         
-        // 1. 獲取已生成的關鍵詞以避免重複 (從 LocalStorage 獲取，這部分保留在前端)
         const existingQuestions = getGeneratedQuestions(questionType);
         let existingKeywordsText = '';
         if (existingQuestions.length > 0) {
@@ -3706,21 +3737,16 @@ async function generateEssayQuestions() {
             existingKeywordsText = `已出過的主題關鍵詞：${allExistingKeywords.join('、')}`;
         }
 
-        // 2. 準備參數
         if (questionType === '自訂') {
             if (!customEssayType) {
                 showError('請選擇自訂類型');
                 hideProgress();
                 return;
             }
-            // 獲取用戶輸入的參考題目
             customRefQuestions = Array.from(document.querySelectorAll('.essay-reference textarea'))
                 .map(el => el.value.trim()).filter(val => val);
-            
-            // 如果用戶沒輸入，數量默認為 3，後端會自動補題目
             quantity = customRefQuestions.length || 3; 
         } else {
-            // 從輸入框獲取數量
             const quantityInput = document.getElementById(`quantity-${questionType}`);
             quantity = parseInt(quantityInput.value);
         }
@@ -3728,13 +3754,15 @@ async function generateEssayQuestions() {
         let successfulQuestions = [];
         let retryCount = 0;
         
-        // 3. 循環調用 API 直到滿足數量 (包含重試機制)
         while (successfulQuestions.length < quantity && retryCount < 3) {
             try {
-                // ★★★ 修正重點：移除所有對 writingQuestionBank 的引用 ★★★
-                // 參考長度(referenceLength)的計算已移至後端處理
-                
+                // ★★★ 核心修訂：獲取 Token ★★★
+                const user = firebase.auth().currentUser;
+                if (!user) throw new Error("請先登入");
+                const token = await user.getIdToken();
+
                 const payload = {
+                    token: token, // <--- 加入 Token
                     action: 'generate_essay',
                     data: {
                         questionType: questionType,
@@ -3753,35 +3781,23 @@ async function generateEssayQuestions() {
                 const data = await response.json();
                 logProviderInfo(data, "EssayGen");
                 
-                // 檢查後端錯誤
                 if (data.error) throw new Error(data.error);
 
                 const generatedContent = removeThinkingTags(data.choices[0].message.content);
                 const parsed = parseWritingResponse(generatedContent, quantity - successfulQuestions.length);
 
-                // 4. 重複性檢查邏輯 (保留在前端)
+                // 重複性檢查 (保持不變)
                 for (let item of parsed) {
                     if (!item.question.includes('失敗')) {
                         const newKeywords = extractKeywords(item.question);
                         let isDuplicate = false;
-                        
-                        // 檢查與歷史題目是否重複
                         for (let existingQ of existingQuestions) {
-                            if (isTopicSimilar(newKeywords, existingQ.keywords)) {
-                                isDuplicate = true;
-                                break;
-                            }
+                            if (isTopicSimilar(newKeywords, existingQ.keywords)) { isDuplicate = true; break; }
                         }
-                        
-                        // 檢查與本次已生成題目是否重複
                         for (let successQ of successfulQuestions) {
                             const successKeywords = extractKeywords(successQ.question);
-                            if (isTopicSimilar(newKeywords, successKeywords)) {
-                                isDuplicate = true;
-                                break;
-                            }
+                            if (isTopicSimilar(newKeywords, successKeywords)) { isDuplicate = true; break; }
                         }
-                        
                         if (!isDuplicate) {
                             item.type = questionType;
                             successfulQuestions.push(item);
@@ -3795,11 +3811,15 @@ async function generateEssayQuestions() {
 
             } catch (e) { 
                 console.error("生成長文題目時發生錯誤:", e); 
+                if (e.message.includes("Unauthorized")) {
+                    alert("身份驗證失敗，請重新登入。");
+                    hideProgress();
+                    return;
+                }
                 retryCount++; 
             }
         }
         
-        // 5. 錯誤處理：如果重試後仍不足，填補錯誤訊息
         while (successfulQuestions.length < quantity) {
              successfulQuestions.push({ 
                  question: '生成失敗，請稍後重試', 
@@ -3811,7 +3831,6 @@ async function generateEssayQuestions() {
         allQuestions = allQuestions.concat(successfulQuestions);
     }
     
-    // 6. 顯示結果
     displayWritingQuestions(allQuestions);
 }
 
@@ -3958,7 +3977,10 @@ function toggleWritingAnswer(button, typeColor) {
 }
 
 
- async function generatePracticalQuestions() {
+// ==========================================
+// === [修訂] 實用文生成函式 (加入 Token) ===
+// ==========================================
+async function generatePracticalQuestions() {
     const selectedTopic = document.getElementById('topicSelect').value;
     let topicInstruction = '';
     
@@ -3967,7 +3989,7 @@ function toggleWritingAnswer(button, typeColor) {
         if (!customTopic) { showError('請輸入自訂主題'); hideProgress(); return; }
         topicInstruction = `請以「${customTopic}」為主題。`;
     } else if (selectedTopic === 'random') {
-        topicInstruction = '請隨機選擇一個主題...'; // 保持原有的隨機指令
+        topicInstruction = '請隨機選擇一個主題...'; 
     } else {
         topicInstruction = `請以「${selectedTopic}」為主題。`;
     }
@@ -3989,8 +4011,13 @@ function toggleWritingAnswer(button, typeColor) {
 
         for (let i = 0; i < quantity; i++) {
             try {
-                // ★★★ 修改重點：發送 Action 和 Data ★★★
+                // ★★★ 核心修訂：獲取 Token ★★★
+                const user = firebase.auth().currentUser;
+                if (!user) throw new Error("請先登入");
+                const token = await user.getIdToken();
+
                 const payload = {
+                    token: token, // <--- 加入 Token
                     action: 'generate_practical',
                     data: {
                         practicalType: practicalType,
@@ -4006,6 +4033,8 @@ function toggleWritingAnswer(button, typeColor) {
                 
                 const data = await response.json();
                 logProviderInfo(data, "PracticalGen");
+
+                if (data.error) throw new Error(data.error);
                 
                 const generatedContent = removeThinkingTags(data.choices[0].message.content);
                 const parsed = parsePracticalResponse(generatedContent);
@@ -4014,6 +4043,11 @@ function toggleWritingAnswer(button, typeColor) {
 
             } catch (error) {
                 console.error(error);
+                if (error.message.includes("Unauthorized")) {
+                    alert("身份驗證失敗，請重新登入。");
+                    hideProgress();
+                    return;
+                }
                 allQuestions.push({ question: '生成失敗', type: practicalType });
             }
         }
