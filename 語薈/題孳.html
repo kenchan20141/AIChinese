@@ -5338,7 +5338,122 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
+<!-- ======================================================= -->
+<!-- === [修復] 統一登入邏輯：自動同步神思身份 === -->
+<!-- ======================================================= -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. 確保 Firebase Auth 已啟動
+    if (typeof firebase !== 'undefined' && firebase.auth) {
+        
+        // 設定持久化 (與神思主頁一致)
+        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+        .then(() => {
+            // 2. 監聽登入狀態改變
+            firebase.auth().onAuthStateChanged(async (user) => {
+                // 讀取本地身份
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
 
+                if (user) {
+                    console.log("[TiZi] 偵測到 Firebase 登入:", user.email);
+
+                    // A. 如果已登入但本地沒資料 (這就是 Bug 的原因)，嘗試從雲端抓回
+                    if (!s) {
+                        console.log("[TiZi] 本地身份遺失，正在從雲端恢復...");
+                        try {
+                            // 使用 Email 的 Base64 作為索引 (與神思邏輯一致)
+                            const emailKey = btoa(user.email);
+                            const snapshot = await firebase.database().ref('email_mapping/' + emailKey).once('value');
+                            const profile = snapshot.val();
+
+                            if (profile) {
+                                // 恢復身份到 LocalStorage
+                                localStorage.setItem('studentProfile', JSON.stringify(profile));
+                                console.log("[TiZi] 身份已恢復:", profile.name);
+                                
+                                // 隱藏任何可能已彈出的限制視窗
+                                const limitModal = document.getElementById('sansiLimitModal');
+                                if (limitModal) {
+                                    limitModal.classList.remove('sansi-limit-show');
+                                    limitModal.style.display = 'none';
+                                }
+                                
+                                // 重新整理頁面以套用權限 (選用，或直接讓攔截器生效)
+                                // window.location.reload(); 
+                            } else {
+                                console.warn("[TiZi] 雲端找不到此帳號的綁定資料");
+                            }
+                        } catch (e) {
+                            console.error("[TiZi] 恢復身份失敗:", e);
+                        }
+                    } else {
+                        console.log("[TiZi] 身份驗證通過:", s.name);
+                    }
+                } else {
+                    console.log("[TiZi] 未偵測到登入狀態，目前為訪客模式");
+                }
+            });
+        });
+    }
+});
+
+// =======================================================
+// === [修復] 統一攔截器 (覆蓋舊有的限制邏輯) ===
+// =======================================================
+(function() {
+    // 防止重複宣告 fetch
+    if (window._sansiFetchOverridden) return;
+    window._sansiFetchOverridden = true;
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async function(url, options) {
+        // 只攔截 AI 相關請求
+        if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
+            
+            // 1. 檢查是否已登入 (優先檢查 LocalStorage)
+            const s = localStorage.getItem('studentProfile');
+            
+            if (s) {
+                // 已登入：直接放行，不扣額度
+                return originalFetch(url, options);
+            }
+
+            // 2. 未登入：執行訪客額度檢查
+            const today = new Date().toLocaleDateString('zh-HK');
+            const toolName = "TiZi"; 
+            const storageKey = `sansi_guest_usage_${toolName}_${today}`;
+            let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
+
+            // 3. 額度用盡 (限制 1 次)
+            if (currentCount >= 1) {
+                // 呼叫顯示彈窗 (如果有的話)
+                const modal = document.getElementById('sansiLimitModal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    // 強制重繪
+                    void modal.offsetWidth; 
+                    modal.classList.add('sansi-limit-show');
+                } else {
+                    alert("訪客每日體驗額度已耗盡。\n請前往「神思」主頁登入。");
+                }
+                
+                // 隱藏 Loading 動畫
+                if (typeof hideProgress === 'function') hideProgress();
+                
+                return Promise.reject(new Error("Guest Limit Exceeded"));
+            }
+
+            // 4. 訪客扣除額度並放行
+            localStorage.setItem(storageKey, currentCount + 1);
+            console.log(`[訪客] ${toolName} 使用第 ${currentCount + 1} 次`);
+        }
+
+        return originalFetch(url, options);
+    };
+    console.log("✅ [TiZi] 統一登入攔截器已啟動");
+})();
+</script>
 
 	
 	
