@@ -2553,6 +2553,9 @@ async function fetchVocabulary(options) {
     const { mode, query, difficulty, count, topic } = options;
     let systemPrompt;
     
+    // ★★★ 修復點：在最外層宣告變數，預設為 false ★★★
+    let shouldUsePredefined = false; 
+    
     // 定義統一的 JSON 輸出格式指令
     const jsonFormatInstruction = `{
     "results": [
@@ -2591,8 +2594,8 @@ ${jsonFormatInstruction}`;
         const availablePredefinedVocabs = PREDEFINED_VOCABS.filter(vocab => !usedVocabs.has(vocab));
         const historyVocabs = state.lookupHistory.map(item => item.vocab).join(', ');
         
-        // 判斷：只有在「沒有指定主題」且「還有預定義詞彙」時，才使用本地預定義詞庫
-        let shouldUsePredefined = !topic && availablePredefinedVocabs.length > 0;
+        // ★★★ 修復點：這裡變成賦值 (assignment)，而不是宣告 (declaration)
+        shouldUsePredefined = !topic && availablePredefinedVocabs.length > 0;
         
         if (shouldUsePredefined) {
             // [生成模式 - A] 使用預定義詞彙
@@ -2671,20 +2674,16 @@ ${jsonFormatInstruction}`;
             if (!response.ok) throw new Error(`API 請求失敗，狀態碼：${response.status}`);
             const data = await response.json();
 
-            // ★★★ Log 資訊 ★★★
+            // Log 資訊
             logProviderInfo(data, `VocabFetch(Try:${retryCount})`);
 
             if (data.error) throw new Error(`生成失敗: ${data.error}`);
 
-            // ★★★ 關鍵修正：同時支援 OpenAI 格式 (choices) 和 Gemini 原生格式 (candidates) ★★★
+            // 同時支援 OpenAI 格式 (choices) 和 Gemini 原生格式 (candidates)
             let content = null;
-            
-            // 優先檢查 OpenAI 格式
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 content = data.choices[0].message.content;
-            } 
-            // 其次檢查 Gemini 原生格式 (fallback)
-            else if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+            } else if (data.candidates && data.candidates[0] && data.candidates[0].content) {
                 content = data.candidates[0].content.parts[0].text;
             }
 
@@ -2718,13 +2717,11 @@ ${jsonFormatInstruction}`;
         
         // 驗證解析結果
         if (!parsedData || !parsedData.results || !Array.isArray(parsedData.results) || parsedData.results.length === 0) {
-            // 如果解析失敗且為生成模式，嘗試簡單重試一次
             if (mode === 'generate') {
                 console.warn("第一次解析失敗，嘗試重試...");
                 parsedData = await performFetch(1);
             }
             
-            // 如果還是失敗，嘗試最後的 fallback 提取 (使用 parseJsonFromResponse 的強力修復能力)
             if (!parsedData || !parsedData.results) {
                  throw new Error("API 回應的 JSON 內容不完整或格式錯誤，且無法修復。");
             }
@@ -2733,21 +2730,17 @@ ${jsonFormatInstruction}`;
         // 資料後處理與驗證
         const validResults = [];
         parsedData.results.forEach(item => {
-            // 基本欄位檢查
             if (!item.vocab || !item.definition) return;
             
-            // 確保 examples 存在且為陣列
             if (!item.examples || !Array.isArray(item.examples)) {
                 item.examples = [];
             }
             
-            // 補齊例句
             while(item.examples.length < 5) {
                 item.examples.push(`[缺少例句]`);
             }
             item.examples = item.examples.slice(0, 5);
             
-            // 附加 metadata
             item.type = 'vocab';
             const timestamp = new Date().toISOString();
             item.generatedDate = timestamp;
@@ -2756,19 +2749,16 @@ ${jsonFormatInstruction}`;
             validResults.push(item);
         });
 
-        // 檢查是否所有結果都被過濾掉了
         if (validResults.length === 0) {
             throw new Error("API 回應的所有詞彙資料均不完整。");
         }
 
-        // 如果是生成模式，執行去重
+        // ★★★ 修復點：現在這裡可以正確存取 shouldUsePredefined ★★★
         if (mode === 'generate' && !shouldUsePredefined) {
             const historyVocabsSet = new Set(state.lookupHistory.map(item => item.vocab));
             const uniqueResults = validResults.filter(result => !historyVocabsSet.has(result.vocab));
             
             if (uniqueResults.length === 0) {
-                 // 如果全部重複，這種情況在嚴格模式下可能需要重試，但為了使用者體驗，
-                 // 這裡我們放寬限制，只提示警告，並回傳原始結果（或您可以選擇拋出錯誤讓使用者重按）
                  console.warn("生成結果與歷史紀錄重複。");
                  return validResults; 
             }
@@ -2779,8 +2769,8 @@ ${jsonFormatInstruction}`;
 
     } catch(error) {
         console.error("API Error (Vocab):", error);
-        if (error.message.includes("API 回應格式不正確")) {
-             showError(`API 回應格式異常，請稍後重試或檢查網絡。`);
+        if (error.message.includes("API 回應格式不正確") || error.message.includes("is not defined")) {
+             showError(`處理請求時發生錯誤，請稍後重試。(${error.message})`);
         } else {
              showError(`獲取資料時發生錯誤: ${error.message}`);
         }
