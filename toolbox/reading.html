@@ -1072,16 +1072,33 @@ JSON 格式如下：
 
         if (!response.ok) throw new Error(`GAS 請求失敗，狀態碼：${response.status}`);
         
-        const data = await response.json();
+      const data = await response.json();
 
-        // --- 核心修改：將日誌輸出到 F12 且帶顏色 ---
-        if (data._provider_log) {
-            logToConsole(data._provider_log);
-        }
+// 【修訂 1】在控制台印出完整的資料，這樣你按 F12 就能看到後端到底回傳了什麼錯誤
+console.log("🔍 GAS 後端回傳原始資料:", data); 
 
-        if (!data.choices?.[0]?.message?.content) throw new Error("後端未回傳有效內容。");
+// --- 核心修改：將日誌輸出到 F12 且帶顏色 ---
+if (data._provider_log) {
+    logToConsole(data._provider_log);
+}
 
-        let contentString = data.choices[0].message.content;
+// 【修訂 2】優先檢查後端是否直接回傳了錯誤訊息 (OpenAI 格式通常會有 error 欄位)
+if (data.error) {
+    const errorMsg = data.error.message || JSON.stringify(data.error);
+    throw new Error(`後端報錯: ${errorMsg}`);
+}
+
+// 【修訂 3】檢查結構是否存在
+if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+    // 如果結構不對，拋出更詳細的錯誤，並指引去看控制台
+    throw new Error("後端回傳格式異常，請按 F12 查看 Console 的「GAS 後端回傳原始資料」。");
+}
+
+if (!data.choices[0].message.content) {
+     throw new Error("後端回傳內容為空 (Content is empty)。");
+}
+
+let contentString = data.choices[0].message.content;
 
         // 清理 Markdown 標籤
         contentString = contentString
