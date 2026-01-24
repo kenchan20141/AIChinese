@@ -15295,9 +15295,9 @@ function openHistoryDB() {
     });
 }
 
-// ★ 新增：背景圖片快取載入邏輯
+// ★ 新增：背景圖片快取載入邏輯 (V2 終極防呆版 - 含 CSP 檢測)
 async function loadAndCacheBackground() {
-    const bgImageUrl = '背景.png'; // 您的背景圖片檔案名稱 (若您的圖檔名為 引導頁背景.PNG 請在此修改)
+    const bgImageUrl = '背景.png'; 
     const bgKey = 'main_background_image';
 
     try {
@@ -15311,36 +15311,49 @@ async function loadAndCacheBackground() {
         request.onsuccess = async (e) => {
             const cachedBlob = e.target.result;
 
-            if (cachedBlob) {
-                // A. 命中快取：建立 Blob URL 並應用
+            if (cachedBlob && cachedBlob.size > 0) {
+                // A. 命中快取：進行「預載測試」
                 const imgUrl = URL.createObjectURL(cachedBlob);
-                document.body.style.backgroundImage = `url('${imgUrl}')`;
-                console.log("⚡ [Cache] 背景圖片已從 IndexedDB 秒速載入");
+                
+                // 建立一個隱形的圖片物件來測試載入
+                const testImg = new Image();
+                
+                testImg.onload = function() {
+                    // 測試成功：代表 CSP 通過且圖片正常，這才套用到背景
+                    document.body.style.backgroundImage = `url('${imgUrl}')`;
+                    console.log("⚡ [Cache] 背景圖片已確認有效並載入");
+                };
+
+                testImg.onerror = function() {
+                    // 測試失敗：可能是 CSP 阻擋或 Blob 損壞
+                    // 什麼都不做！讓網頁維持 CSS 原本設定的伺服器圖片
+                    console.warn("⚠️ [Cache] 本地圖片載入失敗 (可能是 CSP 阻擋)，已自動退回伺服器原圖。");
+                    URL.revokeObjectURL(imgUrl); // 釋放內存
+                };
+
+                // 開始測試
+                testImg.src = imgUrl;
+
             } else {
-                // B. 無快取：執行下載並儲存
-                console.log("📥 [Cache] 首次下載背景圖片...");
+                // B. 無快取：執行背景下載 (不影響當前畫面)
+                console.log("📥 [Cache] 背景下載中...");
                 try {
                     const response = await fetch(bgImageUrl);
+                    if (!response.ok) throw new Error('Network response was not ok');
                     const blob = await response.blob();
 
-                    // 應用圖片 (讓用戶先看到)
-                    const imgUrl = URL.createObjectURL(blob);
-                    document.body.style.backgroundImage = `url('${imgUrl}')`;
-
-                    // 寫入資料庫 (下次使用)
                     const writeTx = db.transaction([ASSET_STORE_NAME], 'readwrite');
                     writeTx.objectStore(ASSET_STORE_NAME).put(blob, bgKey);
-                    console.log("✅ [Cache] 背景圖片已寫入 IndexedDB");
+                    console.log("✅ [Cache] 背景已寫入 IndexedDB (下次生效)");
                 } catch (fetchErr) {
-                    console.error("背景圖片下載失敗，使用預設 CSS 載入", fetchErr);
+                    console.warn("背景下載失敗", fetchErr);
                 }
             }
         };
     } catch (err) {
-        console.error("讀取背景快取失敗:", err);
+        console.warn("快取系統啟動失敗 (使用預設背景):", err);
     }
 }
-
 	
 // 2. ★ 核心輔助：捕捉 HTML 並將 Canvas 轉為圖片 ★
 // ★ 核心輔助：捕捉 HTML (修訂版：只捕捉結構，不轉圖片) ★
