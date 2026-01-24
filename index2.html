@@ -70,6 +70,9 @@ form-action 'self';
 
 	<script>
 
+
+
+
 		
 // === 1. Firebase 初始化 (必須放在最頂部) ===
 const firebaseConfig = {
@@ -17087,45 +17090,38 @@ function closeStudentCloudModal() {
 // ==========================================
 
 // 修改原本的 checkStudentLogin
-// 修改原本的 checkStudentLogin
-// === 修改後：檢查登入狀態 (加入即時同步與監聽) ===
 async function checkStudentLogin() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+
+    // 1. 切換 UI
+    document.getElementById('studentIdentityForm').style.display = 'none';
+    document.getElementById('studentCloudPanel').style.display = 'block';
     
-    if (s) {
-        // A. UI 切換
-        document.getElementById('studentIdentityForm').style.display = 'none';
-        document.getElementById('studentCloudPanel').style.display = 'block';
-        
-        // B. 更新歡迎語
-        updateWelcomeMessage(s);
-        
-        // C. 載入課業列表
-        loadAssignments(s.grade, s.class);
-
-        // D. 啟動紅點監聽
-        monitorPendingAssignments(); 
-
-        // ★★★ 關鍵新增 1：頁面載入後，立即執行一次同步 ★★★
-        // 確保本地資料與雲端一致 (例如老師剛剛刪除了作業)
-        syncHistoryToFirebase(true);
-
-        // ★★★ 關鍵新增 2：啟動即時監聽器 ★★★
-        // 如果學生一直開著網頁，老師刪除資料時，這裡會收到通知並自動更新
-        startAutoSyncListener();
-
-        if (window.forceLogVisit) {
-            window.forceLogVisit();
+    // 2. 更新歡迎語
+    updateWelcomeMessage(s);
+    
+    // 3. 延遲或重試機制讀取資料庫 (防止 Auth 恢復瞬間的延遲)
+    const tryLoad = async (retryCount = 0) => {
+        try {
+            await loadAssignments(s.grade, s.class);
+            monitorPendingAssignments();
+            startAutoSyncListener();
+            syncHistoryToFirebase(true);
+        } catch (err) {
+            if (retryCount < 3) {
+                console.warn(`⏳ 資料載入重試中... (${retryCount + 1})`);
+                setTimeout(() => tryLoad(retryCount + 1), 1500);
+            } else {
+                console.error("❌ 多次嘗試載入失敗:", err);
+            }
         }
-
-        const user = firebase.auth().currentUser;
-        if (user) {
-            try { await user.reload(); } catch (error) { }
-        }
-        verifyStudentStatus(s);
-    }
+    };
+    
+    tryLoad();
 }
 
+	
 // 2. 輔助函式：更新歡迎文字
 // 2. 輔助函式：更新歡迎文字 (優化顯示版)
 function updateWelcomeMessage(profile) {
@@ -17330,7 +17326,6 @@ document.addEventListener('DOMContentLoaded', initClassNumbers);
 
 
 // === 新增：學校電郵登入處理函式 ===
-// === 修改後：學校電郵登入處理函式 (支援手機 Redirect) ===
 async function handleSchoolLogin() {
     // 1. 獲取用戶輸入的資料
     const manualName = document.getElementById('studentNameInput').value.trim();
@@ -17338,50 +17333,47 @@ async function handleSchoolLogin() {
     const cls = document.getElementById('studentClass').value;
     const number = document.getElementById('studentNumber').value;
     
-    // 2. 驗證姓名是否已填寫
+    // 2. 驗證姓名
     if (!manualName) {
         alert("請務必填寫您的「中文姓名」才能進行註冊！");
         document.getElementById('studentNameInput').focus();
         return;
     }
 
-    const btn = event.target.closest('button'); 
-    const originalContent = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
-    btn.disabled = true;
+    const btn = event ? (event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button')) : null;
+    let originalContent = "";
+    if (btn) {
+        originalContent = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 驗證中...';
+        btn.disabled = true;
+    }
 
-    // 3. 暫存資料 (以防萬一)
-    const tempStudentData = {
-        manualName: manualName,
-        grade: grade,
-        cls: cls,
-        number: number
-    };
+    // 暫存資料
+    const tempStudentData = { manualName, grade, cls, number };
     sessionStorage.setItem('sansi_temp_student_data', JSON.stringify(tempStudentData));
 
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
-        // ★★★ 關鍵修改：不分手機電腦，統一使用 Popup ★★★
-        // 這能確保頁面不刷新，資料與狀態得以保留
+        // ★ 核心修訂：設定持久化，確保登入狀態寫入硬碟
+        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+        // 使用 Popup 登入
         const result = await auth.signInWithPopup(provider);
         await processLoginResult(result.user, btn, originalContent);
 
     } catch (error) {
         console.error("登入錯誤:", error);
-        
-        // 處理手機瀏覽器常見的 Popup 被阻擋問題
         if (error.code === 'auth/popup-blocked') {
-            alert("⚠️ 登入視窗被瀏覽器阻擋了。\n\n請允許此網站顯示彈出式視窗，或嘗試使用其他瀏覽器 (如 Chrome)。");
-        } else if (error.code === 'auth/popup-closed-by-user') {
-            // 用戶自己關閉視窗，不做處理
-        } else {
+            alert("⚠️ 登入視窗被瀏覽器阻擋。\n\n請允許此網站顯示彈出式視窗，或嘗試使用 Chrome 瀏覽器。");
+        } else if (error.code !== 'auth/popup-closed-by-user') {
             alert("登入發生錯誤：" + error.message);
         }
-        
-        btn.innerHTML = originalContent;
-        btn.disabled = false;
+        if (btn) {
+            btn.innerHTML = originalContent;
+            btn.disabled = false;
+        }
     }
 }
 
@@ -17621,24 +17613,30 @@ function finishLogin(grade, cls, number, name) {
 
 
 // === 修訂版 V8：背景熱更新 (秒開緩存 + 強制同步) ===
-// === 修訂版 V10：分頁讀取 (流量救星) ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
+
+    // ★ 核心修訂：等待 Auth 會話恢復 (解決重開 PWA 時的 Network Error)
+    let authRetry = 0;
+    while (!auth.currentUser && authRetry < 10) { 
+        // 每次等待 0.5 秒，最多等 5 秒
+        console.log(`⏳ 正在同步身份驗證... (${authRetry + 1}/10)`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        authRetry++;
+    }
 
     // 重置分頁狀態
     allAssignmentTasks = [];
     currentLoadedCount = 0;
     listDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> 載入中...</div>';
 
-    // 移除舊的「載入更多」按鈕 (如果有的話)
     const oldBtn = document.getElementById('loadMoreAssignmentsBtn');
     if (oldBtn) oldBtn.remove();
 
     try {
-        // 1. 讀取該班級的「功課清單」 (Metadata)
-        // 這一步流量很小，因為 assignments/{grade}/{class} 下面只有題目和日期，沒有大量文字
+        // 1. 讀取清單
         const assignmentsSnap = await database.ref(`assignments/${grade}/${cls}`).once('value');
         const assignmentsData = assignmentsSnap.val();
 
@@ -17647,22 +17645,23 @@ async function loadAssignments(grade, cls) {
             return;
         }
 
-        // 2. 將功課轉換為陣列並按時間倒序排列 (最新的在上面)
         allAssignmentTasks = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
-
-        // 3. 清空列表，準備載入第一批
         listDiv.innerHTML = '';
 
-        // 4. 載入第一批 (Top 5)
+        // 2. 分批載入詳細數據
         await loadNextBatchAssignments();
 
     } catch (error) {
-        console.error("載入失敗", error);
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:red;">載入失敗，請檢查網絡。</div>';
+        console.error("載入失敗:", error);
+        // 如果還是權限錯誤，嘗試最後一次自動重連
+        if (error.message.includes("permission_denied")) {
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-sync fa-spin"></i> 安全連線重試中...</div>';
+            setTimeout(() => loadAssignments(grade, cls), 2000);
+        } else {
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#d69a92;">讀取課業失敗，請重整頁面。</div>';
+        }
     }
 }
-
-
 	// === 核心：分批載入詳細數據 ===
 async function loadNextBatchAssignments() {
     const listDiv = document.getElementById('assignmentList');
@@ -20454,6 +20453,38 @@ function enterFeaturedFromMenu() {
     </div>
 </div>
 
+
+<!-- 確保這段話在 </body> 之前，且被 <script> 包裹 -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    if (auth) {
+        // 強制設定為本地持久化
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
+            // 監聽 Auth 狀態改變
+            auth.onAuthStateChanged(async (user) => {
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                if (user && s) {
+                    console.log("✅ 認證已恢復:", user.email);
+                    checkStudentLogin(); 
+                } else if (!user && !s) {
+                    console.log("ℹ️ 訪客狀態：顯示登入表單");
+                    const form = document.getElementById('studentIdentityForm');
+                    if (form) form.style.display = 'block';
+                } else if (user && !s) {
+                    // Firebase 有登入但本地沒資料，嘗試自動找回
+                    const profile = await findProfileByEmail(user.email);
+                    if (profile) {
+                        localStorage.setItem('studentProfile', JSON.stringify(profile));
+                        checkStudentLogin();
+                    }
+                }
+            });
+        });
+    }
+});
+</script>
+
+	
 
 
 </body>
