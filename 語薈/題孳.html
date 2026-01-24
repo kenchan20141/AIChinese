@@ -5135,29 +5135,83 @@ document.addEventListener('DOMContentLoaded', function() {
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
 <!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+<!-- ======================================================= -->
+<!-- === [最終版] Firebase 初始化、持久化與狀態同步 === -->
+<!-- ======================================================= -->
 <script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
-    authDomain: "sansidata.firebaseapp.com",
-    projectId: "sansidata",
-    storageBucket: "sansidata.firebasestorage.app",
-    messagingSenderId: "580288358575",
-    appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
-    databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
-  };
+    // 1. 定義 Firebase 設定
+    const firebaseConfig = {
+        apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
+        authDomain: "sansidata.firebaseapp.com",
+        projectId: "sansidata",
+        storageBucket: "sansidata.firebasestorage.app",
+        messagingSenderId: "580288358575",
+        appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
+        databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
+    };
 
-  // ★★★ 修正重點：補上初始化指令 ★★★
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
-  
-  // ★★★ 修正重點：定義 database 變數，下面的程式才抓得到 ★★★
-  var database = firebase.database();
+    // 2. 初始化 Firebase (確保只執行一次)
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    // 3. 定義全域變數 (讓所有功能都能存取)
+    var database = firebase.database();
+    var auth = firebase.auth();
 
-  // (選用) 啟用匿名驗證，確保連線權限更穩定
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
-  });
+    // 4. 啟動監聽與同步邏輯
+    document.addEventListener('DOMContentLoaded', function() {
+        if (auth) {
+            // ★ 關鍵：設定 LOCAL 持久化，這能讓神思的登入狀態「傳染」給題孳
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+            .then(() => {
+                // 監聽狀態改變
+                auth.onAuthStateChanged(async (user) => {
+                    const s = JSON.parse(localStorage.getItem('studentProfile'));
+
+                    if (user) {
+                        // === A. 已登入 ===
+                        console.log("[TiZi] 🟢 偵測到有效登入:", user.email);
+
+                        // 情況：有登入但本地沒資料 (例如剛從神思過來)
+                        if (!s) {
+                            console.log("[TiZi] 正在同步雲端身份...");
+                            try {
+                                const emailKey = btoa(user.email);
+                                const snapshot = await database.ref('email_mapping/' + emailKey).once('value');
+                                const profile = snapshot.val();
+
+                                if (profile) {
+                                    localStorage.setItem('studentProfile', JSON.stringify(profile));
+                                    console.log("[TiZi] ✅ 身份同步成功:", profile.name);
+                                    
+                                    // 刷新頁面以套用身份 (可選)
+                                    // window.location.reload();
+                                }
+                            } catch (e) {
+                                console.error("[TiZi] 同步失敗:", e);
+                            }
+                        } else {
+                            console.log("[TiZi] ✅ 身份驗證無誤:", s.name);
+                        }
+                    } else {
+                        // === B. 未登入 (訪客或過期) ===
+                        console.log("[TiZi] ⚪ 未偵測到登入");
+
+                        if (s) {
+                            // ★ 幽靈檔案清洗：本地有資料但 Auth 沒登入 -> 清除！
+                            console.warn("[TiZi] ⚠️ 發現失效的身份資料，執行安全清除...");
+                            localStorage.removeItem('studentProfile');
+                            // 這裡不彈窗，以免嚇到用戶，靜默轉為訪客即可
+                        }
+                    }
+                });
+            })
+            .catch((error) => {
+                console.error("[TiZi] 持久化設定失敗:", error);
+            });
+        }
+    });
 </script>
 
 
