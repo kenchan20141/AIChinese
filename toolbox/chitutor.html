@@ -3218,9 +3218,28 @@
 
 
 
+
+
+
+        
+
 // Firebase 配置
 const firebaseConfig = {
-  const firebaseConfig = {
+  apiKey: "AIzaSyCNnFDrHrUFCPFNPcAYB2eLV_lMlBI9zB8",
+  authDomain: "aiwritingtool-243aa.firebaseapp.com",
+  databaseURL: "https://aiwritingtool-243aa-default-rtdb.firebaseio.com",
+  projectId: "aiwritingtool-243aa",
+  storageBucket: "aiwritingtool-243aa.firebasestorage.app",
+  messagingSenderId: "532808111828",
+  appId: "1:532808111828:web:74cd1001e232e196598d41"
+};
+
+// 1. 初始化原本喻蛋教室的 Firebase (App1)
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database(); // 這是原本存點數、商店用的
+
+// 2. 初始化你要求的 Sansidata Firebase (App2 - 具名初始化以防衝突)
+const statsConfig = {
     apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
     authDomain: "sansidata.firebaseapp.com",
     projectId: "sansidata",
@@ -3228,209 +3247,33 @@ const firebaseConfig = {
     messagingSenderId: "580288358575",
     appId: "1:580288358575:web:35dcf4e79bcef530de4c5a",
     databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
-  };
+};
 
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
-  
-  var database = firebase.database();
-  var auth = firebase.auth();
+// 使用 StatsApp 作為名稱
+const statsApp = firebase.initializeApp(statsConfig, "StatsApp");
+const statsDb = statsApp.database();
+const statsAuth = statsApp.auth();
 
-  // 保持登入狀態持久化
-  document.addEventListener('DOMContentLoaded', function() {
-      if (auth) {
-          auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
-              auth.onAuthStateChanged(async (user) => {
-                  const s = JSON.parse(localStorage.getItem('studentProfile'));
-                  
-                  if (user) {
-                      console.log("[WenShu] Firebase 已連線:", user.email);
-                      // 如果本地沒資料但雲端有，嘗試同步 (選用)
-                      if (!s) {
-                          try {
-                              const emailKey = btoa(user.email);
-                              const snapshot = await database.ref('email_mapping/' + emailKey).once('value');
-                              if (snapshot.val()) localStorage.setItem('studentProfile', JSON.stringify(snapshot.val()));
-                          } catch (e) {}
-                      }
-                  } else {
-                      // ★★★ 修正重點：這裡什麼都不要做！ ★★★
-                      // 即使 user 是 null，也不要刪除 studentProfile
-                      // 因為這可能是頁面剛載入，Firebase 還在連線中
-                      console.log("[WenShu] 等待 Firebase 驗證或訪客模式...");
-                  }
-              });
-          });
-      }
-  });
-</script>
-
-
-<script>
-
-
-        // ===============================================================
-// === [神思通用組件] 權限攔截器 & 莫蘭迪提示窗 (含登入連結) ===
-// ===============================================================
-(function() {
-    // 防止重複注入
-    if (window.SansiInterceptorLoaded) return;
-    window.SansiInterceptorLoaded = true;
-
-    // --- 1. 自動注入莫蘭迪 CSS ---
-    const style = document.createElement('style');
-    style.textContent = `
-        /* 莫蘭迪遮罩 */
-        .sansi-limit-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(253, 252, 248, 0.88); /* 米白高模糊 */
-            backdrop-filter: blur(6px);
-            z-index: 9999999; /* 最高層級 */
-            display: none; justify-content: center; align-items: center;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
-        .sansi-limit-show { opacity: 1; }
-
-        /* 視窗卡片 */
-        .sansi-limit-card {
-            background: #fdfcf8;
-            border: 1px solid #e0ddd7;
-            border-radius: 16px;
-            padding: 30px 25px;
-            width: 90%; max-width: 380px;
-            box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
-            text-align: center;
-            transform: translateY(20px);
-            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-            font-family: 'Noto Serif TC', serif;
-        }
-        .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
-
-        /* 圖示與文字 */
-        .sansi-limit-icon { font-size: 3rem; color: #d69a92; margin-bottom: 15px; } /* 豆沙紅 */
-        .sansi-limit-title { color: #5d4037; font-size: 1.4rem; font-weight: bold; margin: 0 0 10px 0; }
-        .sansi-limit-desc { color: #888; font-size: 1rem; line-height: 1.6; margin-bottom: 25px; text-align: justify; }
-
-        /* 按鈕群組 */
-        .sansi-btn-group { display: flex; gap: 12px; margin-top: 20px; }
-
-        .sansi-limit-btn {
-            border: none; padding: 10px 0; border-radius: 50px;
-            font-size: 0.95rem; font-weight: bold; cursor: pointer;
-            transition: all 0.2s; font-family: 'Noto Serif TC', serif;
-            flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-            text-decoration: none;
-        }
-
-        /* 主按鈕 (前往登入) - 莫蘭迪綠 */
-        .btn-primary { 
-            background: #8fa398; color: white; 
-            box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
-        }
-        .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
-
-        /* 次按鈕 (關閉) - 淺灰 */
-        .btn-secondary { 
-            background: #f0f0f0; color: #777; 
-        }
-        .btn-secondary:hover { background-color: #e5e5e5; }
-    `;
-    document.head.appendChild(style);
-
-    // --- 2. 自動注入 HTML (彈出視窗) ---
-    const modalHTML = `
-        <div id="sansiLimitModal" class="sansi-limit-overlay">
-            <div class="sansi-limit-card">
-                <div class="sansi-limit-icon">
-                    <i class="fas fa-user-lock"></i>
-                </div>
-                <div class="sansi-limit-title">需要登入</div>
-                <div class="sansi-limit-desc">
-                    訪客每日體驗額度已耗盡。<br>
-                    請前往「神思」主頁登入學校帳號，即可解鎖無限使用權限。
-                </div>
-                <div class="sansi-btn-group">
-                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
-                        稍後
-                    </button>
-                    <!-- 點擊直接跳轉至神思主頁 -->
-                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='https://kenchan20141.github.io/AIChinese/'">
-                        <i class="fas fa-sign-in-alt"></i> 前往登入
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div);
-
-    // --- 3. 定義關閉視窗與清理函式 ---
-    window.closeSansiLimitModal = function() {
-        const modal = document.getElementById('sansiLimitModal');
-        if (modal) {
-            modal.classList.remove('sansi-limit-show');
-            setTimeout(() => { modal.style.display = 'none'; }, 300);
-            
-            // 自動嘗試關閉各種工具的 Loading 狀態，防止畫面卡死
-            if (typeof hideProgress === 'function') hideProgress(); // 題孳
-            if (typeof hideLoading === 'function') hideLoading();   // 翻水/寫作
-            
-            // 如果按鈕被禁用，嘗試解鎖 (針對通用按鈕 class)
-            const disabledBtns = document.querySelectorAll('button:disabled');
-            disabledBtns.forEach(btn => btn.disabled = false);
-        }
-    };
-
-    // --- 4. 攔截器核心邏輯 ---
-    const originalFetch = window.fetch;
-    
-    window.fetch = async function(url, options) {
-        // 僅攔截 AI 請求
-        if (typeof url === 'string' && url.includes('pollinations.ai')) {
-            
-            // A. 即時檢查登入狀態 (每次請求都會重新讀取，防止登出後仍能使用)
-            const s = localStorage.getItem('studentProfile');
-            
-            if (s) {
-                // 已登入：放行
-                return originalFetch(url, options);
+// 監聽 Sansidata 的登入狀態並同步身份
+statsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
+    statsAuth.onAuthStateChanged(async (user) => {
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        if (user) {
+            console.log("[Sansidata] 🟢 偵測到生成權限已登入:", user.email);
+            if (!s) {
+                try {
+                    const emailKey = btoa(user.email);
+                    const snapshot = await statsDb.ref('email_mapping/' + emailKey).once('value');
+                    const profile = snapshot.val();
+                    if (profile) localStorage.setItem('studentProfile', JSON.stringify(profile));
+                } catch (e) { console.error("同步失敗:", e); }
             }
-
-            // B. 未登入：檢查額度
-            const today = new Date().toLocaleDateString('zh-HK');
-            const toolName = document.title || "UnknownTool"; 
-            const storageKey = `sansi_guest_usage_${toolName}_${today}`;
-            
-            let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
-
-            // C. 超過額度 -> 阻擋並彈窗
-            if (currentCount >= 1) {
-                // 顯示視窗
-                const modal = document.getElementById('sansiLimitModal');
-                modal.style.display = 'flex';
-                // 強制重繪以觸發過渡動畫
-                void modal.offsetWidth; 
-                modal.classList.add('sansi-limit-show');
-
-                // 回傳錯誤以中斷原本程式的執行
-                return Promise.reject(new Error("Guest Limit Exceeded"));
-            }
-
-            // D. 未超過 -> 記錄並放行
-            localStorage.setItem(storageKey, currentCount + 1);
-            console.log(`[訪客] ${toolName} 使用第 ${currentCount + 1} 次`);
+        } else {
+            console.log("[Sansidata] ⚪ 生成權限未登入");
+            localStorage.removeItem('studentProfile');
         }
-
-        return originalFetch(url, options);
-    };
-    
-    console.log("✅ 神思通用權限鎖 (含登入連結) 已啟動");
-})();
-</script>
-
-<script>
+    });
+});
 
 // 在現有Firebase初始化後添加
 const auth = firebase.auth();
@@ -5696,6 +5539,14 @@ function logProviderInfo(dataOrResponse, apiName) {
         // 發送消息到API
     // 發送消息到 API (GAS 代理版)
 async function sendMessage() {
+    // === 新增：Sansidata 生成權限檢查 ===
+    const sansiUser = statsAuth.currentUser; 
+    if (!sansiUser) {
+        alert("【生成權限錯誤】你尚未登入 Sansidata 認證系統，無法使用 AI 生成功能。");
+        return; 
+    }
+    // =================================
+    
     let message = userInput.value.trim();
     if (!message) return;
 
@@ -7651,9 +7502,49 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('DOMContentLoaded', initPresenceSystem);
 </script>
 
+<script>
+
+
+// === 全域請求攔截器 (針對 Sansidata 注入 Token) ===
+(function() {
+    const originalFetch = window.fetch; 
+    const TARGET_URL_PART = "script.google.com"; 
+
+    window.fetch = async function(url, options) {
+        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+            
+            console.log("[TokenInjector] 正在注入 Sansidata Token...");
+
+            const user = await new Promise((resolve) => {
+                if (statsAuth.currentUser) {
+                    resolve(statsAuth.currentUser);
+                } else {
+                    const unsubscribe = statsAuth.onAuthStateChanged(u => {
+                        unsubscribe();
+                        resolve(u);
+                    });
+                    setTimeout(() => resolve(null), 2000); 
+                }
+            });
+
+            if (user) {
+                try {
+                    const token = await user.getIdToken(true);
+                    let bodyData = JSON.parse(options.body);
+                    bodyData.token = token; // ★ 這裡注入 Token
+                    options.body = JSON.stringify(bodyData);
+                    console.log("[TokenInjector] Token 注入成功");
+                } catch (e) {
+                    console.error("[TokenInjector] 注入失敗:", e);
+                }
+            }
+        }
+        return originalFetch(url, options);
+    };
+})();
+
 	
 </script>
-
 
 </body>
 </html>
