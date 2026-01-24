@@ -1822,76 +1822,82 @@ input[type="text"]:not(.no-modal-editor):hover {
 <script>
 
 
-// 輔助函式：從 API 回應中提取純 JSON（剝離 Markdown 程式碼區塊）
+// 輔助函式：從 API 回應中提取純 JSON（剝離 Markdown 程式碼區塊），並具備強大的容錯截斷修復功能
 function parseJsonFromResponse(content) {
     if (!content) return null;
     
-    // 移除常見的 Markdown 包裝
+    // 1. 基礎清理：移除 Markdown 標記
     let cleanContent = content
         .replace(/^```(?:json)?\s*\n?/, '')
         .replace(/\n?```(?:\s*json)?$/, '')
         .trim();
     
+    // 2. 嘗試標準解析
     try {
         return JSON.parse(cleanContent);
     } catch (e) {
-        console.warn('JSON 解析失敗，嘗試修復...', e);
+        console.warn('標準 JSON 解析失敗，嘗試暴力提取模式...', e);
         
-        // 嘗試修復常見的 JSON 錯誤
+        // 3. 暴力提取模式 (針對未完成/截斷的 JSON 字串)
         try {
-            // 修復未終止的字符串
-            const fixedContent = cleanContent.replace(
-                /(\[\s*"[^"]*)(?=\s*,?\s*\])/g,
-                (match) => match + '"'
-            );
-            
-            // 修復缺少逗號的情況
-            const fixedContent2 = fixedContent.replace(
-                /"(\s*)(?=\])/g,
-                '"$1'
-            );
-            
-            return JSON.parse(fixedContent2);
-        } catch (e2) {
-            console.error('JSON 修復後仍然解析失敗:', e2, '原始內容:', content);
-            
-            // 嘗試提取部分有效數據
+            // A. 提取 Vocab (詞彙)
             const vocabMatch = cleanContent.match(/"vocab"\s*:\s*"([^"]+)"/);
+            // B. 提取 Definition (定義)
             const definitionMatch = cleanContent.match(/"definition"\s*:\s*"([^"]+)"/);
-            const examplesMatch = cleanContent.match(/"examples"\s*:\s*\[(.*?)\]/s);
-            
+
+            // 如果連詞彙或定義都找不到，那就真的沒救了
             if (vocabMatch && definitionMatch) {
-                const examples = [];
-                if (examplesMatch) {
-                    // 嘗試提取例句
-                    const exampleText = examplesMatch[1];
-                    const quoteMatches = exampleText.match(/"([^"]+)"/g);
-                    if (quoteMatches) {
-                        quoteMatches.forEach(match => {
-                            examples.push(match.replace(/"/g, ''));
-                        });
+                const extractedVocab = vocabMatch[1];
+                const extractedDef = definitionMatch[1];
+                const extractedExamples = [];
+
+                // C. 提取 Examples (例句) - 不依賴閉合括號
+                const examplesKeyIndex = cleanContent.indexOf('"examples"');
+                if (examplesKeyIndex !== -1) {
+                    const openBracketIndex = cleanContent.indexOf('[', examplesKeyIndex);
+                    if (openBracketIndex !== -1) {
+                        // 截取從 '[' 之後的所有內容
+                        const rawExamplesPart = cleanContent.substring(openBracketIndex + 1);
+                        
+                        // 使用正則表達式尋找所有「完整閉合」的雙引號字串
+                        // 這樣可以自動忽略最後那句沒寫完的斷句
+                        const strRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
+                        let match;
+                        
+                        while ((match = strRegex.exec(rawExamplesPart)) !== null) {
+                            // 排除空字串
+                            if(match[1].trim()) {
+                                extractedExamples.push(match[1]);
+                            }
+                        }
                     }
                 }
                 
-                // 確保至少有3個例句
-                while (examples.length < 3) {
-                    examples.push("例句資料不完整");
+                // D. 資料補齊 (若例句不足，自動補上提示)
+                while (extractedExamples.length < 3) {
+                    extractedExamples.push("（此例句因生成中斷而未顯示）");
                 }
                 
+                console.log(`[JSON修復成功] 提取到詞彙: ${extractedVocab} 及 ${extractedExamples.length} 個例句`);
+
                 return {
                     results: [{
-                        vocab: vocabMatch[1],
-                        definition: definitionMatch[1],
-                        examples: examples.slice(0, 3)
+                        vocab: extractedVocab,
+                        definition: extractedDef,
+                        examples: extractedExamples // 回傳已提取到的完整例句
                     }]
                 };
             }
             
+            // 若無法提取核心資料，拋出原始錯誤
+            throw e; 
+
+        } catch (e2) {
+            console.error('JSON 嚴重損壞，無法修復:', e2, '原始內容:', content);
             return null;
         }
     }
 }
-
   
 // --- Main application logic ---
 function initializeApp() {
