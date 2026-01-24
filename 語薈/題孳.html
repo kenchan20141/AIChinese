@@ -2905,12 +2905,18 @@ function generateQuestionTypeButtons(textId) {
 // === [修復] 閱讀生成函式 (強制 Token 注入) ===
 // ==========================================
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
-    console.log("[Gen] 準備生成閱讀題目...");
-
-    // 1. 獲取當前用戶與 Token
+    // --- 1. 安全檢查與獲取 Token ---
     const user = firebase.auth().currentUser;
+    
     if (!user) {
-        alert("⚠️ 系統偵測到您尚未登入，請重新整理頁面。");
+        // 如果未登入，嘗試呼叫限制視窗或直接報錯
+        const limitModal = document.getElementById('sansiLimitModal');
+        if (limitModal) {
+            limitModal.style.display = 'flex';
+            setTimeout(() => limitModal.classList.add('sansi-limit-show'), 10);
+        } else {
+            alert("⚠️ 您的登入憑證已失效或尚未登入。\n請重新登入學校帳號。");
+        }
         hideProgress();
         return [];
     }
@@ -2919,15 +2925,14 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
     let token;
     try {
         token = await user.getIdToken(true);
-        console.log("[Gen] Token 獲取成功，長度:", token.length); // Debug
     } catch (e) {
-        console.error("[Gen] Token 獲取失敗:", e);
+        console.error("Token 獲取失敗:", e);
         alert("無法獲取安全憑證，請重新登入。");
         hideProgress();
         return [];
     }
 
-    // 2. 獲取表單數據
+    // --- 2. 獲取表單數據 ---
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
                           document.getElementById(`quantity-${questionType}`);
     
@@ -2935,6 +2940,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
     let customRefQAs = [];
     let specialInstructions = '';
 
+    // 處理自訂題型
     if (questionType === '自訂') {
         customRefQAs = Array.from(document.querySelectorAll(`#referenceQAList-${textId} .reference-qa textarea`))
             .map(el => el.value.trim())
@@ -2942,6 +2948,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         quantity = customRefQAs.length;
     }
 
+    // 處理關鍵詞 (保持原有邏輯)
     let keywordInstructions = '';
     const keywords = [];
     const scores = [];
@@ -2949,17 +2956,34 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         keywords.push(getKeywordsForQuestion(questionType, textId, i));
         scores.push(getScoreForQuestion(questionType, textId, i));
     }
-    // ... (關鍵詞邏輯省略，保持不變) ...
+
+    const validKeywords = keywords.filter(k => k && k.length > 0);
+    const validScores = scores.filter(s => s && s.length > 0);
+
+    if (validKeywords.length > 0 || validScores.length > 0) {
+        keywordInstructions = `\n\n特別要求：\n`;
+        for (let i = 0; i < quantity; i++) {
+            if (keywords[i] && keywords[i].length > 0) {
+                keywordInstructions += `第${i + 1}題必須包含關鍵詞「${keywords[i]}」`;
+            }
+            if (scores[i] && scores[i].length > 0) {
+                keywordInstructions += `${keywords[i] && keywords[i].length > 0 ? '，' : `第${i + 1}題`}分數設定為${scores[i]}分`;
+            }
+            if ((keywords[i] && keywords[i].length > 0) || (scores[i] && scores[i].length > 0)) {
+                keywordInstructions += `\n`;
+            }
+        }
+    }
 
     let parsed = [];
     let retryCount = 0;
     const maxRetries = 3;
 
+    // --- 3. 發送請求 (包含 Token) ---
     while (retryCount < maxRetries) {
         try {
-            // ★★★ 建構 Payload (必須包含 token) ★★★
             const payload = {
-                token: token, // <--- 這裡絕對不能少
+                token: token, // <--- ★★★ 關鍵修正：必須傳送 Token 給後端 ★★★
                 action: 'generate_reading',
                 data: {
                     questionType: questionType,
@@ -2974,48 +2998,59 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
             updateProgressBar(20);
             
+            // 注意：這裡假設 CLOUDFLARE_WORKER_URL 實際上就是你的 GAS 部署網址
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
 
             updateProgressBar(60);
-            const data = await response.json();
-            logProviderInfo(data, "ReadingGen");
 
-            // ★★★ 錯誤處理 ★★★
+            const data = await response.json();
+            
+            // 使用你的 Log 函數
+            if (typeof logProviderInfo === 'function') {
+                logProviderInfo(data, "ReadingGen");
+            }
+
+            // 檢查後端錯誤
             if (data.error) {
-                console.error("[Backend Error]", data.error);
-                throw new Error(data.error); 
+                // 如果是權限錯誤，直接拋出並不重試
+                if (data.error.includes("Unauthorized") || data.error.includes("Token")) {
+                    throw new Error("AUTH_ERROR: " + data.error);
+                }
+                throw new Error(data.error);
             }
 
             if (!data.choices || !data.choices[0]) throw new Error('API 返回格式錯誤');
 
             const generatedContent = removeThinkingTags(data.choices[0].message.content);
+            
             parsed = questionType === '選擇' ? 
                 parseChoiceResponse(generatedContent, quantity) : 
                 parseReadingResponse(generatedContent, quantity);
 
             const hasFailure = parsed.some(item => item.question.includes('生成失敗'));
             if (!hasFailure) break;
+            
             retryCount++;
             console.log(`${questionType}題型第${retryCount}次重試`);
 
         } catch (error) {
-            console.error("生成流程錯誤:", error);
-            // 如果後端回傳 Unauthorized，代表 Token 無效
-            if (error.message.includes("Unauthorized") || error.message.includes("Token")) {
-                alert("⚠️ 您的登入憑證已失效，系統將自動登出以修復。");
-                // 強制登出以修復狀態
-                firebase.auth().signOut();
-                localStorage.removeItem('studentProfile');
-                location.reload();
+            console.error("生成錯誤:", error);
+            
+            // 如果是權限錯誤，提示並停止
+            if (error.message.includes("AUTH_ERROR") || error.message.includes("Unauthorized")) {
+                alert("⚠️ 身份驗證失敗：後端拒絕了請求。\n可能原因：登入過期或帳號異常。\n請重新整理頁面並重新登入。");
+                hideProgress();
                 return [];
             }
+            
             retryCount++;
         }
     }
 
+    // 失敗處理
     if (parsed.length === 0) {
          parsed = Array(quantity).fill().map((_, i) => ({
             question: `題目${i+1}生成失敗，請檢查網絡並重試`,
