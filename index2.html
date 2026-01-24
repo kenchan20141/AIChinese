@@ -19116,64 +19116,44 @@ document.addEventListener('DOMContentLoaded', function() {
 
 	<script>
 // ==========================================
-// === 自動統一訪客額度提示 & 攔截雜訊 ===
+// === [修訂版] 嚴格權限檢查 (零容忍) ===
 // ==========================================
 (function() {
-    // 1. 設定一個全域旗標，用來標記「剛剛是否觸發了額度限制」
-    window._isGuestLimitTriggered = false;
-
-    // 2. 覆寫權限檢查函式 (Check Guest Usage Override)
+    // 覆寫權限檢查函式 (Check Guest Usage Override)
     window.checkGuestUsage = function() {
-        // A. 檢查是否已登入 (學生/老師/特許用家)
+        // 1. 檢查是否已登入 (讀取本地學生資料)
         const s = JSON.parse(localStorage.getItem('studentProfile'));
-        if (s) return true; // 已登入，通過
-
-        // B. 未登入訪客：檢查 LocalStorage 計數
-        const today = new Date().toLocaleDateString('zh-HK');
-        const storageKey = `sansi_guest_usage_${today}`;
-        let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
-
-        // C. 如果超過額度 (上限 1 次)
-        if (currentCount >= 1) {
-            console.warn("[權限檢查] 攔截：超過每日額度。");
-            
-            // ★ 設定旗標：開啟「靜音模式」
-            window._isGuestLimitTriggered = true;
-            
-            // ★ 統一彈出標準提示
-            alert("⚠️ 訪客每日體驗額度已用完。\n\n請登入學校帳號或註冊。");
-            
-            // ★ 1秒後自動關閉「靜音模式」，恢復正常報錯功能
-            setTimeout(() => { window._isGuestLimitTriggered = false; }, 1000);
-            
-            return false; // 阻止後續執行
+        
+        // 2. 如果有資料 -> 放行 (return true)
+        if (s) {
+            return true; 
         }
 
-        // D. 增加計數
-        localStorage.setItem(storageKey, currentCount + 1);
-        return true;
-    };
+        // 3. 如果沒資料 -> 直接攔截 (return false)
+        console.warn("[Permission] 未登入用戶嘗試使用生成功能，已攔截。");
+        
+        // 嘗試收起側邊選單 (優化體驗)
+        const sideMenu = document.getElementById('sideMenu');
+        if (sideMenu) sideMenu.classList.remove('active');
+        const sideMenuToggle = document.getElementById('sideMenuToggle');
+        if (sideMenuToggle) sideMenuToggle.classList.remove('active');
 
-    // 3. 升級 Alert 函式 (過濾雜訊)
-    // 這裡會包裝剛才寫好的莫蘭迪 Alert，增加過濾功能
-    const _baseAlert = window.alert;
-
-    window.alert = function(message) {
-        const msgStr = String(message);
-
-        // ★ 核心邏輯：如果處於「靜音模式」且 訊息不是「額度用完」的那條
-        // 代表這是一條因為被擋下而產生的副作用報錯 (如 "API錯誤"、"生成失敗")
-        // 我們直接將其攔截 (return)，不顯示出來
-        if (window._isGuestLimitTriggered && !msgStr.includes("訪客每日體驗額度")) {
-            console.log("已自動過濾重複的錯誤提示:", msgStr);
-            return; 
+        // 顯示頁面上已有的「會員限定」莫蘭迪風格視窗
+        const modal = document.getElementById('loginRequiredModal');
+        
+        if (modal) {
+            modal.style.display = 'flex';
+            // 手機震動回饋
+            if (navigator.vibrate) navigator.vibrate(50);
+        } else {
+            // 防呆備用：如果找不到視窗，用原生 Alert
+            alert("⚠️ 此功能僅限登入用戶使用。\n請先登入學校帳號。");
+            openStudentLoginModal(); // 打開登入牆
         }
 
-        // 否則，正常顯示
-        _baseAlert(message);
+        return false; // 阻止後續 API 呼叫
     };
 })();
-
 
 
 
