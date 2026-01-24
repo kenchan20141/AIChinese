@@ -932,7 +932,7 @@ readerPagination.textContent = '';
 }
 
 // =================================================================
-// ===== 修訂後的 generateProse 函數 (REVISED generateProse function) =====
+// ===== 完整的 generateProse 函數 (含 Token 驗證與完整關鍵詞) =====
 // =================================================================
 async function generateProse() {
     // --- 1. 定義控制台彩色日誌函式 ---
@@ -942,19 +942,19 @@ async function generateProse() {
         if (logText.includes("DEEPSEEK")) color = "#8e44ad";    // 紫色
         if (logText.toLowerCase().includes("error")) color = "#e74c3c"; // 紅色
 
-        // 使用 %c 讓 F12 控制台輸出彩色文字
         console.log(
             `%c[系統日誌] 來源: ${logText}`, 
             `color: white; background: ${color}; padding: 2px 8px; border-radius: 4px; font-weight: bold;`
         );
     };
 
-    // --- 2. 隨機主題生成邏輯 (保持不變) ---
+    // --- 2. 隨機主題生成邏輯 ---
     let userPrompt = promptTextarea.value.trim();
     let finalPrompt;
 
     if (!userPrompt) {
-                 const randomKeywords = [
+        // 完整的關鍵詞列表，無省略
+        const randomKeywords = [
             "雪屋", "大海", "時間", "星空", "孤獨", "記憶", "城市", "森林", "夢境", "火焰", "旅途", "回憶", "秋天", "月光", "寂靜",
             "微風", "黎明", "黃昏", "雨滴", "街道", "窗口", "鏡子", "鑰匙", "地圖", "書信", "承諾", "謊言", "秘密", "重逢", "離別",
             "車站", "機場", "港口", "橋樑", "隧道", "廢墟", "城堡", "燈塔", "鐘樓", "噴泉", "廣場", "巷弄", "屋頂", "地下室", "閣樓",
@@ -1009,6 +1009,7 @@ async function generateProse() {
             "沈從文", "老舍", "錢鍾書", "白先勇", "余光中", "三島由紀夫", "川端康成", "村上春樹", "太宰治", "芥川龍之介", "夏目漱石", "谷崎潤一郎", "葉慈", "艾略特", "龐德",
             "奧登", "狄蘭湯瑪斯", "金斯堡", "惠特曼", "狄金生", "佛洛斯特", "里爾克", "波特萊爾", "韓波", "魏爾倫", "阿波里奈爾", "普魯斯特", "喬伊斯", "吳爾芙", "普拉絲"
         ];
+        
         const historyTitles = state.history.map(item => item.title);
         let selectedKeyword;
         let isKeywordValid = false;
@@ -1060,9 +1061,23 @@ JSON 格式如下：
     const GAS_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec";
 
     try {
+        // [新增] 獲取 Token 邏輯
+        let token = "";
+        if (firebase.auth().currentUser) {
+            try {
+                token = await firebase.auth().currentUser.getIdToken(true);
+            } catch (tokenErr) {
+                console.error("無法獲取 Token:", tokenErr);
+                throw new Error("身分驗證失敗，請重新登入。");
+            }
+        } else {
+            console.warn("尚未登入 Firebase，請求可能會被後端拒絕。");
+        }
+
         const response = await fetch(GAS_URL, {
             method: 'POST',
             body: JSON.stringify({
+                token: token, // 將 Token 放入 Payload
                 model: selectedModel,
                 messages: [{ role: "user", content: systemPrompt }],
                 max_tokens: 4000,
@@ -1070,35 +1085,35 @@ JSON 格式如下：
             })
         });
 
+        // --- 5. 處理回應與錯誤檢查 ---
         if (!response.ok) throw new Error(`GAS 請求失敗，狀態碼：${response.status}`);
         
-      const data = await response.json();
+        const data = await response.json();
+        console.log("🔍 GAS 後端回傳原始資料:", data);
 
-// 【修訂 1】在控制台印出完整的資料，這樣你按 F12 就能看到後端到底回傳了什麼錯誤
-console.log("🔍 GAS 後端回傳原始資料:", data); 
+        if (data._provider_log) {
+            logToConsole(data._provider_log);
+        }
 
-// --- 核心修改：將日誌輸出到 F12 且帶顏色 ---
-if (data._provider_log) {
-    logToConsole(data._provider_log);
-}
+        // [新增] 檢查後端錯誤 (如 Unauthorized)
+        if (data.error) {
+            if (typeof data.error === 'string' && (data.error.includes("Unauthorized") || data.error.includes("Token"))) {
+                throw new Error("權限不足：請確認您已登入學校帳號。");
+            }
+            const errorMsg = data.error.message || JSON.stringify(data.error);
+            throw new Error(`後端報錯: ${errorMsg}`);
+        }
 
-// 【修訂 2】優先檢查後端是否直接回傳了錯誤訊息 (OpenAI 格式通常會有 error 欄位)
-if (data.error) {
-    const errorMsg = data.error.message || JSON.stringify(data.error);
-    throw new Error(`後端報錯: ${errorMsg}`);
-}
+        // [新增] 嚴格檢查回傳結構
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error("後端回傳格式異常，請按 F12 查看 Console 的「GAS 後端回傳原始資料」。");
+        }
 
-// 【修訂 3】檢查結構是否存在
-if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-    // 如果結構不對，拋出更詳細的錯誤，並指引去看控制台
-    throw new Error("後端回傳格式異常，請按 F12 查看 Console 的「GAS 後端回傳原始資料」。");
-}
+        if (!data.choices[0].message.content) {
+             throw new Error("後端回傳內容為空 (Content is empty)。");
+        }
 
-if (!data.choices[0].message.content) {
-     throw new Error("後端回傳內容為空 (Content is empty)。");
-}
-
-let contentString = data.choices[0].message.content;
+        let contentString = data.choices[0].message.content;
 
         // 清理 Markdown 標籤
         contentString = contentString
