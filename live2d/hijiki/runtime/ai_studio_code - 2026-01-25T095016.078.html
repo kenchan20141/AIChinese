@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hijiki Live2D 測試</title>
+    <style>
+        body { margin: 0; background-color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        canvas { background-color: transparent; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
+    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        (async function() {
+            const app = new PIXI.Application({
+                view: document.getElementById('canvas'),
+                autoStart: true,
+                resizeTo: window,
+                backgroundAlpha: 0
+            });
+
+            // ★重點：這裡的檔名必須跟您圖片裡的檔名一模一樣
+            // 您的圖片顯示 "hijiki.model3"，Windows 隱藏了 .json，所以程式碼要寫完整
+            const modelPath = './hijiki.model3.json';
+
+            try {
+                const model = await PIXI.live2d.Live2DModel.from(modelPath);
+                app.stage.addChild(model);
+
+                // 調整大小與位置
+                model.scale.set(0.25);
+                model.x = (app.screen.width * 0.5) - (model.width / 2);
+                model.y = (app.screen.height * 0.5) - (model.height / 2);
+
+                // 互動
+                model.interactive = true;
+                model.on('pointertap', () => { model.motion('Tap'); });
+
+                console.log("Hijiki 載入成功！");
+
+                // --- 嘗試載入 Tororo (如果他在同一個資料夾的話) ---
+                try {
+                    const model2 = await PIXI.live2d.Live2DModel.from('./tororo.model3.json');
+                    app.stage.addChild(model2);
+                    model2.scale.set(0.25);
+                    model2.x = model.x - 300; // 放在左邊
+                    model2.y = model.y;
+                    console.log("Tororo 也載入成功！");
+                } catch (e) {
+                    console.log("找不到 Tororo，可能他在別的資料夾，但 Hijiki 應該沒問題。");
+                }
+
+            } catch (e) {
+                alert(`錯誤：無法讀取檔案。\n\n1. 請確認 index.html 已經放在 hijiki.model3 的旁邊。\n2. 請務必使用 Server 開啟網頁 (不要直接雙擊)。`);
+                console.error(e);
+            }
+        })();
+    </script>
+</body>
+</html>
