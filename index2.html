@@ -7240,6 +7240,10 @@ async function initLive2DApp() {
     const canvas = document.getElementById(CANVAS_ID);
     if (app) return;
 
+    // ★★★ 優化：手機端防滾動關鍵設定 ★★★
+    // 這行 CSS 會告訴瀏覽器：在這個畫布上禁止預設的滑動/縮放行為
+    canvas.style.touchAction = 'none'; 
+
     app = new PIXI.Application({
         view: canvas,
         autoStart: true,
@@ -7381,7 +7385,7 @@ function repositionCats() {
 }
 
 // =======================================================
-// === 全域互動邏輯 ===
+// === 全域互動邏輯 (已針對手機流暢度優化) ===
 // =======================================================
 
 function initGlobalInteraction() {
@@ -7422,7 +7426,7 @@ function initGlobalInteraction() {
         }
     }
 
-    // --- 觸控事件 ---
+    // --- 觸控事件 (Touch Events) ---
     window.addEventListener('touchstart', (e) => {
         if (canvas.style.display === 'none') return;
 
@@ -7431,6 +7435,8 @@ function initGlobalInteraction() {
             cancelLongPressTimer();
             if (hitTest(e.touches[0].clientX, e.touches[0].clientY) || 
                 hitTest(e.touches[1].clientX, e.touches[1].clientY)) {
+                // ★ 防止縮放時觸發瀏覽器縮放
+                if (e.cancelable) e.preventDefault();
                 isPinching = true;
                 isDragging = false;
                 initialPinchDist = getPinchDistance(e.touches);
@@ -7444,6 +7450,9 @@ function initGlobalInteraction() {
         if (e.touches.length === 1) {
             const touch = e.touches[0];
             if (hitTest(touch.clientX, touch.clientY)) {
+                // ★ 關鍵優化：一旦確認點到貓，立刻禁止預設事件（防止頁面滾動）
+                if (e.cancelable) e.preventDefault();
+                
                 isDragging = false;
                 startX = touch.clientX;
                 startY = touch.clientY;
@@ -7456,10 +7465,15 @@ function initGlobalInteraction() {
                 canvas.removeAttribute('data-interacting');
             }
         }
-    }, { passive: false });
+    }, { passive: false }); // passive: false 允許我們使用 preventDefault
 
     window.addEventListener('touchmove', (e) => {
-        if (canvas.getAttribute('data-interacting') !== 'true') return;
+        // ★ 核心優化：如果正在與貓互動，無條件、立即阻止頁面滾動
+        if (canvas.getAttribute('data-interacting') === 'true') {
+            if (e.cancelable) e.preventDefault();
+        } else {
+            return;
+        }
 
         // 移動容錯 (15px)
         if (!isPinching && Math.hypot(e.touches[0].clientX - startX, e.touches[0].clientY - startY) > 15) {
@@ -7469,7 +7483,6 @@ function initGlobalInteraction() {
 
         // 縮放邏輯
         if (isPinching && e.touches.length === 2) {
-            if (e.cancelable) e.preventDefault();
             const currentDist = getPinchDistance(e.touches);
             if (initialPinchDist > 0) {
                 const scaleFactor = currentDist / initialPinchDist;
@@ -7482,6 +7495,7 @@ function initGlobalInteraction() {
             return;
         }
 
+        // 拖曳邏輯
         if (!isPinching && e.touches.length === 1) {
             if (isLongPress) return;
 
@@ -7490,7 +7504,6 @@ function initGlobalInteraction() {
             const dy = touch.clientY - startY;
 
             if (isDragging) {
-                if (e.cancelable) e.preventDefault();
                 modelContainer.x = containerStartX + dx;
                 modelContainer.y = containerStartY + dy;
                 updateBubblePosition();
@@ -7519,7 +7532,7 @@ function initGlobalInteraction() {
         isLongPress = false;
     });
 
-    // --- 滑鼠事件 ---
+    // --- 滑鼠事件 (Mouse Events) ---
     window.addEventListener('mousedown', (e) => {
         if (canvas.style.display === 'none') return;
         if (e.button !== 0) return;
@@ -7619,7 +7632,6 @@ function playRandomCatSound() {
     audio.play().catch(e => console.log("音效播放受阻:", e));
 }
 
-// === 長按對話邏輯 (無 TTS) ===
 // === 長按對話邏輯 (已修改為使用 gemini-fast) ===
 async function triggerCatChat() {
     // 強制重置/顯示氣泡
