@@ -7164,7 +7164,7 @@ body.cat-dragging { cursor: grabbing !important; }
 <script>
 
 // =======================================================
-// === Live2D 貓咪系統 (手機流暢拖曳修復版 + 無TTS) ===
+// === Live2D 貓咪系統 (預設白貓 + 無TTS + 雙重聲效 + 海量題庫) ===
 // =======================================================
 
 let app;
@@ -7206,7 +7206,13 @@ let speechBubble = null;
 let bubbleTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const savedMode = localStorage.getItem('sansi_cat_mode');
+    let savedMode = localStorage.getItem('sansi_cat_mode');
+    
+    // ★ 修改：如果沒有紀錄 (第一次進入)，預設為白貓 (tororo)
+    if (!savedMode) {
+        savedMode = 'tororo';
+    }
+
     if (savedMode && savedMode !== 'none') {
         setTimeout(() => selectCatMode(savedMode, false), 500);
     }
@@ -7375,7 +7381,7 @@ function repositionCats() {
 }
 
 // =======================================================
-// === 全域互動邏輯 (核心修復) ===
+// === 全域互動邏輯 ===
 // =======================================================
 
 function initGlobalInteraction() {
@@ -7416,8 +7422,7 @@ function initGlobalInteraction() {
         }
     }
 
-    // --- 觸控事件 (Touch Events) ---
-    // 注意：passive: false 是關鍵，允許我們調用 preventDefault()
+    // --- 觸控事件 ---
     window.addEventListener('touchstart', (e) => {
         if (canvas.style.display === 'none') return;
 
@@ -7439,9 +7444,7 @@ function initGlobalInteraction() {
         if (e.touches.length === 1) {
             const touch = e.touches[0];
             if (hitTest(touch.clientX, touch.clientY)) {
-                // ★ 這裡先不設 isDragging 為 true，等移動一段距離後才設，
-                // 但要先記錄起始點，並開始長按計時
-                isDragging = false; 
+                isDragging = false;
                 startX = touch.clientX;
                 startY = touch.clientY;
                 containerStartX = modelContainer.x;
@@ -7456,12 +7459,17 @@ function initGlobalInteraction() {
     }, { passive: false });
 
     window.addEventListener('touchmove', (e) => {
-        // 如果沒有標記為互動中，直接忽略，讓頁面正常滾動
         if (canvas.getAttribute('data-interacting') !== 'true') return;
+
+        // 移動容錯 (15px)
+        if (!isPinching && Math.hypot(e.touches[0].clientX - startX, e.touches[0].clientY - startY) > 15) {
+            cancelLongPressTimer();
+            if (!isDragging) isDragging = true;
+        }
 
         // 縮放邏輯
         if (isPinching && e.touches.length === 2) {
-            if (e.cancelable) e.preventDefault(); // 阻止瀏覽器縮放
+            if (e.cancelable) e.preventDefault();
             const currentDist = getPinchDistance(e.touches);
             if (initialPinchDist > 0) {
                 const scaleFactor = currentDist / initialPinchDist;
@@ -7474,25 +7482,15 @@ function initGlobalInteraction() {
             return;
         }
 
-        // 單指拖曳邏輯
         if (!isPinching && e.touches.length === 1) {
-            if (isLongPress) return; // 如果已經觸發長按，就不移動
+            if (isLongPress) return;
 
             const touch = e.touches[0];
             const dx = touch.clientX - startX;
             const dy = touch.clientY - startY;
-            const dist = Math.hypot(dx, dy);
-
-            // ★ 移動容錯 (8px)：防手抖，且一旦超過就視為拖曳
-            if (dist > 8) {
-                cancelLongPressTimer();
-                isDragging = true; // 鎖定為拖曳狀態
-            }
 
             if (isDragging) {
-                // ★ 核心：只有在判定為拖曳狀態時，才阻止瀏覽器滾動
                 if (e.cancelable) e.preventDefault();
-                
                 modelContainer.x = containerStartX + dx;
                 modelContainer.y = containerStartY + dy;
                 updateBubblePosition();
@@ -7510,7 +7508,6 @@ function initGlobalInteraction() {
         }
 
         if (canvas.getAttribute('data-interacting') === 'true') {
-            // 如果互動結束時，不是拖曳也不是長按，那就視為「點擊」
             if (!isDragging && !isLongPress) {
                 handleDoubleTap(); 
             }
@@ -7522,8 +7519,7 @@ function initGlobalInteraction() {
         isLongPress = false;
     });
 
-    // --- 滑鼠事件 (Mouse Events) ---
-    // 電腦版通常沒問題，但為保一致性也加上 preventDefault
+    // --- 滑鼠事件 ---
     window.addEventListener('mousedown', (e) => {
         if (canvas.style.display === 'none') return;
         if (e.button !== 0) return;
@@ -7553,7 +7549,7 @@ function initGlobalInteraction() {
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
 
-        if (Math.hypot(dx, dy) > 8) { // 與手機版一致
+        if (Math.hypot(dx, dy) > 10) {
             cancelLongPressTimer();
             if (!isDragging) isDragging = true;
         }
@@ -7629,7 +7625,7 @@ async function triggerCatChat() {
     showBubble("喵... 讓我想想... <span class='cat-loading-dots'></span>", 0); 
     triggerCatReaction();
 
-// 1. 海量分類庫 (多元化中文知識 - 適合中學生)
+    // 1. 海量分類庫 (多元化中文知識 - 適合中學生)
     const categories = [
         '甲骨文的動物形象', '象形字的演變', '指事字的奧秘', '會意字的趣味組合', '形聲字的聲旁規律',
         '漢字的造字傳說', '倉頡造字的故事', '金文與青銅器', '小篆的藝術美', '隸書的統一',
