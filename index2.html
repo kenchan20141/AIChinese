@@ -20945,6 +20945,17 @@ function toggleFeaturedChat() {
         }, 800); 
     }
 }
+
+
+// === [新增] 文萃詳情頁置頂功能 ===
+function scrollToArticleTop() {
+    const detailView = document.getElementById('featuredDetailView');
+    if (detailView) {
+        detailView.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+}
+
+
 	
 function showArticleDetail(index) {
     const article = filteredArticles[index];
@@ -20988,14 +20999,14 @@ function showArticleDetail(index) {
     chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); 
     chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); 
 
+    // ★★★ [修改 1] HTML 結構調整：加入 scroll-hide-target 類別與置頂鍵 ★★★
     detailView.innerHTML = `
-        <!-- ★★★ 注入落款動畫專用 CSS ★★★ -->
         <style>
             @keyframes stamp-slam {
-                0% { opacity: 0; transform: scale(3) rotate(-5deg); } /* 懸空高處 */
-                60% { opacity: 1; transform: scale(0.9) rotate(-3deg); } /* 用力砸下 (輕微壓扁) */
-                80% { transform: scale(1.05) rotate(-3deg); } /* 輕微回彈 */
-                100% { opacity: 1; transform: scale(1) rotate(-3deg); } /* 定格 */
+                0% { opacity: 0; transform: scale(3) rotate(-5deg); } 
+                60% { opacity: 1; transform: scale(0.9) rotate(-3deg); } 
+                80% { transform: scale(1.05) rotate(-3deg); } 
+                100% { opacity: 1; transform: scale(1) rotate(-3deg); } 
             }
         </style>
 
@@ -21003,15 +21014,27 @@ function showArticleDetail(index) {
 
         <!-- 右上角懸浮按鈕群組 -->
         <div class="detail-action-group">
-            <button id="detailBookmarkBtn" class="detail-float-btn ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤">
+            <!-- 1. 書籤鍵 (加入 scroll-hide-target 類別) -->
+            <button id="detailBookmarkBtn" class="detail-float-btn scroll-hide-target ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤">
                 <i class="fas fa-bookmark"></i>
             </button>
-            <button class="detail-float-btn" onclick="startSlowRead('${safeContent}')" title="開始慢讀">
+            
+            <!-- 2. 慢讀鍵 (加入 scroll-hide-target 類別) -->
+            <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀">
                 <i class="fas fa-book-reader"></i>
             </button>
-            <button class="detail-float-btn" onclick="openReaderSettings()" title="慢讀設定">
+            
+            <!-- 3. 設定鍵 (加入 scroll-hide-target 類別) -->
+            <button class="detail-float-btn scroll-hide-target" onclick="openReaderSettings()" title="慢讀設定">
                 <i class="fas fa-cog"></i>
             </button>
+            
+            <!-- 4. [新增] 置頂鍵 (預設隱藏 display: none) -->
+            <button id="detailTopBtn" class="detail-float-btn" onclick="scrollToArticleTop()" title="返回頂部" style="display: none;">
+                <i class="fas fa-arrow-up"></i>
+            </button>
+
+            <!-- 5. 關閉鍵 (永遠顯示) -->
             <button class="detail-float-btn close-mode" onclick="backToArticleList()" title="返回列表">
                 <i class="fas fa-times"></i>
             </button>
@@ -21033,61 +21056,23 @@ function showArticleDetail(index) {
             </div>
             ${analysisHtmlBlock}
             
-            <!-- ★★★ [新設計] 討論區觸發按鈕 (落款版) ★★★ -->
             <div style="margin-top: 80px; margin-bottom: 30px;">
-                
-                <!-- 1. 按鈕容器 -->
                 <div id="chatToggleButtonContainer" style="text-align: center;">
-                    
-                    <!-- 裝飾線 -->
                     <div style="height: 1px; background: linear-gradient(to right, transparent, #e0ddd7, transparent); width: 50%; margin: 0 auto 30px auto;"></div>
-
                     <button id="showFeaturedChatBtn" onclick="toggleFeaturedChat()" 
-                        style="
-                            /* 印章核心樣式 (初始狀態：空心) */
-                            width: 60px; 
-                            height: 60px; 
-                            background-color: transparent; 
-                            color: #d69a92; /* 莫蘭迪紅 */
-                            border: 3px solid #d69a92;
-                            border-radius: 8px; 
-                            
-                            /* 文字排版 (水平) */
-                            font-family: 'Noto Serif TC', serif;
-                            font-size: 1.1rem;
-                            font-weight: 900; 
-                            line-height: 1;   
-                            padding: 0;
-                            
-                            /* 初始角度 */
-                            transform: rotate(-3deg); 
-                            
-                            /* 互動 */
-                            cursor: pointer;
-                            transition: all 0.3s ease;
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                        "
+                        style="width: 60px; height: 60px; background-color: transparent; color: #d69a92; border: 3px solid #d69a92; border-radius: 8px; font-family: 'Noto Serif TC', serif; font-size: 1.1rem; font-weight: 900; line-height: 1; padding: 0; transform: rotate(-3deg); cursor: pointer; transition: all 0.3s ease; display: inline-flex; align-items: center; justify-content: center;"
                         onmouseover="this.style.transform='rotate(0deg) scale(1.1)';"
                         onmouseout="this.style.transform='rotate(-3deg) scale(1)';"
                         title="點擊落款"
-                    >
-                        討論
-                    </button>
-                    
+                    >討論</button>
                     <div style="margin-top: 15px; color: #a1887f; font-size: 0.8rem; font-family: 'Noto Serif TC', serif; opacity: 0.6; letter-spacing: 2px; transform: scale(0.9); transition: opacity 0.5s;">
                         [ 點 擊 落 款 ]
                     </div>
                 </div>
-
-                <!-- 2. 隱藏的聊天室容器 -->
                 <div id="featuredChatArea" style="display: none; text-align: left; animation: fadeIn 1s ease; margin-top: 30px;">
-                    <!-- 分隔線 (顯示聊天室時才出現) -->
                     <div style="height: 1px; background: linear-gradient(to right, transparent, #e0ddd7, transparent); width: 80%; margin: 0 auto 30px auto;"></div>
                     ${chatHTML}
                 </div>
-
             </div>
         </div>
     `;
@@ -21100,25 +21085,35 @@ function showArticleDetail(index) {
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
     }, 50);
 
-    // 滾動監聽
+    // ★★★ [修改 2] 滾動監聽邏輯：切換按鈕顯示，而非隱藏整組 ★★★
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
         const winHeight = detailView.clientHeight;
         const scrollPercent = (scrollTop / (docHeight - winHeight)) * 100;
         
+        // 進度條邏輯 (不變)
         const progressBar = document.getElementById('readingProgressBar');
         const progressContainer = document.getElementById('readingProgressBarContainer');
         if(progressBar) progressBar.style.width = scrollPercent + "%";
         if(progressContainer) progressContainer.style.opacity = scrollTop > 10 ? '1' : '0';
 
-        const actionGroup = document.querySelector('.detail-action-group');
-        if (actionGroup) {
-            if (scrollTop > 50) { 
-                actionGroup.classList.add('hidden');
-            } else {
-                actionGroup.classList.remove('hidden');
-            }
+        // --- 新的按鈕切換邏輯 ---
+        const hideTargets = document.querySelectorAll('.scroll-hide-target'); // 書籤、慢讀、設定
+        const topBtn = document.getElementById('detailTopBtn');              // 置頂鍵
+
+        if (scrollTop > 100) { 
+            // 當滾動超過 100px (開始閱讀)：
+            // 1. 隱藏不必要的功能鍵
+            hideTargets.forEach(btn => btn.style.display = 'none');
+            // 2. 顯示置頂鍵
+            if (topBtn) topBtn.style.display = 'flex';
+        } else {
+            // 當回到頂部：
+            // 1. 恢復功能鍵
+            hideTargets.forEach(btn => btn.style.display = 'flex');
+            // 2. 隱藏置頂鍵
+            if (topBtn) topBtn.style.display = 'none';
         }
     };
 }
