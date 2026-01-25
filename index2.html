@@ -7297,25 +7297,17 @@ async function fetchWithCache(url) {
     }
 }
 
-// 3. Live2D 模型載入器 (解析 JSON 並替換路徑 - 修復版)
+// 3. Live2D 模型載入器 (解析 JSON 並替換路徑 - 最終修復版)
 async function loadCachedLive2DModel(modelUrl) {
     // A. 下載 model3.json 設定檔
     const jsonBlob = await fetchWithCache(modelUrl);
     const jsonText = await jsonBlob.text();
     const modelData = JSON.parse(jsonText);
 
-    // B. 計算基礎路徑 (例如 live2d/hijiki/runtime/)
+    // B. 計算基礎路徑
     const basePath = modelUrl.substring(0, modelUrl.lastIndexOf('/') + 1);
 
-    // C. 定義需要快取的檔案類型
-    const fileTargets = [
-        { key: 'FileReferences.Moc', type: 'moc' },
-        { key: 'FileReferences.Textures', type: 'textures' },
-        { key: 'FileReferences.Physics', type: 'physics' },
-        { key: 'FileReferences.Motions', type: 'motions' }
-    ];
-
-    // D. 遞歸下載並替換為 Blob URL
+    // C. 建立 Promise 陣列來處理所有資源
     const promises = [];
 
     // 輔助：替換路徑的函數
@@ -7327,31 +7319,32 @@ async function loadCachedLive2DModel(modelUrl) {
         const blob = await fetchWithCache(fullUrl);
         const blobUrl = URL.createObjectURL(blob);
         
-        // 將 JSON 內的路徑替換成瀏覽器內存的 blob:http://...
+        // 直接將 JSON 內的路徑替換成瀏覽器內存的 blob URL
         obj[key] = blobUrl;
     };
 
-    // 掃描 JSON 結構
+    // D. 掃描並替換 JSON 結構中的檔案路徑
     if (modelData.FileReferences) {
-        // 1. Moc 檔
+        // 1. Moc 檔 (核心模型)
         if (modelData.FileReferences.Moc) {
             promises.push(replacePath(modelData.FileReferences, 'Moc'));
         }
-        // 2. Physics 檔
+        // 2. Physics 檔 (物理運算)
         if (modelData.FileReferences.Physics) {
             promises.push(replacePath(modelData.FileReferences, 'Physics'));
         }
-        // 3. Textures (陣列)
+        // 3. Textures (貼圖，通常是陣列)
         if (modelData.FileReferences.Textures) {
             modelData.FileReferences.Textures.forEach((tex, index) => {
                 const fullUrl = basePath + tex;
                 promises.push((async () => {
                     const blob = await fetchWithCache(fullUrl);
+                    // 替換陣列中的路徑
                     modelData.FileReferences.Textures[index] = URL.createObjectURL(blob);
                 })());
             });
         }
-        // 4. Motions (複雜物件)
+        // 4. Motions (動作檔)
         if (modelData.FileReferences.Motions) {
             const groups = modelData.FileReferences.Motions;
             for (const groupName in groups) {
@@ -7368,29 +7361,18 @@ async function loadCachedLive2DModel(modelUrl) {
         }
     }
 
-    // 等待所有素材都轉成 Blob
+    // 等待所有素材都轉成 Blob URL
     await Promise.all(promises);
 
-    // E. ★★★ 關鍵修正：將 JSON 物件轉為 Blob URL ★★★
-    // 插件需要一個 URL 才能正常初始化 Settings，直接傳 Object 會導致你的報錯
-    const modifiedJsonStr = JSON.stringify(modelData);
-    const modifiedJsonBlob = new Blob([modifiedJsonStr], { type: 'application/json' });
-    const modifiedJsonUrl = URL.createObjectURL(modifiedJsonBlob);
+    // E. ★★★ 關鍵修正：直接使用物件，但手動注入 url 屬性 ★★★
+    // 1. 我們不再建立新的 Blob URL 給 JSON，避免瀏覽器安全阻擋 (Not allowed to load local resource)
+    // 2. 我們手動把原始的 modelUrl 塞進去，滿足插件必須有 'url' 字串的檢查 (TypeError)
+    modelData.url = modelUrl;
 
-    try {
-        // 傳入這個虛擬的 JSON URL
-        const model = await PIXI.live2d.Live2DModel.from(modifiedJsonUrl);
-        
-        // 釋放 JSON 的 Blob URL (模型載入後就不需要這個 JSON URL 了)
-        URL.revokeObjectURL(modifiedJsonUrl);
-        
-        return model;
-    } catch (err) {
-        URL.revokeObjectURL(modifiedJsonUrl);
-        throw err;
-    }
+    // 傳入修改後的物件。因為內部的 Moc/Texture 路徑已經變成絕對路徑 (blob:...)，
+    // 所以插件不會再去試圖結合 modelData.url 進行相對路徑下載，而是直接使用我們提供的 Blob。
+    return await PIXI.live2d.Live2DModel.from(modelData);
 }
-
 
 
 
