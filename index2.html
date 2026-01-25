@@ -7620,6 +7620,7 @@ function playRandomCatSound() {
 }
 
 // === 長按對話邏輯 (無 TTS) ===
+// === 長按對話邏輯 (已修改為使用 gemini-fast) ===
 async function triggerCatChat() {
     // 強制重置/顯示氣泡
     showBubble("喵... 讓我想想... <span class='cat-loading-dots'></span>", 0); 
@@ -7724,7 +7725,8 @@ async function triggerCatChat() {
     `;
 
     try {
-        const text = await callAPI(prompt, 0.99); 
+        // ★★★ 修改處：改為呼叫 callCatAPI，鎖定 gemini-fast ★★★
+        const text = await callCatAPI(prompt, 0.99); 
         showBubble(text, 0); 
     } catch (e) {
         console.error("API Error", e);
@@ -12552,6 +12554,84 @@ async function callLlama3API(input, temperature = null) {
         throw error;
     }
 }
+
+
+
+// ==========================================
+// === [新增] 貓咪對話專用 API (Gemini Fast) ===
+// ==========================================
+async function callCatAPI(input, temperature = null) {
+    const user = firebase.auth().currentUser;
+    // 如果未登入，不阻擋貓咪賣萌，但後端可能會擋，這裡保留基本檢查
+    if (!user) {
+        // 如果你希望訪客也能玩貓，可以註解掉下面這行；如果要強制登入則保留
+        // document.getElementById('loginRequiredModal').style.display = 'flex';
+        // throw new Error("請先登入學校帳號 (Client blocked)");
+    }
+    
+    const token = user ? await user.getIdToken() : null;
+
+    const TIMEOUT_MS = 60000; // 貓咪對話可以快一點，設 60 秒超時
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+ 
+    try {
+        let requestBody = {};
+ 
+        // ★★★ 核心修改：強制鎖定模型為 gemini-fast ★★★
+        if (typeof input === 'string') {
+            requestBody = {
+                token: token,
+                model: "gemini-fast", // 指定名稱，絕對不改
+                messages: [{ role: "user", content: input }],
+                max_tokens: 1000 // 貓咪說話短，不需要太大
+            };
+        }
+ 
+        if (temperature !== null) {
+            requestBody.temperature = temperature;
+        }
+ 
+        // 使用與原本相同的 API_URL (Worker 網址)
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal
+        });
+ 
+        clearTimeout(timeoutId);
+ 
+        if (!response.ok) {
+            throw new Error(`Cat API 調用失敗: ${response.status}`);
+        }
+ 
+        const data = await response.json();
+
+        if (data.error && data.error.includes("Unauthorized")) {
+            throw new Error(data.error);
+        }
+
+        // 這裡不呼叫 logProviderInfo 以免洗版 Console
+        // logProviderInfo(data, "Cat API");
+
+        if (!data.choices || data.choices.length === 0) {
+             throw new Error("API 回傳格式異常");
+        }
+ 
+        let content = data.choices[0].message.content.trim();
+        // 清理可能出現的思維鏈標籤
+        return content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+ 
+    } catch (error) {
+        clearTimeout(timeoutId);
+        console.error("callCatAPI Error:", error);
+        throw error;
+    }
+}
+
+
+	
 
 /**
  * 【全新函式】應用 Llama-3 驗證模型的內容與結構分數差距規則。
