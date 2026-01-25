@@ -7297,7 +7297,7 @@ async function fetchWithCache(url) {
     }
 }
 
-// 3. Live2D 模型載入器 (解析 JSON 並替換路徑)
+// 3. Live2D 模型載入器 (解析 JSON 並替換路徑 - 修復版)
 async function loadCachedLive2DModel(modelUrl) {
     // A. 下載 model3.json 設定檔
     const jsonBlob = await fetchWithCache(modelUrl);
@@ -7312,7 +7312,7 @@ async function loadCachedLive2DModel(modelUrl) {
         { key: 'FileReferences.Moc', type: 'moc' },
         { key: 'FileReferences.Textures', type: 'textures' },
         { key: 'FileReferences.Physics', type: 'physics' },
-        { key: 'FileReferences.Motions', type: 'motions' } // 如果有動作檔
+        { key: 'FileReferences.Motions', type: 'motions' }
     ];
 
     // D. 遞歸下載並替換為 Blob URL
@@ -7371,11 +7371,25 @@ async function loadCachedLive2DModel(modelUrl) {
     // 等待所有素材都轉成 Blob
     await Promise.all(promises);
 
-    // E. 將修改後的 JSON 物件傳給 PIXI
-    // 注意：因為我們已經把內部路徑都換成了絕對的 blob URL，所以這裡不需要再傳路徑
-    return await PIXI.live2d.Live2DModel.from(modelData);
-}
+    // E. ★★★ 關鍵修正：將 JSON 物件轉為 Blob URL ★★★
+    // 插件需要一個 URL 才能正常初始化 Settings，直接傳 Object 會導致你的報錯
+    const modifiedJsonStr = JSON.stringify(modelData);
+    const modifiedJsonBlob = new Blob([modifiedJsonStr], { type: 'application/json' });
+    const modifiedJsonUrl = URL.createObjectURL(modifiedJsonBlob);
 
+    try {
+        // 傳入這個虛擬的 JSON URL
+        const model = await PIXI.live2d.Live2DModel.from(modifiedJsonUrl);
+        
+        // 釋放 JSON 的 Blob URL (模型載入後就不需要這個 JSON URL 了)
+        URL.revokeObjectURL(modifiedJsonUrl);
+        
+        return model;
+    } catch (err) {
+        URL.revokeObjectURL(modifiedJsonUrl);
+        throw err;
+    }
+}
 
 
 
