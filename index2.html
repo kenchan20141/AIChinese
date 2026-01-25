@@ -7573,12 +7573,23 @@ function repositionCats() {
 function initGlobalInteraction() {
     const canvas = document.getElementById(CANVAS_ID);
     
-    function hitTest(x, y) {
+   function hitTest(x, y) {
         if (!modelContainer || modelContainer.children.length === 0) return false;
         const bounds = modelContainer.getBounds();
         const padding = 20; 
-        return (x >= bounds.x - padding && x <= bounds.x + bounds.width + padding &&
-                y >= bounds.y - padding && y <= bounds.y + bounds.height + padding);
+
+        // ★★★ 修改重點：縮減點擊判定範圍 ★★★
+        // 許多 Live2D 模型上方有大量留白。
+        // 這裡設定忽略頂部 30% 的高度，讓點擊區更貼近貓頭/身體
+        const topOffset = bounds.height * 0.3; 
+
+        // 計算有效範圍：
+        // X 軸保持不變 (左右)
+        // Y 軸從 (bounds.y + topOffset) 開始算起
+        return (x >= bounds.x - padding && 
+                x <= bounds.x + bounds.width + padding &&
+                y >= bounds.y + topOffset && 
+                y <= bounds.y + bounds.height + padding);
     }
 
     function getPinchDistance(touches) {
@@ -7965,7 +7976,7 @@ function updateBubblePosition() {
     // 原本是：bounds.y - bubbleRect.height - 15; (這會放在透明邊界的上方)
     // 修改為：加上 (bounds.height * 0.25)，代表讓氣泡「下沉」模型高度的 25%
     // 您可以調整 0.25 這個數字：數值越大，氣泡越往下；數值越小，氣泡越往上。
-    let top = bounds.y - bubbleRect.height + (bounds.height * 0.25); 
+    let top = bounds.y - bubbleRect.height + (bounds.height * 0.15); 
 
     // 邊界檢查：如果氣泡太高被螢幕切掉，則強制改放到貓的腳下
     if (top < padding) {
