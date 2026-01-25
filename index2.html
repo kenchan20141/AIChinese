@@ -7225,8 +7225,169 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(repositionCats, 100);
         }
     });
+
+
+// 靜默預載 (頁面載入 5 秒後執行，不影響當前操作)
+    setTimeout(() => {
+        // 檢查快取函數是否存在，避免報錯
+        if (typeof fetchWithCache === 'function') {
+            console.log("🐈 [Live2D] 開始背景靜默預載...");
+            fetchWithCache(MODEL_PATH_HIJIKI); // 預載黑貓
+            fetchWithCache(MODEL_PATH_TORORO); // 預載白貓
+        }
+    }, 5000);
+
+
+
+	
 });
 
+
+// ==========================================
+// === Live2D IndexedDB 快取管理器 (加速核心) ===
+// ==========================================
+
+const CACHE_DB_NAME = 'SansiLive2DCache';
+const CACHE_STORE_NAME = 'files';
+const CACHE_VERSION = 1;
+
+// 1. 初始化資料庫
+function openCacheDB() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(CACHE_DB_NAME, CACHE_VERSION);
+        req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
+                db.createObjectStore(CACHE_STORE_NAME);
+            }
+        };
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e);
+    });
+}
+
+// 2. 核心：獲取檔案 (優先查庫，無則下載並寫庫)
+async function fetchWithCache(url) {
+    try {
+        const db = await openCacheDB();
+        const tx = db.transaction(CACHE_STORE_NAME, 'readonly');
+        const store = tx.objectStore(CACHE_STORE_NAME);
+        
+        // 嘗試從資料庫讀取
+        const cachedFile = await new Promise((resolve) => {
+            const req = store.get(url);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+        });
+
+        if (cachedFile) {
+            // console.log(`[Cache Hit] 從本地讀取: ${url}`);
+            return cachedFile; // 直接回傳 Blob
+        }
+
+        // 資料庫沒有，從網絡下載
+        // console.log(`[Network] 下載中: ${url}`);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Network response was not ok for ${url}`);
+        const blob = await response.blob();
+
+        // 寫入資料庫 (非同步執行，不阻擋回傳)
+        const writeTx = db.transaction(CACHE_STORE_NAME, 'readwrite');
+        writeTx.objectStore(CACHE_STORE_NAME).put(blob, url);
+
+        return blob;
+
+    } catch (err) {
+        console.warn("快取系統出錯 (降級為普通下載):", err);
+        const response = await fetch(url);
+        return await response.blob();
+    }
+}
+
+// 3. Live2D 模型載入器 (解析 JSON 並替換路徑)
+async function loadCachedLive2DModel(modelUrl) {
+    // A. 下載 model3.json 設定檔
+    const jsonBlob = await fetchWithCache(modelUrl);
+    const jsonText = await jsonBlob.text();
+    const modelData = JSON.parse(jsonText);
+
+    // B. 計算基礎路徑 (例如 live2d/hijiki/runtime/)
+    const basePath = modelUrl.substring(0, modelUrl.lastIndexOf('/') + 1);
+
+    // C. 定義需要快取的檔案類型
+    const fileTargets = [
+        { key: 'FileReferences.Moc', type: 'moc' },
+        { key: 'FileReferences.Textures', type: 'textures' },
+        { key: 'FileReferences.Physics', type: 'physics' },
+        { key: 'FileReferences.Motions', type: 'motions' } // 如果有動作檔
+    ];
+
+    // D. 遞歸下載並替換為 Blob URL
+    const promises = [];
+
+    // 輔助：替換路徑的函數
+    const replacePath = async (obj, key) => {
+        const relativePath = obj[key];
+        if (!relativePath) return;
+
+        const fullUrl = basePath + relativePath;
+        const blob = await fetchWithCache(fullUrl);
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // 將 JSON 內的路徑替換成瀏覽器內存的 blob:http://...
+        obj[key] = blobUrl;
+    };
+
+    // 掃描 JSON 結構
+    if (modelData.FileReferences) {
+        // 1. Moc 檔
+        if (modelData.FileReferences.Moc) {
+            promises.push(replacePath(modelData.FileReferences, 'Moc'));
+        }
+        // 2. Physics 檔
+        if (modelData.FileReferences.Physics) {
+            promises.push(replacePath(modelData.FileReferences, 'Physics'));
+        }
+        // 3. Textures (陣列)
+        if (modelData.FileReferences.Textures) {
+            modelData.FileReferences.Textures.forEach((tex, index) => {
+                const fullUrl = basePath + tex;
+                promises.push((async () => {
+                    const blob = await fetchWithCache(fullUrl);
+                    modelData.FileReferences.Textures[index] = URL.createObjectURL(blob);
+                })());
+            });
+        }
+        // 4. Motions (複雜物件)
+        if (modelData.FileReferences.Motions) {
+            const groups = modelData.FileReferences.Motions;
+            for (const groupName in groups) {
+                groups[groupName].forEach(motion => {
+                    if (motion.File) {
+                        const fullUrl = basePath + motion.File;
+                        promises.push((async () => {
+                            const blob = await fetchWithCache(fullUrl);
+                            motion.File = URL.createObjectURL(blob);
+                        })());
+                    }
+                });
+            }
+        }
+    }
+
+    // 等待所有素材都轉成 Blob
+    await Promise.all(promises);
+
+    // E. 將修改後的 JSON 物件傳給 PIXI
+    // 注意：因為我們已經把內部路徑都換成了絕對的 blob URL，所以這裡不需要再傳路徑
+    return await PIXI.live2d.Live2DModel.from(modelData);
+}
+
+
+
+
+
+	
 function createSpeechBubble() {
     if (document.getElementById('catSpeechBubble')) return;
     speechBubble = document.createElement('div');
@@ -7320,13 +7481,29 @@ async function selectCatMode(mode, save = true) {
     }
 }
 
+// === 修訂版：支援 IndexedDB 快取的載入函數 ===
 async function loadModelToContainer(path, scale, xOffset) {
-    const model = await PIXI.live2d.Live2DModel.from(path);
-    model.scale.set(scale);
-    model._baseOffsetX = xOffset;
-    model.x = xOffset; 
-    model.y = 0;
-    modelContainer.addChild(model);
+    try {
+        // 1. 使用快取加載器 (這會回傳已經組裝好的 Model 物件)
+        const model = await loadCachedLive2DModel(path);
+        
+        // 2. 設定模型參數
+        model.scale.set(scale);
+        model._baseOffsetX = xOffset;
+        model.x = xOffset; 
+        model.y = 0;
+        
+        // 3. 加入舞台
+        modelContainer.addChild(model);
+        
+    } catch (e) {
+        console.error("快取載入失敗，嘗試直接載入...", e);
+        // Fallback: 如果快取邏輯失敗，退回原本的直接網絡載入
+        const model = await PIXI.live2d.Live2DModel.from(path);
+        model.scale.set(scale);
+        model.x = xOffset;
+        modelContainer.addChild(model);
+    }
 }
 
 function forceInitialPosition() {
@@ -7602,6 +7779,9 @@ function initGlobalInteraction() {
         }
     }, { passive: false });
 }
+
+
+	
 
 // === 雙擊邏輯 (播放隨機音效 + 隱藏氣泡) ===
 function handleDoubleTap() {
