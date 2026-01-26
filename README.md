@@ -101,8 +101,7 @@
 
 ### Live2D 相關技術聲明
 使用 **Live2D Cubism SDK** 由原圖製作成 2D 即時動畫的技術  
-by  
-![Live2D Logo](https://www.live2d.com/wp-content/themes/cubism_new/assets/img/sdk/live2d-logo_01.png)
+by  ![Live2D Logo]([https://www.live2d.com/wp-content/themes/cubism_new/assets/img/sdk/live2d-logo_01.png](https://www.live2d.com/wp-content/themes/cubism_new/assets/img/sdk/live2d-logo_01.png))
 
 **Live2D 素材使用受《無償提供素材使用授權協議》（版本 1.6，修訂日：2025年2月3日）約束**  
 請務必詳閱完整協議，尤其是商用限制、大型企業使用條件及禁止事項。  
