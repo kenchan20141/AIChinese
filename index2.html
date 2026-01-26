@@ -20996,12 +20996,34 @@ function showArticleDetail(index) {
     currentContextType = 'featured_discussion';
     currentContextReview = "（這是精選文章的閱讀討論）"; 
     
-    // 處理正文
-    const contentHtml = article.content.split('\n').filter(p => p.trim()).map((p, i) => {
-        return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
-    }).join('');
+    // === [詩歌判斷邏輯] ===
+    // 檢查內容是否以 <br> 開頭 (容許前後有空白)
+    const isPoetry = article.content.trim().startsWith('<br>');
+    
+    let contentHtml = '';
 
-    // 處理賞析
+    if (isPoetry) {
+        // --- 詩歌模式 ---
+        // 1. 移除標記 <br>
+        const cleanContent = article.content.replace('<br>', '').trim();
+        
+        // 2. 生成 HTML
+        // 使用 id="poetryContent" 方便稍後 JS 抓取
+        // white-space: pre -> 保留所有空格和換行，且絕對不自動換行
+        // display: inline-block -> 讓寬度隨文字撐開，方便計算是否溢出
+        // line-height: 1.6 -> 詩歌行距稍緊一點比較好看
+        contentHtml = `
+            <div style="width: 100%; display: flex; justify-content: center; overflow: hidden;">
+                <div id="poetryContent" style="white-space: pre; display: inline-block; text-align: left; line-height: 1.6; font-family: 'Noto Serif TC', serif;">${cleanContent}</div>
+            </div>`;
+    } else {
+        // --- 一般散文模式 (原有機制) ---
+        contentHtml = article.content.split('\n').filter(p => p.trim()).map((p, i) => {
+            return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
+        }).join('');
+    }
+
+    // 處理賞析 (保持不變)
     let analysisHtmlBlock = '';
     if (article.analysis && article.analysis.trim() !== '') {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
@@ -21022,7 +21044,6 @@ function showArticleDetail(index) {
     chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); 
     chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); 
 
-    // ★★★ [修改 1] HTML 結構調整：加入 scroll-hide-target 類別與置頂鍵 ★★★
     detailView.innerHTML = `
         <style>
             @keyframes stamp-slam {
@@ -21035,29 +21056,19 @@ function showArticleDetail(index) {
 
         <div id="readingProgressBarContainer"><div id="readingProgressBar"></div></div>
 
-        <!-- 右上角懸浮按鈕群組 -->
         <div class="detail-action-group">
-            <!-- 1. 書籤鍵 (加入 scroll-hide-target 類別) -->
             <button id="detailBookmarkBtn" class="detail-float-btn scroll-hide-target ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤">
                 <i class="fas fa-bookmark"></i>
             </button>
-            
-            <!-- 2. 慢讀鍵 (加入 scroll-hide-target 類別) -->
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀">
                 <i class="fas fa-book-reader"></i>
             </button>
-            
-            <!-- 3. 設定鍵 (加入 scroll-hide-target 類別) -->
             <button class="detail-float-btn scroll-hide-target" onclick="openReaderSettings()" title="慢讀設定">
                 <i class="fas fa-cog"></i>
             </button>
-            
-            <!-- 4. [新增] 置頂鍵 (預設隱藏 display: none) -->
             <button id="detailTopBtn" class="detail-float-btn" onclick="scrollToArticleTop()" title="返回頂部" style="display: none;">
                 <i class="fas fa-arrow-up"></i>
             </button>
-
-            <!-- 5. 關閉鍵 (永遠顯示) -->
             <button class="detail-float-btn close-mode" onclick="backToArticleList()" title="返回列表">
                 <i class="fas fa-times"></i>
             </button>
@@ -21074,6 +21085,7 @@ function showArticleDetail(index) {
                 <div class="detail-date" style="color: #9e9e9e; font-family: 'Courier New', monospace; font-size: 0.9rem;">${article.date}</div>
             </div>
 
+            <!-- 正文區域 -->
             <div class="article-body" id="fullArticleBody" style="font-size: 1.15rem; color: #4a4a4a; text-align: justify; line-height: 1.8;">
                 ${contentHtml}
             </div>
@@ -21104,43 +21116,58 @@ function showArticleDetail(index) {
     document.body.style.overflow = 'hidden'; 
 
     setTimeout(() => {
+        // 1. 處理標題縮放 (原有機制)
         const titleEl = document.getElementById('detailTitleText');
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
+
+        // 2. === [新增] 詩歌字體自動縮放邏輯 ===
+        if (isPoetry) {
+            const poetryEl = document.getElementById('poetryContent');
+            if (poetryEl) {
+                // 起始字體大小 (與一般散文一致)
+                let fontSize = 1.15 * 16; // 1.15rem ~= 18.4px
+                
+                // 設定初始大小
+                poetryEl.style.fontSize = fontSize + 'px';
+                
+                // 獲取容器可用寬度 (即 .read-mode-container 的內部寬度)
+                // 我們抓上一層的寬度比較準確
+                const containerWidth = poetryEl.parentElement.clientWidth;
+                
+                // 迴圈檢測：如果詩歌內容寬度 (scrollWidth) 超過容器寬度，就縮小字體
+                // 最小縮到 12px，避免看不見
+                while (poetryEl.scrollWidth > containerWidth && fontSize > 12) {
+                    fontSize -= 0.5; // 每次縮小 0.5px
+                    poetryEl.style.fontSize = fontSize + 'px';
+                }
+            }
+        }
     }, 50);
 
-    // ★★★ [修改 2] 滾動監聽邏輯：切換按鈕顯示，而非隱藏整組 ★★★
+    // 滾動監聽邏輯 (保持不變)
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
         const winHeight = detailView.clientHeight;
         const scrollPercent = (scrollTop / (docHeight - winHeight)) * 100;
         
-        // 進度條邏輯 (不變)
         const progressBar = document.getElementById('readingProgressBar');
         const progressContainer = document.getElementById('readingProgressBarContainer');
         if(progressBar) progressBar.style.width = scrollPercent + "%";
         if(progressContainer) progressContainer.style.opacity = scrollTop > 10 ? '1' : '0';
 
-        // --- 新的按鈕切換邏輯 ---
-        const hideTargets = document.querySelectorAll('.scroll-hide-target'); // 書籤、慢讀、設定
-        const topBtn = document.getElementById('detailTopBtn');              // 置頂鍵
+        const hideTargets = document.querySelectorAll('.scroll-hide-target');
+        const topBtn = document.getElementById('detailTopBtn');
 
         if (scrollTop > 100) { 
-            // 當滾動超過 100px (開始閱讀)：
-            // 1. 隱藏不必要的功能鍵
             hideTargets.forEach(btn => btn.style.display = 'none');
-            // 2. 顯示置頂鍵
             if (topBtn) topBtn.style.display = 'flex';
         } else {
-            // 當回到頂部：
-            // 1. 恢復功能鍵
             hideTargets.forEach(btn => btn.style.display = 'flex');
-            // 2. 隱藏置頂鍵
             if (topBtn) topBtn.style.display = 'none';
         }
     };
 }
-
 
 	
 // 6. 修訂：返回列表時刷新 (處理書籤變更)
