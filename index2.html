@@ -20979,51 +20979,44 @@ function scrollToArticleTop() {
 }
 
 
-	
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
 
-    // 檢查狀態
     const isSaved = isArticleBookmarked(article.title);
     const bookmarkClass = isSaved ? 'bookmarked' : '';
     
     const titleColor = MORANDI_TITLES[index % MORANDI_TITLES.length];
     const detailView = document.getElementById('featuredDetailView');
     
-    // 設定聊天室上下文
     currentContextContent = `【文章標題】${article.title}\n【作者】${article.author}\n\n【文章正文】\n${article.content}\n\n【文章賞析】\n${article.analysis || "（無賞析資料）"}`;
     currentContextType = 'featured_discussion';
     currentContextReview = "（這是精選文章的閱讀討論）"; 
     
-    // === [詩歌判斷邏輯] ===
-    // 檢查內容是否以 <br> 開頭 (容許前後有空白)
-    const isPoetry = article.content.trim().startsWith('<br>');
+    // === [詩歌判斷與清理邏輯] ===
+    // 偵測 <br> (不分大小寫)
+    const isPoetry = /^\s*<br\s*\/?>/i.test(article.content);
     
     let contentHtml = '';
 
     if (isPoetry) {
         // --- 詩歌模式 ---
-        // 1. 移除標記 <br>
-        const cleanContent = article.content.replace('<br>', '').trim();
+        // 1. 移除開頭的 <br> 標記，並移除前後多餘空白
+        let cleanContent = article.content.replace(/^\s*<br\s*\/?>/i, '').trim();
         
-        // 2. 生成 HTML
-        // 使用 id="poetryContent" 方便稍後 JS 抓取
-        // white-space: pre -> 保留所有空格和換行，且絕對不自動換行
-        // display: inline-block -> 讓寬度隨文字撐開，方便計算是否溢出
-        // line-height: 1.6 -> 詩歌行距稍緊一點比較好看
-        contentHtml = `
-            <div style="width: 100%; display: flex; justify-content: center; overflow: hidden;">
-                <div id="poetryContent" style="white-space: pre; display: inline-block; text-align: left; line-height: 1.6; font-family: 'Noto Serif TC', serif;">${cleanContent}</div>
-            </div>`;
+        // 2. 雙重保險：處理可能被轉義的換行符 (針對 CSV 特性)
+        cleanContent = cleanContent.replace(/\\n/g, '\n');
+
+        // 3. 生成 HTML (關鍵修改：標籤與內容之間不能有任何換行或空格)
+        // 為了美觀，我們給它一個最小高度，並允許水平滑動以防萬一
+        contentHtml = `<div style="width: 100%; display: flex; justify-content: center;"><div id="poetryContent" style="white-space: pre; word-wrap: normal; display: inline-block; text-align: left; line-height: 1.7; font-family: 'Noto Serif TC', serif; margin-top: 0px;">${cleanContent}</div></div>`;
     } else {
-        // --- 一般散文模式 (原有機制) ---
+        // --- 一般散文模式 ---
         contentHtml = article.content.split('\n').filter(p => p.trim()).map((p, i) => {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
         }).join('');
     }
 
-    // 處理賞析 (保持不變)
     let analysisHtmlBlock = '';
     if (article.analysis && article.analysis.trim() !== '') {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
@@ -21039,7 +21032,6 @@ function showArticleDetail(index) {
     const safeContent = encodeURIComponent(article.content);
     const safeTitle = encodeURIComponent(article.title);
 
-    // 取得聊天室 HTML
     let chatHTML = getCanvasChatHTML('featured_discussion');
     chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); 
     chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); 
@@ -21116,35 +21108,34 @@ function showArticleDetail(index) {
     document.body.style.overflow = 'hidden'; 
 
     setTimeout(() => {
-        // 1. 處理標題縮放 (原有機制)
+        // 標題縮放
         const titleEl = document.getElementById('detailTitleText');
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
 
-        // 2. === [新增] 詩歌字體自動縮放邏輯 ===
+        // === [核心修正] 詩歌字體縮放 ===
         if (isPoetry) {
             const poetryEl = document.getElementById('poetryContent');
             if (poetryEl) {
-                // 起始字體大小 (與一般散文一致)
-                let fontSize = 1.15 * 16; // 1.15rem ~= 18.4px
-                
-                // 設定初始大小
+                // 初始設定：一般字體大小 (約 20px)
+                let fontSize = 1.25 * 16; 
                 poetryEl.style.fontSize = fontSize + 'px';
                 
-                // 獲取容器可用寬度 (即 .read-mode-container 的內部寬度)
-                // 我們抓上一層的寬度比較準確
+                // 抓取容器寬度 (父層寬度)
+                // 我們要確保詩句不超過螢幕寬度減去內邊距
                 const containerWidth = poetryEl.parentElement.clientWidth;
                 
-                // 迴圈檢測：如果詩歌內容寬度 (scrollWidth) 超過容器寬度，就縮小字體
-                // 最小縮到 12px，避免看不見
-                while (poetryEl.scrollWidth > containerWidth && fontSize > 12) {
-                    fontSize -= 0.5; // 每次縮小 0.5px
+                // 迴圈檢測：如果詩歌內容 (scrollWidth) 寬於容器，就縮小字體
+                // 最小縮到 11px
+                let safety = 0;
+                while (poetryEl.scrollWidth > containerWidth && fontSize > 11 && safety < 100) {
+                    fontSize -= 0.5;
                     poetryEl.style.fontSize = fontSize + 'px';
+                    safety++;
                 }
             }
         }
     }, 50);
 
-    // 滾動監聽邏輯 (保持不變)
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
@@ -21168,7 +21159,6 @@ function showArticleDetail(index) {
         }
     };
 }
-
 	
 // 6. 修訂：返回列表時刷新 (處理書籤變更)
 function backToArticleList() {
