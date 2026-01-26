@@ -7156,6 +7156,36 @@ body.cat-dragging { cursor: grabbing !important; }
     color: #2c3e50; 
 }
 
+
+/* === 分頁跳轉輸入框樣式 === */
+.page-jump-input {
+    width: 50px;
+    text-align: center;
+    border: none;
+    border-bottom: 2px solid #8fa398; /* 莫蘭迪綠底線 */
+    background: transparent;
+    color: #5d4037;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 1rem;
+    padding: 0;
+    margin: 0;
+    outline: none;
+}
+
+/* 讓一鍵回首頁按鈕與其他按鈕風格一致，但稍微小一點 */
+#firstPageBtn {
+    font-size: 0.9rem !important;
+    opacity: 0.7;
+}
+#firstPageBtn:hover {
+    opacity: 1;
+    background-color: transparent !important; /* 保持無背景，只變色 */
+    color: #2A9689 !important;
+    transform: scale(1.1);
+}
+	
+
 	
 </style>
 
@@ -8071,12 +8101,28 @@ function closeCatMenu(e) { if(e.target.id === 'catSelectionModal') e.target.styl
             <div style="text-align:center; color:#999; padding:20px;">載入中...</div>
         </div>
 
-        <!-- 分頁控制 -->
-        <div class="pagination-controls">
-            <button id="prevPageBtn" onclick="changeArticlePage(-1)" disabled><i class="fas fa-chevron-left"></i></button>
-            <span id="pageIndicator">1 / 1</span>
-            <button id="nextPageBtn" onclick="changeArticlePage(1)" disabled><i class="fas fa-chevron-right"></i></button>
-        </div>
+       <!-- 分頁控制 (修訂版) -->
+<div class="pagination-controls" style="gap: 15px;"> <!-- 稍微縮小間距 -->
+    <!-- [新增] 一鍵回首頁按鈕 (雙箭頭圖示) -->
+    <button id="firstPageBtn" onclick="goToFirstPage()" title="回到第 1 頁" style="display: none; margin-right: -10px;">
+        <i class="fas fa-angle-double-left"></i>
+    </button>
+
+    <button id="prevPageBtn" onclick="changeArticlePage(-1)" disabled>
+        <i class="fas fa-chevron-left"></i>
+    </button>
+    
+    <!-- [修改] 頁碼指示器：加入 onclick 事件與 title 提示 -->
+    <!-- 樣式設定 cursor: pointer 提示可點擊 -->
+    <span id="pageIndicator" onclick="triggerPageJump()" title="點擊輸入頁碼" 
+          style="cursor: pointer; user-select: none; transition: opacity 0.2s;">
+        1 / 1
+    </span>
+    
+    <button id="nextPageBtn" onclick="changeArticlePage(1)" disabled>
+        <i class="fas fa-chevron-right"></i>
+    </button>
+</div>
     </div>
 
     <!-- 詳情視圖 (預設隱藏) -->
@@ -20837,12 +20883,100 @@ function renderArticleList() {
         });
     }, 50); // 稍微增加延遲到 50ms 比較保險
 }
+
+
+
+// === [新增] 一鍵回到第 1 頁 ===
+function goToFirstPage() {
+    if (currentArticlePage === 1) return;
+    currentArticlePage = 1;
+    renderArticleList();
+    // 滾動回頂部
+    document.getElementById('featuredContainer').scrollIntoView({ behavior: 'smooth' });
+}
+
+// === [新增] 觸發頁碼輸入模式 ===
+function triggerPageJump() {
+    const indicator = document.getElementById('pageIndicator');
+    const totalPages = Math.ceil(filteredArticles.length / ARTICLES_PER_PAGE) || 1;
+    
+    // 避免重複點擊生成多個輸入框
+    if (indicator.querySelector('input')) return;
+
+    // 暫存目前的顯示文字，以便取消時恢復
+    const originalText = indicator.innerText;
+
+    // 替換為輸入框
+    indicator.innerHTML = `<input type="number" id="jumpInput" class="page-jump-input" min="1" max="${totalPages}" value="${currentArticlePage}"> <span style="font-size:0.9em; color:#aaa;">/ ${totalPages}</span>`;
+    
+    const input = document.getElementById('jumpInput');
+    input.focus();
+    input.select(); // 自動全選數字，方便直接輸入
+
+    // 綁定事件：按下 Enter 跳轉，失去焦點(Blur) 則取消
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            executePageJump(this.value, totalPages);
+        } else if (e.key === 'Escape') {
+            indicator.innerText = originalText; // 取消
+        }
+    });
+
+    // 失去焦點時自動恢復原狀 (延遲一點點以免與 Enter 衝突)
+    input.addEventListener('blur', function() {
+        setTimeout(() => {
+            // 如果還沒跳轉 (頁面沒刷新)，就恢復文字
+            if (document.getElementById('jumpInput')) {
+                indicator.innerText = originalText;
+            }
+        }, 100);
+    });
+}
+
+// === [新增] 執行跳轉邏輯 ===
+function executePageJump(val, maxPage) {
+    let pageNum = parseInt(val);
+    
+    if (isNaN(pageNum)) return; // 非數字不處理
+    
+    // 限制範圍
+    if (pageNum < 1) pageNum = 1;
+    if (pageNum > maxPage) pageNum = maxPage;
+
+    // 如果頁碼改變了，才執行跳轉
+    if (pageNum !== currentArticlePage) {
+        currentArticlePage = pageNum;
+        renderArticleList();
+        document.getElementById('featuredContainer').scrollIntoView({ behavior: 'smooth' });
+    } else {
+        // 如果頁碼沒變，手動恢復文字顯示
+        updatePagination(maxPage);
+    }
+}
+
 	
-// 5. 更新分頁按鈕狀態
+// [修訂版] 更新分頁按鈕狀態 (控制回首頁按鈕的顯示)
 function updatePagination(totalPages) {
-    document.getElementById('pageIndicator').innerText = `${currentArticlePage} / ${totalPages || 1}`;
+    const indicator = document.getElementById('pageIndicator');
+    if (indicator) {
+        indicator.innerText = `${currentArticlePage} / ${totalPages || 1}`;
+    }
+
     document.getElementById('prevPageBtn').disabled = (currentArticlePage <= 1);
     document.getElementById('nextPageBtn').disabled = (currentArticlePage >= totalPages || totalPages === 0);
+
+    // ★★★ 新增控制：只有當頁數 > 1 時，才顯示「回首頁」按鈕 ★★★
+    const firstPageBtn = document.getElementById('firstPageBtn');
+    if (firstPageBtn) {
+        if (currentArticlePage > 1) {
+            firstPageBtn.style.display = 'inline-flex'; // 顯示雙箭頭
+            // 加入淡入動畫
+            firstPageBtn.style.opacity = '0';
+            setTimeout(() => firstPageBtn.style.opacity = '0.7', 10);
+        } else {
+            firstPageBtn.style.display = 'none'; // 隱藏
+        }
+    }
 }
 
 // 6. 換頁邏輯
