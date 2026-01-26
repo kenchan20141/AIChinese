@@ -13,7 +13,6 @@
 
 1.  **沉浸式體驗 (Immersion)**：透過動態場景切換、環境音效與流暢的轉場動畫 (Shrink-Exit/Pop-Enter)，解決學生學習時難以專注的痛點。
 2.  **人格化 AI (Personification)**：摒棄冷冰冰的 AI 回應，內置「陳 SIR」及多位虛擬閱卷員，模擬真實老師的語氣與評分取向。
-3.  **數據私有化 (Privacy First)**：利用瀏覽器本地存儲技術 (IndexedDB)，確保學生的創作與對話紀錄無需上傳至第三方伺服器，保障數據安全。
 
 ## 🏛️ 五大核心範疇詳解 (Five Core Modules)
 
