@@ -7150,6 +7150,12 @@ body.cat-dragging { cursor: grabbing !important; }
 .cat-option { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s; background: rgba(255, 255, 255, 0.1); }
 .cat-option:hover { transform: scale(1.2); background: rgba(255, 255, 255, 0.3); }
 .cat-option i { color: #d69a92; font-size: 14px; }
+
+#fullArticleBody b, #fullArticleBody strong {
+    font-weight: 900 !important; 
+    color: #2c3e50; 
+}
+
 	
 </style>
 
@@ -20993,7 +20999,7 @@ function showArticleDetail(index) {
     currentContextType = 'featured_discussion';
     currentContextReview = "（這是精選文章的閱讀討論）"; 
     
-    // === [詩歌判斷與清理邏輯] ===
+    // === [詩歌判斷邏輯] ===
     // 偵測 <br> (不分大小寫)
     const isPoetry = /^\s*<br\s*\/?>/i.test(article.content);
     
@@ -21001,14 +21007,15 @@ function showArticleDetail(index) {
 
     if (isPoetry) {
         // --- 詩歌模式 ---
-        // 1. 移除開頭的 <br> 標記，並移除前後多餘空白
+        // 1. 移除開頭的 <br> 標記
         let cleanContent = article.content.replace(/^\s*<br\s*\/?>/i, '').trim();
         
-        // 2. 雙重保險：處理可能被轉義的換行符 (針對 CSV 特性)
+        // 2. 處理轉義換行
         cleanContent = cleanContent.replace(/\\n/g, '\n');
 
-        // 3. 生成 HTML (關鍵修改：標籤與內容之間不能有任何換行或空格)
-        // 為了美觀，我們給它一個最小高度，並允許水平滑動以防萬一
+        // 3. 生成 HTML
+        // 注意：這裡的 white-space: pre 會保留你在 Sheet 裡的分行
+        // 內部的 <b> 標籤會被瀏覽器正常解析為粗體
         contentHtml = `<div style="width: 100%; display: flex; justify-content: center;"><div id="poetryContent" style="white-space: pre; word-wrap: normal; display: inline-block; text-align: left; line-height: 1.7; font-family: 'Noto Serif TC', serif; margin-top: 0px;">${cleanContent}</div></div>`;
     } else {
         // --- 一般散文模式 ---
@@ -21043,6 +21050,12 @@ function showArticleDetail(index) {
                 60% { opacity: 1; transform: scale(0.9) rotate(-3deg); } 
                 80% { transform: scale(1.05) rotate(-3deg); } 
                 100% { opacity: 1; transform: scale(1) rotate(-3deg); } 
+            }
+            /* === [新增] 針對文章內容的粗體優化 === */
+            /* 確保在文藝字體下，粗體足夠明顯 */
+            #fullArticleBody b, #fullArticleBody strong {
+                font-weight: 900 !important; /* 強制特粗 */
+                color: #2c3e50; /* 稍微加深顏色，增加對比 */
             }
         </style>
 
@@ -21112,7 +21125,7 @@ function showArticleDetail(index) {
         const titleEl = document.getElementById('detailTitleText');
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
 
-        // === [核心修正] 詩歌字體縮放 ===
+        // === [詩歌字體縮放邏輯] ===
         if (isPoetry) {
             const poetryEl = document.getElementById('poetryContent');
             if (poetryEl) {
@@ -21120,12 +21133,9 @@ function showArticleDetail(index) {
                 let fontSize = 1.25 * 16; 
                 poetryEl.style.fontSize = fontSize + 'px';
                 
-                // 抓取容器寬度 (父層寬度)
-                // 我們要確保詩句不超過螢幕寬度減去內邊距
                 const containerWidth = poetryEl.parentElement.clientWidth;
                 
-                // 迴圈檢測：如果詩歌內容 (scrollWidth) 寬於容器，就縮小字體
-                // 最小縮到 11px
+                // 迴圈檢測：如果內容 (包含粗體後的寬度) 超過容器，自動縮小
                 let safety = 0;
                 while (poetryEl.scrollWidth > containerWidth && fontSize > 11 && safety < 100) {
                     fontSize -= 0.5;
