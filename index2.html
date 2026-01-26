@@ -20513,10 +20513,9 @@ document.addEventListener('DOMContentLoaded', function() {
 <script>
 
 
-// === 精選文章功能模組 ===
-// 設定遠端資料來源標識 (Google Sheet 直連專用編碼)
-// 設定遠端資料來源 (已更新為正確的 CSV 網址編碼)
-const _REMOTE_DATA_SOURCE = "aHR0cHM6Ly9kb2NzLmdvb2dsZS5jb20vc3ByZWFkc2hlZXRzL2QvZS8yUEFDWC0xdlJ0NGI5LTNTUXpUV1ZFVkJ3ZHZaY01WOEhRMkNMdjlsUVZ5QW9NdklOU3JZcUlQTnRZc0lSVndEOWc2X19VbHhuMTJSQ1JpU3ZpYlFCby9wdWI/b3V0cHV0PWNzdg==";
+// ★★★ 請將下方的網址換成您剛剛部署 GAS 拿到的 "Web App URL" ★★★
+const _GAS_PROXY_URL = "https://script.google.com/macros/s/AKfycbz0qC9n2YdUOAfnmgjpgAMUmewrQfJarlqXUHwSDANM-XKuJiuEdob6tW0WzdR8Vwlh/exec";
+
 let allArticles = [];       // 儲存所有文章
 let filteredArticles = [];  // 儲存搜尋後的文章
 let currentArticlePage = 1;
@@ -20660,41 +20659,37 @@ function toggleBookmarkMode() {
     renderArticleList();
 }
 
-// 2. 從 Google Sheet 抓取資料 (已修復：最新文章排在最前)
-// 2. 從 Google Sheet 抓取資料 (直連版：直接讀取 CSV)
+// 2. 從 Google Apps Script 抓取資料 (取代原本的直連 CSV)
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
     listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
 
     try {
-        // 1. 解碼還原網址
-        const decodedUrl = atob(_REMOTE_DATA_SOURCE); 
-        
-        // 2. 加入時間戳記 (防止瀏覽器快取)
-        // 您的網址已經有 '?output=csv'，所以這裡必須用 '&' 來連接參數
-        const targetUrl = decodedUrl + "&t=" + Date.now();
+        // 1. 設定目標網址為 GAS 代理網址
+        // 加入時間戳記 (t=...) 防止瀏覽器快取舊資料
+        const targetUrl = _GAS_PROXY_URL + ( _GAS_PROXY_URL.includes('?') ? '&' : '?' ) + "t=" + Date.now();
 
-        // 3. 直接連線 (Direct Fetch)
+        // 2. 連線到 GAS
         const response = await fetch(targetUrl);
 
-        // 4. 檢查回應狀態
+        // 3. 檢查回應狀態
         if (!response.ok) {
-            throw new Error(`連線失敗: ${response.status} (請確認 Google Sheet 是否已發布)`);
+            throw new Error(`連線失敗: ${response.status} (請檢查 GAS 部署設定)`);
         }
 
         const data = await response.text();
         
-        // 5. 驗證資料是否為 CSV 格式 (防止 Google 回傳登入頁面 HTML)
-        if (data.trim().startsWith("<") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：Google 回傳了網頁而非資料，請確認網址解碼後正確無誤。");
+        // 4. 簡單驗證資料 (GAS 若報錯通常會回傳 "Error" 開頭或 HTML 錯誤頁)
+        if (data.trim().startsWith("Error") || data.includes("<!DOCTYPE") || data.includes("<html")) {
+            throw new Error("讀取失敗：GAS 回傳了錯誤或網頁，請確認部署權限是否為「所有人」。");
         }
 
-        // 6. 解析 CSV 並反轉排序 (最新的排最前)
+        // 5. 解析 CSV 並反轉排序 (最新的排最前) - 這裡邏輯與之前相同
         allArticles = parseCSV(data).reverse(); 
         
-        console.log("【解析後的文章數】:", allArticles.length);
+        console.log("【經由 GAS 解析後的文章數】:", allArticles.length);
 
-        // 7. 渲染畫面
+        // 6. 渲染畫面
         filteredArticles = allArticles;
         currentArticlePage = 1;
         renderArticleList();
@@ -20704,7 +20699,6 @@ async function fetchArticles() {
         listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線。<br><small>(' + error.message + ')</small></div>';
     }
 }
-
 
 
 	
@@ -20976,6 +20970,7 @@ function toggleFeaturedChat() {
 }
 
 
+// === [終極修復] 文萃詳情頁置頂功能 (原地重生法) ===
 // === [修訂] 文萃詳情頁置頂功能 (延遲重生法) ===
 function scrollToArticleTop() {
     const detailView = document.getElementById('featuredDetailView');
@@ -21001,7 +20996,6 @@ function scrollToArticleTop() {
         }, 300); // 0.3秒後執行重置
     }
 }
-
 
 function showArticleDetail(index) {
     const article = filteredArticles[index];
