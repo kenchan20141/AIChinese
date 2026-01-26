@@ -20665,41 +20665,45 @@ async function fetchArticles() {
     listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
 
     try {
-        // 1. 設定目標網址為 GAS 代理網址
-        // 加入時間戳記 (t=...) 防止瀏覽器快取舊資料
+        // 加入時間戳防止瀏覽器快取 GAS 的結果
         const targetUrl = _GAS_PROXY_URL + ( _GAS_PROXY_URL.includes('?') ? '&' : '?' ) + "t=" + Date.now();
-
-        // 2. 連線到 GAS
         const response = await fetch(targetUrl);
 
-        // 3. 檢查回應狀態
-        if (!response.ok) {
-            throw new Error(`連線失敗: ${response.status} (請檢查 GAS 部署設定)`);
-        }
+        if (!response.ok) throw new Error(`連線失敗: ${response.status}`);
 
-        const data = await response.text();
+        // ★★★ 解析 JSON ★★★
+        const jsonResponse = await response.json();
         
-        // 4. 簡單驗證資料 (GAS 若報錯通常會回傳 "Error" 開頭或 HTML 錯誤頁)
-        if (data.trim().startsWith("Error") || data.includes("<!DOCTYPE") || data.includes("<html")) {
-            throw new Error("讀取失敗：GAS 回傳了錯誤或網頁，請確認部署權限是否為「所有人」。");
+        // ★ 在 F12 Console 顯示效能數據
+        console.log("------------------------------------------------");
+        if (jsonResponse.status === "HIT") {
+            console.log(`%c🚀 緩存命中!`, "color: white; background: green; font-size: 14px; padding: 4px;");
+        } else {
+            console.log(`%c🐌 緩存未命中 (下載中...)`, "color: white; background: orange; font-size: 14px; padding: 4px;");
         }
+        console.log(`GAS 處理耗時: ${jsonResponse.processTime}`);
+        console.log(`資料來源: ${jsonResponse.source}`);
+        console.log("------------------------------------------------");
 
-        // 5. 解析 CSV 並反轉排序 (最新的排最前) - 這裡邏輯與之前相同
-        allArticles = parseCSV(data).reverse(); 
+        // 檢查是否有錯誤
+        if (jsonResponse.status === "ERROR") throw new Error(jsonResponse.message);
+
+        // 取出 CSV 資料
+        const csvData = jsonResponse.csv;
         
-        console.log("【經由 GAS 解析後的文章數】:", allArticles.length);
+        // 繼續原本的解析
+        allArticles = parseCSV(csvData).reverse(); 
+        console.log("【文章數量】:", allArticles.length);
 
-        // 6. 渲染畫面
         filteredArticles = allArticles;
         currentArticlePage = 1;
         renderArticleList();
         
     } catch (error) {
-        console.error("載入文章失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章，請檢查網絡連線。<br><small>(' + error.message + ')</small></div>';
+        console.error("載入失敗:", error);
+        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章。<br><small>(' + error.message + ')</small></div>';
     }
 }
-
 
 	
 // 3. 修正版 CSV 解析器 (新增讀取第 5 欄：賞析)
