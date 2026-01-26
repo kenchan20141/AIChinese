@@ -21001,6 +21001,19 @@ function scrollToArticleTop() {
     }
 }
 
+// === [新增] 自動滾動至賞析區塊 ===
+function scrollToAnalysis() {
+    const analysisSection = document.getElementById('articleAnalysisSection');
+    
+    if (analysisSection) {
+        // 平滑滾動到賞析區塊的頂部
+        analysisSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+        alert("此文章暫無賞析內容。");
+    }
+}
+
+// === [修訂版] 顯示文章詳情 (加入跳轉賞析按鈕) ===
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
@@ -21033,19 +21046,27 @@ function showArticleDetail(index) {
         }).join('');
     }
 
+    // 構建賞析區塊 HTML
     let analysisHtmlBlock = '';
-    if (article.analysis && article.analysis.trim() !== '') {
+    const hasAnalysis = article.analysis && article.analysis.trim() !== '';
+
+    if (hasAnalysis) {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
         }).join('');
         
-        // ★★★ 修改處：加入了 id="articleAnalysisSection" ★★★
         analysisHtmlBlock = `
         <div id="articleAnalysisSection" class="analysis-container" style="margin-top: 50px !important; padding-top: 40px !important; border-top: 1px dashed #d1cdc5;">
             <div class="analysis-header" style="text-align: center; font-size: 1.4rem; font-weight: bold; color: #8d6e63; margin-bottom: 20px !important; line-height: 1.2; letter-spacing: 2px;">文章賞析</div>
             <div class="analysis-body" style="margin-top: 0 !important; font-size: 1.05rem !important;">${analysisText}</div>
         </div>`;
     }
+
+    // ★★★ 生成跳轉賞析按鈕 HTML (如果有賞析內容才顯示) ★★★
+    const analysisBtnHtml = hasAnalysis ? 
+        `<button class="detail-float-btn scroll-hide-target" onclick="scrollToAnalysis()" title="跳至賞析">
+            <i class="fas fa-comment-dots"></i>
+         </button>` : '';
 
     const safeContent = encodeURIComponent(article.content);
     const safeTitle = encodeURIComponent(article.title);
@@ -21081,6 +21102,10 @@ function showArticleDetail(index) {
             <button id="detailBookmarkBtn" class="detail-float-btn scroll-hide-target ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤">
                 <i class="fas fa-bookmark"></i>
             </button>
+            
+            <!-- ★★★ 插入賞析按鈕 ★★★ -->
+            ${analysisBtnHtml}
+
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀">
                 <i class="fas fa-book-reader"></i>
             </button>
