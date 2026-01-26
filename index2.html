@@ -7184,6 +7184,51 @@ body.cat-dragging { cursor: grabbing !important; }
     color: #2A9689 !important;
     transform: scale(1.1);
 }
+
+
+/* === 文萃分頁過渡特效 === */
+
+/* 列表容器的過渡狀態 */
+#articleListContainer {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    min-height: 300px; /* 保持最小高度，防止換頁時頁面塌陷 */
+}
+
+/* 退場狀態：透明且稍微下沉 */
+.list-fade-out {
+    opacity: 0;
+    transform: translateY(20px);
+    pointer-events: none; /* 防止動畫中誤觸 */
+}
+
+/* 進場狀態：不透明且歸位 */
+.list-fade-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 轉場期間的 Loading 容器 */
+.pagination-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: #8fa398; /* 莫蘭迪綠 */
+    font-family: 'Noto Serif TC', serif;
+    animation: fadeIn 0.2s ease;
+}
+
+/* 轉圈圈特效 */
+.pagination-spinner {
+    font-size: 2rem;
+    margin-bottom: 15px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+	
 	
 
 	
@@ -20880,15 +20925,6 @@ function renderArticleList() {
 
 
 
-// === [新增] 一鍵回到第 1 頁 ===
-function goToFirstPage() {
-    if (currentArticlePage === 1) return;
-    currentArticlePage = 1;
-    renderArticleList();
-    // 滾動回頂部
-    document.getElementById('featuredContainer').scrollIntoView({ behavior: 'smooth' });
-}
-
 // === [新增] 觸發頁碼輸入模式 ===
 function triggerPageJump() {
     const indicator = document.getElementById('pageIndicator');
@@ -20927,27 +20963,89 @@ function triggerPageJump() {
     });
 }
 
-// === [新增] 執行跳轉邏輯 ===
+
+/**
+ * === [新增] 頁面切換視覺控制器 ===
+ * @param {Function} updateLogic - 實際更新頁碼的邏輯函式
+ */
+async function performPageTransition(updateLogic) {
+    const listContainer = document.getElementById('articleListContainer');
+    const containerTop = document.getElementById('featuredContainer');
+
+    // 1. 【退場】列表淡出並下沉
+    listContainer.classList.add('list-fade-out');
+
+    // 2. 等待退場動畫完成 (300ms)
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // 3. 【滾動】平滑滾動回頂部 (趁畫面空白時滾動，體驗最好)
+    if (containerTop) {
+        containerTop.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // 4. 【顯示 Loading】清空列表並顯示轉圈圈 (給予視覺回饋)
+    listContainer.innerHTML = `
+        <div class="pagination-loading">
+            <i class="fas fa-circle-notch pagination-spinner"></i>
+            <span>正在翻頁...</span>
+        </div>
+    `;
+    
+    // 5. 【執行邏輯】更新頁碼變數 (這是傳入的 callback)
+    updateLogic();
+
+    // 6. 【延遲渲染】給予一點點 "思考時間" (400ms)，讓使用者看清楚轉圈，增加儀式感
+    setTimeout(() => {
+        // 渲染新列表 (這會覆蓋掉 Loading)
+        renderArticleList();
+
+        // 7. 【進場】移除退場 class，觸發 CSS transition 回復原狀
+        // 強制瀏覽器重繪 (Reflow) 以確保動畫觸發
+        void listContainer.offsetWidth; 
+        
+        listContainer.classList.remove('list-fade-out');
+    }, 400);
+}
+
+// ==========================================
+// === 下方是您原本的函式，請用這些新版本替換 ===
+// ==========================================
+
+// 6. 換頁邏輯 (更新版：加入視覺過渡)
+function changeArticlePage(delta) {
+    performPageTransition(() => {
+        currentArticlePage += delta;
+    });
+}
+
+// [新增] 一鍵回到第 1 頁 (更新版：加入視覺過渡)
+function goToFirstPage() {
+    if (currentArticlePage === 1) return;
+    
+    performPageTransition(() => {
+        currentArticlePage = 1;
+    });
+}
+
+// [新增] 執行跳轉邏輯 (更新版：加入視覺過渡)
 function executePageJump(val, maxPage) {
     let pageNum = parseInt(val);
     
-    if (isNaN(pageNum)) return; // 非數字不處理
-    
-    // 限制範圍
+    if (isNaN(pageNum)) return; 
     if (pageNum < 1) pageNum = 1;
     if (pageNum > maxPage) pageNum = maxPage;
 
-    // 如果頁碼改變了，才執行跳轉
     if (pageNum !== currentArticlePage) {
-        currentArticlePage = pageNum;
-        renderArticleList();
-        document.getElementById('featuredContainer').scrollIntoView({ behavior: 'smooth' });
+        performPageTransition(() => {
+            currentArticlePage = pageNum;
+        });
     } else {
-        // 如果頁碼沒變，手動恢復文字顯示
+        // 如果頁碼沒變，只恢復文字顯示，不執行動畫
         updatePagination(maxPage);
     }
 }
 
+	
 	
 // [修訂版] 更新分頁按鈕狀態 (控制回首頁按鈕的顯示)
 function updatePagination(totalPages) {
@@ -20973,13 +21071,7 @@ function updatePagination(totalPages) {
     }
 }
 
-// 6. 換頁邏輯
-function changeArticlePage(delta) {
-    currentArticlePage += delta;
-    renderArticleList();
-    // 滾動回頂部
-    document.getElementById('featuredContainer').scrollIntoView({ behavior: 'smooth' });
-}
+
 
 // 7. 搜尋邏輯 (修訂：同時搜尋標題與作者)
 // 7. 搜尋邏輯 (修訂：防止彈窗干擾 + 同時搜尋標題與作者)
