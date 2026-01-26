@@ -21009,7 +21009,6 @@ function showArticleDetail(index) {
         let cleanContent = article.content.replace(/^\s*<br\s*\/?>/i, '').trim();
         cleanContent = cleanContent.replace(/\\n/g, '\n');
 
-        // 使用 white-space: pre 保留原格式
         contentHtml = `<div style="width: 100%; display: flex; justify-content: center;"><div id="poetryContent" style="white-space: pre; word-wrap: normal; display: inline-block; text-align: left; line-height: 1.7; font-family: 'Noto Serif TC', serif; margin-top: 0px;">${cleanContent}</div></div>`;
     } else {
         // --- 一般散文模式 ---
@@ -21023,8 +21022,10 @@ function showArticleDetail(index) {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
         }).join('');
+        
+        // ★★★ 修改處：加入了 id="articleAnalysisSection" ★★★
         analysisHtmlBlock = `
-        <div class="analysis-container" style="margin-top: 50px !important; padding-top: 40px !important; border-top: 1px dashed #d1cdc5;">
+        <div id="articleAnalysisSection" class="analysis-container" style="margin-top: 50px !important; padding-top: 40px !important; border-top: 1px dashed #d1cdc5;">
             <div class="analysis-header" style="text-align: center; font-size: 1.4rem; font-weight: bold; color: #8d6e63; margin-bottom: 20px !important; line-height: 1.2; letter-spacing: 2px;">文章賞析</div>
             <div class="analysis-body" style="margin-top: 0 !important; font-size: 1.05rem !important;">${analysisText}</div>
         </div>`;
@@ -21051,10 +21052,10 @@ function showArticleDetail(index) {
             #fullArticleBody strong,
             #poetryContent b,
             #poetryContent strong {
-                font-weight: bold !important;      /* 回歸標準粗體 (700)，不再用 900 特黑 */
-                color: #2c3e50 !important;        /* 深灰藍色，比內文深一點，但不是死黑 */
-                text-shadow: none !important;     /* 移除人工陰影，保持字體邊緣乾淨 */
-                font-family: 'Noto Serif TC', serif; /* 確保字體一致 */
+                font-weight: bold !important;
+                color: #2c3e50 !important;
+                text-shadow: none !important;
+                font-family: 'Noto Serif TC', serif;
             }
         </style>
 
@@ -21120,11 +21121,9 @@ function showArticleDetail(index) {
     document.body.style.overflow = 'hidden'; 
 
     setTimeout(() => {
-        // 標題縮放
         const titleEl = document.getElementById('detailTitleText');
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
 
-        // 詩歌縮放邏輯
         if (isPoetry) {
             const poetryEl = document.getElementById('poetryContent');
             if (poetryEl) {
@@ -21238,10 +21237,25 @@ function initSlowReaderEvents() {
     overlay.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); return false; });
 }
 
-// 2. 啟動慢讀
+// 2. 啟動慢讀 (修復版：清除 HTML 標籤)
 function startSlowRead(encodedContent) {
-    const rawContent = decodeURIComponent(encodedContent);
+    let rawContent = decodeURIComponent(encodedContent);
     
+    // === [新增] 清洗 HTML 標籤邏輯 ===
+    
+    // 1. 移除開頭的詩歌標記 <br> (不分大小寫)
+    rawContent = rawContent.replace(/^\s*<br\s*\/?>/i, '');
+
+    // 2. 將文中其餘的 <br> 轉換為換行符號 \n
+    // 這樣慢讀系統會將其視為段落分隔，讀起來會停頓，符合詩歌節奏
+    rawContent = rawContent.replace(/<br\s*\/?>/gi, '\n');
+
+    // 3. 移除粗體標籤 <b>, </b>, <strong>, </strong>
+    // 慢讀強調文字本身，直接移除標籤碼以免顯示出來
+    rawContent = rawContent.replace(/<\/?b>/gi, '').replace(/<\/?strong>/gi, '');
+
+    // === [清洗結束] ===
+
     // A. 斷句處理 (參考 Slow Reader 邏輯)
     // 統一引號並加入段落標記
     const correctedText = rawContent.replace(/“/g, '「').replace(/”/g, '」');
@@ -21271,8 +21285,26 @@ function startSlowRead(encodedContent) {
 // 3. 關閉慢讀
 function closeSlowRead() {
     stopReaderAutoPage();
-    readerState.isReading = false;
     document.getElementById('slowReaderOverlay').style.display = 'none';
+    
+    // 重置 pointer-events (為了下次開啟正常運作)
+    const displayWrapper = document.getElementById('reader-display-wrapper');
+    if(displayWrapper) displayWrapper.style.pointerEvents = "none";
+
+    // ★★★ 新增：判斷是否讀完，讀完則滾動到賞析 ★★★
+    // 邏輯：如果目前索引已到達最後一段
+    if (readerState.segments.length > 0 && readerState.currentIndex >= readerState.segments.length - 1) {
+        
+        const analysisSec = document.getElementById('articleAnalysisSection');
+        if (analysisSec) {
+            // 給予一點延遲，讓慢讀遮罩完全消失後再滾動，體驗更順暢
+            setTimeout(() => {
+                analysisSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+    }
+
+    readerState.isReading = false;
 }
 
 // 4. 設定視窗控制
@@ -21429,15 +21461,22 @@ function goToNextReaderPage() {
             // 清空段落編號
             paraNum.textContent = '';
             
-            // 設置文藝完結字樣
+            // ★★★ 修改處：加入「結束閱讀」按鈕 ★★★
+            // pointer-events: auto 是必須的，因為父層容器 displayWrapper 預設是 none
             textDisplay.innerHTML = `
                 <div style="text-align: center; width: 100%; margin-top: 20px;">
-                    <span style="font-family: 'Noto Serif TC', serif; color: #a1887f; font-size: 1.2rem; letter-spacing: 0.5em; opacity: 0.8;">
+                    <span style="font-family: 'Noto Serif TC', serif; color: #a1887f; font-size: 1.2rem; letter-spacing: 0.5em; opacity: 0.8; display: block; margin-bottom: 20px;">
                         — 完 —
                     </span>
+                    <button onclick="closeSlowRead()" style="pointer-events: auto; background-color: transparent; border: 1px solid #a1887f; color: #a1887f; padding: 8px 20px; border-radius: 20px; font-family: 'Noto Serif TC', serif; cursor: pointer; transition: all 0.3s;">
+                        結束閱讀
+                    </button>
                 </div>
             `;
             
+            // 讓 displayWrapper 可以接受點擊 (原本為了防擋住底層是 none)
+            displayWrapper.style.pointerEvents = "auto";
+
             // 淡入顯示
             displayWrapper.classList.remove('fade-out');
             
