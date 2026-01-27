@@ -5157,7 +5157,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // ===============================================================
-// === [神思通用組件] 嚴格權限鎖 (智能生成觸發版) ===
+// === [神思通用組件] 嚴格權限鎖 (精準生成觸發版) ===
 // ===============================================================
 (function() {
     // 防止重複注入
@@ -5233,23 +5233,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // --- 3. 攔截器核心邏輯 (智能判斷) ---
+    // --- 3. 攔截器核心邏輯 (正面列表檢測) ---
     const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
+        // 只監控發往 AI 或 後端的請求
         if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
             
-            // 檢查是否為「背景載入」動作 (例如抓範文 get_library_data)
-            // 如果是抓範文，我們不攔截，讓它自己去失敗，不要彈視窗干擾用戶
-            if (options && options.body && options.body.includes('get_library_data')) {
-                return originalFetch(url, options);
+            // 判斷這是否是一個「生成請求」
+            // 我們檢查請求內容是否包含這三個關鍵動作指令
+            let isGenerationRequest = false;
+            if (options && options.body) {
+                const bodyStr = String(options.body);
+                if (bodyStr.includes('generate_reading') || 
+                    bodyStr.includes('generate_essay') || 
+                    bodyStr.includes('generate_practical')) {
+                    isGenerationRequest = true;
+                }
             }
 
             // 檢查登入狀態
             const s = localStorage.getItem('studentProfile');
             
-            // 如果沒登入，且不是抓範文 (即代表正在按生成按鈕) -> 彈窗阻擋
-            if (!s) {
+            // ★★★ 核心邏輯修改 ★★★
+            // 只有當：(1) 是生成請求 AND (2) 未登入 時，才彈出視窗
+            if (isGenerationRequest && !s) {
                 console.warn("🚫 [Sansi Security] 未登入嘗試生成，觸發攔截。");
                 
                 const modal = document.getElementById('sansiLimitModal');
@@ -5262,12 +5270,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (typeof hideProgress === 'function') hideProgress();
                 return Promise.reject(new Error("Login Required"));
             }
+            
+            // 其他請求（例如 get_library_data）即使沒登入也會放行
+            // 它們會因為後端驗證失敗而默默失敗，但不會觸發視窗，也不會報錯（因為我們在 fetchTextLibrary 裡處理了 catch）
         }
         return originalFetch(url, options);
     };
     
-    console.log("🔒 神思智能權限鎖 (生成時觸發) 已啟動");
+    console.log("🔒 神思智能權限鎖 (僅攔截生成動作) 已啟動");
 })();
+
 </script>
 
 
