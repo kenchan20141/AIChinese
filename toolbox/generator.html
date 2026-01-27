@@ -2777,9 +2777,6 @@ function generateQuestionTypeButtons(textId) {
 		
 		
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
-    // 【修改說明】移除了這裡的 firebase.auth().currentUser 檢查
-    // 讓代碼繼續往下執行，才能觸發底部的 fetch 攔截器
-
     // 1. 獲取數量
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
                           document.getElementById(`quantity-${questionType}`);
@@ -2840,12 +2837,14 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
                     specialInstructions: specialInstructions,
                     keywordInstructions: keywordInstructions,
                     customRefQAs: customRefQAs
-                }
+                },
+                // ★★★ 修正處：補上模型參數 ★★★
+                model: typeof MODEL !== 'undefined' ? MODEL : 'gemini',
+                temperature: 0.7
             };
 
             updateProgressBar(20);
             
-            // 這裡發送請求時，如果沒登入，攔截器會自動跳出視窗並阻擋
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
@@ -2877,8 +2876,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
         } catch (error) {
             console.error(error);
-            // 如果攔截器觸發了 (Login Required)，這裡會接到錯誤並停止
-            if (error.message.includes("Login Required") || error.message.includes("Guest Limit")) {
+            if (error.message.includes("Login Required")) {
                 hideProgress();
                 return []; 
             }
@@ -3631,9 +3629,7 @@ async function generateEssayQuestions() {
         
         while (successfulQuestions.length < quantity && retryCount < 3) {
             try {
-                // 【修改重點】安全獲取 Token，防止因為 user 為 null 報錯而無法觸發攔截器
                 const user = firebase.auth().currentUser;
-                // 如果沒有 user，給空字串，讓後面的 fetch 去觸發攔截器
                 const token = user ? await user.getIdToken() : "";
 
                 const payload = {
@@ -3645,7 +3641,10 @@ async function generateEssayQuestions() {
                         customEssayType: customEssayType,
                         customRefQuestions: customRefQuestions,
                         existingKeywordsText: existingKeywordsText
-                    }
+                    },
+                    // ★★★ 修正處：補上模型參數 ★★★
+                    model: typeof MODEL !== 'undefined' ? MODEL : 'gemini',
+                    temperature: 0.7
                 };
 
                 const response = await fetch(CLOUDFLARE_WORKER_URL, {
@@ -3685,8 +3684,7 @@ async function generateEssayQuestions() {
 
             } catch (e) { 
                 console.error("生成長文題目時發生錯誤:", e); 
-                // 讓攔截器的錯誤中止流程
-                if (e.message.includes("Login Required") || e.message.includes("Guest Limit")) {
+                if (e.message.includes("Login Required")) {
                     hideProgress();
                     return;
                 }
@@ -3707,7 +3705,6 @@ async function generateEssayQuestions() {
     
     displayWritingQuestions(allQuestions);
 }
-
 		
 // 解析長文寫作回應
 function parseWritingResponse(response, count) {
@@ -3886,7 +3883,6 @@ async function generatePracticalQuestions() {
 
         for (let i = 0; i < quantity; i++) {
             try {
-                // 【修改重點】安全獲取 Token，不手動報錯
                 const user = firebase.auth().currentUser;
                 const token = user ? await user.getIdToken() : "";
 
@@ -3897,7 +3893,10 @@ async function generatePracticalQuestions() {
                         practicalType: practicalType,
                         topicInstruction: topicInstruction,
                         customRefData: customRefData
-                    }
+                    },
+                    // ★★★ 修正處：補上模型參數 ★★★
+                    model: typeof MODEL !== 'undefined' ? MODEL : 'gemini',
+                    temperature: 0.7
                 };
 
                 const response = await fetch(CLOUDFLARE_WORKER_URL, {
@@ -3917,8 +3916,7 @@ async function generatePracticalQuestions() {
 
             } catch (error) {
                 console.error(error);
-                // 讓攔截器的錯誤中止流程
-                if (error.message.includes("Login Required") || error.message.includes("Guest Limit")) {
+                if (error.message.includes("Login Required")) {
                     hideProgress();
                     return;
                 }
