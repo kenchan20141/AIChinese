@@ -20604,8 +20604,7 @@ document.addEventListener('DOMContentLoaded', function() {
 <script>
 
 
-// ★★★ 請將下方的網址換成您剛剛部署 GAS 拿到的 "Web App URL" ★★★
-const _GAS_PROXY_URL = "https://script.google.com/macros/s/AKfycbz0qC9n2YdUOAfnmgjpgAMUmewrQfJarlqXUHwSDANM-XKuJiuEdob6tW0WzdR8Vwlh/exec";
+
 
 let allArticles = [];       // 儲存所有文章
 let filteredArticles = [];  // 儲存搜尋後的文章
@@ -20750,44 +20749,70 @@ function toggleBookmarkMode() {
     renderArticleList();
 }
 
-// 2. 從 Google Apps Script 抓取資料 (取代原本的直連 CSV)
+// 注意：請確保你已經引入了 Firebase SDK 並執行了 firebase.initializeApp()
+// 這段程式碼應該放在 firebase.auth().onAuthStateChanged 監聽器內，或確認使用者已登入後執行
+ 
+// ✅【請貼上這一段 (Firebase 安全版)】✅
+ 
+// 2. 從 Firebase 獲取安全連結並下載資料
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
-    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在讀取文章...</div>';
-
+    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在驗證權限並讀取文章...</div>';
+ 
     try {
-        // 加入時間戳防止瀏覽器快取 GAS 的結果
-        const targetUrl = _GAS_PROXY_URL + ( _GAS_PROXY_URL.includes('?') ? '&' : '?' ) + "t=" + Date.now();
-        const response = await fetch(targetUrl);
-
-        if (!response.ok) throw new Error(`連線失敗: ${response.status}`);
-
-        // ★★★ 解析 JSON ★★★
-        const jsonResponse = await response.json();
-        
-        // --- (選用) 簡化後的 Log，移除舊的緩存檢查邏輯 ---
-        console.log("------------------------------------------------");
-        console.log(`資料來源: ${jsonResponse.source}`);
-        console.log("------------------------------------------------");
-
-        // 檢查是否有錯誤
-        if (jsonResponse.status === "ERROR") throw new Error(jsonResponse.message);
-
-        // 取出 CSV 資料
-        const csvData = jsonResponse.csv;
-        
-        // 繼續原本的解析
-        allArticles = parseCSV(csvData).reverse(); 
+        // A. 權限檢查：從 Firebase 資料庫讀取受保護的 URL
+        // 如果使用者未登入或非學校帳號，這裡會直接報錯 (Permission Denied)
+        const snapshot = await database.ref('/secured_config/articles_url').once('value');
+        const secureUrl = snapshot.val();
+ 
+        if (!secureUrl) {
+            throw new Error("無法獲取文章配置，請聯絡管理員。");
+        }
+ 
+        console.log("✅ 權限驗證通過，正在下載加密內容...");
+ 
+        // B. 拿到 URL 後，直接下載 CSV (Google Sheet 發布連結支援 CORS)
+        const response = await fetch(secureUrl);
+        if (!response.ok) throw new Error(`無法下載文章數據 (${response.status})`);
+ 
+        const csvData = await response.text();
+ 
+        // C. 解析 CSV (使用你原本的 parseCSV 函數)
+        allArticles = parseCSV(csvData).reverse();
         console.log("【文章數量】:", allArticles.length);
-
+ 
+        // D. 渲染列表
         filteredArticles = allArticles;
         currentArticlePage = 1;
         renderArticleList();
-        
+ 
     } catch (error) {
         console.error("載入失敗:", error);
-        listContainer.innerHTML = '<div style="text-align:center; color:#d69a92;">無法載入文章。<br><small>(' + error.message + ')</small></div>';
+        let errorMsg = error.message;
+        
+        // 針對權限錯誤顯示更友善的訊息
+        if (error.code === 'PERMISSION_DENIED' || errorMsg.includes('permission_denied')) {
+            errorMsg = "權限不足：此內容僅限 @ccckyc.edu.hk 學校帳號存取。<br>請重新登入或檢查您的帳號。";
+        }
+ 
+        listContainer.innerHTML = `<div style="text-align:center; color:#d69a92; padding:20px;">
+            <i class="fas fa-exclamation-triangle"></i><br>
+            ${errorMsg}
+        </div>`;
     }
+}
+ 
+/**
+* (範例) 簡單的 CSV 解析與顯示函數
+* 請替換成你原本專案裡的邏輯
+*/
+function parseAndDisplayCSV(text) {
+  // 這裡放你原本處理 CSV 轉 JSON 或 HTML 的代碼
+  // 例如 PapaParse 或者你自己寫的 split 邏輯
+  console.log("CSV 內容預覽:", text.substring(0, 100));
+  
+  // 範例：簡單顯示在 console
+  // 你應該把這裡接回你的 UI 渲染函數 (例如 renderFeaturedArticles)
 }
 
 	
