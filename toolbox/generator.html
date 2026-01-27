@@ -2013,159 +2013,7 @@ input[type="text"]:not(.no-modal-editor):hover {
     </div>
 </div>
 
-<script>
-// ===============================================================
-// === [神思通用組件] 權限攔截器 & 莫蘭迪提示窗 (含登入連結) ===
-// ===============================================================
-(function() {
-    // 防止重複注入
-    if (window.SansiInterceptorLoaded) return;
-    window.SansiInterceptorLoaded = true;
 
-    // --- 1. 自動注入莫蘭迪 CSS ---
-    const style = document.createElement('style');
-    style.textContent = `
-        /* 莫蘭迪遮罩 */
-        .sansi-limit-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(253, 252, 248, 0.88); /* 米白高模糊 */
-            backdrop-filter: blur(6px);
-            z-index: 9999999; /* 最高層級 */
-            display: none; justify-content: center; align-items: center;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
-        .sansi-limit-show { opacity: 1; }
-
-        /* 視窗卡片 */
-        .sansi-limit-card {
-            background: #fdfcf8;
-            border: 1px solid #e0ddd7;
-            border-radius: 16px;
-            padding: 30px 25px;
-            width: 90%; max-width: 380px;
-            box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
-            text-align: center;
-            transform: translateY(20px);
-            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-            font-family: 'Noto Serif TC', serif;
-        }
-        .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
-
-        /* 圖示與文字 */
-        .sansi-limit-icon { font-size: 3rem; color: #d69a92; margin-bottom: 15px; } /* 豆沙紅 */
-        .sansi-limit-title { color: #5d4037; font-size: 1.4rem; font-weight: bold; margin: 0 0 10px 0; }
-        .sansi-limit-desc { color: #888; font-size: 1rem; line-height: 1.6; margin-bottom: 25px; text-align: justify; }
-
-        /* 按鈕群組 */
-        .sansi-btn-group { display: flex; gap: 12px; margin-top: 20px; }
-
-        .sansi-limit-btn {
-            border: none; padding: 10px 0; border-radius: 50px;
-            font-size: 0.95rem; font-weight: bold; cursor: pointer;
-            transition: all 0.2s; font-family: 'Noto Serif TC', serif;
-            flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-            text-decoration: none;
-        }
-
-        /* 主按鈕 (前往登入) - 莫蘭迪綠 */
-        .btn-primary { 
-            background: #8fa398; color: white; 
-            box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
-        }
-        .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
-
-        /* 次按鈕 (關閉) - 淺灰 */
-        .btn-secondary { 
-            background: #f0f0f0; color: #777; 
-        }
-        .btn-secondary:hover { background-color: #e5e5e5; }
-    `;
-    document.head.appendChild(style);
-
-    // --- 2. 自動注入 HTML (彈出視窗) ---
-    // 注意：這裡的登入連結已指向神思主頁
-    const modalHTML = `
-        <div id="sansiLimitModal" class="sansi-limit-overlay">
-            <div class="sansi-limit-card">
-                <div class="sansi-limit-icon">
-                    <i class="fas fa-user-lock"></i>
-                </div>
-                <div class="sansi-limit-title">需要登入</div>
-                <div class="sansi-limit-desc">
-                    請前往「神思」主頁登入學校帳號。
-                </div>
-                <div class="sansi-btn-group">
-                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
-                        稍後
-                    </button>
-                    <!-- 點擊直接跳轉至神思主頁 (回到上一層) -->
-                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'">
-                        <i class="fas fa-sign-in-alt"></i> 前往登入
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div);
-
-    // --- 3. 定義關閉視窗與清理函式 ---
-    window.closeSansiLimitModal = function() {
-        const modal = document.getElementById('sansiLimitModal');
-        if (modal) {
-            modal.classList.remove('sansi-limit-show');
-            setTimeout(() => { modal.style.display = 'none'; }, 300);
-            
-            if (typeof hideProgress === 'function') hideProgress(); 
-            if (typeof hideLoading === 'function') hideLoading();
-            
-            const disabledBtns = document.querySelectorAll('button:disabled');
-            disabledBtns.forEach(btn => btn.disabled = false);
-        }
-    };
-
-    // --- 4. 攔截器核心邏輯 (已針對題孳 API 修正) ---
-    const originalFetch = window.fetch;
-    
-    window.fetch = async function(url, options) {
-        // 【修正點】：同時監測 pollinations 和 google script (題孳用)
-        if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
-            
-            // A. 即時檢查登入狀態 (LocalStorage 與神思主系統共用)
-            const s = localStorage.getItem('studentProfile');
-            
-            if (s) {
-                return originalFetch(url, options); // 已登入：放行
-            }
-
-            // B. 未登入：檢查額度
-            const today = new Date().toLocaleDateString('zh-HK');
-            const toolName = document.title || "TiZi"; 
-            const storageKey = `sansi_guest_usage_${toolName}_${today}`;
-            
-            let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
-
-            // C. 超過額度 (1次) -> 阻擋並彈窗
-            if (currentCount >= 1) {
-                const modal = document.getElementById('sansiLimitModal');
-                modal.style.display = 'flex';
-                void modal.offsetWidth; 
-                modal.classList.add('sansi-limit-show');
-                return Promise.reject(new Error("Guest Limit Exceeded"));
-            }
-
-            // D. 未超過 -> 記錄並放行
-            localStorage.setItem(storageKey, currentCount + 1);
-            console.log(`[訪客] ${toolName} 使用第 ${currentCount + 1} 次`);
-        }
-
-        return originalFetch(url, options);
-    };
-    
-    console.log("✅ 神思通用權限鎖 (題孳整合版) 已啟動");
-})();
-</script>
 
 	
 
@@ -2925,14 +2773,10 @@ function generateQuestionTypeButtons(textId) {
 		
 		
 async function generateQuestionsForText(questionType, textContent, textId, textTitle = '') {
-    // 1. 基本檢查 (僅用於 UI 提示，不負責發送 Token)
-    if (!firebase.auth().currentUser) {
-        alert("⚠️ 系統偵測到您尚未登入或連線逾時，請重新登入後再試。");
-        hideProgress();
-        return [];
-    }
+    // 【修改說明】移除了這裡的 firebase.auth().currentUser 檢查
+    // 讓代碼繼續往下執行，才能觸發底部的 fetch 攔截器
 
-    // 2. 獲取表單數據
+    // 1. 獲取數量
     const quantityInput = document.getElementById(`quantity-${questionType}-${textId}`) || 
                           document.getElementById(`quantity-${questionType}`);
     
@@ -2940,6 +2784,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
     let customRefQAs = [];
     let specialInstructions = '';
 
+    // 2. 處理自訂題型
     if (questionType === '自訂') {
         customRefQAs = Array.from(document.querySelectorAll(`#referenceQAList-${textId} .reference-qa textarea`))
             .map(el => el.value.trim())
@@ -2947,7 +2792,7 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         quantity = customRefQAs.length;
     }
 
-    // 構建關鍵詞指令
+    // 3. 處理關鍵詞與分數
     let keywordInstructions = '';
     const keywords = [];
     const scores = [];
@@ -2955,74 +2800,101 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
         keywords.push(getKeywordsForQuestion(questionType, textId, i));
         scores.push(getScoreForQuestion(questionType, textId, i));
     }
-    
-    // (省略中間構建 keywordInstructions 字串的代碼，保持原樣即可)...
+
     const validKeywords = keywords.filter(k => k && k.length > 0);
     const validScores = scores.filter(s => s && s.length > 0);
+
     if (validKeywords.length > 0 || validScores.length > 0) {
         keywordInstructions = `\n\n特別要求：\n`;
         for (let i = 0; i < quantity; i++) {
-            if (keywords[i] && keywords[i].length > 0) keywordInstructions += `第${i + 1}題關鍵詞「${keywords[i]}」`;
-            if (scores[i] && scores[i].length > 0) keywordInstructions += `，分數${scores[i]}分`;
-            keywordInstructions += `\n`;
+            if (keywords[i] && keywords[i].length > 0) {
+                keywordInstructions += `第${i + 1}題必須包含關鍵詞「${keywords[i]}」`;
+            }
+            if (scores[i] && scores[i].length > 0) {
+                keywordInstructions += `${keywords[i] && keywords[i].length > 0 ? '，' : `第${i + 1}題`}分數設定為${scores[i]}分`;
+            }
+            if ((keywords[i] && keywords[i].length > 0) || (scores[i] && scores[i].length > 0)) {
+                keywordInstructions += `\n`;
+            }
         }
     }
 
+    // 4. 重試機制與 API 調用
     let parsed = [];
     let retryCount = 0;
-    
-    // 3. 發送請求 (無需手動加 Token，攔截器會做)
-    while (retryCount < 3) {
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
         try {
-            // ★ 注意：這裡不需要再寫 token: ... 了
             const payload = {
                 action: 'generate_reading',
                 data: {
-                    questionType, textContent, quantity, textTitle,
-                    specialInstructions, keywordInstructions, customRefQAs
+                    questionType: questionType,
+                    textContent: textContent,
+                    quantity: quantity,
+                    textTitle: textTitle,
+                    specialInstructions: specialInstructions,
+                    keywordInstructions: keywordInstructions,
+                    customRefQAs: customRefQAs
                 }
             };
 
             updateProgressBar(20);
             
+            // 這裡發送請求時，如果沒登入，攔截器會自動跳出視窗並阻擋
             const response = await fetch(CLOUDFLARE_WORKER_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
 
-            const data = await response.json();
-            
-            if (data.error) throw new Error(data.error); // 讓 catch 捕捉
+            updateProgressBar(60);
 
-            updateProgressBar(80);
+            const data = await response.json();
+            logProviderInfo(data, "ReadingGen");
+
+            if (data.error) throw new Error(data.error);
+            if (!data.choices || !data.choices[0]) throw new Error('API 返回格式錯誤');
 
             const generatedContent = removeThinkingTags(data.choices[0].message.content);
+            
             parsed = questionType === '選擇' ? 
                 parseChoiceResponse(generatedContent, quantity) : 
                 parseReadingResponse(generatedContent, quantity);
 
-            if (!parsed.some(item => item.question.includes('生成失敗'))) break;
-            
-        } catch (error) {
-            console.error("生成嘗試失敗:", error);
+            const hasFailure = parsed.some(item => 
+                item.question.includes('生成失敗') || 
+                item.answer.includes('生成失敗') ||
+                item.question.includes('未生成')
+            );
+
+            if (!hasFailure) break;
             retryCount++;
-            
-            // 如果攔截器也失效了 (極少見)，後端會回傳 Unauthorized
-            if (error.message.includes("Unauthorized") || error.message.includes("Token")) {
-                alert("⚠️ 連線授權失敗，請重新整理網頁並重新登入。");
+            console.log(`${questionType}題型第${retryCount}次重試`);
+
+        } catch (error) {
+            console.error(error);
+            // 如果攔截器觸發了 (Login Required)，這裡會接到錯誤並停止
+            if (error.message.includes("Login Required") || error.message.includes("Guest Limit")) {
                 hideProgress();
-                return [];
+                return []; 
             }
+            retryCount++;
         }
     }
 
     if (parsed.length === 0) {
          parsed = Array(quantity).fill().map((_, i) => ({
-            question: `生成失敗，請稍後重試`, answer: `生成失敗`, steps: `生成失敗`
+            question: `題目${i+1}生成失敗，請檢查網絡並重試`,
+            answer: `答案${i+1}生成失敗`,
+            steps: `步驟${i+1}生成失敗`
         }));
     }
 
-    parsed.forEach(item => { item.type = questionType; item.textTitle = textTitle; });
+    parsed.forEach(item => {
+        item.type = questionType;
+        item.textTitle = textTitle;
+    });
+
     return parsed;
 }
 
@@ -3755,13 +3627,13 @@ async function generateEssayQuestions() {
         
         while (successfulQuestions.length < quantity && retryCount < 3) {
             try {
-                // ★★★ 核心修訂：獲取 Token ★★★
+                // 【修改重點】安全獲取 Token，防止因為 user 為 null 報錯而無法觸發攔截器
                 const user = firebase.auth().currentUser;
-                if (!user) throw new Error("請先登入");
-                const token = await user.getIdToken();
+                // 如果沒有 user，給空字串，讓後面的 fetch 去觸發攔截器
+                const token = user ? await user.getIdToken() : "";
 
                 const payload = {
-                    token: await firebase.auth().currentUser.getIdToken(), // ★ 加入這行
+                    token: token, 
                     action: 'generate_essay',
                     data: {
                         questionType: questionType,
@@ -3785,7 +3657,6 @@ async function generateEssayQuestions() {
                 const generatedContent = removeThinkingTags(data.choices[0].message.content);
                 const parsed = parseWritingResponse(generatedContent, quantity - successfulQuestions.length);
 
-                // 重複性檢查 (保持不變)
                 for (let item of parsed) {
                     if (!item.question.includes('失敗')) {
                         const newKeywords = extractKeywords(item.question);
@@ -3810,8 +3681,8 @@ async function generateEssayQuestions() {
 
             } catch (e) { 
                 console.error("生成長文題目時發生錯誤:", e); 
-                if (e.message.includes("Unauthorized")) {
-                    alert("身份驗證失敗，請重新登入。");
+                // 讓攔截器的錯誤中止流程
+                if (e.message.includes("Login Required") || e.message.includes("Guest Limit")) {
                     hideProgress();
                     return;
                 }
@@ -3833,6 +3704,7 @@ async function generateEssayQuestions() {
     displayWritingQuestions(allQuestions);
 }
 
+		
 // 解析長文寫作回應
 function parseWritingResponse(response, count) {
     const cleanResponse = removeThinkingTags(response);
@@ -4010,13 +3882,12 @@ async function generatePracticalQuestions() {
 
         for (let i = 0; i < quantity; i++) {
             try {
-                // ★★★ 核心修訂：獲取 Token ★★★
+                // 【修改重點】安全獲取 Token，不手動報錯
                 const user = firebase.auth().currentUser;
-                if (!user) throw new Error("請先登入");
-                const token = await user.getIdToken();
+                const token = user ? await user.getIdToken() : "";
 
                 const payload = {
-                    token: await firebase.auth().currentUser.getIdToken(), // ★ 加入這行
+                    token: token,
                     action: 'generate_practical',
                     data: {
                         practicalType: practicalType,
@@ -4042,8 +3913,8 @@ async function generatePracticalQuestions() {
 
             } catch (error) {
                 console.error(error);
-                if (error.message.includes("Unauthorized")) {
-                    alert("身份驗證失敗，請重新登入。");
+                // 讓攔截器的錯誤中止流程
+                if (error.message.includes("Login Required") || error.message.includes("Guest Limit")) {
                     hideProgress();
                     return;
                 }
@@ -4060,19 +3931,14 @@ async function generatePracticalQuestions() {
 async function callAPI(requestBody, modelOverride = null) {
     updateProgressBar(20);
     
-    // --- 關鍵修正：獲取 Token ---
+    // 【修改重點】移除手動檢查，讓攔截器去處理
     const user = firebase.auth().currentUser;
-    if (!user) {
-        alert("請先登入學校帳號！");
-        hideProgress();
-        throw new Error("Login required");
-    }
-    const token = await user.getIdToken(); 
+    const token = user ? await user.getIdToken() : ""; 
 
     const effectiveModel = modelOverride || MODEL;
     const payload = {
-        token: token,      // ★ 必須加入這行發送給 GAS
-        action: requestBody.action || null, // 確保支援 Action 模式
+        token: token,
+        action: requestBody.action || null, 
         data: requestBody.data || null,
         messages: requestBody.messages, 
         model: effectiveModel,
@@ -4080,6 +3946,7 @@ async function callAPI(requestBody, modelOverride = null) {
         temperature: 0.7
     };
 
+    // 這裡的 fetch 會被攔截
     const response = await fetch(CLOUDFLARE_WORKER_URL, {
         method: 'POST',
         body: JSON.stringify(payload)
@@ -4097,13 +3964,9 @@ async function callAPI(requestBody, modelOverride = null) {
     
     updateProgressBar(90);
 
-    // ★★★ 3. 調用美化 Log 函數 (傳入 data 物件) ★★★
-    // 第二個參數 "TextGen" 是在 Console 顯示的標籤，您可以隨意改，例如 "題孳AI"
     logProviderInfo(data, "TextGen");
 
-    // 4. 錯誤檢查
     if (data.error) {
-        // 如果後端回傳 error，通常也會包含 trace，我們也印出來方便除錯
         if (data.trace) {
             data.trace.forEach(t => console.warn("Backend Trace:", t));
         }
