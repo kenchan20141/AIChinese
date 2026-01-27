@@ -20757,31 +20757,37 @@ function toggleBookmarkMode() {
 // 2. 從 Firebase 獲取安全連結並下載資料
 async function fetchArticles() {
     const listContainer = document.getElementById('articleListContainer');
-    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在驗證權限並讀取文章...</div>';
+    listContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在安全連線中...</div>';
  
     try {
-        // A. 權限檢查：從 Firebase 資料庫讀取受保護的 URL
-        // 如果使用者未登入或非學校帳號，這裡會直接報錯 (Permission Denied)
-        const snapshot = await database.ref('/secured_config/articles_url').once('value');
-        const secureUrl = snapshot.val();
+        // 1. 從 Firebase 獲取「API 網址」和「通關密碼」
+        // (只有 @ccckyc 登入者才能讀取這一步)
+        const snapshot = await database.ref('/secured_config').once('value');
+        const config = snapshot.val();
  
-        if (!secureUrl) {
-            throw new Error("無法獲取文章配置，請聯絡管理員。");
+        if (!config || !config.api_url || !config.api_token) {
+            throw new Error("無法獲取安全配置，請聯絡管理員。");
         }
  
-        console.log("✅ 權限驗證通過，正在下載加密內容...");
+        console.log("✅ 驗證成功，取得金鑰");
  
-        // B. 拿到 URL 後，直接下載 CSV (Google Sheet 發布連結支援 CORS)
+        // 2. 組合帶密碼的網址
+        // 格式： 網址 + ?token=密碼
+        const secureUrl = `${config.api_url}?token=${config.api_token}`;
+ 
+        // 3. 發送請求 (GAS 設為 Anyone，所以這裡不會有 CORS 錯誤)
         const response = await fetch(secureUrl);
-        if (!response.ok) throw new Error(`無法下載文章數據 (${response.status})`);
+        const textData = await response.text();
  
-        const csvData = await response.text();
+        // 4. 檢查 GAS 是否回傳了錯誤訊息
+        if (textData.startsWith("ERROR:")) {
+            throw new Error("伺服器拒絕存取：" + textData);
+        }
  
-        // C. 解析 CSV (使用你原本的 parseCSV 函數)
-        allArticles = parseCSV(csvData).reverse();
+        // 5. 解析 CSV
+        allArticles = parseCSV(textData).reverse();
         console.log("【文章數量】:", allArticles.length);
  
-        // D. 渲染列表
         filteredArticles = allArticles;
         currentArticlePage = 1;
         renderArticleList();
@@ -20790,13 +20796,12 @@ async function fetchArticles() {
         console.error("載入失敗:", error);
         let errorMsg = error.message;
         
-        // 針對權限錯誤顯示更友善的訊息
-        if (error.code === 'PERMISSION_DENIED' || errorMsg.includes('permission_denied')) {
-            errorMsg = "權限不足：此內容僅限 @ccckyc.edu.hk 學校帳號存取。<br>請重新登入或檢查您的帳號。";
+        if (error.code === 'PERMISSION_DENIED') {
+             errorMsg = "權限不足：您必須使用 @ccckyc.edu.hk 帳號登入才能解鎖內容。";
         }
  
         listContainer.innerHTML = `<div style="text-align:center; color:#d69a92; padding:20px;">
-            <i class="fas fa-exclamation-triangle"></i><br>
+            <i class="fas fa-lock"></i><br>
             ${errorMsg}
         </div>`;
     }
