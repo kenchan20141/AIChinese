@@ -2292,6 +2292,7 @@ const PRACTICAL_MODEL = "gemini";
 
 
 		// 頁面初始化時抓取範文庫
+// 頁面初始化時抓取範文庫
 async function fetchTextLibrary() {
     try {
         const response = await fetch(CLOUDFLARE_WORKER_URL, {
@@ -2304,8 +2305,11 @@ async function fetchTextLibrary() {
             generateTextLibrary(); // 數據回來後再渲染界面
         }
     } catch (e) {
-        console.error("無法加載範文庫:", e);
-        showError("無法連接至題庫伺服器，請刷新重試");
+        // 修改處：這裡保持安靜，不再彈出 showError
+        console.warn("未登入或無法連接範文庫，已忽略錯誤 (這是正常的)");
+        // 我們可以給一個空的範文列表，確保介面不壞掉
+        textLibrary = { texts: [] };
+        generateTextLibrary();
     }
 }
 
@@ -5153,19 +5157,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // ===============================================================
-// === [神思通用組件] 嚴格權限鎖 (零容忍版) ===
+// === [神思通用組件] 嚴格權限鎖 (智能生成觸發版) ===
 // ===============================================================
 (function() {
     // 防止重複注入
     if (window.SansiInterceptorLoaded) return;
     window.SansiInterceptorLoaded = true;
 
-    // --- 1. 注入 CSS (保持不變) ---
+    // --- 1. 自動注入莫蘭迪 CSS (保持不變) ---
     const style = document.createElement('style');
     style.textContent = `
+        /* 莫蘭迪遮罩 */
         .sansi-limit-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(253, 252, 248, 0.95); /* 提高不透明度，遮擋更嚴實 */
+            background-color: rgba(253, 252, 248, 0.95);
             backdrop-filter: blur(8px);
             z-index: 9999999;
             display: none; justify-content: center; align-items: center;
@@ -5199,26 +5204,16 @@ document.addEventListener('DOMContentLoaded', function() {
     `;
     document.head.appendChild(style);
 
-    // --- 2. 注入 HTML (文案修訂為必須登入) ---
+    // --- 2. 自動注入 HTML (保持不變) ---
     const modalHTML = `
         <div id="sansiLimitModal" class="sansi-limit-overlay">
             <div class="sansi-limit-card">
-                <div class="sansi-limit-icon">
-                    <i class="fas fa-lock"></i>
-                </div>
+                <div class="sansi-limit-icon"><i class="fas fa-lock"></i></div>
                 <div class="sansi-limit-title">會員限定功能</div>
-                <div class="sansi-limit-desc">
-                    此功能僅開放給神思登入用戶。<br>
-                    請先登入學校帳號以繼續使用。
-                </div>
+                <div class="sansi-limit-desc">此功能僅開放給神思登入用戶。<br>請先登入學校帳號以繼續使用。</div>
                 <div class="sansi-btn-group">
-                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
-                        取消
-                    </button>
-                    <!-- 修改連結指向 index2.html (上一層) -->
-                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'">
-                        <i class="fas fa-sign-in-alt"></i> 前往登入
-                    </button>
+                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">取消</button>
+                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'"><i class="fas fa-sign-in-alt"></i> 前往登入</button>
                 </div>
             </div>
         </div>
@@ -5227,54 +5222,51 @@ document.addEventListener('DOMContentLoaded', function() {
     div.innerHTML = modalHTML;
     document.body.appendChild(div);
 
-    // --- 3. 視窗控制 ---
     window.closeSansiLimitModal = function() {
         const modal = document.getElementById('sansiLimitModal');
         if (modal) {
             modal.classList.remove('sansi-limit-show');
             setTimeout(() => { modal.style.display = 'none'; }, 300);
-            
-            // 嘗試關閉各種 Loading 動畫，避免畫面卡死
             if (typeof hideProgress === 'function') hideProgress(); 
-            if (typeof hideLoading === 'function') hideLoading();
-            
-            // 恢復按鈕可點擊狀態 (雖然沒登入還是按不了，但為了 UI 體驗)
             const disabledBtns = document.querySelectorAll('button:disabled');
             disabledBtns.forEach(btn => btn.disabled = false);
         }
     };
 
-    // --- 4. 嚴格攔截邏輯 (修改處) ---
+    // --- 3. 攔截器核心邏輯 (智能判斷) ---
     const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
-        // 監測 AI 相關請求 (Pollinations 或 Google Script)
         if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
             
-            // 1. 檢查登入狀態
-            const s = localStorage.getItem('studentProfile');
-            
-            // 2. 如果有資料 -> 放行
-            if (s) {
+            // 檢查是否為「背景載入」動作 (例如抓範文 get_library_data)
+            // 如果是抓範文，我們不攔截，讓它自己去失敗，不要彈視窗干擾用戶
+            if (options && options.body && options.body.includes('get_library_data')) {
                 return originalFetch(url, options);
             }
 
-            // 3. 如果沒資料 -> 直接阻擋 (零容忍)
-            console.warn("🚫 [Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
+            // 檢查登入狀態
+            const s = localStorage.getItem('studentProfile');
             
-            const modal = document.getElementById('sansiLimitModal');
-            modal.style.display = 'flex';
-            void modal.offsetWidth; // 觸發重繪
-            modal.classList.add('sansi-limit-show');
+            // 如果沒登入，且不是抓範文 (即代表正在按生成按鈕) -> 彈窗阻擋
+            if (!s) {
+                console.warn("🚫 [Sansi Security] 未登入嘗試生成，觸發攔截。");
+                
+                const modal = document.getElementById('sansiLimitModal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    void modal.offsetWidth; 
+                    modal.classList.add('sansi-limit-show');
+                }
 
-            // 回傳錯誤以中斷原本程式的執行
-            return Promise.reject(new Error("Login Required - Guest Access Denied"));
+                if (typeof hideProgress === 'function') hideProgress();
+                return Promise.reject(new Error("Login Required"));
+            }
         }
-
         return originalFetch(url, options);
     };
     
-    console.log("🔒 神思嚴格權限鎖 (必須登入) 已啟動");
+    console.log("🔒 神思智能權限鎖 (生成時觸發) 已啟動");
 })();
 </script>
 
