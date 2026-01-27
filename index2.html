@@ -18686,9 +18686,7 @@ async function findProfileByEmail(targetEmail) {
 
 	
 
-// === 修改後：統一處理登入後的邏輯 (加入唯一性檢查) ===
-
-// === 修正版：處理登入結果 (動態資料庫驗證版) ===
+// === 修正版：處理登入結果 (全動態資料庫驗證版) ===
 async function processLoginResult(user, btn, originalContent) {
     let manualName, grade, cls, number;
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
@@ -18712,52 +18710,56 @@ async function processLoginResult(user, btn, originalContent) {
     let isTeacher = false;
     let isSpecialUser = false;
 
-    // 1. 學校判斷
-    if (email.endsWith('@ccckyc.edu.hk')) {
-        // 這裡可以保留一些硬編碼的老師清單，或者簡單地假設所有 @ccckyc 都是合法的
-        // 如果想把老師也變成名單制，可以在 DB 加 teachers 節點。目前保持原樣。
-        const TEACHER_EMAILS = ["ckk@ccckyc.edu.hk", "tly@ccckyc.edu.hk", "tung@ccckyc.edu.hk"]; // 範例
-        if (TEACHER_EMAILS.includes(email)) {
+    try {
+        // Firebase Key 不能有點，所以將 . 替換為 ,
+        const safeEmailKey = email.replace(/\./g, ',');
+
+        // 1. 並行查詢「老師名單」與「特許名單」
+        // (使用 Promise.all 加速)
+        const [teacherSnap, specialSnap] = await Promise.all([
+            database.ref(`teachers/${safeEmailKey}`).once('value'),
+            database.ref(`special_users/${safeEmailKey}`).once('value')
+        ]);
+
+        if (teacherSnap.exists() && teacherSnap.val() === true) {
             isTeacher = true;
-        }
-    } 
-    // 2. 資料庫白名單檢查 (這是新的核心邏輯)
-    else {
-        try {
-            // Firebase Key 不能有點，所以將 . 替換為 ,
-            const safeEmailKey = email.replace(/\./g, ',');
-            const snap = await database.ref(`special_users/${safeEmailKey}`).once('value');
-            
-            if (snap.exists() && snap.val() === true) {
-                isSpecialUser = true;
-                grade = "Special";
-                cls = "User";
-                console.log("✅ 驗證通過：特許用家");
-            } else {
-                // 最後一道防線：Debug 帳號 (可保留或移除)
-                const DEBUG_USER = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
-                if (email === DEBUG_USER) {
-                    isTeacher = true; 
-                } else {
-                    // 全部驗證失敗
-                    await auth.signOut();
-                    alert("⛔ 驗證失敗！\n此電郵不在允許名單內。\n請使用學校電郵或聯絡管理員新增特許權限。");
-                    sessionStorage.removeItem('sansi_temp_student_data');
-                    if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
-                    return;
-                }
+            console.log("✅ 驗證通過：教師身份");
+        } else if (specialSnap.exists() && specialSnap.val() === true) {
+            isSpecialUser = true;
+            grade = "Special";
+            cls = "User";
+            console.log("✅ 驗證通過：特許用家");
+        } 
+        // 2. 如果都不在名單內，檢查是否為 Debug 帳號 (最後防線)
+        else {
+            const DEBUG_USER = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
+            if (email === DEBUG_USER) {
+                isTeacher = true;
             }
-        } catch (err) {
-            console.error("權限檢查錯誤:", err);
-            // 容錯：讓學校電郵通過，但阻擋外人
+        }
+
+        // 3. 如果不是老師/特許，必須是學校電郵才能當學生
+        if (!isTeacher && !isSpecialUser) {
             if (!email.endsWith('@ccckyc.edu.hk')) {
-                alert("系統連線錯誤，無法驗證權限。");
+                await auth.signOut();
+                alert("⛔ 驗證失敗！\n此電郵不在允許名單內。\n請使用學校電郵，或聯絡管理員新增特許權限。");
+                sessionStorage.removeItem('sansi_temp_student_data');
                 if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
                 return;
             }
         }
+
+    } catch (err) {
+        console.error("權限檢查錯誤:", err);
+        // 容錯機制：如果是學校電郵，發生錯誤時仍允許以學生身份嘗試登入
+        if (!email.endsWith('@ccckyc.edu.hk')) {
+            alert("系統連線錯誤，無法驗證權限。");
+            if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+            return;
+        }
     }
 
+    // --- 根據身份設定班級 ---
     if (isTeacher) { 
         grade = "System"; cls = "Test"; number = "99"; 
         alert("👋 老師您好，進入測試班。"); 
@@ -18770,12 +18772,14 @@ async function processLoginResult(user, btn, originalContent) {
     // --- 之後的邏輯與原本相同 (搜尋舊資料、綁定、跳轉) ---
     let existingProfile = await findProfileByEmail(email);
     
+    // 如果索引表沒有 (舊用戶)，嘗試用手動輸入的路徑找回
     if (!existingProfile) {
         const inputPath = `students/${grade}/${cls}/${manualName}/profile`;
         try {
             const snap = await database.ref(inputPath).once('value');
             if (snap.exists() && snap.val().email === email) {
                 existingProfile = snap.val();
+                // 補建索引
                 database.ref('email_mapping/' + btoa(email)).set(existingProfile);
             }
         } catch(e) {}
@@ -18784,6 +18788,8 @@ async function processLoginResult(user, btn, originalContent) {
     if (existingProfile) {
         const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
         const newLocation = `${grade}${cls}`;
+        
+        // 只有在「既不是老師也不是特許」，且「位置不同」時才警告
         if (oldLocation !== newLocation && !isTeacher && !isSpecialUser) {
             alert(`⚠️ 偵測到此電郵已註冊於【${oldLocation}班】。\n系統將登入您的原有帳號。`);
         }
@@ -18806,6 +18812,7 @@ async function processLoginResult(user, btn, originalContent) {
         await syncHistoryToFirebase(true);
         startAutoSyncListener();
     } else {
+        // 新用戶註冊
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
         await syncHistoryToFirebase(true);
