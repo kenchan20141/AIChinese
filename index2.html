@@ -16521,7 +16521,7 @@ function captureContainerHTML(containerId) {
 
 	
 // ==========================================
-// === 修訂版：儲存紀錄 (防止本地 ID 重複生成) ===
+// === 修訂版：儲存紀錄 (改用輕量上傳) ===
 // ==========================================
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
@@ -16533,13 +16533,16 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             toRemove.forEach(el => el.remove());
             aiContent = tempDiv.innerHTML;
         }
+ 
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
+ 
         const ts = new Date().getTime();
         if (typeof lastGeneratedTimestamp !== 'undefined') {
             lastGeneratedTimestamp = ts; // 更新全域時間戳
         }
+ 
         const record = {
             category: category,
             subFunction: subFunction,
@@ -16550,74 +16553,71 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             timestamp: ts,
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false }),
             
-            // 初始狀態
+            // 初始狀態：本地先設為 False，等 quickUpload 成功後會轉為 True
             isSynced: false,       
             hasBeenSynced: false   
         };
-        // ★★★ 關鍵修改：獲取並鎖定 ID ★★★
-        const generatedId = await new Promise((resolve, reject) => {
+ 
+        // 使用 Promise 確保寫入 IndexedDB 完成
+        await new Promise((resolve, reject) => {
             const req = store.add(record);
-            req.onsuccess = (e) => {
-                // e.target.result 就是 IndexedDB 剛生成的 Key (ID)
-                resolve(e.target.result);
-            };
+            req.onsuccess = resolve;
             req.onerror = reject;
         });
  
-        // 將 ID 寫回記憶體中的物件，確保後續操作都是針對同一筆資料
-        record.id = generatedId;
-        console.log(`本地紀錄已建立 (ID: ${generatedId})`);
+        console.log("本地紀錄已建立。");
         
-        // 執行輕量上傳 (傳入帶有 ID 的 record)
+        // ★★★ 關鍵修改處：改用輕量上傳 ★★★
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
+            // 異步執行，不需 await 阻擋 UI，讓它在背景上傳即可
             quickUploadToFirebase(record);
         }
+ 
     } catch (error) {
         console.error("儲存紀錄失敗:", error);
     }
 }
 
 
-// ==========================================
-// === 修復版：輕量級上傳 (ID 更新保護) ===
-// ==========================================
+	// === [新增] 輕量級上傳 (只上傳單筆新資料，不下載舊資料) ===
+// 這是節省流量的關鍵！
 async function quickUploadToFirebase(record) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
+ 
+    // 使用 timestamp 作為唯一的 Key
+    // 這樣我們可以精準地只更新這一筆，而不影響其他資料
     const recordKey = record.timestamp.toString();
     const path = `students/${s.grade}/${s.class}/${s.name}/history/${recordKey}`;
-    // 準備上傳雲端的物件 (注意：雲端不需要存本地 ID，所以可以過濾掉，或者保留也沒關係)
-    // 這裡我們直接上傳整個 record
+ 
+    // 標記為已同步
     const recordToUpload = {
         ...record,
         isSynced: true,
         hasBeenSynced: true
     };
+ 
     try {
-        // 1. 上傳 Firebase (update)
+        // 使用 update 只寫入這一筆
+        // 注意：我們構建一個 update object，路徑精確到該筆紀錄
         const updates = {};
         updates[path] = recordToUpload;
+ 
         await database.ref().update(updates);
-        
-        console.log(`✅ [省流模式] 單筆上傳成功`);
-        // 2. 更新本地 IndexedDB 狀態
-        // ★★★ 關鍵：確保使用原本的 ID 進行更新 (Put) ★★★
-        if (record.id) {
-            const db = await openHistoryDB();
-            const tx = db.transaction([STORE_NAME], 'readwrite');
-            const store = tx.objectStore(STORE_NAME);
-            
-            // 這裡傳入的 record 必須包含 'id' 欄位
-            // IndexedDB 看到有 id，就會執行 Update 而不是 Insert
-            store.put(recordToUpload);
-        } else {
-            console.warn("⚠️ 警告：上傳函式收到無 ID 的紀錄，跳過本地狀態更新以防重複");
-        }
+        console.log(`✅ [省流模式] 單筆紀錄上傳成功: ${record.title}`);
+ 
+        // 上傳成功後，更新本地的同步狀態 (避免下次全量同步時衝突)
+        const db = await openHistoryDB();
+        const tx = db.transaction([STORE_NAME], 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.put(recordToUpload);
+ 
     } catch (e) {
         console.error("單筆上傳失敗 (將在下次全量同步時補傳):", e);
     }
 }
+
 
 	
 	
@@ -16681,185 +16681,163 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 // ==========================================
-// === [智能省流版] 核心同步函數 (增量更新 + 斷點續傳) ===
+// === [終極修復版] 核心同步函數 (含舊資料救援 + 結構優化 + 身份證修復) ===
 // ==========================================
-// ==========================================
-// === 2. 省流同步系統 (Smart Sync V4 - ID 合併修復版) ===
-// ==========================================
- 
-async function smartSyncHistory() {
+async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    const user = firebase.auth().currentUser;
     
-    if (!s || !user) return;
+    // 1. 基礎檢查
+    if (!s) {
+        if (!isSilent) alert("請先綁定身份");
+        return;
+    }
  
-    // console.log("🚀 [Smart Sync] 開始同步檢查...");
- 
+    // UI 按鈕狀態處理 (如果觸發同步的是按鈕)
+    let btn = null;
+    let originalText = "";
+    if (!isSilent && typeof event !== 'undefined' && event && event.target) {
+        btn = event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button');
+        if (btn) {
+            originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>';
+            btn.disabled = true;
+        }
+    }
+    
     try {
         const db = await openHistoryDB();
-        const token = await user.getIdToken();
-        const basePath = `students/${s.grade}/${s.class}/${s.name}/history`;
-        const dbUrl = "https://sansidata-default-rtdb.firebaseio.com";
- 
-        // 1. 獲取本地所有資料 (建立 Timestamp -> 內部 ID 的索引)
+        
+        // A. 讀取本地所有資料
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
-        const localData = await new Promise(resolve => {
+        const localRecords = await new Promise((resolve) => {
             const req = store.getAll();
             req.onsuccess = e => resolve(e.target.result);
+            req.onerror = () => resolve([]);
         });
  
-        // Map: Timestamp (String) -> Record Object
-        // 用來檢查重複和取得舊 ID
-        const localTimestampMap = new Map();
-        localData.forEach(r => {
-            if (r.timestamp) {
-                localTimestampMap.set(String(r.timestamp), r);
-            }
-        });
- 
-        // 2. 獲取雲端 ID 列表
-        const response = await fetch(`${dbUrl}/${basePath}.json?shallow=true&auth=${token}`);
-        const cloudKeysData = await response.json();
-        const cloudKeys = cloudKeysData ? Object.keys(cloudKeysData) : [];
-        const cloudIdsSet = new Set(cloudKeys);
- 
-        console.log(`📊 [Sync] 本地:${localData.length} / 雲端:${cloudKeys.length}`);
- 
-        // ==================================================
-        // 步驟 A: 清理本地「幽靈檔案」 & 「重複檔案」
-        // ==================================================
-        const toDeleteLocally = [];
-        const seenTimestamps = new Set();
- 
-        localData.forEach(record => {
-            const keyStr = String(record.timestamp);
-            
-            // 檢查 1: 重複檔案清理 (如果同一個 timestamp 出現兩次)
-            if (seenTimestamps.has(keyStr)) {
-                console.warn(`🗑️ 發現重複紀錄 (Timestamp: ${keyStr})，標記刪除 ID: ${record.id}`);
-                toDeleteLocally.push(record.id); // 刪除多餘的副本
-                return;
-            }
-            seenTimestamps.add(keyStr);
- 
-            // 檢查 2: 雲端刪除同步
-            if (!cloudIdsSet.has(keyStr)) {
-                if (record.hasBeenSynced === true) {
-                    toDeleteLocally.push(record.id);
+        // B. 定義路徑
+        const rootPath = `students/${s.grade}/${s.class}/${s.name}`;
+        const historyPath = `${rootPath}/history`;
+        const profilePath = `${rootPath}/profile`;
+        // C. 嘗試讀取雲端資料
+        let cloudRecords = [];
+        try {
+            const cloudSnapshot = await database.ref(historyPath).once('value');
+            const cloudData = cloudSnapshot.val();
+            if (cloudData) {
+                // 兼容性處理：無論雲端是舊的 Array 還是新的 Map，這裡都能正確讀取
+                if (Array.isArray(cloudData)) {
+                    cloudRecords = cloudData.filter(item => item !== null);
+                } else if (typeof cloudData === 'object') {
+                    cloudRecords = Object.values(cloudData);
                 }
             }
+        } catch (readErr) {
+            console.warn("讀取雲端失敗，嘗試直接覆寫修復...", readErr);
+        }
+        
+        // D. 執行合併運算 (決定哪些資料要保留)
+        const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
+ 
+        // ============================================================
+        // E. ★★★ [結構優化 + 舊資料救援] 上傳前轉換為 Map 結構 ★★★
+        // ============================================================
+        const recordsMap = {};
+        
+        // 用來為沒有 timestamp 的舊資料生成唯一 ID
+        // 我們使用 (當前時間 - 索引) 確保每個 ID 都不重複
+        const baseTime = new Date().getTime();
+ 
+        mergedRecords.forEach((r, index) => {
+            // 1. 自動補全機制：如果舊資料沒有 timestamp，幫它補一個
+            if (!r.timestamp) {
+                console.warn(`[自動修復] 發現無 ID 的舊紀錄: "${r.title}"，正在補全...`);
+                // 為了避免重複，我們用 當前時間 減去 索引值 (例如: 17000000 - 1)
+                r.timestamp = baseTime - index;
+            }
+ 
+            // 2. 自動補全日期字串 (如果也沒有的話)
+            if (!r.dateStr) {
+                r.dateStr = new Date(r.timestamp).toLocaleString('zh-HK', { hour12: false });
+            }
+ 
+            // 3. 準備清洗後的資料 (標記為已同步)
+            const cleanRecord = {
+                ...r,
+                isSynced: true,      
+                hasBeenSynced: true  
+            };
+ 
+            // 4. 使用 timestamp 作為 Key 放入 Map
+            // 這樣能與 quickUpload 的單筆路徑寫入完美配合
+            recordsMap[r.timestamp] = cleanRecord;
         });
  
-        if (toDeleteLocally.length > 0) {
-            console.log(`🗑️ [Cleanup] 清理 ${toDeleteLocally.length} 筆無效/重複紀錄...`);
-            const delTx = db.transaction([STORE_NAME], 'readwrite');
-            const delStore = delTx.objectStore(STORE_NAME);
-            toDeleteLocally.forEach(id => delStore.delete(id));
-            await new Promise(resolve => delTx.oncomplete = resolve);
-        }
+        // ============================================================
+        // F. 嘗試寫入 (處理權限錯誤與自我修復)
+        // ============================================================
+        try {
+            // 嘗試 1: 使用 set 寫入整個 history 節點 (這會覆蓋雲端舊結構，統一格式)
+            await database.ref(historyPath).set(recordsMap);
  
-        // ==================================================
-        // 步驟 B: 上傳本地新資料
-        // ==================================================
-        const toUpload = localData.filter(r => r.isSynced === false && !toDeleteLocally.includes(r.id));
-        
-        if (toUpload.length > 0) {
-            console.log(`⬆️ [Upload] 上傳 ${toUpload.length} 筆...`);
-            const updates = {};
-            const upTx = db.transaction([STORE_NAME], 'readwrite');
-            const upStore = upTx.objectStore(STORE_NAME);
- 
-            toUpload.forEach(record => {
-                record.isSynced = true;
-                record.hasBeenSynced = true;
-                updates[`${basePath}/${record.timestamp}`] = record;
-                upStore.put(record);
-            });
-            await database.ref().update(updates);
-            await new Promise(resolve => upTx.oncomplete = resolve);
-        }
- 
-        // ==================================================
-        // 步驟 C: 下載缺失資料 (含 ID 合併邏輯)
-        // ==================================================
-        // 檢查雲端有，但本地 Map 裡沒有的 key
-        const missingLocally = cloudKeys.filter(key => !localTimestampMap.has(key));
-        
-        if (missingLocally.length > 0) {
-            console.log(`⬇️ [Download] 下載 ${missingLocally.length} 筆...`);
-            const downloadedRecords = [];
- 
-          // 逐筆下載
-await Promise.all(missingLocally.map(async (key) => {
-    try {
-        const snap = await database.ref(`${basePath}/${key}`).once('value');
-        const r = snap.val();
-        if (r) {
-            const keyNum = Number(key);
- 
-            // ★★★ 兼容性遷移邏輯 (Migration Logic) ★★★
-            // 判斷：如果 Key 是合理的 Timestamp (大於 2020年)，代表是新格式
-            if (keyNum > 1600000000000) {
-                // 新格式：信任 Key，強制同步
-                r.timestamp = keyNum;
-                r.isSynced = true;
-                r.hasBeenSynced = true;
-            }
-            else {
-                // 舊格式 (Key 是 0, 1, 2...)：
-                // 1. 不要覆蓋 timestamp (保留資料原本內含的正確時間)
-                if (!r.timestamp) r.timestamp = new Date().getTime(); // 防呆補時
-                
-                // 2. 標記為「未同步」
-                // 這樣做很巧妙：系統會把它當作「本地新資料」，下次會自動上傳到正確的 Timestamp Key 位置
-                r.isSynced = false;
-                
-                // 3. 標記為「未曾同步」
-                // 防止它被誤刪
-                r.hasBeenSynced = false;
-                
-                console.log(`🔧 [Migration] 自動修復舊格式資料: ${r.title}`);
-            }
- 
-            // ... ID 合併邏輯 (保持不變) ...
-            const existingLocal = localTimestampMap.get(String(r.timestamp));
-            if (existingLocal && existingLocal.id) {
-                r.id = existingLocal.id;
+        } catch (writeErr) {
+            // 如果遇到權限錯誤，通常是因為 Profile 不存在或 UID 不匹配
+            if (writeErr.code === 'PERMISSION_DENIED' || (writeErr.message && writeErr.message.includes("permission_denied"))) {
+                console.warn("⚠️ 權限被拒，啟動「身份證修復」程序...");
+                const currentUser = firebase.auth().currentUser;
+                if (!currentUser) throw new Error("未偵測到登入狀態，無法修復權限。");
+                // 準備 Profile 資料 (強制寫入當前 UID)
+                const fixProfileData = {
+                    name: s.name,
+                    grade: s.grade,
+                    class: s.class,
+                    number: s.number || "",
+                    email: s.email || currentUser.email,
+                    uid: currentUser.uid, // ★ 關鍵：寫入正確的 UID
+                    last_login: new Date().toLocaleString('zh-HK'),
+                    status: 'active'
+                };
+                // 步驟 1: 先強制寫入 Profile (這一步通常是被允許的)
+                await database.ref(profilePath).update(fixProfileData);
+                console.log("✅ 身份證 (Profile) 修復完成。");
+                // 步驟 2: 再次嘗試寫入 History (使用新的 Map 結構)
+                await database.ref(historyPath).set(recordsMap);
+                console.log("✅ 歷史紀錄 (History) 重試上傳成功。");
             } else {
-                delete r.id;
+                // 如果是其他錯誤，則拋出
+                throw writeErr;
             }
-            
-            downloadedRecords.push(r);
         }
+        console.log(`[DEBUG] 雲端同步成功 (${mergedRecords.length} 筆)`);
+        
+        // G. 寫回本地 (更新本地 IndexedDB，確保狀態與 ID 一致)
+        await updateLocalHistoryWithMergedData(mergedRecords, db);
+        
+        if (!isSilent) alert("✅ 資料同步完成！");
+        
+        // H. 刷新畫面 (如果在列表頁，且有過濾器變數)
+        const level3 = document.getElementById('historyLevel3');
+        if (level3 && level3.style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
+             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+             enterHistoryList(currentSubFunctionFilter, themeIndex);
+        }
+        
     } catch (err) {
-        console.error(`下載失敗 Key: ${key}`, err);
-    }
-}));
- 
-            if (downloadedRecords.length > 0) {
-                const writeTx = db.transaction([STORE_NAME], 'readwrite');
-                const writeStore = writeTx.objectStore(STORE_NAME);
-                downloadedRecords.forEach(r => writeStore.put(r));
-                await new Promise(resolve => writeTx.oncomplete = resolve);
+        console.error("[DEBUG] 同步最終失敗:", err);
+        if (!isSilent) {
+            if (err.message && err.message.includes("permission_denied")) {
+                alert("⚠️ 同步失敗：權限驗證錯誤。\n請嘗試重新登入學生帳號。");
+            } else {
+                alert("❌ 同步失敗: " + err.message);
             }
         }
- 
-        // ==================================================
-        // 步驟 D: 刷新介面
-        // ==================================================
-        if (toDeleteLocally.length > 0 || missingLocally.length > 0) {
-            if (document.getElementById('historyLevel3').style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
-                 const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-                 enterHistoryList(currentSubFunctionFilter, themeIndex);
-            }
-            console.log("✅ [Sync] 同步完成 (已修正重複)");
-        } else {
-            console.log("✅ [Sync] 資料已一致");
+    } finally {
+        // 還原按鈕狀態
+        if (btn && originalText) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
         }
- 
-    } catch (e) {
-        console.error("同步失敗:", e);
     }
 }
 	
@@ -16909,42 +16887,62 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
 // === 4. 自動同步監聽器 (修復版) ===
 // ==========================================
  
-// ==========================================
-// === 修正版：自動同步監聽器 (使用 Smart Sync) ===
-// ==========================================
 // 定義全域變數以儲存監聽器參照
-let autoSyncListenerRef = null;    
-let autoProfileListenerRef = null;
-let isSyncingLock = false;         
+let autoSyncListenerRef = null;    // 用於歷史紀錄
+let autoProfileListenerRef = null; // 用於身份狀態 (轉班)
+let isSyncingLock = false;         // 同步鎖，防止無限迴圈
+ 
 function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
+    
+    // 只要沒有學生檔案，就不啟動監聽，這是唯一合理的阻擋條件
     if (!s) return;
+ 
     // --- 部分 A：歷史紀錄同步監聽 ---
+ 
+    // 1. 先移除舊的歷史監聽器
     if (autoSyncListenerRef) {
         autoSyncListenerRef.off();
     }
+ 
+    // 2. 設定路徑
     const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
     autoSyncListenerRef = database.ref(historyPath);
-    // 監聽 'value' 事件 (當雲端有任何增刪改時觸發)
+ 
+    // 3. 監聽 'value' 事件
     autoSyncListenerRef.on('value', (snapshot) => {
         
-        if (isSyncingLock) return;
-        console.log("⚡ 偵測到雲端歷史變更，觸發省流同步...");
+        // 檢查 1：本地鎖定 (防止無限迴圈)
+        if (isSyncingLock) {
+            console.log("忽略自身寫入導致的回彈訊號");
+            return;
+        }
+ 
+        // ★★★ 移除這裡的 auth.currentUser 檢查 ★★★
+        // 理由：當頁面重新整理時，Auth 狀態還沒準備好，如果這裡 return 了，
+        // 監聽器就會失效。我們讓 Firebase 內部去處理連線權限。
+ 
+        console.log("⚡ 偵測到雲端歷史變更 (含刪除動作)，立即同步...");
         
+        // 設定鎖定
         isSyncingLock = true;
-        // ★★★ 修改處：呼叫新的省流同步 ★★★
-        smartSyncHistory().then(() => {
+ 
+        // 執行同步
+        syncHistoryToFirebase(true).then(() => {
+            // 延遲解鎖
             setTimeout(() => {
                 isSyncingLock = false;
             }, 2000);
         });
     });
-    // --- 部分 B：身份狀態監聽 (保持不變) ---
+ 
+    // --- 部分 B：身份狀態監聽 ---
     if (autoProfileListenerRef) autoProfileListenerRef.off();
     const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
     autoProfileListenerRef = database.ref(profilePath);
     autoProfileListenerRef.on('value', (snapshot) => {
         const val = snapshot.val();
+        // 如果值為 null，代表該路徑被刪除或讀取不到 (可能轉班了)
         if (val === null) {
             autoProfileListenerRef.off();
             if (autoSyncListenerRef) autoSyncListenerRef.off();
@@ -16953,6 +16951,7 @@ function startAutoSyncListener() {
             promptForNewClassNumber(s, profilePath);
         }
     });
+ 
     console.log("✅ 雙重監聽器 (歷史 + 身份) 已啟動");
 }
 	
@@ -17585,107 +17584,134 @@ async function downloadHistoryHTML(id) {
 }
 	
 	
-// ==========================================
-// === 修正版：刪除紀錄 (手術刀式 - 不會影響其他 Key) ===
-// ==========================================
+// 9. 刪除與清空 (保持類似)
 async function deleteHistoryItem(id) {
     if (!confirm("確定要刪除這條紀錄嗎？\n(注意：雲端備份也會同步刪除)")) return;
     
+    // 檢查登入狀態
     const s = JSON.parse(localStorage.getItem('studentProfile'));
- 
+
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         
-        // 1. 先獲取這筆資料 (為了拿到 Timestamp)
-        const getReq = store.get(id);
+        // 1. 先獲取這筆資料的詳情 (為了拿到 timestamp 去雲端比對)
+        const recordRequest = store.get(id);
         
-        getReq.onsuccess = async function(e) {
-            const record = e.target.result;
+        recordRequest.onsuccess = async function(event) {
+            const recordToDelete = event.target.result;
             
-            // 2. 刪除本地
+            // 2. 執行本地刪除
             store.delete(id);
             
-            // 3. 刪除雲端 (精準刪除)
-            if (s && record && record.timestamp) {
-                const cloudKey = record.timestamp.toString();
-                // ★★★ 關鍵修改：直接指向該 Key 進行刪除，不影響旁邊的資料 ★★★
-                const path = `students/${s.grade}/${s.class}/${s.name}/history/${cloudKey}`;
+            // 3. 執行雲端刪除 (如果已登入)
+            if (s && recordToDelete) {
+                const path = `students/${s.grade}/${s.class}/${s.name}/history`;
                 
-                await database.ref(path).remove();
-                console.log(`🗑️ 雲端 Key [${cloudKey}] 已精準移除`);
-            } else if (s && (!record || !record.timestamp)) {
-                console.warn("找不到 Timestamp，無法刪除雲端對應資料 (可能已是幽靈檔案)");
-            }
- 
-            // 4. 刷新介面
-            // (使用 setTimeout 確保 DB 刪除動作已完成)
-            setTimeout(() => {
-                if (document.getElementById('historyLevel3').style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
-                    // 如果正在列表頁，重新讀取
-                    const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-                    enterHistoryList(currentSubFunctionFilter, themeIndex);
+                // 我們讀取一次雲端，過濾掉該筆資料，然後寫回 (這樣最安全)
+                const snapshot = await database.ref(path).once('value');
+                const cloudData = snapshot.val();
+                let cloudRecords = [];
+                
+                if (cloudData) {
+                    if (Array.isArray(cloudData)) {
+                        cloudRecords = cloudData.filter(item => item !== null);
+                    } else if (typeof cloudData === 'object') {
+                        cloudRecords = Object.values(cloudData);
+                    }
                 }
-            }, 100);
+                
+                // 過濾掉我們要刪除的那一筆 (利用 timestamp 比對)
+                const updatedRecords = cloudRecords.filter(r => r.timestamp !== recordToDelete.timestamp);
+                
+                // 將剩下的資料寫回雲端
+                await database.ref(path).set(updatedRecords);
+                console.log("雲端同步刪除成功");
+            }
+
+            // 4. 刷新介面
+            // 如果是在列表中，刷新列表；如果是在詳情頁，可能需要關閉
+            if (typeof currentSubFunctionFilter !== 'undefined') {
+                enterHistoryList(currentSubFunctionFilter);
+            }
         };
         
-    } catch (e) {
-        console.error("刪除失敗:", e);
+    } catch (e) { 
+        console.error("刪除失敗:", e); 
         alert("刪除失敗，請重試。");
     }
 }
 	
-// ==========================================
-// === 修正版：清空所有紀錄 (直接設為空物件) ===
-// ==========================================
+// === 修改版：清空所有紀錄 (加入即時刷新邏輯) ===
 async function clearAllHistory() {
     if (!confirm("確定要清空所有歷史紀錄嗎？")) return;
     
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     const level3 = document.getElementById('historyLevel3');
- 
-    // UI 反饋
+
+    // 1. 視覺反饋：如果正在看列表，先強制清空內容並顯示 Loading
+    // 這裡改用 !== 'none' 確保捕捉到 grid 或 flex 狀態
     if (level3 && level3.style.display !== 'none') {
         level3.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#999;"><i class="fas fa-circle-notch fa-spin"></i> 正在清空...</div>';
     }
- 
+
     try {
         const db = await openHistoryDB();
         
-        // 1. 清空本地
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        store.clear();
- 
-        // 2. 清空雲端 (設為 null 即可完全移除節點，不會留下 array 結構)
+        // 2. 等待本地資料庫完全清空
+        await new Promise((resolve, reject) => {
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.clear();
+            
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = (e) => reject(e);
+        });
+
+        // 3. 清空雲端資料
         if (s) {
             const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-            await database.ref(path).remove(); // 使用 remove() 比 set([]) 更乾淨
+            await database.ref(path).set([]);
             console.log("雲端同步清空成功");
         }
- 
-        // 3. 刷新介面
-        setTimeout(() => {
-            if (document.getElementById('historyLevel3').style.display !== 'none') {
-                const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
-                if (typeof currentSubFunctionFilter !== 'undefined') {
-                    enterHistoryList(currentSubFunctionFilter, themeIndex);
-                } else {
-                    renderHistoryCategories();
-                }
+
+        // 4. ★★★ 關鍵修訂：寬鬆的顯示判斷 ★★★
+        
+        // 檢查 Level 3 (紀錄列表) 是否顯示中 (無論是 grid 還是 flex)
+        if (document.getElementById('historyLevel3').style.display !== 'none') {
+            // 重新載入列表 -> 因為 DB 空了，這裡會自動顯示「無紀錄」
+            const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+            // 確保有過濾器變數，如果沒有則回到主選單
+            if (typeof currentSubFunctionFilter !== 'undefined') {
+                enterHistoryList(currentSubFunctionFilter, themeIndex);
+            } else {
+                renderHistoryCategories(); // 變數遺失，退回主層
+            }
+        } 
+        // 檢查 Level 2 (子功能選單) 是否顯示中
+        else if (document.getElementById('historyLevel2').style.display !== 'none') {
+            // 刷新子選單 -> 數字會變 (0)
+            if (typeof currentCategory !== 'undefined') {
+                renderLevel2(currentCategory);
             } else {
                 renderHistoryCategories();
             }
-            alert("✅ 所有紀錄已清空");
-        }, 200);
- 
-    } catch (e) {
-        console.error("清空錯誤:", e);
+        } 
+        else {
+            // 其他情況 (例如在主選單)，刷新主選單
+            renderHistoryCategories();
+        }
+
+        alert("✅ 所有紀錄已清空");
+
+    } catch (e) { 
+        console.error("清空錯誤:", e); 
         alert("清空失敗，請重試。");
-        // 恢復畫面
-        if (typeof currentSubFunctionFilter !== 'undefined') {
-             enterHistoryList(currentSubFunctionFilter);
+        // 發生錯誤時嘗試恢復畫面
+        if (document.getElementById('historyLevel3').style.display !== 'none') {
+             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
+             enterHistoryList(currentSubFunctionFilter, themeIndex);
         }
     }
 }
@@ -17957,16 +17983,17 @@ function findIdByTimestamp(timestamp) {
 
 
 // ==========================================
-// === 4. 儲存修訂 (修復：配合 Smart Sync) ===
+// === 4. 儲存修訂 (修復：版本更替與同步) ===
 // ==========================================
 async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
     const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
     const saveBtn = document.getElementById(`history-save-btn-${id}`);
-    // 鎖定按鈕防止重複點擊
+ 
     const originalIcon = saveBtn.innerHTML;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     saveBtn.disabled = true;
+ 
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -17977,56 +18004,62 @@ async function saveHistoryEdits(id) {
         getRequest.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 1. 記錄舊的時間戳 (這是舊資料在 Firebase 上的 Key)
                 const oldTimestamp = record.timestamp;
-                // 2. 更新內容
+ 
+                // 更新內容
                 if (userContentEl) record.userContent = userContentEl.innerText;
                 if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
-                // 3. 更新時間戳 (視為新版，確保排序在最前)
+ 
+                // 更新時間戳 (視為新版，避免與舊版衝突)
                 const newTimestamp = new Date().getTime();
                 record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
-                // 4. 設定同步狀態
-                // 標記為 false，這樣 smartSyncHistory 才會知道這筆需要上傳
-                record.isSynced = false;
-                // 重置此標記，視為全新資料
-                record.hasBeenSynced = false;
-                // 5. 寫入本地資料庫
+                // ★★★ 關鍵修訂：狀態邏輯 ★★★
+                // 因為我們改了 timestamp，這在技術上是一筆「全新」的紀錄
+                // 舊的那筆 (oldTimestamp) 我們會手動從雲端刪除
+                
+                // 標記為未同步，讓它上傳
+                record.isSynced = false; 
+                
+                // 這裡設為 false 是為了保護這筆「新誕生」的紀錄
+                // 確保它在第一次成功上傳前，不會因為雲端沒有它而被誤刪
+                record.hasBeenSynced = false; 
+ 
                 const putRequest = store.put(record);
                 
                 putRequest.onsuccess = async function() {
-                    console.log("本地紀錄已修訂，準備同步...");
+                    console.log("本地紀錄已修訂");
+ 
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
-                    
-                    // --- 關鍵步驟開始 ---
                     if (s) {
                         try {
-                            // 步驟 A: 手動刪除雲端「舊」的那個時間戳 Key
-                            // 如果不刪除，Smart Sync 可能會誤以為那是雲端多出來的資料而把它下載回來
-                            const oldPath = `students/${s.grade}/${s.class}/${s.name}/history/${oldTimestamp}`;
-                            await database.ref(oldPath).remove();
-                            console.log("🗑️ 雲端舊版本已移除");
+                            // 主動刪除雲端舊的時間戳版本 (如果存在)
+                            const path = `students/${s.grade}/${s.class}/${s.name}/history`;
+                            const snapshot = await database.ref(path).once('value');
+                            const cloudData = snapshot.val();
+                            let cloudRecords = [];
+                            if (cloudData) {
+                                cloudRecords = Array.isArray(cloudData) ? cloudData.filter(x=>x) : Object.values(cloudData);
+                            }
+                            // 過濾掉舊紀錄
+                            const updatedRecords = cloudRecords.filter(r => r.timestamp !== oldTimestamp);
+                            await database.ref(path).set(updatedRecords);
                         } catch (cloudErr) {
                             console.error("雲端舊檔移除失敗:", cloudErr);
                         }
                     }
                     
-                    // 步驟 B: 呼叫省流同步
-                    // 它會掃描本地，發現這筆 record.isSynced = false，然後將其上傳
-                    await smartSyncHistory();
-                    // --- 關鍵步驟結束 ---
-                    // 6. 更新 UI 並鎖定新 ID
-                    // 因為 ID 可能會變 (視 IndexedDB 實作而定)，或者我們需要用新 Timestamp 找回 ID
+                    // 立即上傳新版本
+                    await syncHistoryToFirebase(true);
+ 
+                    // 更新 UI 並鎖定新 ID
                     const newId = await findIdByTimestamp(newTimestamp);
                     if (newId) {
                         // 更新全域時間戳，確保後續追問是針對新版本
                         lastGeneratedTimestamp = newTimestamp;
                         
-                        // 重新加載詳情視窗
                         await viewHistoryDetail(newId);
-                        
-                        // 如果列表頁面開著，刷新列表
                         if (typeof currentSubFunctionFilter !== 'undefined' &&
                             document.getElementById('historyLevel3').style.display !== 'none') {
                             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
@@ -18348,45 +18381,39 @@ async function sendStudentNotification(studentName, title, message) {
 
 	
 
-// ==========================================
-// === 1. 雲端按鍵 (白雲) 與 視窗控制 ===
-// ==========================================
- 
-// 打開「學生雲端中心」
+// === 修改打開「學生雲端中心」的函式 (已修復：加入文萃隱藏) ===
 function openStudentLoginModal() {
     const modal = document.getElementById('studentCloudModal');
     if (modal) {
-        // 1. 強制關閉其他全螢幕介面
-        const containers = ['historyContainer', 'toolsContainer2', 'featuredContainer'];
-        containers.forEach(id => {
-            const el = document.getElementById(id);
-            if(el) el.style.display = 'none';
-        });
- 
-        // 隱藏主頁背景元素
+        // 1. ★★★ 強制關閉其他全螢幕介面 ★★★
+        document.getElementById('historyContainer').style.display = 'none';
+        document.getElementById('toolsContainer2').style.display = 'none';
+        document.getElementById('featuredContainer').style.display = 'none'; // <--- ★★★ 關鍵新增 ★★★
+
+        // 同時隱藏主頁背景元素，防止透視
         document.querySelector('.title-container').style.display = 'none';
         document.getElementById('hitokoto-container').style.display = 'none';
         document.getElementById('mainMenuBox').style.display = 'none';
         document.getElementById('dse-countdown-box').style.display = 'none';
- 
-        // 2. 顯示視窗
-        modal.style.display = 'block';
-        document.body.style.overflow = 'hidden';
+
+        // 2. 顯示視窗並鎖定捲動
+        modal.style.display = 'block'; 
+        document.body.style.overflow = 'hidden'; 
         
-        // 3. 執行登入檢查 & 載入課業 (但不同步歷史)
+        // 3. 執行登入檢查
         checkStudentLogin();
- 
-        // 4. UI 按鈕狀態調整
+
+        // 4. --- UI 按鈕狀態切換 ---
         const cloudBtn = document.getElementById('sideMenuCloudBtn');
-        if (cloudBtn) cloudBtn.style.display = 'none'; // 在雲端頁面時隱藏雲端按鈕
- 
+        if (cloudBtn) cloudBtn.style.display = 'none';
+
         const homeBtn = document.getElementById('sideMenuHomeBtn');
         if (homeBtn) homeBtn.style.display = 'flex';
- 
+
         const floatHomeBtn = document.getElementById('homeBtn');
         if (floatHomeBtn) floatHomeBtn.style.display = 'none';
- 
-        // 收起側邊選單
+
+        // 強制收起側邊選單
         const sideMenu = document.getElementById('sideMenu');
         if (sideMenu) {
             sideMenu.classList.remove('active');
@@ -18394,6 +18421,7 @@ function openStudentLoginModal() {
         }
     }
 }
+
 // === 2. 修改關閉「學生雲端中心」的函式 ===
 function closeStudentCloudModal() {
     // 直接呼叫 returnToHome()，它會負責：
@@ -18408,50 +18436,50 @@ function closeStudentCloudModal() {
 // === 全新修訂：學生身份自動同步與轉班處理 ===
 // ==========================================
 
-// 檢查學生登入狀態 & 啟動課業監聽
+// === 修正版：移除重試邏輯，避免權限錯誤時卡死 ===
 async function checkStudentLogin() {
-    // 嘗試讀取本地學生檔案 (登出時不再刪除此檔案，所以通常會有)
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    
-    if (!s) {
-        // 如果完全沒有資料，顯示登入表單
-        document.getElementById('studentIdentityForm').style.display = 'block';
-        document.getElementById('studentCloudPanel').style.display = 'none';
-        return;
-    }
- 
-    // 有資料，顯示雲端面板
+    if (!s) return;
+
+    // 1. 切換 UI
     document.getElementById('studentIdentityForm').style.display = 'none';
     document.getElementById('studentCloudPanel').style.display = 'block';
+    
+    // 2. 更新歡迎語
     updateWelcomeMessage(s);
     
-    // 檢查 Firebase Auth 狀態 (是否過期)
-    // 我們只在 Auth 準備好時觸發「課業載入」
-    // ★★★ 關鍵：這裡只載入課業，不同步歷史 ★★★
+    // 3. 直接執行，不要使用遞歸重試 (tryLoad)
     try {
-        // 如果 Auth 未初始化，等待一下
+        // 等待 Auth 就緒 (最多等 2 秒，不等太久以免卡住)
         let authWait = 0;
-        while (!auth.currentUser && authWait < 5) {
+        while (!auth.currentUser && authWait < 10) { 
             await new Promise(r => setTimeout(r, 200));
             authWait++;
         }
- 
+
+        // 強制刷新 Token 以確保權限最新
         if (auth.currentUser) {
-            // 已連線：載入課業列表
-            await loadAssignments(s.grade, s.class);
-            
-            // 啟動紅點監聽 (如果有未交功課)
-            monitorPendingAssignments();
-            
-            // ★★★ 這裡啟動「省流同步」，只在背景執行，不阻擋 UI ★★★
-            smartSyncHistory();
-        } else {
-            console.log("處於離線或未驗證狀態，顯示本地緩存的介面");
-            // 即使沒連線，也可以顯示介面，但不載入新課業
+            await auth.currentUser.getIdToken(true);
         }
- 
-    } catch (err) {
-        console.error("登入檢查錯誤:", err);
+
+        // 載入資料
+        await loadAssignments(s.grade, s.class);
+        
+        // 啟動其他監聽 (只有在 loadAssignments 成功後才執行)
+        monitorPendingAssignments();
+        startAutoSyncListener();
+        syncHistoryToFirebase(true);
+
+   } catch (err) {
+        console.error("❌ 登入後載入流程失敗:", err);
+        
+        // 如果是權限錯誤，全域安全網會捕捉到並處理。
+        // 我們這裡只針對明確的 permission_denied 手動觸發一次，雙重保險。
+        if (err.message && err.message.includes("permission_denied")) {
+            // ★★★ 修改處：註解掉下面這一行 ★★★
+            // forceLogoutAndKeepHistory(); 
+            console.log("正在嘗試背景刷新憑證...");
+        }
     }
 }
 
@@ -18741,7 +18769,7 @@ async function findProfileByEmail(targetEmail) {
 
 	
 
-// === 修正版：處理登入結果 (已更換為 Smart Sync) ===
+// === 修正版：處理登入結果 (全動態資料庫驗證版) ===
 async function processLoginResult(user, btn, originalContent) {
     let manualName, grade, cls, number;
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
@@ -18760,84 +18788,102 @@ async function processLoginResult(user, btn, originalContent) {
         if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
         return;
     }
- 
+
     const email = user.email;
     let isTeacher = false;
     let isSpecialUser = false;
- 
+
     try {
+        // Firebase Key 不能有點，所以將 . 替換為 ,
         const safeEmailKey = email.replace(/\./g, ',');
- 
+
+        // 1. 並行查詢「老師名單」與「特許名單」
+        // (使用 Promise.all 加速)
         const [teacherSnap, specialSnap] = await Promise.all([
             database.ref(`teachers/${safeEmailKey}`).once('value'),
             database.ref(`special_users/${safeEmailKey}`).once('value')
         ]);
- 
+
         if (teacherSnap.exists() && teacherSnap.val() === true) {
             isTeacher = true;
+            console.log("✅ 驗證通過：教師身份");
         } else if (specialSnap.exists() && specialSnap.val() === true) {
             isSpecialUser = true;
             grade = "Special";
             cls = "User";
-        }
+            console.log("✅ 驗證通過：特許用家");
+        } 
+        // 2. 如果都不在名單內，檢查是否為 Debug 帳號 (最後防線)
         else {
             const DEBUG_USER = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
             if (email === DEBUG_USER) {
                 isTeacher = true;
             }
         }
- 
+
+        // 3. 如果不是老師/特許，必須是學校電郵才能當學生
         if (!isTeacher && !isSpecialUser) {
             if (!email.endsWith('@ccckyc.edu.hk')) {
                 await auth.signOut();
-                alert("⛔ 驗證失敗！\n此電郵不在允許名單內。");
+                alert("⛔ 驗證失敗！\n此電郵不在允許名單內。\n請使用學校電郵，或聯絡管理員新增特許權限。");
                 sessionStorage.removeItem('sansi_temp_student_data');
                 if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
                 return;
             }
         }
- 
+
     } catch (err) {
         console.error("權限檢查錯誤:", err);
+        // 容錯機制：如果是學校電郵，發生錯誤時仍允許以學生身份嘗試登入
         if (!email.endsWith('@ccckyc.edu.hk')) {
             alert("系統連線錯誤，無法驗證權限。");
             if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
             return;
         }
     }
- 
-    if (isTeacher) { grade = "System"; cls = "Test"; number = "99"; alert("👋 老師您好，進入測試班。"); }
-    if (isSpecialUser) { alert("👋 歡迎特許用家。"); }
- 
-    // --- 搜尋舊資料 ---
+
+    // --- 根據身份設定班級 ---
+    if (isTeacher) { 
+        grade = "System"; cls = "Test"; number = "99"; 
+        alert("👋 老師您好，進入測試班。"); 
+    }
+    
+    if (isSpecialUser) {
+        alert("👋 歡迎特許用家。");
+    }
+
+    // --- 之後的邏輯與原本相同 (搜尋舊資料、綁定、跳轉) ---
     let existingProfile = await findProfileByEmail(email);
     
+    // 如果索引表沒有 (舊用戶)，嘗試用手動輸入的路徑找回
     if (!existingProfile) {
         const inputPath = `students/${grade}/${cls}/${manualName}/profile`;
         try {
             const snap = await database.ref(inputPath).once('value');
             if (snap.exists() && snap.val().email === email) {
                 existingProfile = snap.val();
+                // 補建索引
                 database.ref('email_mapping/' + btoa(email)).set(existingProfile);
             }
         } catch(e) {}
     }
- 
+
     if (existingProfile) {
         const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
         const newLocation = `${grade}${cls}`;
         
+        // 只有在「既不是老師也不是特許」，且「位置不同」時才警告
         if (oldLocation !== newLocation && !isTeacher && !isSpecialUser) {
             alert(`⚠️ 偵測到此電郵已註冊於【${oldLocation}班】。\n系統將登入您的原有帳號。`);
         }
         
+        // 老師/特許強制遷移邏輯 (確保他們總是回到 System/Test 或 Special/User)
         if ((isTeacher && (existingProfile.grade !== "System" || existingProfile.class !== "Test")) ||
             (isSpecialUser && (existingProfile.grade !== "Special" || existingProfile.class !== "User"))) {
              await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         } else {
              localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
              updateWelcomeMessage(existingProfile);
-             // 登入後載入課業 (不含歷史)
              loadAssignments(existingProfile.grade, existingProfile.class);
         }
         
@@ -18845,19 +18891,14 @@ async function processLoginResult(user, btn, originalContent) {
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         monitorPendingAssignments();
-        
-        // ★★★ 修改處：改為呼叫新的省流同步 ★★★
-        await smartSyncHistory();
-        
+        if (typeof tryRestoreArchivedHistory === 'function') await tryRestoreArchivedHistory(JSON.parse(localStorage.getItem('studentProfile')));
+        await syncHistoryToFirebase(true);
         startAutoSyncListener();
     } else {
         // 新用戶註冊
         await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
         sessionStorage.removeItem('sansi_temp_student_data');
-        
-        // ★★★ 修改處：改為呼叫新的省流同步 ★★★
-        await smartSyncHistory();
-        
+        await syncHistoryToFirebase(true);
         startAutoSyncListener();
     }
 }
@@ -18919,30 +18960,41 @@ async function handleStudentLogout() {
 }
 
 	
-// === 修正版：綁定學生資料 (已更換為 Smart Sync) ===
+// === 綁定並儲存學生資料到 Database ===
+// === 修正版：綁定學生資料 (同時寫入索引表) ===
 async function bindStudentIdentity(grade, cls, number, name, email, uid) {
     const path = `students/${grade}/${cls}/${name}/profile`;
-    const emailKey = btoa(email);
+    const emailKey = btoa(email); // 編碼電郵
+ 
     const profileData = {
         name: name, grade: grade, class: cls, number: number, email: email, uid: uid,
         last_login: new Date().toLocaleString('zh-HK'), status: 'active'
     };
+ 
     try {
         const updates = {};
+        // 1. 寫入學生主要資料
         updates[path] = profileData;
+        // 2. 寫入電郵索引表 (建立捷徑)
         updates[`email_mapping/${emailKey}`] = profileData;
+ 
         await database.ref().update(updates);
+ 
+        // 更新本地
         localStorage.setItem('studentProfile', JSON.stringify(profileData));
+ 
         if (window.OneSignalDeferred) {
             window.OneSignalDeferred.push(function(OneSignal) {
                 OneSignal.User.addTags({ grade: grade, class: cls, userType: 'student' });
             });
         }
+ 
         alert(`✅ 驗證成功！\n\n歡迎你，${name}。`);
         document.getElementById('studentIdentityForm').style.display = 'none';
         document.getElementById('studentCloudPanel').style.display = 'block';
         updateWelcomeMessage(profileData);
         loadAssignments(grade, cls);
+ 
     } catch (error) {
         console.error("資料庫寫入失敗:", error);
         alert("資料庫錯誤，請重試: " + error.message);
@@ -18961,40 +19013,86 @@ function finishLogin(grade, cls, number, name) {
 }
 
 
+// === 修訂版 V10 (終極修復)：遇權限錯誤即自動登出 ===
 async function loadAssignments(grade, cls) {
     const listDiv = document.getElementById('assignmentList');
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
     
-    // 1. 顯示載入中 (僅在第一次)
-    if (listDiv.innerHTML.trim() === "" || listDiv.innerHTML.includes("載入中")) {
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在更新課業狀態...</div>';
+    // 如果本地根本沒資料，不需要載入
+    if (!s) return;
+
+    // 1. 顯示載入狀態
+    listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#8fa398;"><i class="fas fa-circle-notch fa-spin"></i> 正在同步課業資料...</div>';
+
+    // 2. 稍微等待 Auth 初始化 (最多 5 秒)，避免剛開網頁還沒連上就誤判
+    let authWait = 0;
+    while (!auth.currentUser && authWait < 10) { 
+        await new Promise(r => setTimeout(r, 500));
+        authWait++;
     }
- 
+
     try {
+        // 3. 嘗試讀取資料庫
         const path = `assignments/${grade}/${cls}`;
+        const assignmentsSnap = await database.ref(path).once('value');
+        const assignmentsData = assignmentsSnap.val();
+
+        if (!assignmentsData) {
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#666;">目前沒有新課業</div>';
+            return;
+        }
+
+        // 4. 成功讀取後的處理
+        allAssignmentTasks = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
+        currentLoadedCount = 0; // 重置計數
+        listDiv.innerHTML = ''; // 清空 Loading
         
-        // 使用 .on() 進行實時監聽
-        // 優點：只會在數據變更時下載 Delta，不用每次重新下載全部
-        database.ref(path).on('value', (snapshot) => {
-            const assignmentsData = snapshot.val();
- 
-            if (!assignmentsData) {
-                listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#666;">目前沒有新課業</div>';
-                return;
-            }
- 
-            // 更新全域變數 (供分頁用)
-            allAssignmentTasks = Object.entries(assignmentsData).sort((a, b) => b[1].timestamp - a[1].timestamp);
-            
-            // 重新渲染列表 (這會自動檢查 assignments_submissions 的狀態)
-            // 這裡我們重置計數並重新載入第一批，確保狀態最新
-            currentLoadedCount = 0;
-            listDiv.innerHTML = '';
-            loadNextBatchAssignments();
-        });
- 
+        // 移除舊的「載入更多」按鈕 (如果有的話)
+        const oldBtn = document.getElementById('loadMoreAssignmentsBtn');
+        if (oldBtn) oldBtn.remove();
+
+        await loadNextBatchAssignments();
+
     } catch (error) {
-        console.error("課業載入失敗:", error);
-        listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#d69a92;">連線問題，無法更新課業狀態 (但您仍可查看歷史紀錄)</div>';
+        console.error("載入失敗:", error);
+
+        // ★★★ [核心修復]：捕捉權限錯誤，直接強制登出 ★★★
+        if (error.code === 'PERMISSION_DENIED' || error.message.includes("permission_denied")) {
+            console.warn("⛔ 權限失效，執行強制登出程序...");
+            
+            // A. 清除 Firebase 登入狀態
+            if (auth) await auth.signOut();
+            
+            // B. 清除本地緩存
+            localStorage.removeItem('studentProfile');
+            
+            // C. 移除紅點監聽
+            if (typeof pendingMonitorRef !== 'undefined' && pendingMonitorRef) {
+                pendingMonitorRef.off();
+            }
+            const badge = document.getElementById('notifBadge');
+            if(badge) badge.style.display = 'none';
+
+            // D. 重置 UI 到未登入狀態
+            document.getElementById('studentCloudPanel').style.display = 'none';
+            document.getElementById('studentIdentityForm').style.display = 'block';
+            
+            // 重置登入按鈕
+            const loginBtn = document.querySelector('#studentIdentityForm button');
+            if (loginBtn) {
+                loginBtn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入';
+                loginBtn.disabled = false;
+            }
+
+            // E. 通知使用者 (使用 alert 中斷執行流)
+            alert("⚠️ 您的登入憑證已過期或權限不足。\n\n系統已自動為您登出，請重新登入即可解決問題。");
+            
+            // F. 停止所有後續動作
+            return;
+        } else {
+            // 其他網絡錯誤 (保留簡單提示)
+            listDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#d69a92;">連線不穩，請重整頁面試試。</div>';
+        }
     }
 }
 	// === 核心：分批載入詳細數據 ===
