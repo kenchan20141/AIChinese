@@ -21253,11 +21253,11 @@ function scrollToAnalysis() {
     }
 }
 
-// === [修訂版] 顯示文章詳情 (加入跳轉賞析按鈕) ===
+// === [修訂版] 顯示文章詳情 (加入跳轉賞析按鈕 + 版權宣告) ===
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
-
+ 
     const isSaved = isArticleBookmarked(article.title);
     const bookmarkClass = isSaved ? 'bookmarked' : '';
     
@@ -21266,18 +21266,18 @@ function showArticleDetail(index) {
     
     currentContextContent = `【文章標題】${article.title}\n【作者】${article.author}\n\n【文章正文】\n${article.content}\n\n【文章賞析】\n${article.analysis || "（無賞析資料）"}`;
     currentContextType = 'featured_discussion';
-    currentContextReview = "（這是精選文章的閱讀討論）"; 
+    currentContextReview = "（這是精選文章的閱讀討論）";
     
     // === [詩歌判斷邏輯] ===
     const isPoetry = /^\s*<br\s*\/?>/i.test(article.content);
     
     let contentHtml = '';
-
+ 
     if (isPoetry) {
         // --- 詩歌模式 ---
         let cleanContent = article.content.replace(/^\s*<br\s*\/?>/i, '').trim();
         cleanContent = cleanContent.replace(/\\n/g, '\n');
-
+ 
         contentHtml = `<div style="width: 100%; display: flex; justify-content: center;"><div id="poetryContent" style="white-space: pre; word-wrap: normal; display: inline-block; text-align: left; line-height: 1.7; font-family: 'Noto Serif TC', serif; margin-top: 0px;">${cleanContent}</div></div>`;
     } else {
         // --- 一般散文模式 ---
@@ -21285,11 +21285,11 @@ function showArticleDetail(index) {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
         }).join('');
     }
-
+ 
     // 構建賞析區塊 HTML
     let analysisHtmlBlock = '';
     const hasAnalysis = article.analysis && article.analysis.trim() !== '';
-
+ 
     if (hasAnalysis) {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
@@ -21301,31 +21301,37 @@ function showArticleDetail(index) {
             <div class="analysis-body" style="margin-top: 0 !important; font-size: 1.05rem !important;">${analysisText}</div>
         </div>`;
     }
-
+ 
     // ★★★ 生成跳轉賞析按鈕 HTML (如果有賞析內容才顯示) ★★★
-    const analysisBtnHtml = hasAnalysis ? 
+    const analysisBtnHtml = hasAnalysis ?
         `<button class="detail-float-btn scroll-hide-target" onclick="scrollToAnalysis()" title="跳至賞析">
             <i class="fas fa-comment-dots"></i>
          </button>` : '';
-
+ 
+    // ★★★ [新增] 版權宣告小字 HTML ★★★
+    const disclaimerHtml = `
+        <div style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #eee; color: #aaa; font-size: 0.85rem; text-align: center; font-family: 'Noto Serif TC', serif;">
+            本文僅供校內教學研習之用。<br>原文版權歸原作者/出版社所有。
+        </div>`;
+ 
     const safeContent = encodeURIComponent(article.content);
     const safeTitle = encodeURIComponent(article.title);
-
+ 
     let chatHTML = getCanvasChatHTML('featured_discussion');
-    chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論'); 
-    chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？'); 
-
+    chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論');
+    chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？');
+ 
     detailView.innerHTML = `
         <style>
             @keyframes stamp-slam {
-                0% { opacity: 0; transform: scale(3) rotate(-5deg); } 
-                60% { opacity: 1; transform: scale(0.9) rotate(-3deg); } 
-                80% { transform: scale(1.05) rotate(-3deg); } 
-                100% { opacity: 1; transform: scale(1) rotate(-3deg); } 
+                0% { opacity: 0; transform: scale(3) rotate(-5deg); }
+                60% { opacity: 1; transform: scale(0.9) rotate(-3deg); }
+                80% { transform: scale(1.05) rotate(-3deg); }
+                100% { opacity: 1; transform: scale(1) rotate(-3deg); }
             }
-
+ 
             /* === [修復] 文藝風粗體樣式 === */
-            #fullArticleBody b, 
+            #fullArticleBody b,
             #fullArticleBody strong,
             #poetryContent b,
             #poetryContent strong {
@@ -21335,9 +21341,9 @@ function showArticleDetail(index) {
                 font-family: 'Noto Serif TC', serif;
             }
         </style>
-
+ 
         <div id="readingProgressBarContainer"><div id="readingProgressBar"></div></div>
-
+ 
         <div class="detail-action-group">
             <button id="detailBookmarkBtn" class="detail-float-btn scroll-hide-target ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤">
                 <i class="fas fa-bookmark"></i>
@@ -21345,7 +21351,7 @@ function showArticleDetail(index) {
             
             <!-- ★★★ 插入賞析按鈕 ★★★ -->
             ${analysisBtnHtml}
-
+ 
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀">
                 <i class="fas fa-book-reader"></i>
             </button>
@@ -21359,7 +21365,7 @@ function showArticleDetail(index) {
                 <i class="fas fa-times"></i>
             </button>
         </div>
-
+ 
         <div class="read-mode-container">
             <div class="detail-header-group" style="display: flex; flex-direction: column; align-items: center; border-bottom: 2px dashed #e0ddd7; margin-bottom: 25px !important; padding-bottom: 15px !important;">
                 <div class="detail-title-text auto-fit-title" id="detailTitleText" style="color: ${titleColor}; font-weight: bold; margin-bottom: 20px; text-align: center; width: 100%;">
@@ -21370,17 +21376,21 @@ function showArticleDetail(index) {
                 </div>
                 <div class="detail-date" style="color: #9e9e9e; font-family: 'Courier New', monospace; font-size: 0.9rem;">${article.date}</div>
             </div>
-
+ 
             <!-- 正文區域 -->
             <div class="article-body" id="fullArticleBody" style="font-size: 1.15rem; color: #4a4a4a; text-align: justify; line-height: 1.8;">
                 ${contentHtml}
             </div>
+            
             ${analysisHtmlBlock}
+            
+            <!-- ★★★ 插入版權宣告 ★★★ -->
+            ${disclaimerHtml}
             
             <div style="margin-top: 80px; margin-bottom: 30px;">
                 <div id="chatToggleButtonContainer" style="text-align: center;">
                     <div style="height: 1px; background: linear-gradient(to right, transparent, #e0ddd7, transparent); width: 50%; margin: 0 auto 30px auto;"></div>
-                    <button id="showFeaturedChatBtn" onclick="toggleFeaturedChat()" 
+                    <button id="showFeaturedChatBtn" onclick="toggleFeaturedChat()"
                         style="width: 60px; height: 60px; background-color: transparent; color: #d69a92; border: 3px solid #d69a92; border-radius: 8px; font-family: 'Noto Serif TC', serif; font-size: 1.1rem; font-weight: 900; line-height: 1; padding: 0; transform: rotate(-3deg); cursor: pointer; transition: all 0.3s ease; display: inline-flex; align-items: center; justify-content: center;"
                         onmouseover="this.style.transform='rotate(0deg) scale(1.1)';"
                         onmouseout="this.style.transform='rotate(-3deg) scale(1)';"
@@ -21397,18 +21407,18 @@ function showArticleDetail(index) {
             </div>
         </div>
     `;
-
+ 
     detailView.style.display = 'block';
-    document.body.style.overflow = 'hidden'; 
-
+    document.body.style.overflow = 'hidden';
+ 
     setTimeout(() => {
         const titleEl = document.getElementById('detailTitleText');
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
-
+ 
         if (isPoetry) {
             const poetryEl = document.getElementById('poetryContent');
             if (poetryEl) {
-                let fontSize = 1.25 * 16; 
+                let fontSize = 1.25 * 16;
                 poetryEl.style.fontSize = fontSize + 'px';
                 
                 const containerWidth = poetryEl.parentElement.clientWidth;
@@ -21422,7 +21432,7 @@ function showArticleDetail(index) {
             }
         }
     }, 50);
-
+ 
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
@@ -21433,11 +21443,11 @@ function showArticleDetail(index) {
         const progressContainer = document.getElementById('readingProgressBarContainer');
         if(progressBar) progressBar.style.width = scrollPercent + "%";
         if(progressContainer) progressContainer.style.opacity = scrollTop > 10 ? '1' : '0';
-
+ 
         const hideTargets = document.querySelectorAll('.scroll-hide-target');
         const topBtn = document.getElementById('detailTopBtn');
-
-        if (scrollTop > 100) { 
+ 
+        if (scrollTop > 100) {
             hideTargets.forEach(btn => btn.style.display = 'none');
             if (topBtn) topBtn.style.display = 'flex';
         } else {
