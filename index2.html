@@ -16681,7 +16681,7 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 // ==========================================
-// === [終極修復版] 核心同步函數 (結構優化 + 身份證自我修復) ===
+// === [終極修復版] 核心同步函數 (含舊資料救援 + 結構優化 + 身份證修復) ===
 // ==========================================
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -16692,7 +16692,7 @@ async function syncHistoryToFirebase(isSilent = false) {
         return;
     }
  
-    // UI 按鈕狀態處理 (如果有的話)
+    // UI 按鈕狀態處理 (如果觸發同步的是按鈕)
     let btn = null;
     let originalText = "";
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
@@ -16720,7 +16720,7 @@ async function syncHistoryToFirebase(isSilent = false) {
         const rootPath = `students/${s.grade}/${s.class}/${s.name}`;
         const historyPath = `${rootPath}/history`;
         const profilePath = `${rootPath}/profile`;
-        // C. 嘗試讀取雲端資料 (若讀取失敗，通常也是權限問題)
+        // C. 嘗試讀取雲端資料
         let cloudRecords = [];
         try {
             const cloudSnapshot = await database.ref(historyPath).once('value');
@@ -16737,26 +16737,46 @@ async function syncHistoryToFirebase(isSilent = false) {
             console.warn("讀取雲端失敗，嘗試直接覆寫修復...", readErr);
         }
         
-        // D. 執行合併運算 (這部分邏輯不變，負責決定誰蓋誰)
+        // D. 執行合併運算 (決定哪些資料要保留)
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
  
-        // E. ★★★ [結構優化] 上傳前轉換為 Map 結構 ★★★
-        // 我們將 Array 轉換為 { timestamp: record } 的物件結構
-        // 這樣能與 quickUpload 的單筆路徑寫入完美配合
+        // ============================================================
+        // E. ★★★ [結構優化 + 舊資料救援] 上傳前轉換為 Map 結構 ★★★
+        // ============================================================
         const recordsMap = {};
-        mergedRecords.forEach(r => {
+        
+        // 用來為沒有 timestamp 的舊資料生成唯一 ID
+        // 我們使用 (當前時間 - 索引) 確保每個 ID 都不重複
+        const baseTime = new Date().getTime();
+ 
+        mergedRecords.forEach((r, index) => {
+            // 1. 自動補全機制：如果舊資料沒有 timestamp，幫它補一個
+            if (!r.timestamp) {
+                console.warn(`[自動修復] 發現無 ID 的舊紀錄: "${r.title}"，正在補全...`);
+                // 為了避免重複，我們用 當前時間 減去 索引值 (例如: 17000000 - 1)
+                r.timestamp = baseTime - index;
+            }
+ 
+            // 2. 自動補全日期字串 (如果也沒有的話)
+            if (!r.dateStr) {
+                r.dateStr = new Date(r.timestamp).toLocaleString('zh-HK', { hour12: false });
+            }
+ 
+            // 3. 準備清洗後的資料 (標記為已同步)
             const cleanRecord = {
                 ...r,
                 isSynced: true,      
                 hasBeenSynced: true  
             };
-            // 使用 timestamp 作為 Key，確保資料庫結構穩定
-            if (r.timestamp) {
-                recordsMap[r.timestamp] = cleanRecord;
-            }
+ 
+            // 4. 使用 timestamp 作為 Key 放入 Map
+            // 這樣能與 quickUpload 的單筆路徑寫入完美配合
+            recordsMap[r.timestamp] = cleanRecord;
         });
  
-        // F. 嘗試寫入
+        // ============================================================
+        // F. 嘗試寫入 (處理權限錯誤與自我修復)
+        // ============================================================
         try {
             // 嘗試 1: 使用 set 寫入整個 history 節點 (這會覆蓋雲端舊結構，統一格式)
             await database.ref(historyPath).set(recordsMap);
@@ -16791,12 +16811,12 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
         console.log(`[DEBUG] 雲端同步成功 (${mergedRecords.length} 筆)`);
         
-        // G. 寫回本地 (更新本地 IndexedDB，確保狀態一致)
+        // G. 寫回本地 (更新本地 IndexedDB，確保狀態與 ID 一致)
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         
         if (!isSilent) alert("✅ 資料同步完成！");
         
-        // H. 刷新畫面 (如果在列表頁)
+        // H. 刷新畫面 (如果在列表頁，且有過濾器變數)
         const level3 = document.getElementById('historyLevel3');
         if (level3 && level3.style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
              const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
