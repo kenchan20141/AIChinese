@@ -16640,7 +16640,7 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 // ==========================================
-// === [DEBUG 版] 核心同步函數 ===
+// === [DEBUG 版] 核心同步函數 (修復權限錯誤) ===
 // ==========================================
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -16649,6 +16649,13 @@ async function syncHistoryToFirebase(isSilent = false) {
         return;
     }
     
+    // ★★★ [核心修復] 同步前檢查登入狀態 ★★★
+    // 如果沒有 Firebase 使用者 (已登出或 session 過期)，直接終止，避免觸發 PERMISSION_DENIED
+    if (!firebase.auth().currentUser) {
+        console.warn("[Sync] 偵測到未登入狀態，已略過同步請求。");
+        return;
+    }
+ 
     // UI 按鈕狀態處理 (如果是由按鈕觸發)
     let btn = null;
     let originalText = "";
@@ -16672,13 +16679,12 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onsuccess = e => resolve(e.target.result);
             req.onerror = () => resolve([]);
         });
-
+ 
         // B. 讀取雲端所有資料
         const path = `students/${s.grade}/${s.class}/${s.name}/history`;
         const cloudSnapshot = await database.ref(path).once('value');
         const cloudData = cloudSnapshot.val();
         let cloudRecords = [];
- 
         if (cloudData) {
             if (Array.isArray(cloudData)) {
                 cloudRecords = cloudData.filter(item => item !== null);
@@ -16689,27 +16695,25 @@ async function syncHistoryToFirebase(isSilent = false) {
         
         // C. 執行合併運算
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
-
-        // D. ★★★ 關鍵修復：上傳前淨化 ★★★
-        // 為了避免 Firebase 存到 "hasBeenSynced: false"，我們建立一個專門上傳用的副本
-        // 強制將所有欄位設為 true。這樣 Firebase 永遠只會持有 "已同步" 的狀態。
+ 
+        // D. 上傳前淨化
         const recordsToUpload = mergedRecords.map(r => ({
             ...r,
-            isSynced: true,      // 雲端永遠是已同步狀態
-            hasBeenSynced: true  // 雲端永遠是已歸檔狀態
+            isSynced: true,      
+            hasBeenSynced: true  
         }));
-
-        // 寫入雲端 (使用淨化後的數據)
+ 
+        // 寫入雲端
         await database.ref(path).set(recordsToUpload);
         console.log(`[DEBUG] 雲端更新完畢 (${recordsToUpload.length} 筆)`);
         
-        // E. 寫回本地 (這裡會將本地狀態也鎖定為 true)
+        // E. 寫回本地
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         console.log(`[DEBUG] 本地更新完畢`);
         
         if (!isSilent) alert("✅ 資料同步完成！");
         
-        // F. 刷新畫面 (如果正在瀏覽列表)
+        // F. 刷新畫面
         const level3 = document.getElementById('historyLevel3');
         if (level3 && level3.style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
              const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
@@ -16718,7 +16722,17 @@ async function syncHistoryToFirebase(isSilent = false) {
         
     } catch (err) {
         console.error("[DEBUG] 同步錯誤:", err);
-        if (!isSilent) alert("❌ 同步失敗: " + err.message);
+        
+        // ★★★ [核心修復] 針對權限錯誤的優化處理 ★★★
+        if (err.code === 'PERMISSION_DENIED' || (err.message && err.message.includes("permission_denied"))) {
+            console.warn("[Sync] 權限被拒。可能是憑證剛過期或資料路徑不符。");
+            // 如果是背景靜默同步，我們不彈窗打擾使用者
+            if (!isSilent) {
+                alert("⚠️ 同步失敗 (權限不足)。\n請嘗試重新登入學生帳號。");
+            }
+        } else {
+            if (!isSilent) alert("❌ 同步失敗: " + err.message);
+        }
     } finally {
         if (btn && originalText) {
             btn.innerHTML = originalText;
@@ -16726,7 +16740,6 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
     }
 }
-
 
 	
 // ==========================================
