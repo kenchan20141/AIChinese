@@ -16521,7 +16521,7 @@ function captureContainerHTML(containerId) {
 
 	
 // ==========================================
-// === 修訂：儲存紀錄 (強制等待同步完成) ===
+// === 修訂版：儲存紀錄 (改用輕量上傳) ===
 // ==========================================
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
@@ -16533,47 +16533,88 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             toRemove.forEach(el => el.remove());
             aiContent = tempDiv.innerHTML;
         }
-
+ 
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-
+ 
         const ts = new Date().getTime();
-        lastGeneratedTimestamp = ts; // 更新全域時間戳，供聊天室使用
-
+        if (typeof lastGeneratedTimestamp !== 'undefined') {
+            lastGeneratedTimestamp = ts; // 更新全域時間戳
+        }
+ 
         const record = {
             category: category,
             subFunction: subFunction,
             title: title || "無標題",
             userContent: userContent,
             aiContent: aiContent,
-            scoreData: scoreData, 
+            scoreData: scoreData,
             timestamp: ts,
             dateStr: new Date().toLocaleString('zh-HK', { hour12: false }),
             
-            // 初始狀態：False (保護它是新草稿，且告訴 Merge 函數這是本地新增的)
+            // 初始狀態：本地先設為 False，等 quickUpload 成功後會轉為 True
             isSynced: false,       
             hasBeenSynced: false   
         };
-
+ 
         // 使用 Promise 確保寫入 IndexedDB 完成
         await new Promise((resolve, reject) => {
             const req = store.add(record);
             req.onsuccess = resolve;
             req.onerror = reject;
         });
-
-        console.log("本地紀錄已建立，開始同步...");
+ 
+        console.log("本地紀錄已建立。");
         
-        // 觸發同步，這會將這筆新紀錄推上雲端，然後將本地狀態改為 True
+        // ★★★ 關鍵修改處：改用輕量上傳 ★★★
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
-            await syncHistoryToFirebase(true); 
-            console.log("同步完成，狀態已更新");
+            // 異步執行，不需 await 阻擋 UI，讓它在背景上傳即可
+            quickUploadToFirebase(record);
         }
-
+ 
     } catch (error) {
         console.error("儲存紀錄失敗:", error);
+    }
+}
+
+
+	// === [新增] 輕量級上傳 (只上傳單筆新資料，不下載舊資料) ===
+// 這是節省流量的關鍵！
+async function quickUploadToFirebase(record) {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+ 
+    // 使用 timestamp 作為唯一的 Key
+    // 這樣我們可以精準地只更新這一筆，而不影響其他資料
+    const recordKey = record.timestamp.toString();
+    const path = `students/${s.grade}/${s.class}/${s.name}/history/${recordKey}`;
+ 
+    // 標記為已同步
+    const recordToUpload = {
+        ...record,
+        isSynced: true,
+        hasBeenSynced: true
+    };
+ 
+    try {
+        // 使用 update 只寫入這一筆
+        // 注意：我們構建一個 update object，路徑精確到該筆紀錄
+        const updates = {};
+        updates[path] = recordToUpload;
+ 
+        await database.ref().update(updates);
+        console.log(`✅ [省流模式] 單筆紀錄上傳成功: ${record.title}`);
+ 
+        // 上傳成功後，更新本地的同步狀態 (避免下次全量同步時衝突)
+        const db = await openHistoryDB();
+        const tx = db.transaction([STORE_NAME], 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.put(recordToUpload);
+ 
+    } catch (e) {
+        console.error("單筆上傳失敗 (將在下次全量同步時補傳):", e);
     }
 }
 
@@ -16640,7 +16681,7 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 // ==========================================
-// === [終極修復版] 核心同步函數 (含身份證自我修復機制) ===
+// === [終極修復版] 核心同步函數 (結構優化 + 身份證自我修復) ===
 // ==========================================
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
@@ -16650,7 +16691,8 @@ async function syncHistoryToFirebase(isSilent = false) {
         if (!isSilent) alert("請先綁定身份");
         return;
     }
-    // UI 按鈕狀態處理
+ 
+    // UI 按鈕狀態處理 (如果有的話)
     let btn = null;
     let originalText = "";
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
@@ -16673,17 +16715,18 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onsuccess = e => resolve(e.target.result);
             req.onerror = () => resolve([]);
         });
+ 
         // B. 定義路徑
         const rootPath = `students/${s.grade}/${s.class}/${s.name}`;
         const historyPath = `${rootPath}/history`;
         const profilePath = `${rootPath}/profile`;
- 
         // C. 嘗試讀取雲端資料 (若讀取失敗，通常也是權限問題)
         let cloudRecords = [];
         try {
             const cloudSnapshot = await database.ref(historyPath).once('value');
             const cloudData = cloudSnapshot.val();
             if (cloudData) {
+                // 兼容性處理：無論雲端是舊的 Array 還是新的 Map，這裡都能正確讀取
                 if (Array.isArray(cloudData)) {
                     cloudRecords = cloudData.filter(item => item !== null);
                 } else if (typeof cloudData === 'object') {
@@ -16694,26 +16737,36 @@ async function syncHistoryToFirebase(isSilent = false) {
             console.warn("讀取雲端失敗，嘗試直接覆寫修復...", readErr);
         }
         
-        // D. 執行合併運算
+        // D. 執行合併運算 (這部分邏輯不變，負責決定誰蓋誰)
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
-        // E. 上傳前淨化
-        const recordsToUpload = mergedRecords.map(r => ({
-            ...r,
-            isSynced: true,      
-            hasBeenSynced: true  
-        }));
-        // ★★★ [核心修復邏輯] 嘗試寫入 ★★★
+ 
+        // E. ★★★ [結構優化] 上傳前轉換為 Map 結構 ★★★
+        // 我們將 Array 轉換為 { timestamp: record } 的物件結構
+        // 這樣能與 quickUpload 的單筆路徑寫入完美配合
+        const recordsMap = {};
+        mergedRecords.forEach(r => {
+            const cleanRecord = {
+                ...r,
+                isSynced: true,      
+                hasBeenSynced: true  
+            };
+            // 使用 timestamp 作為 Key，確保資料庫結構穩定
+            if (r.timestamp) {
+                recordsMap[r.timestamp] = cleanRecord;
+            }
+        });
+ 
+        // F. 嘗試寫入
         try {
-            // 嘗試 1: 直接寫入歷史紀錄
-            await database.ref(historyPath).set(recordsToUpload);
+            // 嘗試 1: 使用 set 寫入整個 history 節點 (這會覆蓋雲端舊結構，統一格式)
+            await database.ref(historyPath).set(recordsMap);
+ 
         } catch (writeErr) {
             // 如果遇到權限錯誤，通常是因為 Profile 不存在或 UID 不匹配
             if (writeErr.code === 'PERMISSION_DENIED' || (writeErr.message && writeErr.message.includes("permission_denied"))) {
                 console.warn("⚠️ 權限被拒，啟動「身份證修復」程序...");
- 
                 const currentUser = firebase.auth().currentUser;
                 if (!currentUser) throw new Error("未偵測到登入狀態，無法修復權限。");
- 
                 // 準備 Profile 資料 (強制寫入當前 UID)
                 const fixProfileData = {
                     name: s.name,
@@ -16725,29 +16778,25 @@ async function syncHistoryToFirebase(isSilent = false) {
                     last_login: new Date().toLocaleString('zh-HK'),
                     status: 'active'
                 };
- 
                 // 步驟 1: 先強制寫入 Profile (這一步通常是被允許的)
                 await database.ref(profilePath).update(fixProfileData);
                 console.log("✅ 身份證 (Profile) 修復完成。");
- 
-                // 步驟 2: 再次嘗試寫入 History
-                await database.ref(historyPath).set(recordsToUpload);
+                // 步驟 2: 再次嘗試寫入 History (使用新的 Map 結構)
+                await database.ref(historyPath).set(recordsMap);
                 console.log("✅ 歷史紀錄 (History) 重試上傳成功。");
- 
             } else {
                 // 如果是其他錯誤，則拋出
                 throw writeErr;
             }
         }
- 
-        console.log(`[DEBUG] 雲端同步成功 (${recordsToUpload.length} 筆)`);
+        console.log(`[DEBUG] 雲端同步成功 (${mergedRecords.length} 筆)`);
         
-        // F. 寫回本地
+        // G. 寫回本地 (更新本地 IndexedDB，確保狀態一致)
         await updateLocalHistoryWithMergedData(mergedRecords, db);
         
         if (!isSilent) alert("✅ 資料同步完成！");
         
-        // G. 刷新畫面
+        // H. 刷新畫面 (如果在列表頁)
         const level3 = document.getElementById('historyLevel3');
         if (level3 && level3.style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
              const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
@@ -16757,13 +16806,14 @@ async function syncHistoryToFirebase(isSilent = false) {
     } catch (err) {
         console.error("[DEBUG] 同步最終失敗:", err);
         if (!isSilent) {
-            if (err.message.includes("permission_denied")) {
+            if (err.message && err.message.includes("permission_denied")) {
                 alert("⚠️ 同步失敗：權限驗證錯誤。\n請嘗試重新登入學生帳號。");
             } else {
                 alert("❌ 同步失敗: " + err.message);
             }
         }
     } finally {
+        // 還原按鈕狀態
         if (btn && originalText) {
             btn.innerHTML = originalText;
             btn.disabled = false;
