@@ -16640,23 +16640,18 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 // ==========================================
-// === [DEBUG 版] 核心同步函數 (修復權限錯誤) ===
+// === [修復版] 核心同步函數 (移除過嚴格的 Auth 檢查) ===
 // ==========================================
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
+    
+    // 1. 基礎檢查：只要本地有學生資料，就應該嘗試同步
+    // 不要在此處檢查 firebase.auth().currentUser，交由資料庫的 catch 區塊處理權限錯誤
     if (!s) {
         if (!isSilent) alert("請先綁定身份");
         return;
     }
-    
-    // ★★★ [核心修復] 同步前檢查登入狀態 ★★★
-    // 如果沒有 Firebase 使用者 (已登出或 session 過期)，直接終止，避免觸發 PERMISSION_DENIED
-    if (!firebase.auth().currentUser) {
-        console.warn("[Sync] 偵測到未登入狀態，已略過同步請求。");
-        return;
-    }
- 
-    // UI 按鈕狀態處理 (如果是由按鈕觸發)
+    // UI 按鈕狀態處理
     let btn = null;
     let originalText = "";
     if (!isSilent && typeof event !== 'undefined' && event && event.target) {
@@ -16679,7 +16674,6 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onsuccess = e => resolve(e.target.result);
             req.onerror = () => resolve([]);
         });
- 
         // B. 讀取雲端所有資料
         const path = `students/${s.grade}/${s.class}/${s.name}/history`;
         const cloudSnapshot = await database.ref(path).once('value');
@@ -16695,15 +16689,13 @@ async function syncHistoryToFirebase(isSilent = false) {
         
         // C. 執行合併運算
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
- 
-        // D. 上傳前淨化
+        // D. 上傳前淨化 (設定為已同步)
         const recordsToUpload = mergedRecords.map(r => ({
             ...r,
             isSynced: true,      
             hasBeenSynced: true  
         }));
- 
-        // 寫入雲端
+        // 寫入雲端 (如果 Auth 真的失效，這裡會報錯 catch 住，而不是靜默失敗)
         await database.ref(path).set(recordsToUpload);
         console.log(`[DEBUG] 雲端更新完畢 (${recordsToUpload.length} 筆)`);
         
@@ -16723,10 +16715,8 @@ async function syncHistoryToFirebase(isSilent = false) {
     } catch (err) {
         console.error("[DEBUG] 同步錯誤:", err);
         
-        // ★★★ [核心修復] 針對權限錯誤的優化處理 ★★★
         if (err.code === 'PERMISSION_DENIED' || (err.message && err.message.includes("permission_denied"))) {
             console.warn("[Sync] 權限被拒。可能是憑證剛過期或資料路徑不符。");
-            // 如果是背景靜默同步，我們不彈窗打擾使用者
             if (!isSilent) {
                 alert("⚠️ 同步失敗 (權限不足)。\n請嘗試重新登入學生帳號。");
             }
@@ -16785,70 +16775,77 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
 }
 
 // ==========================================
-// === 4. 自動同步監聽器 (二合一終極版) ===
+// === 4. 自動同步監聽器 (修復版) ===
 // ==========================================
-
+ 
 // 定義全域變數以儲存監聽器參照
 let autoSyncListenerRef = null;    // 用於歷史紀錄
 let autoProfileListenerRef = null; // 用於身份狀態 (轉班)
 let isSyncingLock = false;         // 同步鎖，防止無限迴圈
-
+ 
 function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
-    if (!s) return;
-
-    // --- 部分 A：歷史紀錄同步監聽 (修復刪除不同步問題) ---
     
+    // 只要沒有學生檔案，就不啟動監聽，這是唯一合理的阻擋條件
+    if (!s) return;
+ 
+    // --- 部分 A：歷史紀錄同步監聽 ---
+ 
     // 1. 先移除舊的歷史監聽器
     if (autoSyncListenerRef) {
         autoSyncListenerRef.off();
     }
-
+ 
     // 2. 設定路徑
     const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
     autoSyncListenerRef = database.ref(historyPath);
-
+ 
     // 3. 監聽 'value' 事件
     autoSyncListenerRef.on('value', (snapshot) => {
         
-        // 如果目前正在執行本地發起的同步，忽略這次訊號
+        // 檢查 1：本地鎖定 (防止無限迴圈)
         if (isSyncingLock) {
             console.log("忽略自身寫入導致的回彈訊號");
             return;
         }
-
+ 
+        // ★★★ 移除這裡的 auth.currentUser 檢查 ★★★
+        // 理由：當頁面重新整理時，Auth 狀態還沒準備好，如果這裡 return 了，
+        // 監聽器就會失效。我們讓 Firebase 內部去處理連線權限。
+ 
         console.log("⚡ 偵測到雲端歷史變更 (含刪除動作)，立即同步...");
         
         // 設定鎖定
         isSyncingLock = true;
-
-        // 執行同步 (這裡的 syncHistoryToFirebase 配合 mergeHistoryRecords 會處理刪除邏輯)
+ 
+        // 執行同步
         syncHistoryToFirebase(true).then(() => {
-            // 延遲解鎖，過濾 Firebase 寫入後的延遲回彈
+            // 延遲解鎖
             setTimeout(() => {
                 isSyncingLock = false;
             }, 2000);
         });
     });
-
-    // --- 部分 B：身份狀態監聽 (保留你原有的轉班功能) ---
+ 
+    // --- 部分 B：身份狀態監聽 ---
     if (autoProfileListenerRef) autoProfileListenerRef.off();
     const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
     autoProfileListenerRef = database.ref(profilePath);
     autoProfileListenerRef.on('value', (snapshot) => {
         const val = snapshot.val();
-        if (!val) {
-            autoProfileListenerRef.off(); 
+        // 如果值為 null，代表該路徑被刪除或讀取不到 (可能轉班了)
+        if (val === null) {
+            autoProfileListenerRef.off();
             if (autoSyncListenerRef) autoSyncListenerRef.off();
             findStudentNewLocation(s.name);
         } else if (!val.number || val.number === "") {
             promptForNewClassNumber(s, profilePath);
         }
     });
-    
+ 
     console.log("✅ 雙重監聽器 (歷史 + 身份) 已啟動");
 }
-
+	
 // 變數儲存當前導航狀態
 let currentCategoryFilter = null;
 let currentSubFunctionFilter = null;
