@@ -16640,13 +16640,12 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
     return Array.from(mergedMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
 // ==========================================
-// === [修復版] 核心同步函數 (移除過嚴格的 Auth 檢查) ===
+// === [終極修復版] 核心同步函數 (含身份證自我修復機制) ===
 // ==========================================
 async function syncHistoryToFirebase(isSilent = false) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     
-    // 1. 基礎檢查：只要本地有學生資料，就應該嘗試同步
-    // 不要在此處檢查 firebase.auth().currentUser，交由資料庫的 catch 區塊處理權限錯誤
+    // 1. 基礎檢查
     if (!s) {
         if (!isSilent) alert("請先綁定身份");
         return;
@@ -16674,38 +16673,81 @@ async function syncHistoryToFirebase(isSilent = false) {
             req.onsuccess = e => resolve(e.target.result);
             req.onerror = () => resolve([]);
         });
-        // B. 讀取雲端所有資料
-        const path = `students/${s.grade}/${s.class}/${s.name}/history`;
-        const cloudSnapshot = await database.ref(path).once('value');
-        const cloudData = cloudSnapshot.val();
+        // B. 定義路徑
+        const rootPath = `students/${s.grade}/${s.class}/${s.name}`;
+        const historyPath = `${rootPath}/history`;
+        const profilePath = `${rootPath}/profile`;
+ 
+        // C. 嘗試讀取雲端資料 (若讀取失敗，通常也是權限問題)
         let cloudRecords = [];
-        if (cloudData) {
-            if (Array.isArray(cloudData)) {
-                cloudRecords = cloudData.filter(item => item !== null);
-            } else if (typeof cloudData === 'object') {
-                cloudRecords = Object.values(cloudData);
+        try {
+            const cloudSnapshot = await database.ref(historyPath).once('value');
+            const cloudData = cloudSnapshot.val();
+            if (cloudData) {
+                if (Array.isArray(cloudData)) {
+                    cloudRecords = cloudData.filter(item => item !== null);
+                } else if (typeof cloudData === 'object') {
+                    cloudRecords = Object.values(cloudData);
+                }
             }
+        } catch (readErr) {
+            console.warn("讀取雲端失敗，嘗試直接覆寫修復...", readErr);
         }
         
-        // C. 執行合併運算
+        // D. 執行合併運算
         const mergedRecords = mergeHistoryRecords(localRecords, cloudRecords);
-        // D. 上傳前淨化 (設定為已同步)
+        // E. 上傳前淨化
         const recordsToUpload = mergedRecords.map(r => ({
             ...r,
             isSynced: true,      
             hasBeenSynced: true  
         }));
-        // 寫入雲端 (如果 Auth 真的失效，這裡會報錯 catch 住，而不是靜默失敗)
-        await database.ref(path).set(recordsToUpload);
-        console.log(`[DEBUG] 雲端更新完畢 (${recordsToUpload.length} 筆)`);
+        // ★★★ [核心修復邏輯] 嘗試寫入 ★★★
+        try {
+            // 嘗試 1: 直接寫入歷史紀錄
+            await database.ref(historyPath).set(recordsToUpload);
+        } catch (writeErr) {
+            // 如果遇到權限錯誤，通常是因為 Profile 不存在或 UID 不匹配
+            if (writeErr.code === 'PERMISSION_DENIED' || (writeErr.message && writeErr.message.includes("permission_denied"))) {
+                console.warn("⚠️ 權限被拒，啟動「身份證修復」程序...");
+ 
+                const currentUser = firebase.auth().currentUser;
+                if (!currentUser) throw new Error("未偵測到登入狀態，無法修復權限。");
+ 
+                // 準備 Profile 資料 (強制寫入當前 UID)
+                const fixProfileData = {
+                    name: s.name,
+                    grade: s.grade,
+                    class: s.class,
+                    number: s.number || "",
+                    email: s.email || currentUser.email,
+                    uid: currentUser.uid, // ★ 關鍵：寫入正確的 UID
+                    last_login: new Date().toLocaleString('zh-HK'),
+                    status: 'active'
+                };
+ 
+                // 步驟 1: 先強制寫入 Profile (這一步通常是被允許的)
+                await database.ref(profilePath).update(fixProfileData);
+                console.log("✅ 身份證 (Profile) 修復完成。");
+ 
+                // 步驟 2: 再次嘗試寫入 History
+                await database.ref(historyPath).set(recordsToUpload);
+                console.log("✅ 歷史紀錄 (History) 重試上傳成功。");
+ 
+            } else {
+                // 如果是其他錯誤，則拋出
+                throw writeErr;
+            }
+        }
+ 
+        console.log(`[DEBUG] 雲端同步成功 (${recordsToUpload.length} 筆)`);
         
-        // E. 寫回本地
+        // F. 寫回本地
         await updateLocalHistoryWithMergedData(mergedRecords, db);
-        console.log(`[DEBUG] 本地更新完畢`);
         
         if (!isSilent) alert("✅ 資料同步完成！");
         
-        // F. 刷新畫面
+        // G. 刷新畫面
         const level3 = document.getElementById('historyLevel3');
         if (level3 && level3.style.display !== 'none' && typeof currentSubFunctionFilter !== 'undefined') {
              const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
@@ -16713,15 +16755,13 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
         
     } catch (err) {
-        console.error("[DEBUG] 同步錯誤:", err);
-        
-        if (err.code === 'PERMISSION_DENIED' || (err.message && err.message.includes("permission_denied"))) {
-            console.warn("[Sync] 權限被拒。可能是憑證剛過期或資料路徑不符。");
-            if (!isSilent) {
-                alert("⚠️ 同步失敗 (權限不足)。\n請嘗試重新登入學生帳號。");
+        console.error("[DEBUG] 同步最終失敗:", err);
+        if (!isSilent) {
+            if (err.message.includes("permission_denied")) {
+                alert("⚠️ 同步失敗：權限驗證錯誤。\n請嘗試重新登入學生帳號。");
+            } else {
+                alert("❌ 同步失敗: " + err.message);
             }
-        } else {
-            if (!isSilent) alert("❌ 同步失敗: " + err.message);
         }
     } finally {
         if (btn && originalText) {
@@ -16730,7 +16770,6 @@ async function syncHistoryToFirebase(isSilent = false) {
         }
     }
 }
-
 	
 // ==========================================
 // === 2. 更新本地資料庫 (修復：鎖定同步狀態) ===
