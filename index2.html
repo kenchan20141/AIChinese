@@ -16790,32 +16790,52 @@ async function smartSyncHistory() {
             console.log(`⬇️ [Download] 下載 ${missingLocally.length} 筆...`);
             const downloadedRecords = [];
  
-            await Promise.all(missingLocally.map(async (key) => {
-                try {
-                    const snap = await database.ref(`${basePath}/${key}`).once('value');
-                    const r = snap.val();
-                    if (r) {
-                        r.timestamp = Number(key);
-                        r.isSynced = true;
-                        r.hasBeenSynced = true;
-                        
-                        // ★★★ 核心修復：ID 合併 ★★★
-                        // 再次檢查本地是否真的有這個 timestamp (防止並發狀況)
-                        // 如果有，就偷它的 ID 來用，這樣 put 就會變成「更新」而不是「新增」
-                        const existingLocal = localTimestampMap.get(key);
-                        if (existingLocal && existingLocal.id) {
-                            r.id = existingLocal.id;
-                        } else {
-                            // 確保沒有殘留的 id，讓 IndexedDB 自動生成新的
-                            delete r.id;
-                        }
-                        
-                        downloadedRecords.push(r);
-                    }
-                } catch (err) {
-                    console.error(`下載失敗 ${key}`, err);
-                }
-            }));
+          // 逐筆下載
+await Promise.all(missingLocally.map(async (key) => {
+    try {
+        const snap = await database.ref(`${basePath}/${key}`).once('value');
+        const r = snap.val();
+        if (r) {
+            const keyNum = Number(key);
+ 
+            // ★★★ 兼容性遷移邏輯 (Migration Logic) ★★★
+            // 判斷：如果 Key 是合理的 Timestamp (大於 2020年)，代表是新格式
+            if (keyNum > 1600000000000) {
+                // 新格式：信任 Key，強制同步
+                r.timestamp = keyNum;
+                r.isSynced = true;
+                r.hasBeenSynced = true;
+            }
+            else {
+                // 舊格式 (Key 是 0, 1, 2...)：
+                // 1. 不要覆蓋 timestamp (保留資料原本內含的正確時間)
+                if (!r.timestamp) r.timestamp = new Date().getTime(); // 防呆補時
+                
+                // 2. 標記為「未同步」
+                // 這樣做很巧妙：系統會把它當作「本地新資料」，下次會自動上傳到正確的 Timestamp Key 位置
+                r.isSynced = false;
+                
+                // 3. 標記為「未曾同步」
+                // 防止它被誤刪
+                r.hasBeenSynced = false;
+                
+                console.log(`🔧 [Migration] 自動修復舊格式資料: ${r.title}`);
+            }
+ 
+            // ... ID 合併邏輯 (保持不變) ...
+            const existingLocal = localTimestampMap.get(String(r.timestamp));
+            if (existingLocal && existingLocal.id) {
+                r.id = existingLocal.id;
+            } else {
+                delete r.id;
+            }
+            
+            downloadedRecords.push(r);
+        }
+    } catch (err) {
+        console.error(`下載失敗 Key: ${key}`, err);
+    }
+}));
  
             if (downloadedRecords.length > 0) {
                 const writeTx = db.transaction([STORE_NAME], 'readwrite');
