@@ -21696,7 +21696,7 @@ function showArticleDetail(index) {
     };
 }
 // =======================================================
-// === [修訂 V3] 防入睡失神監察系統 (長震共響版) ===
+// === [修訂 V5] 防入睡失神監察系統 (400ms 輕震版) ===
 // =======================================================
  
 // 監察系統全域狀態
@@ -21734,14 +21734,14 @@ function toggleFocusMonitor() {
         startFocusListeners();
         focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000); 
         
-        // 開啟時：僅觸發短震動提示
+        // 開啟時：極短震動提示
         if(navigator.vibrate) navigator.vibrate([50]);
         console.log("防睡監察已啟動");
  
     } else {
         // === 關閉功能 ===
         stopFocusMonitor();
-        // 關閉時：僅觸發短震動提示
+        // 關閉時：極短震動提示
         if(navigator.vibrate) navigator.vibrate([30]);
         console.log("防睡監察已關閉");
     }
@@ -21786,6 +21786,8 @@ function checkFocusStatus() {
     const isMobile = window.innerWidth < 768 || /Android|webOS|iPhone|iPod|BlackBerry/i.test(navigator.userAgent);
     
     // 設定時間閾值 (毫秒)
+    // 手機: 橙燈 30s / 紅燈 80s
+    // 電腦: 橙燈 60s / 紅燈 100s
     const LIMIT_ORANGE = isMobile ? 30000 : 60000;
     const LIMIT_RED    = isMobile ? 80000 : 100000;
  
@@ -21793,11 +21795,10 @@ function checkFocusStatus() {
     if (idleTime >= LIMIT_RED) {
         // [紅燈] 入睡警報狀態
         
-        // ★★★ 關鍵修訂：持續長震動 ★★★
-        // 此函數每 1000ms 執行一次，這裡設定震動 800ms。
-        // 效果：震動 0.8秒 -> 停 0.2秒 -> 震動 0.8秒... (形成強烈長震循環)
+        // ★★★ 關鍵修訂：改為 400ms 震動 ★★★
+        // 每秒執行一次：震動 0.4秒 -> 休息 0.6秒
         if (navigator.vibrate) {
-            navigator.vibrate(800); 
+            navigator.vibrate(400); 
         }
  
         if (focusMonitorState.currentState !== 'red') {
@@ -21811,7 +21812,7 @@ function checkFocusStatus() {
                     btn.innerHTML = '<i class="fas fa-bell"></i>'; 
                 }
             }
-            // 播放音效 (設為循環，所以只需觸發一次 play)
+            // 播放音效
             focusMonitorState.audio.play().catch(e => console.log("警報音效播放受阻:", e));
         }
         
@@ -21912,6 +21913,7 @@ window.backToArticleList = function() {
         if(listView) listView.style.display = 'block';
     }
 };
+ 
  
  
 // [修改] 翻頁動作 (加入慢讀完成觸發已讀)
