@@ -16674,25 +16674,39 @@ function captureContainerHTML(containerId) {
 
 	
 // ==========================================
-// === 修訂版：儲存紀錄 (防止本地 ID 重複生成) ===
+// === 修訂版：儲存紀錄 (保留聊天介面結構) ===
 // ==========================================
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
-        // 1. 清理 HTML (移除輸入框等互動元素)
+        // 1. 清理 HTML (修復：保留畫布聊天室結構)
         if (aiContent && typeof aiContent === 'string') {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
-            const toRemove = tempDiv.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer, button, .btn-icon-action, .canvas-send-btn');
-            toRemove.forEach(el => el.remove());
+            
+            // A. 移除舊版/暫時性輸入框
+            const tempToRemove = tempDiv.querySelectorAll('#writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
+            tempToRemove.forEach(el => el.remove());
+ 
+            // B. 移除一般操作按鈕，但保留發送鍵 (.canvas-send-btn)
+            const buttonsToRemove = tempDiv.querySelectorAll('button:not(.canvas-send-btn), .btn-icon-action');
+            buttonsToRemove.forEach(el => el.remove());
+ 
+            // C. 清空輸入框內容但保留元素
+            const chatInputs = tempDiv.querySelectorAll('.canvas-input-area textarea');
+            chatInputs.forEach(el => { el.value = ''; el.innerHTML = ''; });
+ 
             aiContent = tempDiv.innerHTML;
         }
+ 
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         const ts = new Date().getTime();
+        
         if (typeof lastGeneratedTimestamp !== 'undefined') {
-            lastGeneratedTimestamp = ts; // 更新全域時間戳
+            lastGeneratedTimestamp = ts; // 更新全域時間戳，讓後續追問能對應到此紀錄
         }
+ 
         const record = {
             category: category,
             subFunction: subFunction,
@@ -16707,21 +16721,19 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
             isSynced: false,       
             hasBeenSynced: false   
         };
-        // ★★★ 關鍵修改：獲取並鎖定 ID ★★★
+ 
+        // 寫入並獲取 ID
         const generatedId = await new Promise((resolve, reject) => {
             const req = store.add(record);
             req.onsuccess = (e) => {
-                // e.target.result 就是 IndexedDB 剛生成的 Key (ID)
                 resolve(e.target.result);
             };
             req.onerror = reject;
         });
- 
-        // 將 ID 寫回記憶體中的物件，確保後續操作都是針對同一筆資料
         record.id = generatedId;
         console.log(`本地紀錄已建立 (ID: ${generatedId})`);
         
-        // 執行輕量上傳 (傳入帶有 ID 的 record)
+        // 執行輕量上傳
         const s = JSON.parse(localStorage.getItem('studentProfile'));
         if (s) {
             quickUploadToFirebase(record);
@@ -18347,14 +18359,14 @@ function enableTitleEditing(titleEl, id) {
 }
 
 // ==========================================
-// === 3. 聊天室/追問 即時存檔 (修復：狀態保護) ===
+// === 3. 聊天室/追問 即時存檔 (修復：保留輸入介面) ===
 // ==========================================
 async function updateHistoryChat() {
     if (!lastGeneratedTimestamp) {
         console.warn("未設定時間戳，無法儲存對話。");
-        return; 
+        return;
     }
-
+ 
     // 尋找內容來源 (兼容畫布與歷史詳情視窗)
     let sourceElement = document.getElementById("resultCanvasBody");
     const isCanvasHidden = !sourceElement || sourceElement.style.display === 'none' || sourceElement.offsetParent === null || sourceElement.innerHTML.trim() === "";
@@ -18362,17 +18374,34 @@ async function updateHistoryChat() {
     if (isCanvasHidden) {
         sourceElement = document.getElementById("historyModalContent");
     }
-
+ 
     if (!sourceElement) return;
     
-    // 複製並清理 HTML (移除輸入框與按鈕)
+    // 複製 HTML 進行清理
     const clone = sourceElement.cloneNode(true);
-    const inputAreas = clone.querySelectorAll('.canvas-input-area, #writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
-    inputAreas.forEach(el => el.remove());
+ 
+    // --- [修復重點 A]：只移除「舊版」或「暫時性」的輸入框，保留 .canvas-input-area ---
+    const tempInputAreas = clone.querySelectorAll('#writingGuideChatInputContainer, #writingChatInputContainer, #argumentChatInputContainer, #chatInputContainer');
+    tempInputAreas.forEach(el => el.remove());
     
-    const buttons = clone.querySelectorAll('button, .btn-icon-action, .canvas-send-btn, .history-save-btn, .morandi-save-float-btn');
+    // --- [修復重點 B]：針對畫布聊天室的輸入框，只清空數值，不移除元素 ---
+    const canvasInputs = clone.querySelectorAll('.canvas-input-area textarea');
+    canvasInputs.forEach(el => {
+        el.value = '';      // 清空輸入值
+        el.innerHTML = '';  // 清空 HTML 內容
+        el.removeAttribute('disabled'); // 確保下次打開可輸入
+    });
+ 
+    // --- [修復重點 C]：移除其他功能按鈕，但「保留」發送鍵 (.canvas-send-btn) ---
+    // 這裡使用 :not() 選擇器來排除發送按鈕和懸浮儲存按鈕
+    const buttons = clone.querySelectorAll('button:not(.canvas-send-btn):not(.morandi-save-float-btn), .btn-icon-action, .history-save-btn');
     buttons.forEach(el => el.remove());
-
+ 
+    // 確保發送按鈕是啟用狀態
+    const sendBtns = clone.querySelectorAll('.canvas-send-btn');
+    sendBtns.forEach(btn => btn.disabled = false);
+ 
+    // 處理 Canvas 圖表 (保持不變)
     const clonedCanvases = clone.querySelectorAll('canvas');
     clonedCanvases.forEach((canvas) => {
         canvas.style.width = '100%';
@@ -18380,40 +18409,36 @@ async function updateHistoryChat() {
         canvas.style.display = 'block';
         canvas.removeAttribute('id');
     });
-
+ 
     const newAiContent = clone.innerHTML;
-
+ 
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const index = store.index('timestamp'); 
-
+        const index = store.index('timestamp');
+ 
         const request = index.get(lastGeneratedTimestamp);
-
+ 
         request.onsuccess = function(event) {
             const data = event.target.result;
             if (data) {
-                // A. 更新內容 (保留最新的聊天紀錄)
+                // A. 更新內容 (寫入包含新氣泡的 HTML)
                 data.aiContent = newAiContent;
                 
-                // B. ★★★ 關鍵狀態設定 ★★★
-                // 1. 設為 false：告訴 Merge 函數「我有新內容，請用我覆蓋雲端」。
-                data.isSynced = false; 
-                
-                // 2. 設為 true：告訴 Merge 函數「我不是新草稿，我已經存在過了，不要誤刪我」。
-                // (這可以防止在極端情況下雲端剛好也沒資料時的邏輯錯亂)
-                data.hasBeenSynced = true; 
-
+                // B. 設定同步狀態
+                data.isSynced = false;       // 標記為本地較新
+                data.hasBeenSynced = true;   // 防止被誤刪
+ 
                 const updateRequest = store.put(data);
                 
                 updateRequest.onsuccess = function() {
                     console.log("聊天紀錄已更新 (準備上傳)");
                     
                     // 立即觸發靜默同步，將最新的對話推送到雲端
-                    const s = JSON.parse(localStorage.getItem('studentProfile'));
-                    if (s) {
-                        syncHistoryToFirebase(true); 
+                    // 注意：此處調用 smartSyncHistory 而非 syncHistoryToFirebase
+                    if (typeof smartSyncHistory === 'function') {
+                        smartSyncHistory();
                     }
                 };
             }
