@@ -12245,90 +12245,76 @@ localStorage.removeItem("argumentOutlineData");
 }
 }
 
-// === 修正版：提交議論指引 (移除前端不存在的 categories 引用) ===
-async function submitArgumentGuide() {
-    const submitBtn = document.getElementById('submitArgumentGuideBtn');
-    if (!submitBtn) return;
-    
+// =========================================
+// === [修復] 議論文大綱提交 (歷史紀錄只顯示題目) ===
+// =========================================
+async function submitArgumentOutline() {
+    const submitBtn = document.getElementById('submitArgumentOutlineBtn');
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
- 
+
     try {
-        const topic = document.getElementById("argumentGuideTopic").value.trim();
-        const point = document.getElementById("argumentGuidePoint").value.trim();
-        const evidence = document.getElementById("argumentGuideEvidence").value.trim();
-        const argument = document.getElementById("argumentGuideArgument").value.trim();
+        const topic = localStorage.getItem("argumentCurrentTopic");
+        if (!topic) { alert("請先設定題目"); submitBtn.disabled = false; return; }
+
+        // 收集用戶輸入的大綱數據
+        const table = document.getElementById("argumentOutlineTable");
+        const rows = table.rows;
+        const outlineData = [];
         
-        if (!topic) {
-            alert("請輸入題目");
-            submitBtn.disabled = false;
-            return;
+        // 構建給 AI 讀的上下文 (包含詳細內容)
+        let readableContext = `題目：${topic}\n\n`;
+        
+        // 從第二行開始 (跳過表頭)
+        for (let i = 1; i < rows.length; i++) {
+            const part = rows[i].cells[0].innerText.trim();
+            const point = rows[i].cells[1].querySelector("textarea")?.value.trim() || "";
+            const evidence = rows[i].cells[2].querySelector("textarea")?.value.trim() || "";
+            
+            outlineData.push({ part, point, evidence });
+            
+            // 累加到上下文文字 (給聊天室用)
+            if(point || evidence) {
+                readableContext += `【${part}】\n論點：${point}\n論據：${evidence}\n\n`;
+            }
         }
- 
-        showLoading("陳SIR 正在編寫指引...");
-        
-        // 傳送數據至後端 (已移除 categories 引用)
+
+        showLoading("陳SIR 正在審視大綱...");
+
         const payload = {
             action: "grade_argument",
             data: {
-                subType: "guide",
+                subType: "outline",
                 topic: topic,
-                point: point || "無",
-                evidence: evidence || "無",
-                argument: argument || "無"
+                outlineData: outlineData, 
+                tone: document.getElementById("argumentOutlineTone").value
             }
         };
- 
-        const guide = await callReadingAPI(payload);
         
-        currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
-        currentContextReview = guide;
- 
-        // --- 組裝 HTML ---
-        const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
+        const response = await callAPI(payload, 0);
         
-        let guideHTML = `
-            <div class="morandi-guide-container">
-                <div style="margin-bottom: 20px; border-bottom: 1px solid #e0ddd7; padding-bottom: 10px;">
-                    <h2 style="color: #5e7067; font-size: 1.4rem; letter-spacing: 2px; margin: 0;">${topic}</h2>
-                </div>
-        `;
- 
-        guideParts.forEach(part => {
-            const lines = part.split("\n").filter(line => line.trim());
-            const title = lines.shift() || "指引內容";
-            // 處理換行，讓段落分明但不過寬
-            const content = lines.join("<br>");
- 
-            guideHTML += `
-                <div class="guide-section-card">
-                    <div class="guide-card-header">${title}</div>
-                    <div class="guide-card-body">${content}</div>
-                </div>
-            `;
-        });
- 
-        guideHTML += `</div>`;
- 
-        // 加入追問聊天室
-        guideHTML += getCanvasChatHTML('argument_guide');
- 
-        // 開啟結果畫布
-        openResultCanvas("議論文寫作指引");
-        document.getElementById("resultCanvasBody").innerHTML = guideHTML;
- 
-        // 儲存至歷史紀錄
-        await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
+        // 設定聊天室上下文 (這是詳細版，給 AI 看的)
+        currentContextContent = readableContext;
+        currentContextReview = response;
+
+        // 顯示結果
+        displayArgumentOutlineComment(response, outlineData);
         
+        // 儲存到歷史紀錄
+        const htmlToSave = document.getElementById("resultCanvasBody").innerHTML;
+        
+        // ★★★ 關鍵修改：存入歷史紀錄的 User Content 只包含題目 ★★★
+        // 這裡傳入 `題目：${topic}`，而不是 `readableContext`
+        await saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, htmlToSave);
+
     } catch (error) {
-        console.error("提交指引時出錯:", error);
-        alert("指引生成失敗，請重試");
+        console.error("提交大綱失敗", error);
+        alert("生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
         hideLoading();
     }
 }
-
 // ==========================================
 // === 議論文提交函式 (單系統) ===
 // ==========================================
@@ -13433,9 +13419,8 @@ await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inpu
 
 	
 // ==========================================
-// === 敘事抒情提交函式 
+// === 敘事抒情提交函式 (大綱模式只存題目)
 // ==========================================
-
 async function submitWriting() {
     const submitBtn = document.getElementById('submitWritingBtn');
     submitBtn.disabled = true;
@@ -13483,7 +13468,6 @@ async function submitWriting() {
 
             showLoading("陳SIR 正在點評大綱..."); 
             
-            // ★ 建構 Payload 傳給後端
             const payload = {
                 action: "grade_narrative",
                 data: {
@@ -13501,9 +13485,9 @@ async function submitWriting() {
             currentContextReview = response;
             displayOutlineComment(response, outlineData);
             
-            const structureName = structure === "fourPart" ? "起承轉合" : "三線";
-            let userContentForHistory = `題目：${topic}\n結構：${structureName}`;
-            saveToHistory("敘事抒情", "大綱點評", topic, userContentForHistory, document.getElementById("resultCanvasBody").innerHTML);
+            // ★★★ 關鍵修改：歷史紀錄只存題目 ★★★
+            // 原本可能是 `題目：${topic}\n結構：...`，現在改為單純的題目
+            saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
 
         } 
         // === 模式二：敘事物象 ===
@@ -13511,7 +13495,6 @@ async function submitWriting() {
             content = document.getElementById("narrativeElements").value.trim();
             showLoading("陳SIR 正在生成物象...");
             
-            // ★ 建構 Payload 傳給後端
             const payload = {
                 action: "grade_narrative",
                 data: {
@@ -13537,7 +13520,7 @@ async function submitWriting() {
             await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
 
         } 
-        // === 模式三：片段描寫 (文章點評) - 包含雙系統驗證 ===
+        // === 模式三：片段描寫 ===
         else { 
             content = document.getElementById("writingContent").value.trim();
             if (!content) { alert("請先輸入寫作內容"); submitBtn.disabled = false; return; }
@@ -13547,7 +13530,6 @@ async function submitWriting() {
 
             showLoading(`${currentReviewerName} 正在點評...`); 
 
-            // ★ 建構 Payload 傳給後端
             const payload = {
                 action: "grade_narrative",
                 data: {
@@ -13557,15 +13539,13 @@ async function submitWriting() {
                     focus: localStorage.getItem("currentFocus"), 
                     plot: localStorage.getItem("currentPlot"),   
                     content: content,
-                    reviewer: document.getElementById('writingReviewer').value, // 傳送 ID 給後端查表
+                    reviewer: document.getElementById('writingReviewer').value,
                     tone: tone,
                     selectedScopes: selectedScopes
                 }
             };
 
             if (isFullReview) {
-                // ★★★ 雙系統驗證：同時呼叫 callAPI (Gemini) 和 callLlama3API (Llama3) ★★★
-                // 這裡我們直接傳送 Payload 物件，修改後的 callAPI/callLlama3API 會處理它
                 const [originalApiResponse, llama3ApiResponse] = await Promise.all([
                     callAPI(payload, 0),
                     callLlama3API(payload, 0)
@@ -13574,11 +13554,9 @@ async function submitWriting() {
                 currentContextContent = content;
                 currentContextReview = originalApiResponse;
 
-                // 生成評分報告
                 await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
             
             } else {
-                // 聚焦點評 (單系統)
                 const response = await callAPI(payload, 0);
                 
                 currentContextContent = content;
@@ -18186,16 +18164,21 @@ function findIdByTimestamp(timestamp) {
 
 
 // ==========================================
-// === 4. 儲存修訂 (修復：配合 Smart Sync) ===
+// === 4. 儲存修訂 (修復：UI回饋優化版) ===
 // ==========================================
 async function saveHistoryEdits(id) {
     const userContentEl = document.getElementById(`edit-user-content-${id}`);
     const aiContentEl = document.getElementById(`edit-ai-content-${id}`);
     const saveBtn = document.getElementById(`history-save-btn-${id}`);
-    // 鎖定按鈕防止重複點擊
-    const originalIcon = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    saveBtn.disabled = true;
+    
+    // 備份原始按鈕內容以便還原
+    const originalIcon = saveBtn ? saveBtn.innerHTML : '<i class="fas fa-save"></i>';
+    
+    if (saveBtn) {
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        saveBtn.disabled = true;
+    }
+
     try {
         const db = await openHistoryDB();
         const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -18206,21 +18189,22 @@ async function saveHistoryEdits(id) {
         getRequest.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
-                // 1. 記錄舊的時間戳 (這是舊資料在 Firebase 上的 Key)
+                // 1. 記錄舊的時間戳
                 const oldTimestamp = record.timestamp;
+                
                 // 2. 更新內容
                 if (userContentEl) record.userContent = userContentEl.innerText;
                 if (aiContentEl) record.aiContent = aiContentEl.innerHTML;
-                // 3. 更新時間戳 (視為新版，確保排序在最前)
+                
+                // 3. 更新時間戳 (視為新版)
                 const newTimestamp = new Date().getTime();
                 record.timestamp = newTimestamp;
                 record.dateStr = new Date().toLocaleString('zh-HK', { hour12: false });
                 
                 // 4. 設定同步狀態
-                // 標記為 false，這樣 smartSyncHistory 才會知道這筆需要上傳
                 record.isSynced = false;
-                // 重置此標記，視為全新資料
                 record.hasBeenSynced = false;
+                
                 // 5. 寫入本地資料庫
                 const putRequest = store.put(record);
                 
@@ -18228,53 +18212,51 @@ async function saveHistoryEdits(id) {
                     console.log("本地紀錄已修訂，準備同步...");
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     
-                    // --- 關鍵步驟開始 ---
                     if (s) {
                         try {
-                            // 步驟 A: 手動刪除雲端「舊」的那個時間戳 Key
-                            // 如果不刪除，Smart Sync 可能會誤以為那是雲端多出來的資料而把它下載回來
                             const oldPath = `students/${s.grade}/${s.class}/${s.name}/history/${oldTimestamp}`;
                             await database.ref(oldPath).remove();
-                            console.log("🗑️ 雲端舊版本已移除");
                         } catch (cloudErr) {
                             console.error("雲端舊檔移除失敗:", cloudErr);
                         }
                     }
                     
-                    // 步驟 B: 呼叫省流同步
-                    // 它會掃描本地，發現這筆 record.isSynced = false，然後將其上傳
-                    await smartSyncHistory();
-                    // --- 關鍵步驟結束 ---
-                    // 6. 更新 UI 並鎖定新 ID
-                    // 因為 ID 可能會變 (視 IndexedDB 實作而定)，或者我們需要用新 Timestamp 找回 ID
+                    // 背景執行同步，不阻擋 UI
+                    smartSyncHistory(); 
+                    
+                    // 6. 尋找新 ID 並刷新介面
                     const newId = await findIdByTimestamp(newTimestamp);
                     if (newId) {
-                        // 更新全域時間戳，確保後續追問是針對新版本
                         lastGeneratedTimestamp = newTimestamp;
                         
-                        // 重新加載詳情視窗
+                        // ★★★ 關鍵：重新載入詳情，這會重建 DOM，從而移除轉圈的按鈕 ★★★
                         await viewHistoryDetail(newId);
                         
-                        // 如果列表頁面開著，刷新列表
+                        // 刷新列表 (如果在背景開啟)
                         if (typeof currentSubFunctionFilter !== 'undefined' &&
                             document.getElementById('historyLevel3').style.display !== 'none') {
                             const themeIndex = typeof currentThemeIndex !== 'undefined' ? currentThemeIndex : 1;
                             enterHistoryList(currentSubFunctionFilter, themeIndex);
                         }
-                        alert("✅ 修訂已儲存並同步！");
+                        
+                        alert("✅ 修訂已儲存！");
                     }
                 };
             } else {
                 alert("錯誤：找不到原始紀錄。");
-                saveBtn.disabled = false;
-                saveBtn.innerHTML = originalIcon;
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = originalIcon;
+                }
             }
         };
     } catch (e) {
         console.error("儲存失敗:", e);
         alert("儲存失敗，請重試。");
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = originalIcon;
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalIcon;
+        }
     }
 }
 	
