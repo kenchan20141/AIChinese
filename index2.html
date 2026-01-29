@@ -21278,6 +21278,14 @@ function renderArticleList() {
         const item = document.createElement('div');
         item.className = itemClass;
         item.onclick = () => showArticleDetail(realIndex);
+
+		// ★★★ 新增：右鍵/長按 切換已讀狀態 ★★★
+item.oncontextmenu = function(e) {
+    e.preventDefault(); // 阻止瀏覽器預設選單
+    e.stopPropagation();
+    manualToggleReadStatus(article.title);
+    return false;
+};
         
         // 注意：padding-left 在 CSS 中針對 .read 有額外 border-left 設定
         item.innerHTML = `
@@ -21313,6 +21321,35 @@ function renderArticleList() {
     }, 50);
 }
 
+
+
+	// 1. 切換已讀狀態的邏輯函式
+function manualToggleReadStatus(title) {
+    let readList = getReadArticles();
+    const index = readList.indexOf(title);
+    
+    let msg = "";
+    if (index !== -1) {
+        // 已讀 -> 未讀 (移除)
+        readList.splice(index, 1);
+        msg = "已標記為未讀";
+    } else {
+        // 未讀 -> 已讀 (加入)
+        readList.push(title);
+        msg = "已標記為已讀";
+    }
+    
+    localStorage.setItem('sansi_read_articles_list', JSON.stringify(readList));
+    
+    // 觸發震動回饋
+    if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+    
+    // 顯示一個極短的提示 (使用您現有的 Alert 系統)
+    alert(msg);
+    
+    // 重新渲染列表以更新顏色和勾號
+    renderArticleList();
+}
 
 
 // === [新增] 觸發頁碼輸入模式 ===
@@ -22149,43 +22186,55 @@ const SlowReaderFocusManager = {
     INTERVAL_MS: 180 * 1000, 
     WARNING_MS: 30 * 1000,
     
-    // 初始化 UI
-    initUI: function() {
-        let indicator = document.getElementById('slowReaderFocusIndicator');
-        if (!indicator) {
-            indicator = document.createElement('button');
-            indicator.id = 'slowReaderFocusIndicator';
-            indicator.innerHTML = ''; 
+  // 在 SlowReaderFocusManager 物件內的 initUI 函數
+initUI: function() {
+    let indicator = document.getElementById('slowReaderFocusIndicator');
+    if (!indicator) {
+        indicator = document.createElement('button');
+        indicator.id = 'slowReaderFocusIndicator';
+        indicator.innerHTML = '';
+        
+        // 點擊燈號邏輯 (修訂版)
+        indicator.onclick = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
             
-            // 點擊燈號 (喚醒)
-            indicator.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation(); // 阻止事件冒泡，所以必須在這裡手動執行翻頁
-                
+            // ★★★ 新增判斷：是否正在慢讀中？ ★★★
+            if (readerState.isReading) {
+                // 情境 A：慢讀中 + (橙燈或紅燈) -> 執行喚醒 (重置計時 + 翻頁)
                 if (SlowReaderFocusManager.isPrompting) {
-                    // === 橙/紅燈狀態 ===
-                    // 1. 重置計時 (變回綠燈)
-                    SlowReaderFocusManager.handleUserActivity(); 
+                    SlowReaderFocusManager.handleUserActivity();
                     
-                    // 2. ★★★ 新增：手動執行下一頁 ★★★
-                    // 因為點擊被這裡攔截了，所以要主動呼叫翻頁
+                    // 手動執行下一頁
                     if (typeof goToNextReaderPage === 'function') {
                         goToNextReaderPage();
                     }
-
-                    // 3. 恢復自動播放 (如果原本有設定)
+                    // 恢復自動播放
                     if (typeof startReaderAutoPage === 'function') {
                         startReaderAutoPage();
                     }
-                } else {
-                    // === 綠燈狀態 ===
-                    // 只是切換防睡功能的開/關
-                    SlowReaderFocusManager.toggle();
                 }
-            };
-            document.body.appendChild(indicator);
-        }
-    },
+                // 情境 B：慢讀中 + 綠燈 -> 什麼都不做 (禁止關閉)
+                else {
+                    console.log("慢讀模式下，防睡功能已被鎖定，無法透過色條關閉。");
+                    // 這裡可以選擇性加入一個輕微震動，提示用戶點擊無效
+                    if (navigator.vibrate) navigator.vibrate(50);
+                }
+                
+                // 關鍵：慢讀模式下，程式執行到此結束，不執行下方的 toggle
+                return;
+            }
+ 
+            // 情境 C：非慢讀模式 -> 執行原本的開關切換邏輯
+            if (SlowReaderFocusManager.isPrompting) {
+                SlowReaderFocusManager.handleUserActivity();
+            } else {
+                SlowReaderFocusManager.toggle();
+            }
+        };
+        document.body.appendChild(indicator);
+    }
+},
 
     // 啟動
     start: function() {
