@@ -21371,11 +21371,11 @@ function manualToggleReadStatus(title) {
     
     localStorage.setItem('sansi_read_articles_list', JSON.stringify(readList));
     
-    // 觸發震動回饋
+// 觸發震動回饋
     if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
     
     // 顯示一個極短的提示 (使用您現有的 Alert 系統)
-    alert(msg);
+    // alert(msg);  <-- 將此行刪除或註解掉即可取消彈窗
     
     // 重新渲染列表以更新顏色和勾號
     renderArticleList();
@@ -22224,37 +22224,29 @@ initUI: function() {
         indicator.id = 'slowReaderFocusIndicator';
         indicator.innerHTML = '';
         
-        // 點擊燈號邏輯 (修訂版)
+       // 點擊燈號邏輯 (修改版：慢讀時點擊即翻頁)
         indicator.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
             
-            // ★★★ 新增判斷：是否正在慢讀中？ ★★★
+            // ★★★ 修改：若正在慢讀中，點擊色條視為「下一頁」 ★★★
             if (readerState.isReading) {
-                // 情境 A：慢讀中 + (橙燈或紅燈) -> 執行喚醒 (重置計時 + 翻頁)
-                if (SlowReaderFocusManager.isPrompting) {
-                    SlowReaderFocusManager.handleUserActivity();
-                    
-                    // 手動執行下一頁
-                    if (typeof goToNextReaderPage === 'function') {
-                        goToNextReaderPage();
-                    }
-                    // 恢復自動播放
-                    if (typeof startReaderAutoPage === 'function') {
-                        startReaderAutoPage();
-                    }
-                }
-                // 情境 B：慢讀中 + 綠燈 -> 什麼都不做 (禁止關閉)
-                else {
-                    console.log("慢讀模式下，防睡功能已被鎖定，無法透過色條關閉。");
-                    // 這裡可以選擇性加入一個輕微震動，提示用戶點擊無效
-                    if (navigator.vibrate) navigator.vibrate(50);
+                // 1. 無論是紅燈、橙燈還是綠燈，都視為用戶活躍 (重置防睡計時)
+                SlowReaderFocusManager.handleUserActivity();
+                
+                // 2. 執行翻頁動作
+                if (typeof goToNextReaderPage === 'function') {
+                    goToNextReaderPage();
                 }
                 
-                // 關鍵：慢讀模式下，程式執行到此結束，不執行下方的 toggle
+                // 3. 重置自動播放計時器 (避免剛翻頁馬上又自動翻)
+                if (typeof startReaderAutoPage === 'function') {
+                    startReaderAutoPage();
+                }
+                
+                // 結束執行，不觸發開關切換
                 return;
             }
- 
             // 情境 C：非慢讀模式 -> 執行原本的開關切換邏輯
             if (SlowReaderFocusManager.isPrompting) {
                 SlowReaderFocusManager.handleUserActivity();
