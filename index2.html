@@ -7258,6 +7258,103 @@ body.cat-dragging { cursor: grabbing !important; }
     margin-left: 8px;
     opacity: 0.8;
 }
+
+
+/* ========================================= */
+/* === [修訂] 專注監察功能 (莫蘭迪色 + 位置修正) === */
+/* ========================================= */
+ 
+/* 按鈕基礎過渡 */
+#focusMonitorBtn {
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), width 0.3s ease, height 0.3s ease, background-color 0.5s ease;
+}
+ 
+/* 狀態一：綠燈 (監察中 - 莫蘭迪灰綠) */
+.focus-status-green {
+    background-color: #8fa398 !important; /* Sage Green */
+    color: white !important;
+    border-color: #8fa398 !important;
+    box-shadow: 0 0 15px rgba(143, 163, 152, 0.6) !important;
+}
+ 
+/* 狀態二：橙燈 (閒置警告 - 莫蘭迪陶土色) */
+.focus-status-orange {
+    background-color: #e6b49d !important; /* Muted Apricot */
+    color: white !important;
+    border-color: #e6b49d !important;
+    box-shadow: 0 0 15px rgba(230, 180, 157, 0.6) !important;
+    animation: monitor-breath 2s infinite ease-in-out;
+}
+ 
+/* 狀態三：紅燈 (入睡/失神警告 - 莫蘭迪豆沙紅) */
+.focus-status-red {
+    background-color: #d69a92 !important; /* Dusty Red */
+    color: white !important;
+    border-color: #d69a92 !important;
+    box-shadow: 0 0 20px rgba(214, 154, 146, 0.9) !important;
+    animation: monitor-pulse 0.5s infinite;
+}
+ 
+/* === 極低調指示燈模式 (滾動時觸發) === */
+#focusMonitorBtn.minimized {
+    /* 縮小尺寸 */
+    width: 14px !important;
+    height: 14px !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    
+    /* 移除文字與邊框，僅保留色塊 */
+    border: 2px solid rgba(255, 255, 255, 0.9) !important;
+    border-radius: 50% !important;
+    
+    /* === [關鍵修訂] 定位調整 === */
+    /* 脫離 Flex流，強制固定定位 */
+    position: fixed !important;
+    
+    /* 垂直：與右上角按鈕群組 (top:20px) 的中心點對齊 */
+    /* 算式：20px + (45px按鈕高 - 14px圓點高)/2 = 35.5px */
+    top: 35px !important;
+    
+    /* 水平：放在「返回頂部」按鈕 (right:25px) 的左側 */
+    /* 算式：25px + 45px按鈕寬 + 15px間距 = 85px */
+    right: 85px !important;
+    
+    /* 層級確保在最上層 */
+    z-index: 25005 !important;
+    
+    /* 禁止點擊，視覺優化 */
+    pointer-events: none !important;
+    opacity: 1 !important; /* 確保不透明，以免看不見 */
+    cursor: default !important;
+    box-shadow: none !important;
+}
+ 
+/* 在極低調模式下，隱藏圖示 */
+#focusMonitorBtn.minimized i {
+    display: none !important;
+}
+ 
+/* 紅燈在低調模式下保留莫蘭迪色系的閃爍 */
+#focusMonitorBtn.minimized.focus-status-red {
+    box-shadow: 0 0 12px rgba(214, 154, 146, 0.8) !important;
+    animation: monitor-pulse 0.5s infinite;
+}
+ 
+/* 動畫 Keyframes */
+@keyframes monitor-breath {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.9; }
+    100% { transform: scale(1); opacity: 1; }
+}
+ 
+@keyframes monitor-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+    100% { transform: scale(1); }
+}
+
+
+	
 	
 </style>
 
@@ -21379,14 +21476,11 @@ function scrollToAnalysis() {
     }
 }
 
-// === [修訂版] 顯示文章詳情 (加入已讀判定邏輯) ===
+// === [修訂版] 顯示文章詳情 (含滾動變形指示燈) ===
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
- 
-    // ★★★ 新增 1: 記錄當前標題 (供判定使用) ★★★
     currentReadingArticleTitle = article.title;
- 
     const isSaved = isArticleBookmarked(article.title);
     const bookmarkClass = isSaved ? 'bookmarked' : '';
     
@@ -21397,11 +21491,8 @@ function showArticleDetail(index) {
     currentContextType = 'featured_discussion';
     currentContextReview = "（這是精選文章的閱讀討論）";
     
-    // === [詩歌判斷邏輯] ===
     const isPoetry = /^\s*<br\s*\/?>/i.test(article.content);
-    
     let contentHtml = '';
- 
     if (isPoetry) {
         let cleanContent = article.content.replace(/^\s*<br\s*\/?>/i, '').trim();
         cleanContent = cleanContent.replace(/\\n/g, '\n');
@@ -21411,10 +21502,8 @@ function showArticleDetail(index) {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
         }).join('');
     }
- 
     let analysisHtmlBlock = '';
     const hasAnalysis = article.analysis && article.analysis.trim() !== '';
- 
     if (hasAnalysis) {
         const analysisText = article.analysis.split('\n').filter(p => p.trim()).map((p, i) => {
             return `<p style="margin-bottom: 1.5em; ${i === 0 ? 'margin-top:0;' : ''}">${p}</p>`;
@@ -21426,24 +21515,19 @@ function showArticleDetail(index) {
             <div class="analysis-body" style="margin-top: 0 !important; font-size: 1.05rem !important;">${analysisText}</div>
         </div>`;
     }
- 
     const analysisBtnHtml = hasAnalysis ?
         `<button class="detail-float-btn scroll-hide-target" onclick="scrollToAnalysis()" title="跳至賞析">
             <i class="fas fa-comment-dots"></i>
          </button>` : '';
- 
     const disclaimerHtml = `
         <div style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #eee; color: #aaa; font-size: 0.85rem; text-align: center; font-family: 'Noto Serif TC', serif;">
             本文僅供校內教學研習之用。<br>原文版權歸原作者/出版社所有。
         </div>`;
- 
     const safeContent = encodeURIComponent(article.content);
     const safeTitle = encodeURIComponent(article.title);
- 
     let chatHTML = getCanvasChatHTML('featured_discussion');
     chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論');
     chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？');
- 
     detailView.innerHTML = `
         <style>
             @keyframes stamp-slam {
@@ -21457,14 +21541,20 @@ function showArticleDetail(index) {
             }
         </style>
         <div id="readingProgressBarContainer"><div id="readingProgressBar"></div></div>
+        
         <div class="detail-action-group">
             <button id="detailBookmarkBtn" class="detail-float-btn scroll-hide-target ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤"><i class="fas fa-bookmark"></i></button>
+            
+            <!-- ★★★ 防睡監察按鈕 ★★★ -->
+            <button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target" onclick="toggleFocusMonitor()" title="開啟防睡監察"><i class="fas fa-eye"></i></button>
+            
             ${analysisBtnHtml}
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀"><i class="fas fa-book-reader"></i></button>
             <button class="detail-float-btn scroll-hide-target" onclick="openReaderSettings()" title="慢讀設定"><i class="fas fa-cog"></i></button>
             <button id="detailTopBtn" class="detail-float-btn" onclick="scrollToArticleTop()" title="返回頂部" style="display: none;"><i class="fas fa-arrow-up"></i></button>
             <button class="detail-float-btn close-mode" onclick="backToArticleList()" title="返回列表"><i class="fas fa-times"></i></button>
         </div>
+ 
         <div class="read-mode-container">
             <div class="detail-header-group" style="display: flex; flex-direction: column; align-items: center; border-bottom: 2px dashed #e0ddd7; margin-bottom: 25px !important; padding-bottom: 15px !important;">
                 <div class="detail-title-text auto-fit-title" id="detailTitleText" style="color: ${titleColor}; font-weight: bold; margin-bottom: 20px; text-align: center; width: 100%;">
@@ -21500,14 +21590,11 @@ function showArticleDetail(index) {
             </div>
         </div>
     `;
- 
     detailView.style.display = 'block';
     document.body.style.overflow = 'hidden';
- 
     setTimeout(() => {
         const titleEl = document.getElementById('detailTitleText');
         if (titleEl) fitTextToContainer(titleEl, 24, 38);
- 
         if (isPoetry) {
             const poetryEl = document.getElementById('poetryContent');
             if (poetryEl) {
@@ -21523,50 +21610,252 @@ function showArticleDetail(index) {
             }
         }
     }, 50);
- 
-    // ★★★ 新增 2: 修改 onscroll 邏輯 (判定手動滾動到賞析) ★★★
+    // ★★★ [核心] 滾動隱藏/顯示邏輯 (含指示燈變形) ★★★
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
         const winHeight = detailView.clientHeight;
         const scrollPercent = (scrollTop / (docHeight - winHeight)) * 100;
         
-        // 進度條
         const progressBar = document.getElementById('readingProgressBar');
         const progressContainer = document.getElementById('readingProgressBarContainer');
         if(progressBar) progressBar.style.width = scrollPercent + "%";
         if(progressContainer) progressContainer.style.opacity = scrollTop > 10 ? '1' : '0';
- 
-        // 按鈕顯隱
         const hideTargets = document.querySelectorAll('.scroll-hide-target');
         const topBtn = document.getElementById('detailTopBtn');
+        
+        // 處理滾動隱藏按鈕
+        hideTargets.forEach(btn => {
+            if (scrollTop > 100) {
+                // 如果是監察按鈕且已啟動 (正在亮燈)，則不隱藏，而是變形為指示燈
+                if (btn.id === 'focusMonitorBtn' && focusMonitorState.isActive) {
+                    btn.classList.add('minimized');
+                    btn.style.display = 'flex'; // 保持顯示 (但透過 CSS 變小)
+                } else {
+                    btn.style.display = 'none'; // 其他按鈕正常隱藏
+                }
+            } else {
+                // 滾回頂部：恢復所有按鈕顯示
+                if (btn.id === 'focusMonitorBtn') {
+                    btn.classList.remove('minimized'); // 恢復大按鈕狀態
+                }
+                btn.style.display = 'flex';
+            }
+        });
+ 
+        // 返回頂部按鈕邏輯
         if (scrollTop > 100) {
-            hideTargets.forEach(btn => btn.style.display = 'none');
             if (topBtn) topBtn.style.display = 'flex';
         } else {
-            hideTargets.forEach(btn => btn.style.display = 'flex');
             if (topBtn) topBtn.style.display = 'none';
         }
- 
-        // ==========================================
-        // ★★★ [核心] 判定是否讀到賞析部分 ★★★
-        // ==========================================
         const analysisSection = document.getElementById('articleAnalysisSection');
-        
-        // 條件：
-        // 1. 賞析區塊存在
-        // 2. 並且「不是」由按鈕觸發的自動滾動 (isAutoScrollingToAnalysis === false)
         if (analysisSection && !isAutoScrollingToAnalysis) {
             const rect = analysisSection.getBoundingClientRect();
-            
-            // 邏輯：當賞析區塊的頂部 (Top) 進入視窗高度的 80% 位置時，視為已讀
-            // (代表使用者已經滑到了賞析的開頭)
             if (rect.top <= winHeight * 0.8 && rect.bottom >= 0) {
                 markArticleAsRead(currentReadingArticleTitle);
             }
         }
     };
 }
+
+// =======================================================
+// === [修訂] 防入睡失神監察系統 (無彈窗 + 莫蘭迪色) ===
+// =======================================================
+ 
+// 監察系統全域狀態
+let focusMonitorState = {
+    isActive: false,        
+    lastActivityTime: 0,    
+    checkInterval: null,    
+    currentState: 'green',  
+    audio: new Audio('閉眼警告.mp3')
+};
+ 
+// 1. 開啟/關閉 監察功能 (修訂：移除 Alert)
+function toggleFocusMonitor() {
+    const btn = document.getElementById('focusMonitorBtn');
+    if (!btn) return;
+ 
+    if (!focusMonitorState.isActive) {
+        // === 開啟功能 ===
+        focusMonitorState.isActive = true;
+        focusMonitorState.lastActivityTime = Date.now();
+        focusMonitorState.currentState = 'green';
+        
+        // 更新按鈕外觀：顯示開啟狀態 (莫蘭迪綠)
+        btn.innerHTML = '<i class="fas fa-eye"></i>';
+        btn.classList.remove('minimized');
+        btn.classList.add('focus-status-green');
+        btn.title = "防睡監察中 (點擊關閉)";
+        
+        // 預先加載音效
+        focusMonitorState.audio.loop = true;
+        focusMonitorState.audio.volume = 1.0;
+        focusMonitorState.audio.load();
+        
+        // 啟動監聽器與計時器
+        startFocusListeners();
+        focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
+        
+        // 僅觸發震動提示，不跳出視窗
+        if(navigator.vibrate) navigator.vibrate([50]);
+        console.log("防睡監察已啟動");
+ 
+    } else {
+        // === 關閉功能 ===
+        stopFocusMonitor();
+        // 僅觸發輕微震動，不跳出視窗
+        if(navigator.vibrate) navigator.vibrate([30]);
+        console.log("防睡監察已關閉");
+    }
+}
+ 
+// 停止並重置監察系統
+function stopFocusMonitor() {
+    focusMonitorState.isActive = false;
+    
+    if (focusMonitorState.checkInterval) {
+        clearInterval(focusMonitorState.checkInterval);
+        focusMonitorState.checkInterval = null;
+    }
+    
+    removeFocusListeners();
+    stopAlarm();
+    
+    // 重置按鈕外觀
+    const btn = document.getElementById('focusMonitorBtn');
+    if (btn) {
+        btn.className = "detail-float-btn scroll-hide-target"; // 移除所有顏色與 minimized class
+        btn.innerHTML = '<i class="fas fa-eye-slash"></i>';   // 顯示關閉圖示
+        btn.title = "開啟防睡監察";
+        btn.style.transform = "";
+        btn.style.display = 'flex';
+    }
+}
+ 
+// 2. 狀態檢查核心邏輯 (判斷手機 vs 電腦)
+function checkFocusStatus() {
+    if (!focusMonitorState.isActive) return;
+ 
+    const now = Date.now();
+    const idleTime = now - focusMonitorState.lastActivityTime;
+    const btn = document.getElementById('focusMonitorBtn');
+    
+    const isMobile = window.innerWidth < 768 || /Android|webOS|iPhone|iPod|BlackBerry/i.test(navigator.userAgent);
+    
+    // 時間閾值 (維持不變)
+    const LIMIT_ORANGE = isMobile ? 30000 : 60000;
+    const LIMIT_RED    = isMobile ? 80000 : 100000;
+ 
+    if (idleTime >= LIMIT_RED) {
+        // --- 紅燈 (莫蘭迪紅) ---
+        if (focusMonitorState.currentState !== 'red') {
+            focusMonitorState.currentState = 'red';
+            if (btn) {
+                btn.classList.remove('focus-status-green', 'focus-status-orange');
+                btn.classList.add('focus-status-red');
+                if (!btn.classList.contains('minimized')) {
+                    btn.innerHTML = '<i class="fas fa-bell"></i>';
+                }
+            }
+            triggerAlarm();
+        }
+    } else if (idleTime >= LIMIT_ORANGE) {
+        // --- 橙燈 (莫蘭迪橙/陶土色) ---
+        if (focusMonitorState.currentState !== 'orange') {
+            focusMonitorState.currentState = 'orange';
+            if (btn) {
+                btn.classList.remove('focus-status-green', 'focus-status-red');
+                btn.classList.add('focus-status-orange');
+                if (!btn.classList.contains('minimized')) {
+                    btn.innerHTML = '<i class="fas fa-exclamation"></i>';
+                }
+            }
+            stopAlarm();
+        }
+    } else {
+        // --- 綠燈 (莫蘭迪綠) ---
+        if (focusMonitorState.currentState !== 'green') {
+            focusMonitorState.currentState = 'green';
+            if (btn) {
+                btn.classList.remove('focus-status-orange', 'focus-status-red');
+                btn.classList.add('focus-status-green');
+                if (!btn.classList.contains('minimized')) {
+                    btn.innerHTML = '<i class="fas fa-eye"></i>';
+                }
+            }
+            stopAlarm();
+        }
+    }
+}
+ 
+// 3. 用戶活動監聽
+function resetFocusTimer() {
+    if (!focusMonitorState.isActive) return;
+    
+    focusMonitorState.lastActivityTime = Date.now();
+    
+    // 紅燈狀態下操作，立即恢復綠燈
+    if (focusMonitorState.currentState === 'red') {
+        stopAlarm();
+        checkFocusStatus();
+    }
+}
+ 
+function startFocusListeners() {
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'touchmove', 'click'];
+    events.forEach(evt => {
+        document.addEventListener(evt, resetFocusTimer, { passive: true });
+    });
+    
+    const detailView = document.getElementById('featuredDetailView');
+    if (detailView) {
+        detailView.addEventListener('scroll', resetFocusTimer, { passive: true });
+    }
+}
+ 
+function removeFocusListeners() {
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'touchmove', 'click'];
+    events.forEach(evt => {
+        document.removeEventListener(evt, resetFocusTimer);
+    });
+    
+    const detailView = document.getElementById('featuredDetailView');
+    if (detailView) {
+        detailView.removeEventListener('scroll', resetFocusTimer);
+    }
+}
+ 
+// 4. 警報控制
+function triggerAlarm() {
+    focusMonitorState.audio.play().catch(e => console.log("警報音效播放受阻:", e));
+    if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
+    }
+}
+ 
+function stopAlarm() {
+    focusMonitorState.audio.pause();
+    focusMonitorState.audio.currentTime = 0;
+    if (navigator.vibrate) navigator.vibrate(0);
+}
+ 
+// 返回列表時停止
+const originalBackToArticleList = window.backToArticleList;
+window.backToArticleList = function() {
+    stopFocusMonitor();
+    if (typeof originalBackToArticleList === 'function') {
+        originalBackToArticleList();
+    } else {
+        const detailView = document.getElementById('featuredDetailView');
+        if(detailView) detailView.style.display = 'none';
+        document.body.style.overflow = 'auto';
+        if (typeof renderArticleList === 'function') renderArticleList();
+        const listView = document.getElementById('featuredListView');
+        if(listView) listView.style.display = 'block';
+    }
+};
  
 // [修改] 翻頁動作 (加入慢讀完成觸發已讀)
 function goToNextReaderPage() {
