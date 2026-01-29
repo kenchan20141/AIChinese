@@ -11099,29 +11099,29 @@ function getCanvasChatHTML(type) {
     </div>`;
 }
 
+// ==========================================
+// === 畫布聊天室發送邏輯 (修訂版) ===
+// ==========================================
 async function sendCanvasMessage() {
-    // 根據當前介面，動態尋找輸入框與按鈕
+    // 動態尋找按鈕
     let sendBtn = document.getElementById("canvasChatSendBtn");
-    
-    // 如果找不到 (可能在歷史視窗裡)，嘗試透過事件觸發點尋找
     if (!sendBtn && window.event) {
         sendBtn = window.event.target.closest('button');
     }
-    
-    if (!sendBtn) return; // 防呆
-
-    // 尋找對應的輸入框與歷史區域
+    if (!sendBtn) return;
+ 
+    // 尋找容器
     const container = sendBtn.closest('.canvas-chat-container');
     if (!container) return;
-
+ 
     const inputEl = container.querySelector('textarea');
     const historyBox = container.querySelector('.canvas-chat-history');
     
     if (!inputEl || !historyBox) return;
-
+ 
     const userText = sanitizeHTML(inputEl.value.trim());
     if (!userText) return;
-
+ 
     // 1. 顯示用戶訊息
     const userBubble = document.createElement("div");
     userBubble.className = "message-bubble user-message";
@@ -11131,18 +11131,18 @@ async function sendCanvasMessage() {
     inputEl.value = "";
     sendBtn.disabled = true;
     historyBox.scrollTop = historyBox.scrollHeight;
-
+ 
     // 2. 顯示 AI 思考中
     const aiBubble = document.createElement("div");
     aiBubble.className = "message-bubble ai-message";
     aiBubble.innerHTML = `<i class="fas fa-spinner fa-spin"></i> 正在思考...`;
     historyBox.appendChild(aiBubble);
     historyBox.scrollTop = historyBox.scrollHeight;
-
+ 
     // 抓取之前的對話紀錄
     const bubbles = Array.from(historyBox.querySelectorAll('.message-bubble'));
     let historyText = "";
-    bubbles.slice(-6, -1).forEach(b => { // 排除剛加的 Loading bubble
+    bubbles.slice(-6, -1).forEach(b => {
         const role = b.classList.contains('ai-message') ? "陳SIR" : "學生";
         historyText += `${role}: ${b.innerText}\n`;
     });
@@ -11150,29 +11150,28 @@ async function sendCanvasMessage() {
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
     
-    // ★★★ 修改：判斷是否為精選文章討論模式 ★★★
-    if (currentContextType === 'featured_discussion') {
-        toneNote = "你現在是陳SIR。請用書面語回應，輕鬆又見認真，用詞表達都要適合高中生閱讀，須運用非理論、非學術的字眼，分段須少，**必須使用大量Emoji** 🤌✨ 必須用繁體字。回應時，需評估回答是否合理、文本依據是否充實具體、闡釋推論是否嚴謹、主題句是否清晰。依據【鋪墊】、【回應】、【文本依據】、【闡釋】四個步驟回應，須靈活運用，步驟因題制宜，但切記不可向學生展示步驟「【鋪墊】、【回應】、【文本依據】、【闡釋】」的標題，這些僅供你參考。表格中只包含文字和標點，不含『---』等符號。回應不超過150字。不要使用任何表格或Markdown格式。";
+    // 判斷是否為精選文章討論
+    if (typeof currentContextType !== 'undefined' && currentContextType === 'featured_discussion') {
+        toneNote = "你現在是陳SIR。請用書面語回應，輕鬆又見認真，用詞表達都要適合高中生閱讀，須運用非理論、非學術的字眼，分段須少，**必須使用大量Emoji** 🤌✨ 必須用繁體字。回應時，需評估回答是否合理、文本依據是否充實具體、闡釋推論是否嚴謹、主題句是否清晰。";
         activeReviewer = "陳SIR";
     } else {
-        // 原有的語氣偵測邏輯
         const toneEl = document.getElementById("writingTone") || document.getElementById("argumentWritingTone");
         if (toneEl && toneEl.value === "chen") {
             toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
             activeReviewer = "陳SIR";
         }
     }
-
+ 
     // 構建 Prompt
     let promptContext = "";
-    if (currentContextType === 'featured_discussion') {
-        promptContext = currentContextContent; // 直接使用整篇內容
+    if (typeof currentContextType !== 'undefined' && currentContextType === 'featured_discussion') {
+        promptContext = currentContextContent;
     } else {
         promptContext = `【背景資料】\n${currentContextContent || "學生提交的作業"}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 500)}...`;
     }
     
     const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
-
+ 
     try {
         const response = await callReadingAPI(fullPrompt);
         let formattedResponse = response.replace(/\n/g, '<br>');
@@ -11181,13 +11180,13 @@ async function sendCanvasMessage() {
         // 更新 UI
         aiBubble.innerHTML = formattedResponse;
         
-        // ★★★ 修改：如果是精選文章討論，不執行儲存 ★★★
-        if (currentContextType !== 'featured_discussion') {
+        // ★★★ 關鍵：只有非精選文章討論才儲存到歷史紀錄 ★★★
+        if (typeof currentContextType === 'undefined' || currentContextType !== 'featured_discussion') {
             setTimeout(async () => {
                 await updateHistoryChat();
             }, 100);
         }
-
+ 
     } catch (error) {
         aiBubble.innerHTML = "抱歉，連線發生錯誤，請重試。";
         console.error(error);
