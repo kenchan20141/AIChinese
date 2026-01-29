@@ -11106,7 +11106,7 @@ function getCanvasChatHTML(type) {
 }
 
 // ==========================================
-// === 畫布聊天室發送邏輯 (修訂版) ===
+// === [修訂版] 畫布聊天室發送邏輯 ===
 // ==========================================
 async function sendCanvasMessage() {
     // 動態尋找按鈕
@@ -11145,7 +11145,7 @@ async function sendCanvasMessage() {
     historyBox.appendChild(aiBubble);
     historyBox.scrollTop = historyBox.scrollHeight;
  
-    // 抓取之前的對話紀錄
+    // 3. 抓取之前的對話紀錄
     const bubbles = Array.from(historyBox.querySelectorAll('.message-bubble'));
     let historyText = "";
     bubbles.slice(-6, -1).forEach(b => {
@@ -11153,32 +11153,74 @@ async function sendCanvasMessage() {
         historyText += `${role}: ${b.innerText}\n`;
     });
     
+    // --- [核心修訂]：全方位偵測語氣與閱卷員 ---
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
-    
-    // 判斷是否為精選文章討論
+    let currentToneVal = "serious"; // 預設嚴肅
+
+    // 嘗試從所有可能的 ID 中抓取目前可見的語氣設定
+    const possibleToneIds = [
+        "writingTone",          // 敘事-文章 & 大綱
+        "argumentWritingTone",  // 議論-文章
+        "argumentOutlineTone",  // 議論-大綱 (本次修復重點)
+        "readingTone",          // 閱讀
+        "expandTone",           // 拓展
+        "booksTone"             // 書籍
+    ];
+
+    // 找出目前頁面上可見的語氣選單
+    for (const id of possibleToneIds) {
+        const el = document.getElementById(id);
+        // 檢查元素是否存在且可見 (offsetParent !== null 代表可見)
+        if (el && el.offsetParent !== null) {
+            currentToneVal = el.value;
+            break; 
+        }
+    }
+
+    // 嘗試找出目前可見的閱卷員 (僅適用於寫作類)
+    const possibleReviewerIds = ["writingReviewer", "argumentReviewer"];
+    for (const id of possibleReviewerIds) {
+        const el = document.getElementById(id);
+        if (el && el.offsetParent !== null) {
+            activeReviewer = el.options[el.selectedIndex].text.replace(/\s*\(預設\)\s*/, '');
+            break;
+        }
+    }
+
+    // 判斷是否為精選文章討論 (特殊處理)
     if (typeof currentContextType !== 'undefined' && currentContextType === 'featured_discussion') {
         toneNote = "你現在是陳SIR。請用書面語回應，輕鬆又見認真，用詞表達都要適合高中生閱讀，須運用非理論、非學術的字眼，分段須少，**必須使用大量Emoji** 🤌✨ 必須用繁體字。回應時，需評估回答是否合理、文本依據是否充實具體、闡釋推論是否嚴謹、主題句是否清晰。";
         activeReviewer = "陳SIR";
     } else {
-        const toneEl = document.getElementById("writingTone") || document.getElementById("argumentWritingTone");
-        if (toneEl && toneEl.value === "chen") {
+        // 根據抓取到的語氣值設定 Prompt
+        if (currentToneVal === "chen") {
             toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
             activeReviewer = "陳SIR";
+        } else if (currentToneVal === "casual") {
+            toneNote = "請用輕鬆活潑的語氣回應。";
         }
     }
  
-    // 構建 Prompt
+    // 4. 構建 Prompt
     let promptContext = "";
+    // 如果 Context 是 JSON 格式 (如大綱數據)，嘗試轉為字串
+    let readableContent = currentContextContent || "學生提交的作業";
+    if (typeof readableContent === 'object') {
+        try { readableContent = JSON.stringify(readableContent); } catch(e){}
+    }
+
     if (typeof currentContextType !== 'undefined' && currentContextType === 'featured_discussion') {
-        promptContext = currentContextContent;
+        promptContext = readableContent;
     } else {
-        promptContext = `【背景資料】\n${currentContextContent || "學生提交的作業"}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 500)}...`;
+        // 限制長度以防 Token 爆掉
+        promptContext = `【背景資料】\n${readableContent.substring(0, 1500)}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 800)}...`;
     }
     
-    const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
+    const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 針對問題具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
  
     try {
+        // 統一使用 Reading API (DeepSeek) 處理對話，效果較好
         const response = await callReadingAPI(fullPrompt);
         let formattedResponse = response.replace(/\n/g, '<br>');
         formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -12374,7 +12416,6 @@ async function submitArgumentWriting() {
 // === [修復] 議論文大綱提交與顯示邏輯 ===
 // =========================================
 
-// 1. 提交議論大綱 (加入調用顯示函式的邏輯)
 async function submitArgumentOutline() {
     const submitBtn = document.getElementById('submitArgumentOutlineBtn');
     submitBtn.disabled = true;
@@ -12384,17 +12425,26 @@ async function submitArgumentOutline() {
         const topic = localStorage.getItem("argumentCurrentTopic");
         if (!topic) { alert("請先設定題目"); submitBtn.disabled = false; return; }
 
-        // 收集用戶輸入的大綱數據 (這一步決定了表格有多少行)
+        // 收集用戶輸入的大綱數據
         const table = document.getElementById("argumentOutlineTable");
         const rows = table.rows;
         const outlineData = [];
+        
+        // [新增] 構建易讀的上下文文字，供追問使用
+        let readableContext = `題目：${topic}\n\n`;
         
         // 從第二行開始 (跳過表頭)
         for (let i = 1; i < rows.length; i++) {
             const part = rows[i].cells[0].innerText.trim();
             const point = rows[i].cells[1].querySelector("textarea")?.value.trim() || "";
             const evidence = rows[i].cells[2].querySelector("textarea")?.value.trim() || "";
+            
             outlineData.push({ part, point, evidence });
+            
+            // 累加到上下文文字
+            if(point || evidence) {
+                readableContext += `【${part}】\n論點：${point}\n論據：${evidence}\n\n`;
+            }
         }
 
         showLoading("陳SIR 正在審視大綱...");
@@ -12411,16 +12461,18 @@ async function submitArgumentOutline() {
         
         const response = await callAPI(payload, 0);
         
-        // 設定聊天室上下文
-        currentContextContent = JSON.stringify(outlineData);
+        // ★★★ 關鍵修改：將上下文設定為易讀文字，而非 JSON 物件 ★★★
+        currentContextContent = readableContext;
         currentContextReview = response;
 
-        // ★★★ 關鍵：調用專用的顯示函式來渲染表格 ★★★
+        // 調用專用的顯示函式來渲染表格
         displayArgumentOutlineComment(response, outlineData);
         
-        // 儲存到歷史紀錄 (儲存渲染後的 HTML)
+        // 儲存到歷史紀錄
         const htmlToSave = document.getElementById("resultCanvasBody").innerHTML;
-        saveToHistory("議論", "大綱點評", topic, `題目：${topic}\n(大綱表格內容)`, htmlToSave);
+        
+        // 呼叫 saveToHistory (這會設定 lastGeneratedTimestamp，讓 updateHistoryChat 能運作)
+        await saveToHistory("議論", "大綱點評", topic, readableContext, htmlToSave);
 
     } catch (error) {
         console.error("提交大綱失敗", error);
