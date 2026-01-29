@@ -12245,76 +12245,90 @@ localStorage.removeItem("argumentOutlineData");
 }
 }
 
-// =========================================
-// === [修復] 議論文大綱提交 (歷史紀錄只顯示題目) ===
-// =========================================
-async function submitArgumentOutline() {
-    const submitBtn = document.getElementById('submitArgumentOutlineBtn');
+// === 修正版：提交議論指引 (移除前端不存在的 categories 引用) ===
+async function submitArgumentGuide() {
+    const submitBtn = document.getElementById('submitArgumentGuideBtn');
+    if (!submitBtn) return;
+    
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
-
+ 
     try {
-        const topic = localStorage.getItem("argumentCurrentTopic");
-        if (!topic) { alert("請先設定題目"); submitBtn.disabled = false; return; }
-
-        // 收集用戶輸入的大綱數據
-        const table = document.getElementById("argumentOutlineTable");
-        const rows = table.rows;
-        const outlineData = [];
+        const topic = document.getElementById("argumentGuideTopic").value.trim();
+        const point = document.getElementById("argumentGuidePoint").value.trim();
+        const evidence = document.getElementById("argumentGuideEvidence").value.trim();
+        const argument = document.getElementById("argumentGuideArgument").value.trim();
         
-        // 構建給 AI 讀的上下文 (包含詳細內容)
-        let readableContext = `題目：${topic}\n\n`;
-        
-        // 從第二行開始 (跳過表頭)
-        for (let i = 1; i < rows.length; i++) {
-            const part = rows[i].cells[0].innerText.trim();
-            const point = rows[i].cells[1].querySelector("textarea")?.value.trim() || "";
-            const evidence = rows[i].cells[2].querySelector("textarea")?.value.trim() || "";
-            
-            outlineData.push({ part, point, evidence });
-            
-            // 累加到上下文文字 (給聊天室用)
-            if(point || evidence) {
-                readableContext += `【${part}】\n論點：${point}\n論據：${evidence}\n\n`;
-            }
+        if (!topic) {
+            alert("請輸入題目");
+            submitBtn.disabled = false;
+            return;
         }
-
-        showLoading("陳SIR 正在審視大綱...");
-
+ 
+        showLoading("陳SIR 正在編寫指引...");
+        
+        // 傳送數據至後端 (已移除 categories 引用)
         const payload = {
             action: "grade_argument",
             data: {
-                subType: "outline",
+                subType: "guide",
                 topic: topic,
-                outlineData: outlineData, 
-                tone: document.getElementById("argumentOutlineTone").value
+                point: point || "無",
+                evidence: evidence || "無",
+                argument: argument || "無"
             }
         };
+ 
+        const guide = await callReadingAPI(payload);
         
-        const response = await callAPI(payload, 0);
+        currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
+        currentContextReview = guide;
+ 
+        // --- 組裝 HTML ---
+        const guideParts = guide.split("###").map(part => part.trim()).filter(part => part);
         
-        // 設定聊天室上下文 (這是詳細版，給 AI 看的)
-        currentContextContent = readableContext;
-        currentContextReview = response;
-
-        // 顯示結果
-        displayArgumentOutlineComment(response, outlineData);
+        let guideHTML = `
+            <div class="morandi-guide-container">
+                <div style="margin-bottom: 20px; border-bottom: 1px solid #e0ddd7; padding-bottom: 10px;">
+                    <h2 style="color: #5e7067; font-size: 1.4rem; letter-spacing: 2px; margin: 0;">${topic}</h2>
+                </div>
+        `;
+ 
+        guideParts.forEach(part => {
+            const lines = part.split("\n").filter(line => line.trim());
+            const title = lines.shift() || "指引內容";
+            // 處理換行，讓段落分明但不過寬
+            const content = lines.join("<br>");
+ 
+            guideHTML += `
+                <div class="guide-section-card">
+                    <div class="guide-card-header">${title}</div>
+                    <div class="guide-card-body">${content}</div>
+                </div>
+            `;
+        });
+ 
+        guideHTML += `</div>`;
+ 
+        // 加入追問聊天室
+        guideHTML += getCanvasChatHTML('argument_guide');
+ 
+        // 開啟結果畫布
+        openResultCanvas("議論文寫作指引");
+        document.getElementById("resultCanvasBody").innerHTML = guideHTML;
+ 
+        // 儲存至歷史紀錄
+        await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
-        // 儲存到歷史紀錄
-        const htmlToSave = document.getElementById("resultCanvasBody").innerHTML;
-        
-        // ★★★ 關鍵修改：存入歷史紀錄的 User Content 只包含題目 ★★★
-        // 這裡傳入 `題目：${topic}`，而不是 `readableContext`
-        await saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, htmlToSave);
-
     } catch (error) {
-        console.error("提交大綱失敗", error);
-        alert("生成失敗，請重試");
+        console.error("提交指引時出錯:", error);
+        alert("指引生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
         hideLoading();
     }
 }
+
 // ==========================================
 // === 議論文提交函式 (單系統) ===
 // ==========================================
@@ -12399,9 +12413,8 @@ async function submitArgumentWriting() {
 
 
 // =========================================
-// === [修復] 議論文大綱提交與顯示邏輯 ===
+// === [修復] 議論文大綱提交 (歷史紀錄只顯示題目) ===
 // =========================================
-
 async function submitArgumentOutline() {
     const submitBtn = document.getElementById('submitArgumentOutlineBtn');
     submitBtn.disabled = true;
@@ -12416,7 +12429,7 @@ async function submitArgumentOutline() {
         const rows = table.rows;
         const outlineData = [];
         
-        // [新增] 構建易讀的上下文文字，供追問使用
+        // 構建給 AI 讀的上下文 (包含詳細內容)
         let readableContext = `題目：${topic}\n\n`;
         
         // 從第二行開始 (跳過表頭)
@@ -12427,7 +12440,7 @@ async function submitArgumentOutline() {
             
             outlineData.push({ part, point, evidence });
             
-            // 累加到上下文文字
+            // 累加到上下文文字 (給聊天室用)
             if(point || evidence) {
                 readableContext += `【${part}】\n論點：${point}\n論據：${evidence}\n\n`;
             }
@@ -12447,18 +12460,19 @@ async function submitArgumentOutline() {
         
         const response = await callAPI(payload, 0);
         
-        // ★★★ 關鍵修改：將上下文設定為易讀文字，而非 JSON 物件 ★★★
+        // 設定聊天室上下文 (這是詳細版，給 AI 看的)
         currentContextContent = readableContext;
         currentContextReview = response;
 
-        // 調用專用的顯示函式來渲染表格
+        // 顯示結果
         displayArgumentOutlineComment(response, outlineData);
         
         // 儲存到歷史紀錄
         const htmlToSave = document.getElementById("resultCanvasBody").innerHTML;
         
-        // 呼叫 saveToHistory (這會設定 lastGeneratedTimestamp，讓 updateHistoryChat 能運作)
-        await saveToHistory("議論", "大綱點評", topic, readableContext, htmlToSave);
+        // ★★★ 關鍵修改：存入歷史紀錄的 User Content 只包含題目 ★★★
+        // 這裡傳入 `題目：${topic}`，而不是 `readableContext`
+        await saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, htmlToSave);
 
     } catch (error) {
         console.error("提交大綱失敗", error);
