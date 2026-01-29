@@ -78,6 +78,12 @@ form-action 'self';
 	<script>
 
 
+// ==========================================
+// === 全域變數宣告 (請加在 script 最上方) ===
+// ==========================================
+let lastGeneratedTimestamp = null; // 用於追蹤當前正在操作的紀錄時間戳
+
+		
 // =======================================================
 // === [安全版] 全域安全網：攔截權限錯誤並保護紀錄 ===
 // =======================================================
@@ -16678,7 +16684,7 @@ function captureContainerHTML(containerId) {
 // ==========================================
 async function saveToHistory(category, subFunction, title, userContent, aiContent, scoreData = null) {
     try {
-        // 1. 清理 HTML (修復：保留畫布聊天室結構)
+        // 1. 清理 HTML
         if (aiContent && typeof aiContent === 'string') {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = aiContent;
@@ -16703,9 +16709,9 @@ async function saveToHistory(category, subFunction, title, userContent, aiConten
         const store = transaction.objectStore(STORE_NAME);
         const ts = new Date().getTime();
         
-        if (typeof lastGeneratedTimestamp !== 'undefined') {
-            lastGeneratedTimestamp = ts; // 更新全域時間戳，讓後續追問能對應到此紀錄
-        }
+        // ★★★ 關鍵修復：這裡直接更新全域變數 ★★★
+        // 確保剛生成的內容 ID 被系統記住，讓追問功能可以找到這筆資料
+        lastGeneratedTimestamp = ts;
  
         const record = {
             category: category,
@@ -17874,8 +17880,6 @@ async function clearAllHistory() {
         }
     }
 }
-// 優化後的查看詳情函數
-// ==========================================================================
 // ==========================================================================
 // === 3. [學生端] 歷史詳情修復：加入學習報告雷達圖的重繪邏輯 (修復版) ===
 // ==========================================================================
@@ -17885,14 +17889,13 @@ async function viewHistoryDetail(id) {
         const transaction = db.transaction([STORE_NAME], 'readonly');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.get(id);
- 
         request.onsuccess = function(event) {
             const record = event.target.result;
             if (record) {
                 // ★★★ 關鍵修復：鎖定當前紀錄的時間戳 ★★★
                 // 這樣稍後如果在視窗內進行 AI 追問，系統才知道要更新哪一筆紀錄
                 lastGeneratedTimestamp = record.timestamp;
-
+ 
                 // 1. 計算主題色
                 let themeIndex = 1;
                 if (HISTORY_STRUCTURE[record.category]) {
@@ -17903,7 +17906,6 @@ async function viewHistoryDetail(id) {
                 }
                 const themeClass = `history-theme-context-${themeIndex}`;
                 const colorVar = `var(--m-color-${themeIndex})`;
- 
                 // 2. 設定標題
                 document.getElementById('historyModalTitle').innerHTML =
                     `<i class="fas fa-book-open" style="color:${colorVar}"></i>
@@ -17915,58 +17917,51 @@ async function viewHistoryDetail(id) {
                 if (dateElement) dateElement.style.display = "none";
                 
                 let contentHTML = '';
- 
                 // 3. 處理使用者輸入內容
-              // 請在 viewHistoryDetail 函式內，找到處理 userContent 的部分並替換為以下代碼：
-
-// 3. 處理使用者輸入內容
-if (record.category !== "學習報告" && record.userContent) {
-    const rawText = record.userContent;
-    const lines = rawText.split('\n');
-    
-    // ★★★ [新增] 判斷是否為議論指引，如果是，加入專屬 class ★★★
-    let specificLayoutClass = "";
-    if (record.category === "議論" && record.subFunction === "指引") {
-        specificLayoutClass = "argument-guide-layout";
-    }
-    
-    // 將專屬 class 加入到容器中
-    let parsedHTML = `<div class="history-parsed-container ${themeClass} ${specificLayoutClass}">`;
-    
-    let currentLabel = '輸入內容';
-    let currentContent = [];
-    const labelRegex = /^(.{2,10}?)[：:](.*)$/;
-
-    lines.forEach((line) => {
-        const match = line.match(labelRegex);
-        if (match) {
-            if (currentContent.length > 0) {
-                // 注意：這裡保持原本的結構不變
-                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
-            }
-            currentLabel = match[1].trim();
-            const restOfLine = match[2].trim();
-            currentContent = restOfLine ? [restOfLine] : [];
-        } else {
-            if (line.trim() !== "") currentContent.push(line);
-        }
-    });
-
-    if (currentContent.length > 0 || lines.length === 0) {
-         const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
-         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
-    }
-    parsedHTML += '</div>';
-    
-    contentHTML += `
-        <div id="edit-user-content-${record.id}"
-             ondblclick="enableHistoryEdit(this)"
-             title="雙擊即可修訂內容"
-             style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
-            ${parsedHTML}
-        </div>`;
-}
+                if (record.category !== "學習報告" && record.userContent) {
+                    const rawText = record.userContent;
+                    const lines = rawText.split('\n');
+                    
+                    // 判斷是否為議論指引，如果是，加入專屬 class
+                    let specificLayoutClass = "";
+                    if (record.category === "議論" && record.subFunction === "指引") {
+                        specificLayoutClass = "argument-guide-layout";
+                    }
+                    
+                    let parsedHTML = `<div class="history-parsed-container ${themeClass} ${specificLayoutClass}">`;
+                    
+                    let currentLabel = '輸入內容';
+                    let currentContent = [];
+                    const labelRegex = /^(.{2,10}?)[：:](.*)$/;
  
+                    lines.forEach((line) => {
+                        const match = line.match(labelRegex);
+                        if (match) {
+                            if (currentContent.length > 0) {
+                                parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${currentContent.join('\n')}</div></div>`;
+                            }
+                            currentLabel = match[1].trim();
+                            const restOfLine = match[2].trim();
+                            currentContent = restOfLine ? [restOfLine] : [];
+                        } else {
+                            if (line.trim() !== "") currentContent.push(line);
+                        }
+                    });
+ 
+                    if (currentContent.length > 0 || lines.length === 0) {
+                         const finalContent = currentContent.length > 0 ? currentContent.join('\n') : rawText;
+                         parsedHTML += `<div class="history-item-block"><div class="history-item-label">${currentLabel}</div><div class="history-item-content">${finalContent}</div></div>`;
+                    }
+                    parsedHTML += '</div>';
+                    
+                    contentHTML += `
+                        <div id="edit-user-content-${record.id}"
+                             ondblclick="enableHistoryEdit(this)"
+                             title="雙擊即可修訂內容"
+                             style="background:#fff; padding:20px; border-radius:12px; margin-bottom:25px; border:1px solid #eee; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
+                            ${parsedHTML}
+                        </div>`;
+                }
                 // 4. 處理 AI 生成內容
                 if (record.aiContent) {
                     contentHTML += `
@@ -17991,7 +17986,6 @@ if (record.category !== "學習報告" && record.userContent) {
                         </div>
                     `;
                 }
- 
                 // 6. 注入懸浮儲存鍵
                 contentHTML += `
                     <button id="history-save-btn-${record.id}"
@@ -18000,12 +17994,10 @@ if (record.category !== "學習報告" && record.userContent) {
                         <i class="fas fa-save"></i>
                     </button>
                 `;
- 
                 // 7. 注入 Modal
                 const modalContent = document.getElementById('historyModalContent');
                 modalContent.innerHTML = contentHTML;
                 document.getElementById('historyModal').style.display = 'flex';
- 
                 // 8. 重繪圖表邏輯 (含學習報告)
                 setTimeout(() => {
                     if (record.category !== "學習報告" && record.scoreData && record.scoreData.radar) {
