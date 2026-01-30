@@ -84,12 +84,10 @@ form-action 'self';
 // ==========================================
 document.addEventListener('DOMContentLoaded', function() {
     
-    // 定義解鎖函式
+  // 定義解鎖函式
     function unlockAllAudio() {
-        console.log("👆 偵測到使用者互動，正在嘗試解鎖 iOS 音效...");
- 
+        console.log("👆 偵測到使用者互動，正在嘗試靜音解鎖 iOS 音效...");
         const audioList = [];
- 
         // 1. 加入防睡警告音效
         if (typeof focusMonitorState !== 'undefined' && focusMonitorState.audio) {
             audioList.push(focusMonitorState.audio);
@@ -97,49 +95,53 @@ document.addEventListener('DOMContentLoaded', function() {
             // 如果物件還沒建立，先暫時建立一個來騙過瀏覽器
             audioList.push(new Audio('閉眼警告.mp3'));
         }
- 
         // 2. 加入離開警告音效
         if (typeof LeaveWarningSystem !== 'undefined' && LeaveWarningSystem.audio) {
             audioList.push(LeaveWarningSystem.audio);
         } else {
             audioList.push(new Audio('離開警告.mp3'));
         }
- 
         // 3. 執行解鎖迴圈
         audioList.forEach(audio => {
             try {
-                // 強制重置
-                audio.pause();
+                // ★★★ 關鍵修改：先強制靜音，絕對不發出聲音 ★★★
+                audio.muted = true;
+                
+                // 強制重置進度
                 audio.currentTime = 0;
                 
-                // iOS 關鍵：先設定音量極小 (不能是 0，也不能是 muted，否則 iOS 有時會忽略)
-                audio.volume = 0.01;
-                audio.muted = false;
- 
-                // 強制載入
+                // 強制載入 (iOS 需要)
                 audio.load();
- 
-                // 嘗試播放並立即暫停
+                // 嘗試播放 (此時是靜音的，使用者聽不到)
                 const playPromise = audio.play();
+                
                 if (playPromise !== undefined) {
                     playPromise.then(() => {
                         // 播放成功後立刻暫停
                         audio.pause();
+                        
+                        // 重置進度
                         audio.currentTime = 0;
-                        // 恢復正常音量
+                        
+                        // ★★★ 關鍵修改：解鎖成功後，恢復聲音設定 ★★★
+                        // 這樣稍後真正觸發警報時，才會有聲音
+                        audio.muted = false;
                         audio.volume = 1.0;
-                        console.log("✅ 音效解鎖成功");
+                        
+                        console.log("✅ 音效靜音解鎖成功");
                     }).catch(error => {
                         console.log("⚠️ 解鎖被阻擋 (需更多互動):", error);
+                        // 即使失敗也要確保恢復設定，以免真正警報時無聲
+                        audio.muted = false;
                     });
                 }
             } catch (e) {
                 console.error("解鎖過程錯誤:", e);
+                // 發生錯誤也要恢復
+                audio.muted = false;
             }
         });
- 
-        // 解除監聽，避免每次點擊都執行，浪費效能
-        // (但為了保險，我們可以讓它在前 3 次點擊都執行)
+        // 解除監聽，避免每次點擊都執行
         window.unlockCount = (window.unlockCount || 0) + 1;
         if (window.unlockCount >= 3) {
             document.removeEventListener('touchstart', unlockAllAudio);
