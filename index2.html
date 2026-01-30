@@ -22238,60 +22238,52 @@ function stopFocusMonitor() {
     }
 }
  
-// 2. 狀態檢查核心邏輯 (判斷手機 vs 電腦)
-// 狀態檢查核心邏輯
+// ==========================================
+// === [修訂] 一般模式狀態檢查 (接通新音效引擎) ===
+// ==========================================
 function checkFocusStatus() {
     if (!focusMonitorState.isActive) return;
     const now = Date.now();
     const idleTime = now - focusMonitorState.lastActivityTime;
     const btn = document.getElementById('focusMonitorBtn');
     
-    const isMobile = window.innerWidth < 768 || /Android|webOS|iPhone|iPod|BlackBerry/i.test(navigator.userAgent);
-    
+    const isMobile = window.innerWidth < 768;
     const LIMIT_ORANGE = isMobile ? 30000 : 60000;
     const LIMIT_RED    = isMobile ? 80000 : 100000;
-    // --- 狀態轉換邏輯 ---
+
     if (idleTime >= LIMIT_RED) {
-        // [紅燈] 入睡警報狀態
-        if (navigator.vibrate) navigator.vibrate(400);
         if (focusMonitorState.currentState !== 'red') {
             focusMonitorState.currentState = 'red';
             if (btn) {
                 btn.classList.remove('focus-status-green', 'focus-status-orange');
                 btn.classList.add('focus-status-red');
-                if (!btn.classList.contains('minimized')) {
-                    btn.innerHTML = '<i class="fas fa-bell"></i>';
-                }
+                if (!btn.classList.contains('minimized')) btn.innerHTML = '<i class="fas fa-bell"></i>';
             }
-            // ★ 修改：使用 Web Audio API 播放 (循環)
+            // ★ 核心修改：呼叫新引擎播放
+            console.log("🚨 [一般警報] 觸發聲音播放");
             SansiAudio.play('sleep_warning', true);
         }
+        if (navigator.vibrate) navigator.vibrate(400);
         
     } else if (idleTime >= LIMIT_ORANGE) {
-        // [橙燈] 閒置警告狀態
         if (focusMonitorState.currentState !== 'orange') {
             focusMonitorState.currentState = 'orange';
             if (btn) {
                 btn.classList.remove('focus-status-green', 'focus-status-red');
                 btn.classList.add('focus-status-orange');
-                if (!btn.classList.contains('minimized')) {
-                    btn.innerHTML = '<i class="fas fa-exclamation"></i>';
-                }
+                if (!btn.classList.contains('minimized')) btn.innerHTML = '<i class="fas fa-exclamation"></i>';
             }
-            stopAlarm(); // 確保橙燈時沒有聲音
+            SansiAudio.stop('sleep_warning'); // 橙燈不響
         }
     } else {
-        // [綠燈] 正常狀態
         if (focusMonitorState.currentState !== 'green') {
             focusMonitorState.currentState = 'green';
             if (btn) {
                 btn.classList.remove('focus-status-orange', 'focus-status-red');
                 btn.classList.add('focus-status-green');
-                if (!btn.classList.contains('minimized')) {
-                    btn.innerHTML = '<i class="fas fa-eye"></i>';
-                }
+                if (!btn.classList.contains('minimized')) btn.innerHTML = '<i class="fas fa-eye"></i>';
             }
-            stopAlarm();
+            SansiAudio.stop('sleep_warning'); // 綠燈不響
         }
     }
 }
@@ -22336,9 +22328,11 @@ function removeFocusListeners() {
     }
 }
  
-// 停止警報 (Web Audio 版)
+// ==========================================
+// === [修訂] 全局停止警報 (確保徹底斷開音訊) ===
+// ==========================================
 function stopAlarm() {
-    // ★ 修改：停止 Web Audio
+    // ★ 修改：同時停止兩類警報
     SansiAudio.stop('sleep_warning');
     SansiAudio.stop('leave_warning');
     
@@ -22427,70 +22421,61 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-// ==========================================
-// === 慢讀專用防睡管理器 (修復點擊翻頁版) ===
-// ==========================================
+// =======================================================
+// === [修訂版] 慢讀專用防睡管理器 (1分鐘/1分半鐘版) ===
+// =======================================================
 const SlowReaderFocusManager = {
     checkTimer: null,
     warningTimer: null,
     isPrompting: false,
     
-    // 時間設定：180秒轉橙，再過30秒(共210秒)轉紅
-    INTERVAL_MS: 180 * 1000, 
+    // 時間設定：
+    // 60,000ms = 1分鐘 (變橙色)
+    // 30,000ms = 再過30秒即總共1分半鐘 (變紅色 + 響鈴)
+    INTERVAL_MS: 60 * 1000, 
     WARNING_MS: 30 * 1000,
     
-  // 在 SlowReaderFocusManager 物件內的 initUI 函數
-initUI: function() {
-    let indicator = document.getElementById('slowReaderFocusIndicator');
-    if (!indicator) {
-        indicator = document.createElement('button');
-        indicator.id = 'slowReaderFocusIndicator';
-        indicator.innerHTML = '';
-        
-       // 點擊燈號邏輯 (修改版：慢讀時點擊即翻頁)
-        indicator.onclick = function(e) {
-            e.preventDefault();
-            e.stopPropagation();
+    initUI: function() {
+        let indicator = document.getElementById('slowReaderFocusIndicator');
+        if (!indicator) {
+            indicator = document.createElement('button');
+            indicator.id = 'slowReaderFocusIndicator';
+            indicator.innerHTML = '';
             
-            // ★★★ 修改：若正在慢讀中，點擊色條視為「下一頁」 ★★★
-            if (readerState.isReading) {
-                // 1. 無論是紅燈、橙燈還是綠燈，都視為用戶活躍 (重置防睡計時)
-                SlowReaderFocusManager.handleUserActivity();
+            // 點擊燈號邏輯：慢讀時點擊即翻頁並重置防睡
+            indicator.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 
-                // 2. 執行翻頁動作
-                if (typeof goToNextReaderPage === 'function') {
-                    goToNextReaderPage();
+                if (readerState.isReading) {
+                    this.handleUserActivity(); // 重置防睡
+                    if (typeof goToNextReaderPage === 'function') goToNextReaderPage();
+                    if (typeof startReaderAutoPage === 'function') startReaderAutoPage();
+                    return;
                 }
                 
-                // 3. 重置自動播放計時器 (避免剛翻頁馬上又自動翻)
-                if (typeof startReaderAutoPage === 'function') {
-                    startReaderAutoPage();
+                // 非慢讀狀態下的點擊處理
+                if (this.isPrompting) {
+                    this.handleUserActivity();
+                } else {
+                    this.toggle();
                 }
-                
-                // 結束執行，不觸發開關切換
-                return;
-            }
-            // 情境 C：非慢讀模式 -> 執行原本的開關切換邏輯
-            if (SlowReaderFocusManager.isPrompting) {
-                SlowReaderFocusManager.handleUserActivity();
-            } else {
-                SlowReaderFocusManager.toggle();
-            }
-        };
-        document.body.appendChild(indicator);
-    }
-},
+            };
+            document.body.appendChild(indicator);
+        }
+    },
 
-    // 啟動
+    // 啟動監察
     start: function() {
         this.initUI();
         const indicator = document.getElementById('slowReaderFocusIndicator');
         
         if (typeof focusMonitorState !== 'undefined' && focusMonitorState.isActive) {
-            console.log("慢讀防睡：啟動計時 (180s check)");
+            console.log("🔊 慢讀防睡：啟動監察 (60s Check)");
             indicator.style.display = 'block';
             this.resetMainTimer();
             
+            // 關閉一般模式的計時器，避免互相衝突
             if (focusMonitorState.checkInterval) {
                 clearInterval(focusMonitorState.checkInterval);
                 focusMonitorState.checkInterval = null;
@@ -22501,29 +22486,91 @@ initUI: function() {
         }
     },
 
-    // 停止
+    // 停止監察
     stop: function() {
         clearTimeout(this.checkTimer);
         clearTimeout(this.warningTimer);
-        this.checkTimer = null;
-        this.warningTimer = null;
         this.isPrompting = false;
         
         const indicator = document.getElementById('slowReaderFocusIndicator');
         if(indicator) indicator.style.display = 'none';
 
-        if (typeof stopAlarm === 'function') stopAlarm();
+        // 停止所有警報音
+        if (typeof SansiAudio !== 'undefined') {
+            SansiAudio.stop('sleep_warning');
+        }
         
+        // 恢復一般模式的背景監測 (如果防睡總開關仍是開啟的)
         if (typeof focusMonitorState !== 'undefined' && focusMonitorState.isActive) {
             focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
             focusMonitorState.lastActivityTime = Date.now();
         }
     },
 
-    // 切換開關
-    toggle: function() {
-        if (typeof focusMonitorState === 'undefined') return;
+    // 重置計時器 (使用者操作後呼叫)
+    resetMainTimer: function() {
+        clearTimeout(this.checkTimer);
+        clearTimeout(this.warningTimer);
+        this.isPrompting = false;
+        
+        // 停止可能正在播放的聲音
+        if (typeof SansiAudio !== 'undefined') {
+            SansiAudio.stop('sleep_warning');
+        }
+        
+        const indicator = document.getElementById('slowReaderFocusIndicator');
+        if(indicator) {
+            indicator.className = 'status-green';
+            indicator.innerHTML = '';
+        }
 
+        // 啟動第一階段計時 (1分鐘)
+        this.checkTimer = setTimeout(() => {
+            this.showPrompt();
+        }, this.INTERVAL_MS);
+    },
+
+    // 顯示橙色提示 (進入1分鐘閒置)
+    showPrompt: function() {
+        this.isPrompting = true;
+        const indicator = document.getElementById('slowReaderFocusIndicator');
+        if(indicator) {
+            indicator.className = 'status-prompt';
+        }
+        console.log("📍 慢讀防睡：1分鐘已到，轉橙燈");
+
+        // 啟動第二階段計時 (再過30秒，總共1分半)
+        this.warningTimer = setTimeout(() => {
+            this.triggerAlarm();
+        }, this.WARNING_MS);
+    },
+
+    // 觸發紅色警報 (進入1分半閒置)
+    triggerAlarm: function() {
+        const indicator = document.getElementById('slowReaderFocusIndicator');
+        if(indicator) {
+            indicator.className = 'status-red';
+        }
+        console.log("🚨 慢讀防睡：1分半已到，觸發警報");
+        
+        // 播放警告音 (使用 iOS 友善的新引擎)
+        if (typeof SansiAudio !== 'undefined') {
+            SansiAudio.play('sleep_warning', true);
+        }
+        
+        // 執行震動懲罰
+        if (navigator.vibrate) {
+            navigator.vibrate([400, 200, 400, 200, 400]);
+        }
+    },
+    
+    // 統一的使用者活動回饋
+    handleUserActivity: function() {
+        this.resetMainTimer();
+    },
+
+    // 總開關切換
+    toggle: function() {
         if (focusMonitorState.isActive) {
             focusMonitorState.isActive = false;
             this.stop();
@@ -22532,72 +22579,17 @@ initUI: function() {
                 globalBtn.className = "detail-float-btn scroll-hide-target";
                 globalBtn.innerHTML = '<i class="fas fa-eye-slash"></i>';
             }
-            alert("防睡功能已關閉");
+            alert("防睡監察已關閉");
         } else {
+            // 開啟時先解鎖音軌管道 (iOS 必要)
+            if (typeof SansiAudio !== 'undefined') {
+                SansiAudio.unlock();
+            }
             focusMonitorState.isActive = true;
             this.start();
-            if(focusMonitorState.audio) {
-                focusMonitorState.audio.loop = true;
-                focusMonitorState.audio.load();
-            }
         }
-    },
-
-    // 重置計時器
-    resetMainTimer: function() {
-        if (typeof focusMonitorState === 'undefined' || !focusMonitorState.isActive) return;
-
-        clearTimeout(this.checkTimer);
-        clearTimeout(this.warningTimer);
-        if (typeof stopAlarm === 'function') stopAlarm();
-        
-        this.isPrompting = false;
-        
-        const indicator = document.getElementById('slowReaderFocusIndicator');
-        if(indicator) {
-            indicator.className = 'status-green';
-            indicator.innerHTML = '';
-        }
-
-        this.checkTimer = setTimeout(() => {
-            this.showPrompt();
-        }, this.INTERVAL_MS);
-    },
-
-    // 顯示橙燈
-    showPrompt: function() {
-        this.isPrompting = true;
-        const indicator = document.getElementById('slowReaderFocusIndicator');
-        if(indicator) {
-            indicator.className = 'status-prompt';
-            indicator.innerHTML = '';
-        }
-        console.log("慢讀防睡：180秒已到，轉橙燈");
-
-        this.warningTimer = setTimeout(() => {
-            this.triggerAlarm();
-        }, this.WARNING_MS);
-    },
-
-    // 觸發警報
-    triggerAlarm: function() {
-        const indicator = document.getElementById('slowReaderFocusIndicator');
-        if(indicator) {
-            indicator.className = 'status-red';
-            indicator.innerHTML = '';
-        }
-        console.log("慢讀防睡：210秒警報觸發！");
-        if(typeof focusMonitorState !== 'undefined' && focusMonitorState.audio) {
-            focusMonitorState.audio.play().catch(e => {});
-        }
-        if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400]);
-    },
-    
-    handleUserActivity: function() {
-        this.resetMainTimer();
     }
 };
-
 
 	
 function initSlowReaderEvents() {
