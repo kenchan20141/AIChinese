@@ -21707,8 +21707,28 @@ function scrollToAnalysis() {
     }
 }
 
-// === [修訂 V4] 顯示文章詳情 (防睡功能預設開啟版) ===
+// === [修訂 V6] 顯示文章詳情 (含 iOS 音效解鎖 + 防睡連動) ===
 function showArticleDetail(index) {
+    // 1. ★★★ iOS 音效解鎖核心邏輯 ★★★
+    // 在用戶點擊進入文章的一瞬間 (User Interaction)，啟用所有警報音效
+    const unlockAudio = (audioObj) => {
+        if (audioObj) {
+            audioObj.muted = true;      // 先靜音，以免發出怪聲
+            audioObj.play().then(() => {
+                audioObj.pause();       // 播放成功後立刻暫停
+                audioObj.currentTime = 0; // 重置時間
+                audioObj.muted = false; // 解除靜音，準備隨時由程式觸發
+                console.log("🔊 iOS 音效權限已獲取");
+            }).catch(e => console.log("音效權限獲取失敗:", e));
+        }
+    };
+
+    // 嘗試解鎖「閉眼警告」
+    if (typeof focusMonitorState !== 'undefined') unlockAudio(focusMonitorState.audio);
+    // 嘗試解鎖「離開警告」
+    if (typeof LeaveWarningSystem !== 'undefined') unlockAudio(LeaveWarningSystem.audio);
+
+    // --- 以下為原本的文章渲染邏輯 ---
     const article = filteredArticles[index];
     if (!article) return;
  
@@ -21789,7 +21809,6 @@ function showArticleDetail(index) {
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀"><i class="fas fa-book-reader"></i></button>
             <button class="detail-float-btn scroll-hide-target" onclick="openReaderSettings()" title="慢讀設定"><i class="fas fa-cog"></i></button>
             
-            <!-- ★★★ 修改：按鈕預設加上 focus-status-green class，title 改為監察中 ★★★ -->
             <button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target focus-status-green" onclick="toggleFocusMonitor()" title="防睡監察中 (點擊關閉)"><i class="fas fa-eye"></i></button>
             
             <button id="detailTopBtn" class="detail-float-btn" onclick="scrollToArticleTop()" title="返回頂部" style="display: none;"><i class="fas fa-arrow-up"></i></button>
@@ -21856,24 +21875,20 @@ function showArticleDetail(index) {
         }
     }, 50);
 
-    // ★★★ 修改：進入文章時強制啟動防睡監察邏輯 ★★★
-    // 設定狀態為開啟
+    // 強制啟動防睡 (進入文章預設開啟)
     focusMonitorState.isActive = true;
     focusMonitorState.lastActivityTime = Date.now();
     focusMonitorState.currentState = 'green';
     
-    // 預先載入音效
+    // 再次確保音效物件屬性正確
     focusMonitorState.audio.loop = true; 
     focusMonitorState.audio.volume = 1.0;
-    focusMonitorState.audio.load();
     
-    // 啟動監聽
     startFocusListeners();
     if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
     focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
-    // ★★★ 修改結束 ★★★
  
-    // 滾動邏輯
+    // 滾動邏輯 (保持不變)
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
@@ -22065,15 +22080,21 @@ function stopFocusMonitor() {
     
     // 停止警報聲音與震動
     stopAlarm();
+ 
+    // ★★★ 核心修改：同步重置離開警報系統 ★★★
+    // 這樣一旦關閉防睡，離開頁面計時器也會立刻被殺死，紅屏也會解除
+    if (typeof LeaveWarningSystem !== 'undefined') {
+        LeaveWarningSystem.resetSystem();
+    }
     
     // 重置按鈕外觀
     const btn = document.getElementById('focusMonitorBtn');
     if (btn) {
-        btn.className = "detail-float-btn scroll-hide-target"; // 移除所有顏色與 minimized class
-        btn.innerHTML = '<i class="fas fa-eye-slash"></i>';   // 顯示關閉圖示
+        btn.className = "detail-float-btn scroll-hide-target";
+        btn.innerHTML = '<i class="fas fa-eye-slash"></i>';   
         btn.title = "開啟防睡監察";
-        btn.style.transform = ""; // 清除可能的動畫變形
-        btn.style.display = 'flex'; // 確保顯示
+        btn.style.transform = "";
+        btn.style.display = 'flex';
     }
 }
  
@@ -23053,7 +23074,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // =======================================================
-// === [嚴厲版] 作家文粹：離開警報系統 (莫蘭迪極簡鎖定) ===
+// === [連動版] 作家文粹：離開警報系統 (配合防睡開關) ===
 // =======================================================
 const LeaveWarningSystem = {
     checkTimer: null,       // 用於偵測離開時間 (5秒)
@@ -23073,6 +23094,13 @@ const LeaveWarningSystem = {
         });
     },
     handleVisibilityChange: function() {
+        // ★★★ 核心修改 1：連動檢查 ★★★
+        // 如果防睡模式未開啟，直接重置並退出，不執行偵測
+        if (typeof focusMonitorState === 'undefined' || !focusMonitorState.isActive) {
+            this.resetSystem();
+            return;
+        }
+ 
         const detailView = document.getElementById('featuredDetailView');
         // 只有在文章詳情頁開啟時才運作
         if (!detailView || detailView.style.display === 'none') {
@@ -23110,13 +23138,13 @@ const LeaveWarningSystem = {
         
         if (!this.isPlaying) {
             this.isPlaying = true;
-            // 播放音效提醒
+            console.log("⚠️ 離開超過 5 秒，播放警報音效！");
             this.audio.play().catch(e => {
-                console.warn("背景播放受阻:", e);
+                console.warn("背景播放受阻 (iOS/Android 限制):", e);
             });
         }
     },
-    // 執行懲罰 (極簡紅屏 + 震動 + 倒數)
+    // 執行懲罰 (紅屏 + 震動 + 倒數)
     enforcePenalty: function() {
         console.log("🚫 執行懲罰：鎖定 10 秒 + 震動 5 秒");
         
@@ -23124,17 +23152,17 @@ const LeaveWarningSystem = {
         const countSpan = document.getElementById('penaltyCountdown');
         
         if (!overlay || !countSpan) return;
-        // 1. 顯示全螢幕
+        // 1. 顯示紅色全螢幕
         overlay.style.display = 'flex';
         this.isLocked = true;
-        // 2. 強力震動 5 秒 (5000ms)
+        // 2. 強力震動 5 秒
         if (navigator.vibrate) {
             navigator.vibrate(5000);
         }
-        // 3. 重置倒數計時 (確保每次觸發都是重新算 10 秒)
+        // 3. 重置倒數計時
         let timeLeft = 10;
         countSpan.innerText = timeLeft;
-        // 清除舊的倒數計時器 (防止疊加)
+        // 清除舊的倒數計時器
         if (this.lockInterval) clearInterval(this.lockInterval);
         this.lockInterval = setInterval(() => {
             timeLeft--;
@@ -23167,7 +23195,7 @@ const LeaveWarningSystem = {
         this.audio.currentTime = 0;
         this.isPlaying = false;
     },
-    // 完全重置
+    // 完全重置 (當關閉文章或關閉防睡時)
     resetSystem: function() {
         this.stopSoundOnly();
         this.releasePenalty();
