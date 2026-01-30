@@ -78,85 +78,6 @@ form-action 'self';
 	<script>
 
 
-
-// ==========================================
-// === [新增] iOS 全域音效強制解鎖系統 ===
-// ==========================================
-document.addEventListener('DOMContentLoaded', function() {
-    
-  // 定義解鎖函式
-    function unlockAllAudio() {
-        console.log("👆 偵測到使用者互動，正在嘗試靜音解鎖 iOS 音效...");
-        const audioList = [];
-        // 1. 加入防睡警告音效
-        if (typeof focusMonitorState !== 'undefined' && focusMonitorState.audio) {
-            audioList.push(focusMonitorState.audio);
-        } else {
-            // 如果物件還沒建立，先暫時建立一個來騙過瀏覽器
-            audioList.push(new Audio('閉眼警告.mp3'));
-        }
-        // 2. 加入離開警告音效
-        if (typeof LeaveWarningSystem !== 'undefined' && LeaveWarningSystem.audio) {
-            audioList.push(LeaveWarningSystem.audio);
-        } else {
-            audioList.push(new Audio('離開警告.mp3'));
-        }
-        // 3. 執行解鎖迴圈
-        audioList.forEach(audio => {
-            try {
-                // ★★★ 關鍵修改：先強制靜音，絕對不發出聲音 ★★★
-                audio.muted = true;
-                
-                // 強制重置進度
-                audio.currentTime = 0;
-                
-                // 強制載入 (iOS 需要)
-                audio.load();
-                // 嘗試播放 (此時是靜音的，使用者聽不到)
-                const playPromise = audio.play();
-                
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        // 播放成功後立刻暫停
-                        audio.pause();
-                        
-                        // 重置進度
-                        audio.currentTime = 0;
-                        
-                        // ★★★ 關鍵修改：解鎖成功後，恢復聲音設定 ★★★
-                        // 這樣稍後真正觸發警報時，才會有聲音
-                        audio.muted = false;
-                        audio.volume = 1.0;
-                        
-                        console.log("✅ 音效靜音解鎖成功");
-                    }).catch(error => {
-                        console.log("⚠️ 解鎖被阻擋 (需更多互動):", error);
-                        // 即使失敗也要確保恢復設定，以免真正警報時無聲
-                        audio.muted = false;
-                    });
-                }
-            } catch (e) {
-                console.error("解鎖過程錯誤:", e);
-                // 發生錯誤也要恢復
-                audio.muted = false;
-            }
-        });
-        // 解除監聽，避免每次點擊都執行
-        window.unlockCount = (window.unlockCount || 0) + 1;
-        if (window.unlockCount >= 3) {
-            document.removeEventListener('touchstart', unlockAllAudio);
-            document.removeEventListener('click', unlockAllAudio);
-        }
-    }
- 
-    // 綁定最早期的互動事件
-    // 'touchstart' 是 iOS 響應最快的事件，比 click 更早觸發
-    document.addEventListener('touchstart', unlockAllAudio, { passive: true });
-    document.addEventListener('click', unlockAllAudio, { passive: true });
-});
- 
-
-
 // ==========================================
 // === 全域變數宣告 (請加在 script 最上方) ===
 // ==========================================
@@ -22179,8 +22100,8 @@ function stopFocusMonitor() {
     // 停止警報聲音與震動
     stopAlarm();
  
-    // ★★★ 核心修改：同步重置離開警報系統 ★★★
-    // 這樣一旦關閉防睡，離開頁面計時器也會立刻被殺死，紅屏也會解除
+    // ★★★ 新增：同步重置離開警報系統 ★★★
+    // 這樣一旦關閉防睡，離開頁面計時器也會立刻被殺死
     if (typeof LeaveWarningSystem !== 'undefined') {
         LeaveWarningSystem.resetSystem();
     }
@@ -23172,128 +23093,94 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // =======================================================
+// === [嚴厲版] 作家文粹：離開警報系統 (莫蘭迪極簡鎖定) ===
+// =======================================================
+// =======================================================
 // === [連動版] 作家文粹：離開警報系統 (配合防睡開關) ===
 // =======================================================
 const LeaveWarningSystem = {
-    checkTimer: null,       // 用於偵測離開時間 (5秒)
-    lockInterval: null,     // 用於鎖定畫面倒數 (10秒)
+    checkTimer: null,
+    lockInterval: null,
     audio: new Audio('離開警告.mp3'),
     
-    // 狀態旗標
     isPlaying: false,
-    hasTriggered: false,    // 是否觸發了警報 (需要懲罰)
-    isLocked: false,        // 是否正處於鎖定狀態
+    hasTriggered: false,
+    isLocked: false,
     init: function() {
         this.audio.loop = true;
         this.audio.volume = 1.0;
-        // 監聽頁面可見度
         document.addEventListener('visibilitychange', () => {
             this.handleVisibilityChange();
         });
     },
     handleVisibilityChange: function() {
-        // ★★★ 核心修改 1：連動檢查 ★★★
-        // 如果防睡模式未開啟，直接重置並退出，不執行偵測
+        // ★★★ 核心修改：檢查防睡模式是否開啟 ★★★
+        // 如果 focusMonitorState 未定義或未開啟，則不執行任何離開偵測
         if (typeof focusMonitorState === 'undefined' || !focusMonitorState.isActive) {
-            this.resetSystem();
+            this.resetSystem(); // 確保計時器被清除
             return;
         }
  
         const detailView = document.getElementById('featuredDetailView');
-        // 只有在文章詳情頁開啟時才運作
         if (!detailView || detailView.style.display === 'none') {
             this.resetSystem();
             return;
         }
         if (document.hidden) {
-            // === [使用者離開頁面] ===
             console.log("偵測到離開，開始 5 秒計時...");
-            
             if (this.checkTimer) clearTimeout(this.checkTimer);
-            
             this.checkTimer = setTimeout(() => {
-                this.triggerAlarm(); // 超過 5 秒，標記為違規
+                this.triggerAlarm();
             }, 5000);
         } else {
-            // === [使用者回到頁面] ===
             console.log("使用者已返回。");
-            // 1. 清除離開計時器 (未滿 5 秒回來)
             if (this.checkTimer) {
                 clearTimeout(this.checkTimer);
                 this.checkTimer = null;
             }
-            // 2. 檢查是否需要執行懲罰
             if (this.hasTriggered) {
-                this.enforcePenalty(); // 執行鎖定 + 震動
+                this.enforcePenalty();
             }
-            // 3. 停止警報聲音 (但懲罰狀態可能還在)
             this.stopSoundOnly();
         }
     },
-    // 觸發警報狀態 (當離開超過 5 秒)
     triggerAlarm: function() {
-        this.hasTriggered = true; // 標記為違規，回來必須受罰
-        
+        this.hasTriggered = true;
         if (!this.isPlaying) {
             this.isPlaying = true;
-            console.log("⚠️ 離開超過 5 秒，播放警報音效！");
-            this.audio.play().catch(e => {
-                console.warn("背景播放受阻 (iOS/Android 限制):", e);
-            });
+            this.audio.play().catch(e => console.warn("背景播放受阻:", e));
         }
     },
-    // 執行懲罰 (紅屏 + 震動 + 倒數)
     enforcePenalty: function() {
-        console.log("🚫 執行懲罰：鎖定 10 秒 + 震動 5 秒");
-        
+        // ... (這部分保持原本的鎖定邏輯) ...
         const overlay = document.getElementById('penaltyLockOverlay');
         const countSpan = document.getElementById('penaltyCountdown');
-        
         if (!overlay || !countSpan) return;
-        // 1. 顯示紅色全螢幕
         overlay.style.display = 'flex';
         this.isLocked = true;
-        // 2. 強力震動 5 秒
-        if (navigator.vibrate) {
-            navigator.vibrate(5000);
-        }
-        // 3. 重置倒數計時
+        if (navigator.vibrate) navigator.vibrate(5000);
         let timeLeft = 10;
         countSpan.innerText = timeLeft;
-        // 清除舊的倒數計時器
         if (this.lockInterval) clearInterval(this.lockInterval);
         this.lockInterval = setInterval(() => {
             timeLeft--;
             countSpan.innerText = timeLeft;
-            if (timeLeft <= 0) {
-                this.releasePenalty(); // 解鎖
-            }
+            if (timeLeft <= 0) this.releasePenalty();
         }, 1000);
     },
-    // 解除懲罰
     releasePenalty: function() {
         const overlay = document.getElementById('penaltyLockOverlay');
         if (overlay) overlay.style.display = 'none';
-        
-        if (this.lockInterval) {
-            clearInterval(this.lockInterval);
-            this.lockInterval = null;
-        }
-        this.hasTriggered = false; // 重置違規標記
+        if (this.lockInterval) { clearInterval(this.lockInterval); this.lockInterval = null; }
+        this.hasTriggered = false;
         this.isLocked = false;
-        
-        // 停止震動
         if (navigator.vibrate) navigator.vibrate(0);
-        
-        console.log("✅ 懲罰結束，解鎖畫面。");
     },
-    // 只停止聲音
     stopSoundOnly: function() {
         this.audio.pause();
         this.audio.currentTime = 0;
         this.isPlaying = false;
     },
-    // 完全重置 (當關閉文章或關閉防睡時)
     resetSystem: function() {
         this.stopSoundOnly();
         this.releasePenalty();
@@ -23301,7 +23188,6 @@ const LeaveWarningSystem = {
         this.hasTriggered = false;
     }
 };
-// 啟動
 document.addEventListener('DOMContentLoaded', () => {
     LeaveWarningSystem.init();
 });
