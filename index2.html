@@ -22977,114 +22977,102 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // =======================================================
-// === [新增] 作家文粹：離開頁面警報系統 (5秒觸發) ===
+// === [修正版] 作家文粹：離開警報系統 (聲音為主，返回即震) ===
 // =======================================================
  
 const LeaveWarningSystem = {
     timer: null,
-    audio: new Audio('離開警告.mp3'), // 請確保此檔案存在
+    audio: new Audio('離開警告.mp3'),
     isPlaying: false,
-    vibrateInterval: null,
+    hasTriggered: false, // 標記是否已經觸發過警報
  
-    // 初始化
     init: function() {
-        this.audio.loop = true; // 設定循環播放
-        this.audio.volume = 1.0; // 最大音量
+        this.audio.loop = true;
+        this.audio.volume = 1.0;
  
-        // 監聽頁面可見度變化
+        // 監聽頁面可見度
         document.addEventListener('visibilitychange', () => {
             this.handleVisibilityChange();
         });
     },
  
-    // 處理狀態改變
     handleVisibilityChange: function() {
-        // 1. 檢查是否在「作家文粹」詳情頁 (featuredDetailView)
-        // 只要該容器顯示中 (display: block)，無論是否開啟慢讀，都視為有效
         const detailView = document.getElementById('featuredDetailView');
+        // 只有在文章詳情頁開啟時才運作
         if (!detailView || detailView.style.display === 'none') {
-            this.stopAlarm(); // 如果不在文章頁，確保警報關閉
+            this.stopAlarm();
             return;
         }
  
         if (document.hidden) {
-            // === 使用者離開頁面 (隱藏/縮小/切換分頁) ===
-            console.log("偵測到離開頁面，開始 5 秒倒數...");
+            // === [離開頁面] ===
+            console.log("偵測到離開，開始 5 秒倒數...");
             
-            // 清除舊計時器以防萬一
             if (this.timer) clearTimeout(this.timer);
- 
-            // 啟動 5 秒計時器
+            
             this.timer = setTimeout(() => {
                 this.triggerAlarm();
-            }, 5000);
+            }, 5000); // 5秒
  
         } else {
-            // === 使用者回到頁面 ===
+            // === [回到頁面] ===
             console.log("使用者已返回。");
-            
-            // 取消計時 (如果在 5 秒內回來)
+ 
+            // 如果計時器還在跑 (代表未滿5秒就回來了)，取消它
             if (this.timer) {
                 clearTimeout(this.timer);
                 this.timer = null;
             }
  
-            // 停止警報
+            // ★★★ 關鍵修改：如果是處於「警報已觸發」狀態，回來時立即震動 ★★★
+            if (this.hasTriggered) {
+                console.log("⚠️ 偵測到違規返回，執行懲罰震動！");
+                if (navigator.vibrate) {
+                    // 連續震動 1 秒 (作為懲罰)
+                    navigator.vibrate([200, 100, 200, 100, 200, 100, 200]);
+                }
+            }
+ 
+            // 停止警報聲音
             this.stopAlarm();
         }
     },
  
-    // 觸發警報 (音效 + 震動)
     triggerAlarm: function() {
-        if (this.isPlaying) return; // 防止重複觸發
+        if (this.isPlaying) return;
         this.isPlaying = true;
+        this.hasTriggered = true; // 標記為已觸發
  
-        console.log("⚠️ 離開超過 5 秒，觸發警報！");
+        console.log("⚠️ 離開超過 5 秒，播放警報音效！");
  
-        // 1. 播放音效
+        // 1. 播放音效 (這是背景唯一能做的事)
         this.audio.play().catch(e => {
-            console.warn("警報音效播放受阻 (可能是瀏覽器背景限制):", e);
+            console.warn("背景播放受阻 (請檢查瀏覽器設定):", e);
         });
  
-        // 2. 強力震動 (模擬防睡紅燈級別)
+        // 2. 嘗試震動 (雖然大部分瀏覽器會擋，但針對舊版 Android 仍嘗試執行)
         if (navigator.vibrate) {
-            // 立即震動一次
-            navigator.vibrate([400, 200, 400, 200, 400]);
-            
-            // 設定循環震動 (每 2 秒震動一組)
-            if (this.vibrateInterval) clearInterval(this.vibrateInterval);
-            this.vibrateInterval = setInterval(() => {
-                if (document.hidden) {
-                    navigator.vibrate([400, 200, 400, 200, 400]);
-                } else {
-                    this.stopAlarm(); // 雙重保險
-                }
-            }, 2000);
+            navigator.vibrate([500, 200, 500]);
         }
     },
  
-    // 停止警報
     stopAlarm: function() {
         this.isPlaying = false;
+        this.hasTriggered = false; // 重置觸發狀態
         
         // 停止音效
         this.audio.pause();
         this.audio.currentTime = 0;
  
         // 停止震動
-        if (this.vibrateInterval) {
-            clearInterval(this.vibrateInterval);
-            this.vibrateInterval = null;
-        }
         if (navigator.vibrate) navigator.vibrate(0);
     }
 };
  
-// 頁面載入後啟動監聽
+// 啟動
 document.addEventListener('DOMContentLoaded', () => {
     LeaveWarningSystem.init();
 });
- 
 </script>
 
 
