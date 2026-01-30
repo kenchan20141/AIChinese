@@ -22092,35 +22092,44 @@ function closeFocusUnlockModal() {
     document.getElementById('focusUnlockModal').style.display = 'none';
 }
  
-// === [修改版] 密碼驗證：從 Firebase 讀取 ===
+// ==========================================
+// === [雲端讀取版] 密碼驗證 ===
+// ==========================================
 async function verifyFocusPassword() {
     const input = document.getElementById('focusUnlockInput');
     const pwd = input.value.trim();
-    const btn = event.target; // 獲取點擊的按鈕
     
-    // 簡單的 UI 鎖定，避免重複點擊
-    const originalText = btn.innerText;
+    // 獲取按鈕元素 (兼容 click 事件)
+    const btn = event.target.closest('button');
+    
+    // UI 鎖定 (防止重複點擊)
+    const originalText = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     btn.disabled = true;
  
     try {
-        // 1. 從 Firebase 的 config 節點讀取設定的密碼
-        // 注意：這裡假設您的資料庫有一個路徑是 /config/unlock_password
-        const snapshot = await database.ref('/config/unlock_password').once('value');
+        // 1. 從 Firebase 下載正確密碼
+        // (您的現有 Rules 允許學生讀取 config，所以這行能運作)
+        const snapshot = await database.ref('config/unlock_password').once('value');
         const correctPassword = snapshot.val();
  
-        // 如果資料庫沒設定密碼，則使用預設後備密碼
-        const finalPassword = correctPassword || 'kycchinese2025';
- 
-        // 2. 比對輸入的密碼
-        if (pwd === finalPassword) {
+        // 2. 進行比對
+        if (pwd === correctPassword) { // 密碼由雲端決定 (kycchi2026)
+            
             // --- 密碼正確 ---
             isFocusPermissionUnlocked = true;
             localStorage.setItem('sansi_focus_permission', 'true');
             
-            alert("✅ 權限開通成功！\n您現在可以自由開關防睡模式了。");
+            // 嘗試在雲端做個標記 (選用，方便跨裝置，但不需要驗證規則)
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (s) {
+                // 這裡只寫入一個標記 "unlocked"，不寫入密碼本身，避開複雜規則
+                database.ref(`students/${s.grade}/${s.class}/${s.name}/profile/unlock_code`).set('unlocked').catch(()=>{});
+            }
+ 
+            alert("✅ 驗證成功！權限已開通。");
             closeFocusUnlockModal();
-            stopFocusMonitor();
+            stopFocusMonitor(); // 執行關閉動作
             
         } else {
             // --- 密碼錯誤 ---
@@ -22128,13 +22137,22 @@ async function verifyFocusPassword() {
         }
  
     } catch (error) {
-        // 錯誤處理 (包含密碼錯誤或網絡錯誤)
+        // --- 錯誤處理 ---
+        console.error("驗證失敗:", error);
+        
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        input.style.border = "1px solid #d69a92"; // 變紅框
+        
+        // 輸入框變紅並清空
+        input.style.border = "1px solid #d69a92";
         input.value = "";
         input.placeholder = "密碼錯誤";
         input.focus();
-        console.error("驗證失敗:", error);
+        
+        // 2秒後恢復邊框顏色
+        setTimeout(() => {
+             input.style.border = "1px solid #e0ddd7";
+        }, 2000);
+ 
     } finally {
         // 恢復按鈕狀態
         btn.innerHTML = originalText;
