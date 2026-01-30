@@ -78,6 +78,82 @@ form-action 'self';
 	<script>
 
 
+
+		// ==========================================
+// === [新增] iOS 全域音效強制解鎖系統 ===
+// ==========================================
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // 定義解鎖函式
+    function unlockAllAudio() {
+        console.log("👆 偵測到使用者互動，正在嘗試解鎖 iOS 音效...");
+ 
+        const audioList = [];
+ 
+        // 1. 加入防睡警告音效
+        if (typeof focusMonitorState !== 'undefined' && focusMonitorState.audio) {
+            audioList.push(focusMonitorState.audio);
+        } else {
+            // 如果物件還沒建立，先暫時建立一個來騙過瀏覽器
+            audioList.push(new Audio('閉眼警告.mp3'));
+        }
+ 
+        // 2. 加入離開警告音效
+        if (typeof LeaveWarningSystem !== 'undefined' && LeaveWarningSystem.audio) {
+            audioList.push(LeaveWarningSystem.audio);
+        } else {
+            audioList.push(new Audio('離開警告.mp3'));
+        }
+ 
+        // 3. 執行解鎖迴圈
+        audioList.forEach(audio => {
+            try {
+                // 強制重置
+                audio.pause();
+                audio.currentTime = 0;
+                
+                // iOS 關鍵：先設定音量極小 (不能是 0，也不能是 muted，否則 iOS 有時會忽略)
+                audio.volume = 0.01;
+                audio.muted = false;
+ 
+                // 強制載入
+                audio.load();
+ 
+                // 嘗試播放並立即暫停
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        // 播放成功後立刻暫停
+                        audio.pause();
+                        audio.currentTime = 0;
+                        // 恢復正常音量
+                        audio.volume = 1.0;
+                        console.log("✅ 音效解鎖成功");
+                    }).catch(error => {
+                        console.log("⚠️ 解鎖被阻擋 (需更多互動):", error);
+                    });
+                }
+            } catch (e) {
+                console.error("解鎖過程錯誤:", e);
+            }
+        });
+ 
+        // 解除監聽，避免每次點擊都執行，浪費效能
+        // (但為了保險，我們可以讓它在前 3 次點擊都執行)
+        window.unlockCount = (window.unlockCount || 0) + 1;
+        if (window.unlockCount >= 3) {
+            document.removeEventListener('touchstart', unlockAllAudio);
+            document.removeEventListener('click', unlockAllAudio);
+        }
+    }
+ 
+    // 綁定最早期的互動事件
+    // 'touchstart' 是 iOS 響應最快的事件，比 click 更早觸發
+    document.addEventListener('touchstart', unlockAllAudio, { passive: true });
+    document.addEventListener('click', unlockAllAudio, { passive: true });
+});
+
+
 // ==========================================
 // === 全域變數宣告 (請加在 script 最上方) ===
 // ==========================================
@@ -21708,27 +21784,36 @@ function scrollToAnalysis() {
 }
 
 // === [修訂 V6] 顯示文章詳情 (含 iOS 音效解鎖 + 防睡連動) ===
+// === [修訂 V7] 顯示文章詳情 (iOS 強力解鎖版) ===
 function showArticleDetail(index) {
-    // 1. ★★★ iOS 音效解鎖核心邏輯 ★★★
-    // 在用戶點擊進入文章的一瞬間 (User Interaction)，啟用所有警報音效
-    const unlockAudio = (audioObj) => {
-        if (audioObj) {
-            audioObj.muted = true;      // 先靜音，以免發出怪聲
-            audioObj.play().then(() => {
-                audioObj.pause();       // 播放成功後立刻暫停
-                audioObj.currentTime = 0; // 重置時間
-                audioObj.muted = false; // 解除靜音，準備隨時由程式觸發
-                console.log("🔊 iOS 音效權限已獲取");
-            }).catch(e => console.log("音效權限獲取失敗:", e));
+    
+    // --- 1. iOS 強力解鎖邏輯 ---
+    const forceUnlock = (audioObj) => {
+        if (!audioObj) return;
+        
+        // 暫時將音量設為極小 (非靜音)，騙過 iOS 檢查
+        const originalVolume = audioObj.volume;
+        audioObj.volume = 0.01;
+        audioObj.muted = false; // 關鍵：iOS 必須是非靜音狀態
+        
+        audioObj.load(); // 關鍵：強制載入緩衝區
+
+        const p = audioObj.play();
+        if (p !== undefined) {
+            p.then(() => {
+                audioObj.pause();
+                audioObj.currentTime = 0;
+                audioObj.volume = 1.0; // 恢復音量
+                console.log("🔊 文章頁面：音效權限再次確認");
+            }).catch(e => console.warn("音效解鎖失敗:", e));
         }
     };
 
-    // 嘗試解鎖「閉眼警告」
-    if (typeof focusMonitorState !== 'undefined') unlockAudio(focusMonitorState.audio);
-    // 嘗試解鎖「離開警告」
-    if (typeof LeaveWarningSystem !== 'undefined') unlockAudio(LeaveWarningSystem.audio);
+    // 嘗試解鎖兩個關鍵音效
+    if (typeof focusMonitorState !== 'undefined') forceUnlock(focusMonitorState.audio);
+    if (typeof LeaveWarningSystem !== 'undefined') forceUnlock(LeaveWarningSystem.audio);
 
-    // --- 以下為原本的文章渲染邏輯 ---
+    // --- 以下維持原有的文章渲染邏輯 ---
     const article = filteredArticles[index];
     if (!article) return;
  
@@ -21880,7 +21965,7 @@ function showArticleDetail(index) {
     focusMonitorState.lastActivityTime = Date.now();
     focusMonitorState.currentState = 'green';
     
-    // 再次確保音效物件屬性正確
+    // 音效確保
     focusMonitorState.audio.loop = true; 
     focusMonitorState.audio.volume = 1.0;
     
@@ -21888,7 +21973,7 @@ function showArticleDetail(index) {
     if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
     focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
  
-    // 滾動邏輯 (保持不變)
+    // 滾動邏輯
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
