@@ -21786,6 +21786,25 @@ function scrollToAnalysis() {
 
 // === [修訂 V8] 顯示文章詳情 (權限判斷 + 預設狀態控制) ===
 function showArticleDetail(index) {
+
+
+  // ==========================================
+    // ★★★ [新增] 點擊文章時，強制解鎖 iOS 音效 ★★★
+    // ==========================================
+    
+    // 1. 解鎖防睡警告音效
+    if (typeof focusMonitorState !== 'undefined' && focusMonitorState.audio) {
+        forceiOSAudioUnlock(focusMonitorState.audio);
+    }
+ 
+    // 2. 解鎖離開警告音效
+    if (typeof LeaveWarningSystem !== 'undefined' && LeaveWarningSystem.audio) {
+        forceiOSAudioUnlock(LeaveWarningSystem.audio);
+    }
+    
+    // ==========================================
+
+	
     const article = filteredArticles[index];
     if (!article) return;
  
@@ -23310,6 +23329,46 @@ document.addEventListener('DOMContentLoaded', () => {
  
 
 
+<script>
+
+
+
+// === [新增] iOS 強制音效解鎖輔助函式 ===
+function forceiOSAudioUnlock(audioObj) {
+    if (!audioObj) return;
+    
+    // 1. 暫存原始音量
+    const originalVolume = audioObj.volume;
+    
+    // 2. 設定為靜音模式進行「假播放」
+    audioObj.muted = true;
+    
+    // 3. 嘗試播放
+    const playPromise = audioObj.play();
+    
+    if (playPromise !== undefined) {
+        playPromise.then(() => {
+            // 4. 播放成功後立刻暫停、重置
+            audioObj.pause();
+            audioObj.currentTime = 0;
+            
+            // 5. 關鍵：解除靜音並恢復音量，這樣之後程式呼叫就能聽到聲音
+            audioObj.muted = false;
+            audioObj.volume = 1.0;
+            
+            console.log("✅ iOS 音效物件已激活:", audioObj.src);
+        }).catch(error => {
+            console.warn("⚠️ iOS 解鎖被阻擋:", error);
+        });
+    }
+}
+
+	
+</script>
+
+
+
+	
 
 
 	
