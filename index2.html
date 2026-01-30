@@ -21935,42 +21935,118 @@ let focusMonitorState = {
     audio: new Audio('閉眼警告.mp3') 
 };
  
-// 1. 開啟/關閉 監察功能
+// === [修訂] 監察開關與密碼驗證邏輯 ===
+ 
+// 檢查本地是否已經解鎖過權限
+let isFocusPermissionUnlocked = localStorage.getItem('sansi_focus_permission') === 'true';
+ 
 function toggleFocusMonitor() {
     const btn = document.getElementById('focusMonitorBtn');
     if (!btn) return;
- 
     if (!focusMonitorState.isActive) {
-        // === 開啟功能 ===
-        focusMonitorState.isActive = true;
-        focusMonitorState.lastActivityTime = Date.now();
-        focusMonitorState.currentState = 'green';
-        
-        // 更新按鈕外觀：顯示開啟狀態 (莫蘭迪綠)
-        btn.innerHTML = '<i class="fas fa-eye"></i>'; 
-        btn.classList.remove('minimized'); 
-        btn.classList.add('focus-status-green');
-        btn.title = "防睡監察中 (點擊關閉)";
-        
-        // 預先加載音效 (設定循環播放)
-        focusMonitorState.audio.loop = true; 
-        focusMonitorState.audio.volume = 1.0;
-        focusMonitorState.audio.load();
-        
-        // 啟動監聽器與計時器
-        startFocusListeners();
-        focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000); 
-        
-        // 開啟時：極短震動提示
-        if(navigator.vibrate) navigator.vibrate([50]);
-        console.log("防睡監察已啟動");
- 
+        // === [開啟] 任何時候都可以開啟 ===
+        activateFocusMonitor(btn);
     } else {
-        // === 關閉功能 ===
-        stopFocusMonitor();
-        // 關閉時：極短震動提示
-        if(navigator.vibrate) navigator.vibrate([30]);
-        console.log("防睡監察已關閉");
+        // === [關閉] 需要檢查權限 ===
+        if (isFocusPermissionUnlocked) {
+            // 已經輸入過密碼，直接關閉
+            stopFocusMonitor();
+            if (navigator.vibrate) navigator.vibrate([30]);
+            console.log("防睡監察已關閉 (已授權)");
+        } else {
+            // 尚未解鎖，彈出密碼視窗
+            openFocusUnlockModal();
+        }
+    }
+}
+ 
+// 輔助函式：執行開啟動作
+function activateFocusMonitor(btn) {
+    focusMonitorState.isActive = true;
+    focusMonitorState.lastActivityTime = Date.now();
+    focusMonitorState.currentState = 'green';
+    
+    btn.innerHTML = '<i class="fas fa-eye"></i>';
+    btn.classList.remove('minimized');
+    btn.classList.add('focus-status-green');
+    btn.title = "防睡監察中 (點擊關閉)";
+    
+    focusMonitorState.audio.loop = true;
+    focusMonitorState.audio.volume = 1.0;
+    focusMonitorState.audio.load();
+    
+    startFocusListeners();
+    if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
+    focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
+    
+    if(navigator.vibrate) navigator.vibrate([50]);
+    console.log("防睡監察已啟動");
+}
+ 
+// === [新增] 密碼視窗控制函式 ===
+ 
+function openFocusUnlockModal() {
+    const modal = document.getElementById('focusUnlockModal');
+    const input = document.getElementById('focusUnlockInput');
+    
+    if (modal) {
+        modal.style.display = 'flex';
+        input.value = ''; // 清空舊輸入
+        setTimeout(() => input.focus(), 100); // 自動聚焦
+    }
+}
+ 
+function closeFocusUnlockModal() {
+    document.getElementById('focusUnlockModal').style.display = 'none';
+}
+ 
+// === [修改版] 密碼驗證：從 Firebase 讀取 ===
+async function verifyFocusPassword() {
+    const input = document.getElementById('focusUnlockInput');
+    const pwd = input.value.trim();
+    const btn = event.target; // 獲取點擊的按鈕
+    
+    // 簡單的 UI 鎖定，避免重複點擊
+    const originalText = btn.innerText;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+ 
+    try {
+        // 1. 從 Firebase 的 config 節點讀取設定的密碼
+        // 注意：這裡假設您的資料庫有一個路徑是 /config/unlock_password
+        const snapshot = await database.ref('/config/unlock_password').once('value');
+        const correctPassword = snapshot.val();
+ 
+        // 如果資料庫沒設定密碼，則使用預設後備密碼
+        const finalPassword = correctPassword || 'kycchinese2025';
+ 
+        // 2. 比對輸入的密碼
+        if (pwd === finalPassword) {
+            // --- 密碼正確 ---
+            isFocusPermissionUnlocked = true;
+            localStorage.setItem('sansi_focus_permission', 'true');
+            
+            alert("✅ 權限開通成功！\n您現在可以自由開關防睡模式了。");
+            closeFocusUnlockModal();
+            stopFocusMonitor();
+            
+        } else {
+            // --- 密碼錯誤 ---
+            throw new Error("密碼不正確");
+        }
+ 
+    } catch (error) {
+        // 錯誤處理 (包含密碼錯誤或網絡錯誤)
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        input.style.border = "1px solid #d69a92"; // 變紅框
+        input.value = "";
+        input.placeholder = "密碼錯誤";
+        input.focus();
+        console.error("驗證失敗:", error);
+    } finally {
+        // 恢復按鈕狀態
+        btn.innerHTML = originalText;
+        btn.disabled = false;
     }
 }
  
@@ -23177,6 +23253,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
+
+
+
+
+	<!-- === [新增] 防睡模式解鎖視窗 (極簡莫蘭迪版) === -->
+<div id="focusUnlockModal" class="morandi-modal-overlay" style="z-index: 30010;">
+    <div class="morandi-modal-card" style="width: 80%; max-width: 280px; padding: 35px 25px;">
+        
+        <!-- 極簡鎖頭圖示 -->
+        <div style="color: #8fa398; font-size: 2.2rem; margin-bottom: 25px;">
+            <i class="fas fa-lock"></i>
+        </div>
+        
+        <!-- 輸入框 (圓角設計) -->
+        <input type="password" id="focusUnlockInput" placeholder="輸入密碼" 
+               style="width: 100%; padding: 12px; border: 1px solid #e0ddd7; border-radius: 50px; margin-bottom: 25px; text-align: center; font-size: 1rem; outline: none; background-color: #fcfcfc; color: #555; letter-spacing: 1px; font-family: 'Noto Serif TC', serif;">
+        
+        <!-- 按鈕群組 -->
+        <div class="morandi-btn-group" style="gap: 10px;">
+            <button onclick="closeFocusUnlockModal()" class="morandi-btn btn-gray" style="padding: 8px 20px; border-radius: 50px; font-size: 0.9rem;">取消</button>
+            <button onclick="verifyFocusPassword()" class="morandi-btn" style="padding: 8px 20px; background-color: #8fa398; color: white; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.3); border-radius: 50px; font-size: 0.9rem;">確認</button>
+        </div>
+    </div>
+</div>
+ 
 	
 	
 	
