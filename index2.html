@@ -23192,73 +23192,157 @@ document.addEventListener('DOMContentLoaded', function() {
 // =======================================================
 // === [嚴厲版] 作家文粹：離開警報系統 (莫蘭迪極簡鎖定) ===
 // =======================================================
+// =======================================================
+// === [終極整合版] 離開警報系統 (Android 背景觸發 + iOS 回來清算) ===
+// =======================================================
 const LeaveWarningSystem = {
-    leaveTimestamp: 0,
+    checkTimer: null,
+    lockInterval: null,
+    isPlaying: false,
+    hasTriggered: false,
     isLocked: false,
+    leaveTimestamp: 0, 
+
+    // 指定的震動模式：與閉眼警告完全一致
+    vibratePattern: [400, 200, 400, 200, 400],
 
     init: function() {
         document.addEventListener('visibilitychange', () => {
-            if (!focusMonitorState.isActive) return;
-
-            if (document.hidden) {
-                // 離開時
-                this.leaveTimestamp = Date.now();
-                console.log("📍 [Leave] 偵測到離開，記錄時間戳");
-            } else {
-                // 返回時
-                const now = Date.now();
-                const timeAway = now - this.leaveTimestamp;
-                
-                if (this.leaveTimestamp > 0 && timeAway > 5000) {
-                    console.log(`⚠️ [Penalty] 離開時間過長 (${timeAway}ms)，執行處罰`);
-                    this.triggerPenalty();
-                }
-                this.leaveTimestamp = 0;
-            }
+            this.handleVisibilityChange();
         });
     },
 
-    triggerPenalty: function() {
-        // 1. 播放聲音 (此時使用者剛回網頁，AudioContext 可恢復)
-        SansiAudio.unlock(); // 確保 Context 恢復
-        SansiAudio.play('leave_warning', true);
+    handleVisibilityChange: function() {
+        if (typeof focusMonitorState === 'undefined' || !focusMonitorState.isActive) {
+            this.resetSystem();
+            return;
+        }
         
-        // 2. 顯示鎖定畫面
+        // 只有在閱讀詳情頁面才啟動
+        const detailView = document.getElementById('featuredDetailView');
+        if (!detailView || detailView.style.display === 'none') {
+            this.resetSystem();
+            return;
+        }
+
+        if (document.hidden) {
+            // --- 【離開時】 ---
+            console.log("📍 [Leave] 偵測到離開");
+            this.leaveTimestamp = Date.now(); 
+
+            // 安卓與電腦版邏輯：啟動背景 5 秒計時器
+            // 藉由正在播放的無聲管道，安卓有機會在背景準時響起
+            if (this.checkTimer) clearTimeout(this.checkTimer);
+            this.checkTimer = setTimeout(() => {
+                this.triggerAlarmSound(); // 5秒後在背景(或準備)響起
+            }, 5000);
+
+        } else {
+            // --- 【返回時】 ---
+            console.log("📍 [Back] 使用者已返回");
+            
+            const now = Date.now();
+            const timeAway = now - this.leaveTimestamp;
+            
+            // iOS 關鍵邏輯：如果在背景時計時器被凍結了，回來後立刻計算時間差
+            // 如果離開超過 5 秒，且剛才在背景還沒響過，就補發警報
+            if (this.leaveTimestamp > 0 && timeAway > 5000) {
+                if (!this.hasTriggered) {
+                    console.log(`⚠️ [iOS/Penalty] 補發離開警報 (離開 ${timeAway}ms)`);
+                    this.triggerAlarmSound();
+                }
+                // 無論是背景響過還是補發，只要超過5秒就執行鎖定懲罰
+                this.enforcePenalty();
+            } else {
+                // 離開不足 5 秒，平安無事
+                this.stopSoundOnly();
+            }
+            this.leaveTimestamp = 0; 
+        }
+    },
+
+    // 觸發警報 (聲音 + 統一震動)
+    triggerAlarmSound: function() {
+        if (this.hasTriggered) return; // 避免重疊觸發
+        
+        console.log("🚨 [Alarm] 播放離開警告音與震動");
+        this.hasTriggered = true;
+        
+        // 1. 播放聲音
+        if (typeof SansiAudio !== 'undefined') {
+            SansiAudio.play('leave_warning', true);
+        }
+        
+        // 2. 執行震動 (與閉眼警告完全一致的頻率和力度)
+        if (navigator.vibrate) {
+            navigator.vibrate(this.vibratePattern);
+        }
+    },
+
+    // 執行 10 秒懲罰鎖定
+    enforcePenalty: function() {
+        if (this.isLocked) return;
+
         const overlay = document.getElementById('penaltyLockOverlay');
         const countSpan = document.getElementById('penaltyCountdown');
-        if (!overlay) return;
-
+        if (!overlay || !countSpan) return;
+        
         overlay.style.display = 'flex';
         this.isLocked = true;
-
+        
         let timeLeft = 10;
         countSpan.innerText = timeLeft;
-
-        const interval = setInterval(() => {
+        
+        if (this.lockInterval) clearInterval(this.lockInterval);
+        this.lockInterval = setInterval(() => {
             timeLeft--;
             countSpan.innerText = timeLeft;
-            if (timeLeft <= 0) {
-                clearInterval(interval);
-                this.releasePenalty();
+            
+            // 鎖定期間持續保持震動回饋 (可選，增加威懾力)
+            if (timeLeft % 2 === 0 && navigator.vibrate) {
+                navigator.vibrate(this.vibratePattern);
             }
+
+            if (timeLeft <= 0) this.releasePenalty();
         }, 1000);
     },
 
     releasePenalty: function() {
         const overlay = document.getElementById('penaltyLockOverlay');
         if (overlay) overlay.style.display = 'none';
-        SansiAudio.stop('leave_warning');
+        
+        if (this.lockInterval) { clearInterval(this.lockInterval); this.lockInterval = null; }
+        
+        this.hasTriggered = false;
         this.isLocked = false;
-        focusMonitorState.lastActivityTime = Date.now(); // 重置防睡計時
+        if (navigator.vibrate) navigator.vibrate(0);
+        
+        // 停止聲音
+        this.stopSoundOnly();
+        
+        // 返回後重置防睡計時
+        if (typeof focusMonitorState !== 'undefined') {
+            focusMonitorState.lastActivityTime = Date.now();
+        }
+    },
+
+    stopSoundOnly: function() {
+        if (typeof SansiAudio !== 'undefined') {
+            SansiAudio.stop('leave_warning');
+        }
+        this.isPlaying = false;
+        if (this.checkTimer) { clearTimeout(this.checkTimer); this.checkTimer = null; }
     },
 
     resetSystem: function() {
+        this.stopSoundOnly();
         this.releasePenalty();
         this.leaveTimestamp = 0;
+        this.hasTriggered = false;
     }
 };
 
-// 確保在頁面載入時初始化
+// 啟動監聽
 document.addEventListener('DOMContentLoaded', () => {
     LeaveWarningSystem.init();
 });
