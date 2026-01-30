@@ -11188,48 +11188,72 @@ let currentContextType = "";
 let currentContextContent = ""; 
 let currentContextReview = ""; 
 
+// =======================================================
+// === [修訂版] 畫布聊天室 HTML 生成 (移除 ID，改用相對定位) ===
+// =======================================================
 function getCanvasChatHTML(type) {
     currentContextType = type;
-    canvasChatHistory = []; 
+    canvasChatHistory = [];
+    
+    // 修改重點：
+    // 1. 移除了 textarea 的 id="canvasChatInput"
+    // 2. 移除了 button 的 id="canvasChatSendBtn"
+    // 3. onclick 加入 'this' 參數，精確傳遞點擊的按鈕
     return `
     <div class="canvas-chat-container">
         <div class="canvas-chat-header">
             <i class="fas fa-comments"></i> 閱卷員追問區
         </div>
-        <div class="canvas-chat-history" id="canvasChatHistoryBox">
+        <div class="canvas-chat-history">
             <div class="message-bubble ai-message">你好！對於剛才的點評或改寫，有甚麼想進一步了解的嗎？歡迎追問！🤌</div>
         </div>
         <div class="canvas-input-area">
-            <textarea id="canvasChatInput" class="no-modal-editor" placeholder="在此輸入你的問題... "></textarea>
-            <button id="canvasChatSendBtn" class="canvas-send-btn" onclick="sendCanvasMessage()" title="發送">
+            <textarea class="no-modal-editor" placeholder="在此輸入你的問題... "></textarea>
+            <button class="canvas-send-btn" onclick="sendCanvasMessage(this)" title="發送">
                 <i class="fas fa-paper-plane"></i>
             </button>
         </div>
     </div>`;
 }
-
+ 
 // ==========================================
-// === [修訂版] 畫布聊天室發送邏輯 ===
+// === [修訂版] 畫布聊天室發送邏輯 (相對定位查找) ===
 // ==========================================
-async function sendCanvasMessage() {
-    // 動態尋找按鈕
-    let sendBtn = document.getElementById("canvasChatSendBtn");
+async function sendCanvasMessage(btnElement) {
+    // 1. 鎖定觸發按鈕：優先使用傳入的 this (btnElement)
+    let sendBtn = btnElement;
+    
+    // 如果沒有傳入參數 (舊版 HTML 相容)，嘗試從 window.event 獲取
     if (!sendBtn && window.event) {
         sendBtn = window.event.target.closest('button');
     }
-    if (!sendBtn) return;
+    
+    // 如果還是找不到，嘗試尋找頁面上「可見」的發送按鈕 (最後防線)
+    if (!sendBtn) {
+        const visibleBtn = Array.from(document.querySelectorAll('.canvas-send-btn')).find(btn => btn.offsetParent !== null);
+        if (visibleBtn) sendBtn = visibleBtn;
+    }
  
-    // 尋找容器
+    if (!sendBtn) {
+        console.error("找不到發送按鈕");
+        return;
+    }
+    // 2. 基於按鈕位置，往上尋找最近的容器 (Context)
     const container = sendBtn.closest('.canvas-chat-container');
     if (!container) return;
- 
+    // 3. 在該容器內尋找輸入框與歷史區 (使用 Class 選擇器，而非 ID)
     const inputEl = container.querySelector('textarea');
     const historyBox = container.querySelector('.canvas-chat-history');
     
     if (!inputEl || !historyBox) return;
- 
     const userText = sanitizeHTML(inputEl.value.trim());
-    if (!userText) return;
+    if (!userText) {
+        // 提示用戶輸入
+        inputEl.style.borderColor = "#d69a92";
+        setTimeout(() => inputEl.style.borderColor = "#ccc", 500);
+        return;
+    }
+    // --- 以下為發送邏輯 ---
  
     // 1. 顯示用戶訊息
     const userBubble = document.createElement("div");
@@ -11238,50 +11262,43 @@ async function sendCanvasMessage() {
     historyBox.appendChild(userBubble);
     
     inputEl.value = "";
-    sendBtn.disabled = true;
+    sendBtn.disabled = true; // 暫時禁用按鈕
     historyBox.scrollTop = historyBox.scrollHeight;
- 
     // 2. 顯示 AI 思考中
     const aiBubble = document.createElement("div");
     aiBubble.className = "message-bubble ai-message";
     aiBubble.innerHTML = `<i class="fas fa-spinner fa-spin"></i> 正在思考...`;
     historyBox.appendChild(aiBubble);
     historyBox.scrollTop = historyBox.scrollHeight;
- 
-    // 3. 抓取之前的對話紀錄
+    // 3. 抓取之前的對話紀錄 (作為 Context)
     const bubbles = Array.from(historyBox.querySelectorAll('.message-bubble'));
     let historyText = "";
+    // 取最近 5 則對話，避免 Token 過長
     bubbles.slice(-6, -1).forEach(b => {
         const role = b.classList.contains('ai-message') ? "陳SIR" : "學生";
         historyText += `${role}: ${b.innerText}\n`;
     });
     
-    // --- [核心修訂]：全方位偵測語氣與閱卷員 ---
+    // --- 全方位偵測語氣與閱卷員 ---
     let toneNote = "請用日常、親切的語氣回應，多用例子說明。";
     let activeReviewer = "中文老師";
-    let currentToneVal = "serious"; // 預設嚴肅
-
-    // 嘗試從所有可能的 ID 中抓取目前可見的語氣設定
+    let currentToneVal = "serious";
+ 
+    // 嘗試從所有可能的 ID 中抓取目前「可見」的語氣設定
     const possibleToneIds = [
-        "writingTone",          // 敘事-文章 & 大綱
-        "argumentWritingTone",  // 議論-文章
-        "argumentOutlineTone",  // 議論-大綱 (本次修復重點)
-        "readingTone",          // 閱讀
-        "expandTone",           // 拓展
-        "booksTone"             // 書籍
+        "writingTone", "argumentWritingTone", "argumentOutlineTone",
+        "readingTone", "expandTone", "booksTone"
     ];
-
-    // 找出目前頁面上可見的語氣選單
+ 
     for (const id of possibleToneIds) {
         const el = document.getElementById(id);
-        // 檢查元素是否存在且可見 (offsetParent !== null 代表可見)
         if (el && el.offsetParent !== null) {
             currentToneVal = el.value;
-            break; 
+            break;
         }
     }
-
-    // 嘗試找出目前可見的閱卷員 (僅適用於寫作類)
+ 
+    // 嘗試找出目前「可見」的閱卷員
     const possibleReviewerIds = ["writingReviewer", "argumentReviewer"];
     for (const id of possibleReviewerIds) {
         const el = document.getElementById(id);
@@ -11290,40 +11307,37 @@ async function sendCanvasMessage() {
             break;
         }
     }
-
-    // 判斷是否為精選文章討論 (特殊處理)
+ 
+    // 根據情境設定 Prompt
     if (typeof currentContextType !== 'undefined' && currentContextType === 'featured_discussion') {
-        toneNote = "你現在是陳SIR。請用書面語回應，輕鬆又見認真，用詞表達都要適合高中生閱讀，須運用非理論、非學術的字眼，分段須少，**必須使用大量Emoji** 🤌✨ 必須用繁體字。回應時，需評估回答是否合理、文本依據是否充實具體、闡釋推論是否嚴謹、主題句是否清晰。";
+        toneNote = "你現在是陳SIR。請用書面語回應，輕鬆又見認真，用語適合高中生，**必須使用大量Emoji** 🤌✨。";
         activeReviewer = "陳SIR";
     } else {
-        // 根據抓取到的語氣值設定 Prompt
         if (currentToneVal === "chen") {
-            toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI，偶爾用網絡用語。";
+            toneNote = "你現在是陳SIR。請用幽默詼諧、適時揶揄的語氣回應，**必須使用大量Emoji** 🤪✨，表示揶揄時會用🤌這個EMOJI。";
             activeReviewer = "陳SIR";
         } else if (currentToneVal === "casual") {
             toneNote = "請用輕鬆活潑的語氣回應。";
         }
     }
- 
     // 4. 構建 Prompt
     let promptContext = "";
-    // 如果 Context 是 JSON 格式 (如大綱數據)，嘗試轉為字串
-    let readableContent = currentContextContent || "學生提交的作業";
+    // 嘗試讀取全域變數中的上下文，若無則使用預設值
+    let readableContent = (typeof currentContextContent !== 'undefined' ? currentContextContent : "") || "學生提交的作業";
     if (typeof readableContent === 'object') {
         try { readableContent = JSON.stringify(readableContent); } catch(e){}
     }
-
+ 
     if (typeof currentContextType !== 'undefined' && currentContextType === 'featured_discussion') {
         promptContext = readableContent;
     } else {
         // 限制長度以防 Token 爆掉
-        promptContext = `【背景資料】\n${readableContent.substring(0, 1500)}\n\n【之前的點評】\n${(currentContextReview || "").substring(0, 800)}...`;
+        promptContext = `【背景資料】\n${readableContent.substring(0, 1500)}\n\n【之前的點評】\n${(typeof currentContextReview !== 'undefined' ? currentContextReview : "").substring(0, 800)}...`;
     }
     
     const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 針對問題具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
- 
     try {
-        // 統一使用 Reading API (DeepSeek) 處理對話，效果較好
+        // 統一使用 Reading API (DeepSeek)
         const response = await callReadingAPI(fullPrompt);
         let formattedResponse = response.replace(/\n/g, '<br>');
         formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -11331,22 +11345,22 @@ async function sendCanvasMessage() {
         // 更新 UI
         aiBubble.innerHTML = formattedResponse;
         
-        // ★★★ 關鍵：只有非精選文章討論才儲存到歷史紀錄 ★★★
+        // 只有非精選文章討論才儲存到歷史紀錄
         if (typeof currentContextType === 'undefined' || currentContextType !== 'featured_discussion') {
             setTimeout(async () => {
-                await updateHistoryChat();
+                if (typeof updateHistoryChat === 'function') {
+                    await updateHistoryChat();
+                }
             }, 100);
         }
- 
     } catch (error) {
         aiBubble.innerHTML = "抱歉，連線發生錯誤，請重試。";
         console.error(error);
     } finally {
-        sendBtn.disabled = false;
+        sendBtn.disabled = false; // 解鎖按鈕
         historyBox.scrollTop = historyBox.scrollHeight;
     }
 }
-
 
 	
 
