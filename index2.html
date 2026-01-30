@@ -21786,25 +21786,6 @@ function scrollToAnalysis() {
 
 // === [修訂 V8] 顯示文章詳情 (權限判斷 + 預設狀態控制) ===
 function showArticleDetail(index) {
-
-
-  // ==========================================
-    // ★★★ [新增] 點擊文章時，強制解鎖 iOS 音效 ★★★
-    // ==========================================
-    
-    // 1. 解鎖防睡警告音效
-    if (typeof focusMonitorState !== 'undefined' && focusMonitorState.audio) {
-        forceiOSAudioUnlock(focusMonitorState.audio);
-    }
- 
-    // 2. 解鎖離開警告音效
-    if (typeof LeaveWarningSystem !== 'undefined' && LeaveWarningSystem.audio) {
-        forceiOSAudioUnlock(LeaveWarningSystem.audio);
-    }
-    
-    // ==========================================
-
-	
     const article = filteredArticles[index];
     if (!article) return;
  
@@ -22044,10 +22025,8 @@ let focusMonitorState = {
     lastActivityTime: 0,    
     checkInterval: null,    
     currentState: 'green',  
-    audio: new Audio('閉眼警告.mp3')
+    audio: new Audio('閉眼警告.mp3') 
 };
-// 加入這行：預先載入
-focusMonitorState.audio.load();
  
 // === [修訂] 監察開關與密碼驗證邏輯 ===
  
@@ -22253,13 +22232,9 @@ function checkFocusStatus() {
                     btn.innerHTML = '<i class="fas fa-bell"></i>'; 
                 }
             }
-   // 雙重保險：萬一真的停了，才嘗試 play
-    if (focusMonitorState.audio.paused) {
-        focusMonitorState.audio.play().catch(e => {});
-    }
-    
-    focusMonitorState.audio.volume = 1.0; // 聲音全開
-}
+            // 播放音效
+            focusMonitorState.audio.play().catch(e => console.log("警報音效播放受阻:", e));
+        }
         
     } else if (idleTime >= LIMIT_ORANGE) {
         // [橙燈] 閒置警告狀態
@@ -22332,15 +22307,13 @@ function removeFocusListeners() {
     }
 }
  
-// 修改全域的 stopAlarm
+// 4. 停止警報 (聲音 + 震動)
 function stopAlarm() {
-    // 停止防睡音效 (調小音量)
-    if (focusMonitorState.audio) {
-        focusMonitorState.audio.volume = 0.0001;
-        // focusMonitorState.audio.pause(); <-- 刪除這行
-    }
+    // 停止聲音
+    focusMonitorState.audio.pause();
+    focusMonitorState.audio.currentTime = 0;
     
-    // 停止震動
+    // 停止震動 (傳入 0 立即中止所有震動)
     if (navigator.vibrate) navigator.vibrate(0);
 }
  
@@ -23211,7 +23184,6 @@ const LeaveWarningSystem = {
     init: function() {
         this.audio.loop = true;
         this.audio.volume = 1.0;
-		  this.audio.load(); // <--- 加入這行
         // 監聽頁面可見度
         document.addEventListener('visibilitychange', () => {
             this.handleVisibilityChange();
@@ -23263,14 +23235,11 @@ const LeaveWarningSystem = {
         if (!this.isPlaying) {
             this.isPlaying = true;
             console.log("⚠️ 離開超過 5 秒，播放警報音效！");
-             // ★★★ 修改：播放前強制設定 ★★★
-        // ★★★ 修改：只拉大音量 ★★★
-        if (this.audio.paused) {
-            this.audio.play().catch(e => {});
+            this.audio.play().catch(e => {
+                console.warn("背景播放受阻 (iOS/Android 限制):", e);
+            });
         }
-        this.audio.volume = 1.0; // 聲音全開
-    }
-},
+    },
     // 執行懲罰 (紅屏 + 震動 + 倒數)
     enforcePenalty: function() {
         console.log("🚫 執行懲罰：鎖定 10 秒 + 震動 5 秒");
@@ -23318,12 +23287,10 @@ const LeaveWarningSystem = {
     },
     // 只停止聲音
     stopSoundOnly: function() {
-      // ★★★ 關鍵：不要 pause()，而是調小音量繼續跑 ★★★
-    this.audio.volume = 0.0001;
-    // this.audio.pause();  <-- 刪除或註解掉這行
-    // this.audio.currentTime = 0; <-- 刪除這行
-    this.isPlaying = false;
-},
+        this.audio.pause();
+        this.audio.currentTime = 0;
+        this.isPlaying = false;
+    },
     // 完全重置 (當關閉文章或關閉防睡時)
     resetSystem: function() {
         this.stopSoundOnly();
@@ -23340,42 +23307,6 @@ document.addEventListener('DOMContentLoaded', () => {
  
 
 
-<script>
-
-
-
-// ==========================================
-// === [終極版] iOS 音效強制解鎖 (靜音長駐法) ===
-// ==========================================
-function forceiOSAudioUnlock(audioObj) {
-    if (!audioObj) return;
- 
-    // 1. 設定為無限循環
-    audioObj.loop = true;
-    
-    // 2. 設定為極小音量 (不能是 0，iOS 認為 0 就是暫停)
-    audioObj.volume = 0.0001;
-    audioObj.muted = false;  
-    
-    // 3. 播放
-    const playPromise = audioObj.play();
- 
-    if (playPromise !== undefined) {
-        playPromise.then(() => {
-            console.log("✅ iOS 音訊通道已鎖定 (保持靜音運轉中)");
-            // ★★★ 關鍵：這裡絕對不要寫 pause() ★★★
-            // 讓它一直播，只是聽不到
-        }).catch(error => {
-            console.warn("⚠️ iOS 解鎖失敗:", error);
-        });
-    }
-}
-	
-</script>
-
-
-
-	
 
 
 	
