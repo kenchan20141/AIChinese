@@ -21707,8 +21707,7 @@ function scrollToAnalysis() {
     }
 }
 
-// === [修訂版] 顯示文章詳情 (含滾動變形指示燈) ===
-// === [修訂 V3] 顯示文章詳情 (原地變形指示燈) ===
+// === [修訂 V4] 顯示文章詳情 (防睡功能預設開啟版) ===
 function showArticleDetail(index) {
     const article = filteredArticles[index];
     if (!article) return;
@@ -21784,19 +21783,14 @@ function showArticleDetail(index) {
         </style>
         <div id="readingProgressBarContainer"><div id="readingProgressBar"></div></div>
         
-        <!-- 
-           ★ 按鈕群組 (Flex Row) 
-           順序調整：書籤 -> 慢讀/設定/賞析 -> [防睡] -> [置頂] -> [關閉]
-           這樣當其他隱藏時，[防睡] 會自然緊貼在 [置頂] 的左邊。
-        -->
         <div class="detail-action-group">
             <button id="detailBookmarkBtn" class="detail-float-btn scroll-hide-target ${bookmarkClass}" onclick="handleDetailBookmarkClick('${safeTitle}')" title="加入/移除書籤"><i class="fas fa-bookmark"></i></button>
             ${analysisBtnHtml}
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀"><i class="fas fa-book-reader"></i></button>
             <button class="detail-float-btn scroll-hide-target" onclick="openReaderSettings()" title="慢讀設定"><i class="fas fa-cog"></i></button>
             
-            <!-- ★★★ 防睡按鈕 (放在置頂鍵之前) ★★★ -->
-            <button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target" onclick="toggleFocusMonitor()" title="開啟防睡監察"><i class="fas fa-eye"></i></button>
+            <!-- ★★★ 修改：按鈕預設加上 focus-status-green class，title 改為監察中 ★★★ -->
+            <button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target focus-status-green" onclick="toggleFocusMonitor()" title="防睡監察中 (點擊關閉)"><i class="fas fa-eye"></i></button>
             
             <button id="detailTopBtn" class="detail-float-btn" onclick="scrollToArticleTop()" title="返回頂部" style="display: none;"><i class="fas fa-arrow-up"></i></button>
             
@@ -21861,8 +21855,25 @@ function showArticleDetail(index) {
             }
         }
     }, 50);
+
+    // ★★★ 修改：進入文章時強制啟動防睡監察邏輯 ★★★
+    // 設定狀態為開啟
+    focusMonitorState.isActive = true;
+    focusMonitorState.lastActivityTime = Date.now();
+    focusMonitorState.currentState = 'green';
+    
+    // 預先載入音效
+    focusMonitorState.audio.loop = true; 
+    focusMonitorState.audio.volume = 1.0;
+    focusMonitorState.audio.load();
+    
+    // 啟動監聽
+    startFocusListeners();
+    if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
+    focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
+    // ★★★ 修改結束 ★★★
  
-    // ★★★ [核心] 滾動邏輯更新：利用 Flex 流自然對齊 ★★★
+    // 滾動邏輯
     detailView.onscroll = function() {
         const scrollTop = detailView.scrollTop;
         const docHeight = detailView.scrollHeight;
@@ -21874,46 +21885,28 @@ function showArticleDetail(index) {
         if(progressBar) progressBar.style.width = scrollPercent + "%";
         if(progressContainer) progressContainer.style.opacity = scrollTop > 10 ? '1' : '0';
  
-        // 取得所有「滾動時應隱藏」的按鈕
         const hideTargets = document.querySelectorAll('.scroll-hide-target');
         const topBtn = document.getElementById('detailTopBtn');
         
         if (scrollTop > 100) {
-            // --- 滾動向下模式 ---
-            
-            // 1. 顯示「返回頂部」箭頭
             if (topBtn) topBtn.style.display = 'flex';
-
-            // 2. 處理其他按鈕
             hideTargets.forEach(btn => {
                 if (btn.id === 'focusMonitorBtn') {
-                    // 特殊處理防睡按鈕
                     if (focusMonitorState.isActive) {
-                        // 如果功能開啟：保留顯示，但加上 minimized 變形
-                        // 因為它在 HTML 中排在 topBtn 前面，所以它會自動排在箭頭左邊
                         btn.style.display = 'flex';
                         btn.classList.add('minimized');
                     } else {
-                        // 功能沒開：隱藏
                         btn.style.display = 'none';
                         btn.classList.remove('minimized');
                     }
                 } else {
-                    // 其他按鈕 (書籤、慢讀等)：一律隱藏
                     btn.style.display = 'none';
                 }
             });
-
         } else {
-            // --- 滾動回頂部模式 ---
-            
-            // 1. 隱藏「返回頂部」箭頭
             if (topBtn) topBtn.style.display = 'none';
-
-            // 2. 恢復所有按鈕顯示
             hideTargets.forEach(btn => {
                 btn.style.display = 'flex';
-                // 移除變形狀態
                 if (btn.id === 'focusMonitorBtn') {
                     btn.classList.remove('minimized');
                 }
