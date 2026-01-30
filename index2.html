@@ -22158,63 +22158,51 @@ function closeFocusUnlockModal() {
 async function verifyFocusPassword() {
     const input = document.getElementById('focusUnlockInput');
     const pwd = input.value.trim();
-    
-    // 獲取按鈕元素 (兼容 click 事件)
     const btn = event.target.closest('button');
+    const user = firebase.auth().currentUser;
     
-    // UI 鎖定 (防止重複點擊)
+    if (!user) return alert("請先登入");
+
     const originalText = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     btn.disabled = true;
- 
+
     try {
-        // 1. 從 Firebase 下載正確密碼
-        // (您的現有 Rules 允許學生讀取 config，所以這行能運作)
-        const snapshot = await database.ref('config/unlock_password').once('value');
-        const correctPassword = snapshot.val();
- 
-        // 2. 進行比對
-        if (pwd === correctPassword) { // 
-            
-            // --- 密碼正確 ---
+        const token = await user.getIdToken();
+        
+        // 發送請求到 GAS 後端進行驗證
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({
+                token: token,
+                action: 'verify_focus_password',
+                data: { password: pwd }
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // --- 驗證成功 ---
             isFocusPermissionUnlocked = true;
+            // 關鍵：這行保證了永久不需要再輸入（除非清除瀏覽器緩存）
             localStorage.setItem('sansi_focus_permission', 'true');
             
-            // 嘗試在雲端做個標記 (選用，方便跨裝置，但不需要驗證規則)
-            const s = JSON.parse(localStorage.getItem('studentProfile'));
-            if (s) {
-                // 這裡只寫入一個標記 "unlocked"，不寫入密碼本身，避開複雜規則
-                database.ref(`students/${s.grade}/${s.class}/${s.name}/profile/unlock_code`).set('unlocked').catch(()=>{});
-            }
- 
             alert("✅ 驗證成功！權限已開通。");
             closeFocusUnlockModal();
-            stopFocusMonitor(); // 執行關閉動作
-            
+            stopFocusMonitor(); 
         } else {
-            // --- 密碼錯誤 ---
-            throw new Error("密碼不正確");
+            throw new Error(result.error);
         }
- 
     } catch (error) {
-        // --- 錯誤處理 ---
         console.error("驗證失敗:", error);
-        
-        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        
-        // 輸入框變紅並清空
         input.style.border = "1px solid #d69a92";
         input.value = "";
         input.placeholder = "密碼錯誤";
         input.focus();
-        
-        // 2秒後恢復邊框顏色
-        setTimeout(() => {
-             input.style.border = "1px solid #e0ddd7";
-        }, 2000);
- 
+        setTimeout(() => { input.style.border = "1px solid #e0ddd7"; }, 2000);
     } finally {
-        // 恢復按鈕狀態
         btn.innerHTML = originalText;
         btn.disabled = false;
     }
