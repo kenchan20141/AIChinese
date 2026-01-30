@@ -7915,25 +7915,34 @@ function repositionCats() {
 function initGlobalInteraction() {
     const canvas = document.getElementById(CANVAS_ID);
     
-   function hitTest(x, y) {
+  function hitTest(x, y) {
         if (!modelContainer || modelContainer.children.length === 0) return false;
         const bounds = modelContainer.getBounds();
-        const padding = 20; 
-
-        // ★★★ 修改重點：縮減點擊判定範圍 ★★★
-        // 許多 Live2D 模型上方有大量留白。
-        // 這裡設定忽略頂部 30% 的高度，讓點擊區更貼近貓頭/身體
-        const topOffset = bounds.height * 0.15; 
-
+ 
+        // 1. 頂部設定 (您覺得理想，維持不變)
+        // 忽略頂部 15% 的高度
+        const topOffset = bounds.height * 0.15;
+ 
+        // 2. ★★★ 新增：左右縮減值 (Side Shrink) ★★★
+        // 數值越大，左右兩邊越難點到 (向內縮)
+        // 建議設定：bounds.width * 0.15 (代表左右各縮減 15% 的寬度)
+        const sideShrink = bounds.width * 0.3;
+ 
+        // 3. ★★★ 新增：底部縮減值 (Bottom Shrink) ★★★
+        // 數值越大，腳下判定區越短
+        // 建議設定：20 (代表底部向上縮 20px)
+        const bottomShrink = 40;
+ 
         // 計算有效範圍：
-        // X 軸保持不變 (左右)
-        // Y 軸從 (bounds.y + topOffset) 開始算起
-        return (x >= bounds.x - padding && 
-                x <= bounds.x + bounds.width + padding &&
-                y >= bounds.y + topOffset && 
-                y <= bounds.y + bounds.height + padding);
+        return (
+            x >= bounds.x + sideShrink &&                // 左邊界：向右縮
+            x <= bounds.x + bounds.width - sideShrink && // 右邊界：向左縮
+            y >= bounds.y + topOffset &&                 // 頂部：維持原樣
+            y <= bounds.y + bounds.height - bottomShrink // 底部：向上縮
+        );
     }
 
+	
     function getPinchDistance(touches) {
         return Math.hypot(
             touches[0].clientX - touches[1].clientX,
