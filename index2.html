@@ -22975,6 +22975,122 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
+<script>
+// =======================================================
+// === [新增] 作家文粹：離開頁面警報系統 (5秒觸發) ===
+// =======================================================
+ 
+const LeaveWarningSystem = {
+    timer: null,
+    audio: new Audio('離開警告.mp3'), // 請確保此檔案存在
+    isPlaying: false,
+    vibrateInterval: null,
+ 
+    // 初始化
+    init: function() {
+        this.audio.loop = true; // 設定循環播放
+        this.audio.volume = 1.0; // 最大音量
+ 
+        // 監聽頁面可見度變化
+        document.addEventListener('visibilitychange', () => {
+            this.handleVisibilityChange();
+        });
+    },
+ 
+    // 處理狀態改變
+    handleVisibilityChange: function() {
+        // 1. 檢查是否在「作家文粹」詳情頁 (featuredDetailView)
+        // 只要該容器顯示中 (display: block)，無論是否開啟慢讀，都視為有效
+        const detailView = document.getElementById('featuredDetailView');
+        if (!detailView || detailView.style.display === 'none') {
+            this.stopAlarm(); // 如果不在文章頁，確保警報關閉
+            return;
+        }
+ 
+        if (document.hidden) {
+            // === 使用者離開頁面 (隱藏/縮小/切換分頁) ===
+            console.log("偵測到離開頁面，開始 5 秒倒數...");
+            
+            // 清除舊計時器以防萬一
+            if (this.timer) clearTimeout(this.timer);
+ 
+            // 啟動 5 秒計時器
+            this.timer = setTimeout(() => {
+                this.triggerAlarm();
+            }, 5000);
+ 
+        } else {
+            // === 使用者回到頁面 ===
+            console.log("使用者已返回。");
+            
+            // 取消計時 (如果在 5 秒內回來)
+            if (this.timer) {
+                clearTimeout(this.timer);
+                this.timer = null;
+            }
+ 
+            // 停止警報
+            this.stopAlarm();
+        }
+    },
+ 
+    // 觸發警報 (音效 + 震動)
+    triggerAlarm: function() {
+        if (this.isPlaying) return; // 防止重複觸發
+        this.isPlaying = true;
+ 
+        console.log("⚠️ 離開超過 5 秒，觸發警報！");
+ 
+        // 1. 播放音效
+        this.audio.play().catch(e => {
+            console.warn("警報音效播放受阻 (可能是瀏覽器背景限制):", e);
+        });
+ 
+        // 2. 強力震動 (模擬防睡紅燈級別)
+        if (navigator.vibrate) {
+            // 立即震動一次
+            navigator.vibrate([400, 200, 400, 200, 400]);
+            
+            // 設定循環震動 (每 2 秒震動一組)
+            if (this.vibrateInterval) clearInterval(this.vibrateInterval);
+            this.vibrateInterval = setInterval(() => {
+                if (document.hidden) {
+                    navigator.vibrate([400, 200, 400, 200, 400]);
+                } else {
+                    this.stopAlarm(); // 雙重保險
+                }
+            }, 2000);
+        }
+    },
+ 
+    // 停止警報
+    stopAlarm: function() {
+        this.isPlaying = false;
+        
+        // 停止音效
+        this.audio.pause();
+        this.audio.currentTime = 0;
+ 
+        // 停止震動
+        if (this.vibrateInterval) {
+            clearInterval(this.vibrateInterval);
+            this.vibrateInterval = null;
+        }
+        if (navigator.vibrate) navigator.vibrate(0);
+    }
+};
+ 
+// 頁面載入後啟動監聽
+document.addEventListener('DOMContentLoaded', () => {
+    LeaveWarningSystem.init();
+});
+ 
+</script>
+
+
+
+
+	
 
 <!-- Live2D 畫布容器 -->
 <canvas id="live2d-canvas"></canvas>
@@ -23020,6 +23136,13 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
+
+
+
+
+
+
+	
 	
 	
 
