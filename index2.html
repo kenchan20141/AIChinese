@@ -132,6 +132,42 @@ function forceLogoutAndKeepHistory() {
     window.location.reload();
 }
 
+
+// ==========================================
+// === 1. 分頁主權控制系統 (Tab Guardian) ===
+// ==========================================
+const tabChannel = new BroadcastChannel('sansi_tab_sync_manager');
+let isPrimaryTab = true; // 預設自己是主分頁
+
+// 發送「我進來了」的消息
+tabChannel.postMessage({ type: 'NEW_TAB_OPENED', time: Date.now() });
+
+tabChannel.onmessage = (event) => {
+    if (event.data.type === 'NEW_TAB_OPENED') {
+        // 如果有新分頁打開，告訴它「我已經在這裡了，我是主分頁」
+        tabChannel.postMessage({ type: 'I_AM_PRIMARY', time: Date.now() });
+    } else if (event.data.type === 'I_AM_PRIMARY') {
+        // 如果收到別的分頁說它是主分頁，那我就變成副分頁
+        isPrimaryTab = false;
+        console.warn("⚠️ 偵測到重複分頁：此視窗將進入「唯讀模式」，暫停背景同步。");
+        
+        // 可選：顯示一個淡入的提示文字給老師看
+        showTabWarning(); 
+    }
+};
+
+function showTabWarning() {
+    const warnDiv = document.createElement('div');
+    warnDiv.style.cssText = "position:fixed; top:0; left:50%; transform:translateX(-50%); background:rgba(214,154,146,0.9); color:white; padding:5px 15px; font-size:12px; z-index:999999; border-radius:0 0 10px 10px; pointer-events:none;";
+    warnDiv.innerText = "⚠️ 偵測到多個分頁：此視窗已停用自動同步以節省流量。";
+    document.body.appendChild(warnDiv);
+}
+
+
+
+
+
+
 		
 // === 1. Firebase 初始化 (必須放在最頂部) ===
 const firebaseConfig = {
@@ -17387,41 +17423,55 @@ let isSyncingLock = false;
 function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
-    // --- 部分 A：歷史紀錄同步監聽 ---
+
+    // ★★★ 核心修復 A：如果是管理員/老師帳號，不啟動背景同步 ★★★
+    if (s.grade === 'System' || s.grade === 'Special') {
+        if (autoSyncListenerRef) autoSyncListenerRef.off();
+        return; 
+    }
+
+    // ★★★ 核心修復 B：如果不是主分頁，不啟動背景同步 (防多視窗互搏) ★★★
+    if (!isPrimaryTab) {
+        console.log("🚫 此分頁非主分頁，已阻斷 History 同步監聽。");
+        if (autoSyncListenerRef) autoSyncListenerRef.off();
+        return;
+    }
+
     if (autoSyncListenerRef) {
         autoSyncListenerRef.off();
     }
+
     const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
     autoSyncListenerRef = database.ref(historyPath);
-    // 監聽 'value' 事件 (當雲端有任何增刪改時觸發)
+
     autoSyncListenerRef.on('value', (snapshot) => {
-        
         if (isSyncingLock) return;
-        console.log("⚡ 偵測到雲端歷史變更，觸發省流同步...");
         
+        console.log("⚡ 偵測到雲端歷史變更，觸發省流同步...");
         isSyncingLock = true;
-        // ★★★ 修改處：呼叫新的省流同步 ★★★
+
         smartSyncHistory().then(() => {
+            // 延長冷卻時間至 15 秒，極致節省流量
             setTimeout(() => {
                 isSyncingLock = false;
-            }, 2000);
+            }, 15000); 
+        }).catch(() => {
+            isSyncingLock = false;
         });
     });
-    // --- 部分 B：身份狀態監聽 (保持不變) ---
+
+    // 部分 B：身份狀態監聽 (只讀 profile，保留以確保能處理轉班)
     if (autoProfileListenerRef) autoProfileListenerRef.off();
     const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
     autoProfileListenerRef = database.ref(profilePath);
     autoProfileListenerRef.on('value', (snapshot) => {
         const val = snapshot.val();
         if (val === null) {
-            autoProfileListenerRef.off();
-            if (autoSyncListenerRef) autoSyncListenerRef.off();
             findStudentNewLocation(s.name);
         } else if (!val.number || val.number === "") {
             promptForNewClassNumber(s, profilePath);
         }
     });
-    console.log("✅ 雙重監聽器 (歷史 + 身份) 已啟動");
 }
 	
 // 變數儲存當前導航狀態
