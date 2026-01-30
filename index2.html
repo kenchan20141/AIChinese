@@ -22977,9 +22977,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // =======================================================
-// === [嚴厲版] 作家文粹：離開警報系統 (鎖定 + 震動 + 紅屏) ===
+// === [嚴厲版] 作家文粹：離開警報系統 (莫蘭迪極簡鎖定) ===
 // =======================================================
- 
 const LeaveWarningSystem = {
     checkTimer: null,       // 用於偵測離開時間 (5秒)
     lockInterval: null,     // 用於鎖定畫面倒數 (10秒)
@@ -22988,18 +22987,15 @@ const LeaveWarningSystem = {
     // 狀態旗標
     isPlaying: false,
     hasTriggered: false,    // 是否觸發了警報 (需要懲罰)
-    isLocked: false,        // 是否正處於紅色鎖定狀態
- 
+    isLocked: false,        // 是否正處於鎖定狀態
     init: function() {
         this.audio.loop = true;
         this.audio.volume = 1.0;
- 
         // 監聽頁面可見度
         document.addEventListener('visibilitychange', () => {
             this.handleVisibilityChange();
         });
     },
- 
     handleVisibilityChange: function() {
         const detailView = document.getElementById('featuredDetailView');
         // 只有在文章詳情頁開啟時才運作
@@ -23007,57 +23003,44 @@ const LeaveWarningSystem = {
             this.resetSystem();
             return;
         }
- 
         if (document.hidden) {
             // === [使用者離開頁面] ===
             console.log("偵測到離開，開始 5 秒計時...");
-            
-            // 如果鎖定倒數正在進行，先暫停它 (或者是讓它繼續跑，但離開太久會被重置)
-            // 這裡選擇：離開時不暫停鎖定倒數，但如果超過 5 秒觸發 triggerAlarm，
-            // 下次回來時 enforcePenalty 會重置倒數。
             
             if (this.checkTimer) clearTimeout(this.checkTimer);
             
             this.checkTimer = setTimeout(() => {
                 this.triggerAlarm(); // 超過 5 秒，標記為違規
-            }, 5000); 
- 
+            }, 5000);
         } else {
             // === [使用者回到頁面] ===
             console.log("使用者已返回。");
- 
             // 1. 清除離開計時器 (未滿 5 秒回來)
             if (this.checkTimer) {
                 clearTimeout(this.checkTimer);
                 this.checkTimer = null;
             }
- 
             // 2. 檢查是否需要執行懲罰
             if (this.hasTriggered) {
                 this.enforcePenalty(); // 執行鎖定 + 震動
             }
- 
             // 3. 停止警報聲音 (但懲罰狀態可能還在)
             this.stopSoundOnly();
         }
     },
- 
     // 觸發警報狀態 (當離開超過 5 秒)
     triggerAlarm: function() {
         this.hasTriggered = true; // 標記為違規，回來必須受罰
         
         if (!this.isPlaying) {
             this.isPlaying = true;
-            console.log("⚠️ 離開超過 5 秒，播放警報音效！");
-            
             // 播放音效提醒
             this.audio.play().catch(e => {
                 console.warn("背景播放受阻:", e);
             });
         }
     },
- 
-    // 執行懲罰 (紅屏 + 震動 + 倒數)
+    // 執行懲罰 (極簡紅屏 + 震動 + 倒數)
     enforcePenalty: function() {
         console.log("🚫 執行懲罰：鎖定 10 秒 + 震動 5 秒");
         
@@ -23065,34 +23048,26 @@ const LeaveWarningSystem = {
         const countSpan = document.getElementById('penaltyCountdown');
         
         if (!overlay || !countSpan) return;
- 
-        // 1. 顯示紅色全螢幕
+        // 1. 顯示全螢幕
         overlay.style.display = 'flex';
         this.isLocked = true;
- 
         // 2. 強力震動 5 秒 (5000ms)
         if (navigator.vibrate) {
-            // 為了確保震動感，有些瀏覽器可能限制單次時長，這裡給一個長震動
-            navigator.vibrate(5000); 
+            navigator.vibrate(5000);
         }
- 
         // 3. 重置倒數計時 (確保每次觸發都是重新算 10 秒)
         let timeLeft = 10;
         countSpan.innerText = timeLeft;
- 
         // 清除舊的倒數計時器 (防止疊加)
         if (this.lockInterval) clearInterval(this.lockInterval);
- 
         this.lockInterval = setInterval(() => {
             timeLeft--;
             countSpan.innerText = timeLeft;
- 
             if (timeLeft <= 0) {
                 this.releasePenalty(); // 解鎖
             }
         }, 1000);
     },
- 
     // 解除懲罰
     releasePenalty: function() {
         const overlay = document.getElementById('penaltyLockOverlay');
@@ -23102,7 +23077,6 @@ const LeaveWarningSystem = {
             clearInterval(this.lockInterval);
             this.lockInterval = null;
         }
- 
         this.hasTriggered = false; // 重置違規標記
         this.isLocked = false;
         
@@ -23111,23 +23085,20 @@ const LeaveWarningSystem = {
         
         console.log("✅ 懲罰結束，解鎖畫面。");
     },
- 
-    // 只停止聲音 (不解除懲罰狀態)
+    // 只停止聲音
     stopSoundOnly: function() {
         this.audio.pause();
         this.audio.currentTime = 0;
         this.isPlaying = false;
     },
- 
-    // 完全重置 (當關閉文章時)
+    // 完全重置
     resetSystem: function() {
         this.stopSoundOnly();
-        this.releasePenalty(); // 確保紅屏消失
+        this.releasePenalty();
         if (this.checkTimer) clearTimeout(this.checkTimer);
         this.hasTriggered = false;
     }
 };
- 
 // 啟動
 document.addEventListener('DOMContentLoaded', () => {
     LeaveWarningSystem.init();
@@ -23187,18 +23158,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 <!-- === [新增] 違規懲罰鎖定畫面 === -->
-<div id="penaltyLockOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #d32f2f; z-index: 2147483647; flex-direction: column; justify-content: center; align-items: center; color: white; text-align: center; font-family: 'Noto Serif TC', serif;">
-    <i class="fas fa-exclamation-triangle" style="font-size: 5rem; margin-bottom: 30px; animation: blink 0.5s infinite;"></i>
-    <h1 style="font-size: 2.5rem; font-weight: bold; margin-bottom: 20px;">違規離開偵測</h1>
-    <p style="font-size: 1.2rem; margin-bottom: 40px;">檢測到您離開頁面過久，系統已暫時鎖定。</p>
-    <div style="font-size: 4rem; font-weight: 900; border: 4px solid white; border-radius: 50%; width: 120px; height: 120px; display: flex; align-items: center; justify-content: center;">
+<!-- === [新增] 違規懲罰鎖定畫面 (極簡莫蘭迪版) === -->
+<div id="penaltyLockOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #d69a92; z-index: 2147483647; flex-direction: column; justify-content: center; align-items: center; color: #fff; font-family: 'Noto Serif TC', serif;">
+    
+    <!-- 極簡鎖頭圖示 -->
+    <i class="fas fa-lock" style="font-size: 2.5rem; margin-bottom: 20px; opacity: 0.8;"></i>
+    
+    <!-- 超大倒數數字 -->
+    <div style="font-size: 8rem; font-weight: 300; line-height: 1; letter-spacing: -5px;">
         <span id="penaltyCountdown">10</span>
     </div>
-    <p style="margin-top: 20px; opacity: 0.8;">請勿再次離開，否則將重新計時。</p>
     
-    <style>
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    </style>
+    <!-- 簡潔狀態文字 -->
+    <div style="margin-top: 15px; font-size: 1rem; letter-spacing: 5px; opacity: 0.9;">
+        鎖定中
+    </div>
 </div>
 
 
