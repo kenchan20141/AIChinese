@@ -21783,37 +21783,8 @@ function scrollToAnalysis() {
     }
 }
 
-// === [修訂 V6] 顯示文章詳情 (含 iOS 音效解鎖 + 防睡連動) ===
-// === [修訂 V7] 顯示文章詳情 (iOS 強力解鎖版) ===
+// === [修訂 V8] 顯示文章詳情 (權限判斷 + 預設狀態控制) ===
 function showArticleDetail(index) {
-    
-    // --- 1. iOS 強力解鎖邏輯 ---
-    const forceUnlock = (audioObj) => {
-        if (!audioObj) return;
-        
-        // 暫時將音量設為極小 (非靜音)，騙過 iOS 檢查
-        const originalVolume = audioObj.volume;
-        audioObj.volume = 0.01;
-        audioObj.muted = false; // 關鍵：iOS 必須是非靜音狀態
-        
-        audioObj.load(); // 關鍵：強制載入緩衝區
-
-        const p = audioObj.play();
-        if (p !== undefined) {
-            p.then(() => {
-                audioObj.pause();
-                audioObj.currentTime = 0;
-                audioObj.volume = 1.0; // 恢復音量
-                console.log("🔊 文章頁面：音效權限再次確認");
-            }).catch(e => console.warn("音效解鎖失敗:", e));
-        }
-    };
-
-    // 嘗試解鎖兩個關鍵音效
-    if (typeof focusMonitorState !== 'undefined') forceUnlock(focusMonitorState.audio);
-    if (typeof LeaveWarningSystem !== 'undefined') forceUnlock(LeaveWarningSystem.audio);
-
-    // --- 以下維持原有的文章渲染邏輯 ---
     const article = filteredArticles[index];
     if (!article) return;
  
@@ -21873,6 +21844,39 @@ function showArticleDetail(index) {
     let chatHTML = getCanvasChatHTML('featured_discussion');
     chatHTML = chatHTML.replace('閱卷員追問區', '與陳SIR討論');
     chatHTML = chatHTML.replace('對於剛才的點評或改寫，有甚麼想進一步了解的嗎？', '看完這篇文章，有甚麼想和我討論嗎？');
+
+    // ★★★ [核心修改] 判斷防睡模式預設狀態 ★★★
+    const isFocusUnlocked = localStorage.getItem('sansi_focus_permission') === 'true';
+    let focusBtnHTML = '';
+
+    if (isFocusUnlocked) {
+        // --- 情況 A: 已解鎖 -> 預設關閉 (OFF) ---
+        // 樣式：普通白色按鈕，圖示：閉眼
+        focusBtnHTML = `<button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target" onclick="toggleFocusMonitor()" title="開啟防睡監察"><i class="fas fa-eye-slash"></i></button>`;
+        
+        // 設定狀態
+        focusMonitorState.isActive = false;
+        if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
+        removeFocusListeners(); // 確保移除監聽
+    } else {
+        // --- 情況 B: 未解鎖 -> 強制開啟 (ON) ---
+        // 樣式：綠色按鈕，圖示：張眼
+        focusBtnHTML = `<button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target focus-status-green" onclick="toggleFocusMonitor()" title="防睡監察中 (點擊關閉)"><i class="fas fa-eye"></i></button>`;
+        
+        // 設定狀態
+        focusMonitorState.isActive = true;
+        focusMonitorState.lastActivityTime = Date.now();
+        focusMonitorState.currentState = 'green';
+        
+        // 音效準備
+        focusMonitorState.audio.loop = true; 
+        focusMonitorState.audio.volume = 1.0;
+        
+        // 啟動監聽
+        startFocusListeners();
+        if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
+        focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
+    }
  
     detailView.innerHTML = `
         <style>
@@ -21894,7 +21898,8 @@ function showArticleDetail(index) {
             <button class="detail-float-btn scroll-hide-target" onclick="startSlowRead('${safeContent}')" title="開始慢讀"><i class="fas fa-book-reader"></i></button>
             <button class="detail-float-btn scroll-hide-target" onclick="openReaderSettings()" title="慢讀設定"><i class="fas fa-cog"></i></button>
             
-            <button id="focusMonitorBtn" class="detail-float-btn scroll-hide-target focus-status-green" onclick="toggleFocusMonitor()" title="防睡監察中 (點擊關閉)"><i class="fas fa-eye"></i></button>
+            <!-- ★★★ 插入動態生成的按鈕 ★★★ -->
+            ${focusBtnHTML}
             
             <button id="detailTopBtn" class="detail-float-btn" onclick="scrollToArticleTop()" title="返回頂部" style="display: none;"><i class="fas fa-arrow-up"></i></button>
             
@@ -21959,19 +21964,6 @@ function showArticleDetail(index) {
             }
         }
     }, 50);
-
-    // 強制啟動防睡 (進入文章預設開啟)
-    focusMonitorState.isActive = true;
-    focusMonitorState.lastActivityTime = Date.now();
-    focusMonitorState.currentState = 'green';
-    
-    // 音效確保
-    focusMonitorState.audio.loop = true; 
-    focusMonitorState.audio.volume = 1.0;
-    
-    startFocusListeners();
-    if (focusMonitorState.checkInterval) clearInterval(focusMonitorState.checkInterval);
-    focusMonitorState.checkInterval = setInterval(checkFocusStatus, 1000);
  
     // 滾動邏輯
     detailView.onscroll = function() {
