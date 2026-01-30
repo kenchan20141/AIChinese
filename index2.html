@@ -17414,55 +17414,50 @@ async function updateLocalHistoryWithMergedData(mergedRecords, db) {
 // ==========================================
  
 // ==========================================
-// === 修正版：自動同步監聽器 (使用 Smart Sync) ===
+// === 修正版：自動同步監聽器 (斬斷無限迴圈) ===
 // ==========================================
-// 定義全域變數以儲存監聽器參照
 let autoSyncListenerRef = null;    
 let autoProfileListenerRef = null;
-let isSyncingLock = false;         
+// let isSyncingLock = false; // 不再需要鎖，因為我們不監聽 history 了
+
 function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // ★★★ 核心修復 A：如果是管理員/老師帳號，不啟動背景同步 ★★★
-    if (s.grade === 'System' || s.grade === 'Special') {
-        if (autoSyncListenerRef) autoSyncListenerRef.off();
-        return; 
-    }
-
-    // ★★★ 核心修復 B：如果不是主分頁，不啟動背景同步 (防多視窗互搏) ★★★
-    if (!isPrimaryTab) {
-        console.log("🚫 此分頁非主分頁，已阻斷 History 同步監聽。");
-        if (autoSyncListenerRef) autoSyncListenerRef.off();
-        return;
-    }
-
+    // 1. 為了安全，先關閉舊的監聽器
     if (autoSyncListenerRef) {
         autoSyncListenerRef.off();
     }
 
-    const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
-    autoSyncListenerRef = database.ref(historyPath);
+    /* 
+       💀💀💀 刪除或註解掉下面這段代碼 💀💀💀
+       原因：這是流量炸彈的源頭。
+       我們不需要實時監聽 history，因為：
+       1. 學生寫作時，saveToHistory 會自動上傳。
+       2. 學生打開歷史列表時，enterHistoryList 會主動拉取。
+       3. 根本不需要在背景一直下載那 5MB 的資料！
+    */
+    
+    // const historyPath = `students/${s.grade}/${s.class}/${s.name}/history`;
+    // autoSyncListenerRef = database.ref(historyPath);
+    // autoSyncListenerRef.on('value', (snapshot) => {
+    //     if (isSyncingLock) return;
+    //     console.log("⚡ 偵測到雲端歷史變更，觸發省流同步...");
+    //     isSyncingLock = true;
+    //     smartSyncHistory().then(() => {
+    //         setTimeout(() => { isSyncingLock = false; }, 15000); 
+    //     }).catch(() => { isSyncingLock = false; });
+    // });
+    
+    console.log("✅ 已啟動優化模式：停用 History 全量監聽，僅保留 Profile 監聽。");
 
-    autoSyncListenerRef.on('value', (snapshot) => {
-        if (isSyncingLock) return;
-        
-        console.log("⚡ 偵測到雲端歷史變更，觸發省流同步...");
-        isSyncingLock = true;
-
-        smartSyncHistory().then(() => {
-            // 延長冷卻時間至 15 秒，極致節省流量
-            setTimeout(() => {
-                isSyncingLock = false;
-            }, 15000); 
-        }).catch(() => {
-            isSyncingLock = false;
-        });
-    });
-
-    // 部分 B：身份狀態監聽 (只讀 profile，保留以確保能處理轉班)
+    // ===========================================
+    // 只保留 Profile 的監聽 (處理轉班/改名)
+    // 這是安全的，因為 Profile 資料極小 (幾百 bytes)
+    // ===========================================
     if (autoProfileListenerRef) autoProfileListenerRef.off();
     const profilePath = `students/${s.grade}/${s.class}/${s.name}/profile`;
+    
     autoProfileListenerRef = database.ref(profilePath);
     autoProfileListenerRef.on('value', (snapshot) => {
         const val = snapshot.val();
