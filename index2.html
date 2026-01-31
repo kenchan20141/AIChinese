@@ -12682,23 +12682,23 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-        showLoading(`${currentReviewerName} 正在點評...`); 
+        showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
 
-        // ★★★ RAG 邏輯 ★★★
+        // ★★★ RAG 邏輯 (已更新) ★★★
         const ragReference = await searchSimilarEssays(content, 'argument');
 
-        // ★★★ 獲取議論閱卷員的偏好 ★★★
+       // ★★★ 新增：獲取議論閱卷員的偏好 ★★★
         const reviewerId = document.getElementById('argumentReviewer').value;
         const specificPreference = argumentReviewerPreferences[reviewerId] || "";
 
-        // ★★★ Prompt 結構重組 ★★★
+        // ★★★ 關鍵修改：Prompt 結構重組 (已加入閱卷員偏好) ★★★
         const finalPromptContent = `
 【系統強制指令 (System Instruction)】
-1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出（包括點評、建議、改寫範例）都必須是繁體中文。
+1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出都必須是繁體中文。
 2. **專業術語**：請使用香港高中中文科議論文術語（如：論點、論據、論證、語例、設例等）。
 3. **區分參考與正文**：下方的【參考資料】僅供參考，請只對【待評核學生文章】進行評分。
 4. **格式嚴格**：嚴格遵守 JSON/XML 輸出格式，不要輸出其他文字。
-5. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分及撰寫點評。
+5. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
 
 【閱卷員特定評分取向】
 ${specificPreference}
@@ -12716,51 +12716,22 @@ ${content}
                 subType: "writing", 
                 isFullReview: isFullReview,
                 topic: topic,
-                content: finalPromptContent, 
+                content: finalPromptContent, // 傳送組合好的 Prompt
                 reviewer: document.getElementById('argumentReviewer').value,
                 tone: tone,
                 selectedScopes: selectedScopes
             }
         };
+        // 議論文通常使用 Reading API (DeepSeek) 處理複雜邏輯
+        const response = await callReadingAPI(payload, 0); 
+        
+        currentContextContent = content;
+        currentContextReview = response;
 
         if (isFullReview) {
-            // ★★★ 雙模型並行調用 (Generic/DeepSeek + Llama3) ★★★
-            console.log("🚀 [System] 啟動雙模型評分系統 (Argument)...");
-            const [originalApiResponse, llama3ApiResponse] = await Promise.all([
-                callAPI(payload, 0),        // 主模型 (通常是 Gemini/DeepSeek)
-                callLlama3API(payload, 0)   // 驗證模型 (Llama-3)
-            ]);
-
-            // ★★★ 強制繁體化 (OpenCC) - 針對兩個回應都做處理 ★★★
-            let finalOriginalResponse = originalApiResponse;
-            let finalLlama3Response = llama3ApiResponse;
-
-            if (typeof OpenCC !== 'undefined') {
-                const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
-                finalOriginalResponse = converter(finalOriginalResponse);
-                finalLlama3Response = converter(finalLlama3Response);
-                console.log("✅ [System] 雙模型回應已轉換為繁體中文");
-            }
-
-            currentContextContent = content;
-            currentContextReview = finalOriginalResponse; // 聊天室上下文使用主模型的回應
-
-            // 傳入雙模型結果給顯示函式
-            await displayFullCommentWithGrading('argumentGradingResult', finalOriginalResponse, finalLlama3Response, 'argument', content);
-        
+            await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
         } else {
-            // 單模型 (聚焦點評)
-            let response = await callReadingAPI(payload, 0);
-            
-            // ★★★ 強制繁體化 (OpenCC) ★★★
-            if (typeof OpenCC !== 'undefined') {
-                const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
-                response = converter(response);
-            }
-            
-            currentContextContent = content;
-            currentContextReview = response;
-
+            // 聚焦點評處理
             const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
             const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
             let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
@@ -12784,6 +12755,7 @@ ${content}
         hideLoading();
     }
 }
+
 
 // =========================================
 // === [修復] 議論文大綱提交 (歷史紀錄只顯示題目) ===
@@ -16270,27 +16242,34 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     
-    // --- 分數解析邏輯 (擴充至包含 argument) ---
-    if (uniqueIdPrefix === 'narrative' || uniqueIdPrefix === 'argument') {
+    // --- 分數解析邏輯 ---
+    if (uniqueIdPrefix === 'narrative') {
         const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
-        
         if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
             try {
+                // ★★★ 修改處：使用 safeJSONParse 取代 JSON.parse ★★★
+                // 這樣即使 AI 輸出了 "[**分數量化步驟**] { ... }" 也能成功讀取
                 const originalScores = safeJSONParse(originalGradingMatch[1]);
-                const llama3Scores = safeJSONParse(llama3GradingMatch[1]);
+                
+                // 對 Llama3 (如果有的話) 也做同樣的防護
+                let llama3Scores = null;
+                if (llama3GradingMatch && llama3GradingMatch[1]) {
+                    llama3Scores = safeJSONParse(llama3GradingMatch[1]);
+                }
 
+                // 如果解析失敗 (null)，拋出錯誤讓下方 catch 處理
                 if (!originalScores || !llama3Scores) {
-                    throw new Error("JSON 解析失敗");
+                    throw new Error("JSON 解析失敗 (格式嚴重錯誤)");
                 }
                 
-                // 定義 V8 規則函式 (內部使用)
+              // 定義 V8 規則函式 (內部使用) - 已修訂表達分計算公式
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
                     s.radar = s.radar || {};
                     if (s.radar && s.radar.扣題 !== undefined) {
                         let final = { kouTi: s.radar.扣題, xiangLue: s.radar.詳略, structure: s.structure, liYi: s.radar.立意, quCai: s.radar.取材, ciHui: s.radar.詞彙, wenXueXing: s.radar.文學性, expression: s.expression, content: s.content };
                         
-                        // 內容/結構限制規則
+                        // --- 既有的內容/結構限制規則 (保持不變) ---
                         if (final.kouTi >= 5) { final.liYi = Math.max(final.liYi, 5); final.quCai = Math.max(final.quCai, 5); }
                         if (final.kouTi <= 5) { final.liYi = Math.min(final.liYi, 5); final.quCai = Math.min(final.quCai, 5); }
                         if (final.kouTi <= 4) { final.xiangLue = Math.min(final.xiangLue, 4); final.structure = Math.min(final.structure, 4); }
@@ -16298,16 +16277,18 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                         if (!(final.liYi >= 7 && final.quCai >= 7)) { final.ciHui = Math.min(final.ciHui, 8); final.wenXueXing = Math.min(final.wenXueXing, 8); }
                         final.quCai = Math.min(final.quCai, final.liYi);
                         
-                        // 內容分計算
+                        // 內容分計算 (保持不變)
                         if (final.kouTi <= 4) { let t = final.kouTi; t = Math.min(t, 4); t = Math.max(t, 2); final.content = t; }
                         else { if (final.liYi === 10 && final.quCai === 10) final.content = 9; else if (final.liYi === 9 && final.quCai === 9) final.content = 8; else if (final.liYi === 8 && final.quCai === 8) final.content = 7; else final.content = Math.round((final.liYi + final.quCai) / 2); }
                         
                         if (final.ciHui < 8 || final.wenXueXing < 8) { final.content = Math.min(final.content, 7); }
                         
-                        // 表達分計算 (詞彙與文學性平均)
+                        // ★★★【核心修改】表達分：改為取詞彙與文學性的平均值 (四捨五入) ★★★
+                        // 舊邏輯：if (final.ciHui === final.wenXueXing) { final.expression = final.ciHui - 1; } else { final.expression = Math.min(final.ciHui, final.wenXueXing); }
+                        // 新邏輯：
                         final.expression = Math.round((final.ciHui + final.wenXueXing) / 2);
 
-                        // 結構分計算
+                        // 結構分計算 (保持不變)
                         const structureLowerBound = final.content - 1;
                         final.structure = Math.min(final.structure, final.content);
                         final.structure = Math.max(final.structure, structureLowerBound);
@@ -16320,7 +16301,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                     return s;
                 };
                 
-                // 定義字數規則
+                // 定義字數規則 (保持不變)
                 const applyWordCountRule = (scores, textContent) => {
                      let s = JSON.parse(JSON.stringify(scores));
                      const wordCount = textContent.length;
@@ -16331,12 +16312,13 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                      return s;
                 };
 
-                // 1. 處理主模型 (Gemini/DeepSeek)
+                // 1. 處理主模型 (Qwen/DeepSeek)
                 let finalQwenScores = applyV8Rules(originalScores);
                 finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
                 
                 // 2. 處理驗證模型 (Llama-3)
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
+                // 這裡加入了上一輪建議的修正：讓 Llama3 也通過 V8 規則 (包含新的表達分計算)
                 finalLlama3Scores = applyV8Rules(finalLlama3Scores); 
                 finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
 
@@ -16344,29 +16326,30 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
                 const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
                 
-                // 比較並決定
+                // ★★★【新增】Log 顯示選擇結果 ★★★
                 if (totalLlama3 > totalQwen) {
-                    console.log(`🏆 [System ${uniqueIdPrefix}] 最終採用模型: Llama-3 (總分較高: ${totalLlama3} vs ${totalQwen})`, finalLlama3Scores);
+                    console.log(`🏆 [System] 最終採用模型: Gemini 2 (總分較高: ${totalLlama3} vs ${totalQwen})`, finalLlama3Scores);
                     scoresForDisplay = finalLlama3Scores;
                 } else {
-                    console.log(`🏆 [System ${uniqueIdPrefix}] 最終採用模型: Primary (總分較高或持平: ${totalQwen} vs ${totalLlama3})`, finalQwenScores);
+                    console.log(`🏆 [System] 最終採用模型: Gemini/DeepSeek (總分較高或持平: ${totalQwen} vs ${totalLlama3})`, finalQwenScores);
                     scoresForDisplay = finalQwenScores;
                 }
 
             } catch (e) {
                 console.error("解析評分時出錯:", e);
-                // 如果雙模型解析失敗，嘗試只用主模型 (Fallback)
-                if (originalGradingMatch && originalGradingMatch[1]) {
-                    try { scoresForDisplay = safeJSONParse(originalGradingMatch[1]); } catch(ex){}
-                }
-            }
-        } else {
-            // 如果只有單一回應 (例如 Llama3 失敗)，使用主模型
-             if (originalGradingMatch && originalGradingMatch[1]) {
-                try { scoresForDisplay = safeJSONParse(originalGradingMatch[1]); } catch(ex){}
+                scoresForDisplay = null;
             }
         }
     } 
+    else if (uniqueIdPrefix === 'argument') {
+        if (originalGradingMatch && originalGradingMatch[1]) {
+             try {
+                scoresForDisplay = JSON.parse(originalGradingMatch[1].trim());
+             } catch(e) {
+                scoresForDisplay = null;
+             }
+        }
+    }
     
     // 計算最終總分與等級
     if (scoresForDisplay) {
@@ -16426,32 +16409,35 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     2. **篇幅鎖定**：每點的分析篇幅必須與原本相若，不可縮寫成一句話。
     3. **評級調整**：${critiqueRewriteInstruction}
     4. **語氣風格**：${emojiInstruction}
-    5. **繁體輸出**：必須使用繁體中文。
     `;
 
     try {
+        // ★★★ 【核心修復】戰術性冷卻：強制等待 3000 毫秒 (3秒) ★★★
+        // 這能讓 API 有時間「喘口氣」，避免觸發 429 (Too Many Requests)
         console.log("正在等待 API 冷卻...");
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        let rewrittenResponse = await callReadingAPI(rewritePrompt, 0.5); 
-        
-        // ★★★ 強制繁體化 (OpenCC) ★★★
-        if (typeof OpenCC !== 'undefined') {
-            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
-            rewrittenResponse = converter(rewrittenResponse);
-        }
-        finalCritiqueText = rewrittenResponse;
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
+        // 嘗試重寫點評
+        finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5); 
     } catch (e) {
+        // 失敗則使用原文
         console.warn("語氣重寫失敗 (可能是 API 忙碌)，將使用原文:", e);
         finalCritiqueText = originalCritiqueText;
     }
 
-    // 清洗重寫後的文字
-    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '')
-                                         .replace(/[（(].*嚴格遵循.*[)）]/g, '')
-                                         .replace(/^(原文|改寫|重寫內容)[：:]/gim, '')
-                                         .trim();
+    // ★★★【核心修復：強力清洗雜訊】★★★
+    // 1. 移除 Markdown 標題 (### 點評重寫...)
+    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
+    
+    // 2. 移除括號內的指令 (嚴格遵循...)
+    finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
+    
+    // 3. 移除可能殘留的 "原文：" 或 "改寫：" 標籤
+    finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容)[：:]/gim, '');
+
+    // 4. 清除前後空白
+    finalCritiqueText = finalCritiqueText.trim();
+    // ★★★ 修復結束 ★★★
 
     // --- 組合 HTML ---
     if (scoresForDisplay) {
@@ -16464,22 +16450,11 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += createBulletedListHTML("點評", finalCritiqueText);
     }
     if (suggestionsMatch && suggestionsMatch[1]) {
-        // ★★★ 轉換建議部分為繁體 ★★★
-        let suggestionText = suggestionsMatch[1].trim();
-        if (typeof OpenCC !== 'undefined') {
-             const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
-             suggestionText = converter(suggestionText);
-        }
-        finalHTML += createBulletedListHTML("建議", suggestionText);
+        finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     
     if (rewriteMatch && rewriteMatch[1]) {
-        // ★★★ 轉換改寫範例為繁體 ★★★
-        let rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
-        if (typeof OpenCC !== 'undefined') {
-             const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
-             rewriteContent = converter(rewriteContent);
-        }
+        const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -16495,24 +16470,34 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 注入 HTML
     resultContainer.innerHTML = finalHTML;
 
+    // 初始化雷達圖 (雖然 HTML 已經有數據，但 Canvas 仍需 JS 繪製)
     if (scoresForDisplay) {
         setTimeout(() => {
+            // 注意：這裡仍然呼叫 initializeGradingSystem 是為了繪製雷達圖
+            // 以及確保隱藏的 input 被正確賦值 (如果 createGradingSystemHTML 漏掉的話)
             initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
         }, 50);
     }
 
+    // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
+    
+    // 使用 captureContainerHTML 確保儲存時雷達圖不消失 (記得要用不轉圖片的修復版)
+    // 使用 captureContainerHTML 確保儲存時雷達圖不消失
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
      await saveToHistory(
+        // ★★★ 這一行必須保留，不能改！它會自動判斷是敘事還是議論 ★★★
         uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
+        
         "文章點評", 
         topic || "無題目", 
         `題目：${topic}\n\n文章：${fullTextContent}`, 
-        htmlContent, 
+        htmlContent, // 這裡傳入完整的 HTML (含聊天室) 即可
         scoresForDisplay 
     );
 }
+
 
 // =======================================================
 // === 評等系統邏輯結束 ===
