@@ -16231,6 +16231,45 @@ ${basePrompt}
     }
 }
 
+
+
+/**
+ * 嘗試從骯髒的字串中提取並解析 JSON
+ * 能處理 AI 在 JSON 前後添加的廢話、Markdown 代碼塊等
+ */
+function safeJSONParse(rawString) {
+    if (!rawString) return null;
+
+    // 1. 嘗試直接解析
+    try {
+        return JSON.parse(rawString);
+    } catch (e) {
+        // 忽略錯誤，繼續嘗試修復
+    }
+
+    // 2. 尋找 JSON 物件的開始 `{` 和結束 `}`
+    const firstBrace = rawString.indexOf('{');
+    const lastBrace = rawString.lastIndexOf('}');
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        const cleanString = rawString.substring(firstBrace, lastBrace + 1);
+        try {
+            return JSON.parse(cleanString);
+        } catch (e) {
+            console.error("JSON 修復失敗 (提取後仍格式錯誤):", cleanString);
+            return null;
+        }
+    }
+
+    console.error("無法在字串中找到有效的 JSON 結構");
+    return null;
+}
+
+
+
+
+
+	
 /**
  * 【最終修訂版】顯示完整的點評、評分系統，並根據最終等級和所選閱卷員調整內容
  * @param {string} containerId - 顯示結果的容器ID
@@ -16286,9 +16325,21 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     if (uniqueIdPrefix === 'narrative') {
         const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
         if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
-             try {
-                const originalScores = JSON.parse(originalGradingMatch[1].trim());
-                const llama3Scores = JSON.parse(llama3GradingMatch[1].trim());
+            try {
+                // ★★★ 修改處：使用 safeJSONParse 取代 JSON.parse ★★★
+                // 這樣即使 AI 輸出了 "[**分數量化步驟**] { ... }" 也能成功讀取
+                const originalScores = safeJSONParse(originalGradingMatch[1]);
+                
+                // 對 Llama3 (如果有的話) 也做同樣的防護
+                let llama3Scores = null;
+                if (llama3GradingMatch && llama3GradingMatch[1]) {
+                    llama3Scores = safeJSONParse(llama3GradingMatch[1]);
+                }
+
+                // 如果解析失敗 (null)，拋出錯誤讓下方 catch 處理
+                if (!originalScores || !llama3Scores) {
+                    throw new Error("JSON 解析失敗 (格式嚴重錯誤)");
+                }
                 
                 // 定義 V8 規則函式 (內部使用)
                 const applyV8Rules = (scores) => {
