@@ -229,8 +229,11 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 // targetType: 'narrative' (敘事) 或 'argument' (議論)
 // === RAG 搜尋核心函數 (升級版：抓取 3 篇 + 格式化) ===
 // === RAG 搜尋核心函數 (升級版：詳細 Log + 抓取 3 篇 + 格式化) ===
-async function searchSimilarEssays(studentText, targetType) {
-    console.log(`%c🔍 [RAG] 正在啟動向量搜尋 (類型: ${targetType})...`, "color: yellow");
+// === RAG 搜尋核心函數 (雙表分流版：支援 5** 與 LV3) ===
+// targetLevel: '5star' (預設，查 documents 表) 或 'lv3' (查 documents_lv3 表)
+async function searchSimilarEssays(studentText, targetType, targetLevel = '5star') {
+    // [Log 修訂] 在啟動訊息中加入等級標示
+    console.log(`%c🔍 [RAG] 正在啟動向量搜尋 (類型: ${targetType}, 等級: ${targetLevel})...`, "color: yellow");
     
     try {
         if (typeof supabaseClient === 'undefined') {
@@ -238,22 +241,18 @@ async function searchSimilarEssays(studentText, targetType) {
             return "";
         }
 
-        // 1. 動態匯入 Transformers.js
+        // 1. 動態匯入 Transformers.js (保留原邏輯)
         const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
         
-        // 設定快取策略，確保下載一次後不用再下載
         env.allowLocalModels = false;
         env.useBrowserCache = true;
 
-        // 2. 初始化/載入模型 (加入進度監聽)
-        // 這裡會檢查快取，如果沒有快取，就會開始下載並觸發 callback
+        // 2. 初始化/載入模型 (保留原本的詳細進度 Log)
         const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
             progress_callback: (data) => {
-                // 只在下載進行中顯示，避免洗版
                 if (data.status === 'initiate') {
                     console.log(`⬇️ [RAG] 正在下載模型組件: ${data.file}`);
                 } else if (data.status === 'progress') {
-                    // 為了不讓 Console 太多訊息，我們可以只顯示整數進度
                     const percent = Math.round(data.progress);
                     if (percent % 10 === 0) { 
                         console.log(`📦 [RAG] 下載中... ${percent}%`);
@@ -270,11 +269,20 @@ async function searchSimilarEssays(studentText, targetType) {
         const output = await extractor(studentText.substring(0, 500), { pooling: 'mean', normalize: true });
         const vector = Array.from(output.data);
 
-        // 4. 呼叫 Supabase 進行比對
-        const { data, error } = await supabaseClient.rpc('match_documents', {
+        // 4. ★★★ 根據等級分流查表 (核心修訂) ★★★
+        let rpcFunctionName = 'match_documents'; // 預設查 5** 舊表
+        let currentThreshold = 0.3;              // 5** 門檻
+
+        if (targetLevel === 'lv3') {
+            rpcFunctionName = 'match_documents_lv3'; // 查 LV3 新表
+            currentThreshold = 0.25;                 // LV3 文章較少，稍微降低門檻以確保能搜到
+        }
+
+        // 呼叫 Supabase
+        const { data, error } = await supabaseClient.rpc(rpcFunctionName, {
             query_embedding: vector,
-            match_threshold: 0.3, // 相似度門檻
-            match_count: 3,       // 抓取 3 篇
+            match_threshold: currentThreshold,
+            match_count: 3,
             filter_type: targetType
         });
 
@@ -284,23 +292,32 @@ async function searchSimilarEssays(studentText, targetType) {
         }
 
         if (data && data.length > 0) {
-            // 詳細列印命中資料，方便您檢查
-            console.group(`🎯 [RAG] 命中 ${data.length} 篇範文`);
+            // [Log 修訂] 在群組標題顯示是從哪個庫命中的
+            console.group(`🎯 [RAG] 命中 ${data.length} 篇範文 (庫: ${targetLevel})`);
+            
             data.forEach((match, idx) => {
                 const similarityScore = (match.similarity * 100).toFixed(2) + '%';
                 const docTitle = match.metadata ? match.metadata.title : '無標題';
                 // 預覽前 50 個字
                 const preview = match.content ? match.content.substring(0, 50).replace(/\n/g, ' ') + '...' : '';
                 
+                // 保留原本的詳細 Log 樣式
                 console.log(`%c[${idx + 1}] ${docTitle}`, "font-weight: bold; color: #4caf50;");
                 console.log(`    相似度: ${similarityScore}`);
                 console.log(`    內容預覽: ${preview}`);
             });
             console.groupEnd();
             
-            // 5. 格式化輸出給 LLM
-            let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 ⚡ ===\n";
-            ragContent += "(注意：以下內容僅供評分標準參考，並非學生所寫，請勿對此進行評改)\n\n";
+            // 5. 格式化輸出給 LLM (動態調整標題)
+            let levelTitle = targetLevel === 'lv3' ? 'LV3 合格水平' : '5** 高分';
+            let ragContent = `=== ⚡ 系統檢索：${levelTitle}範文庫參考資料 ⚡ ===\n`;
+            
+            // 根據等級給予 AI 不同的提示
+            if (targetLevel === 'lv3') {
+                ragContent += "(注意：以下內容為合格水平(Level 3)的範文，請以此作為保底或基礎要求的參考)\n\n";
+            } else {
+                ragContent += "(注意：以下內容為最高水平(5**)的範文，請以此作為高分標準參考)\n\n";
+            }
 
             data.forEach((match, index) => {
                 ragContent += `【參考範文 ${index + 1}】：${match.metadata.title || '無題'}\n`;
@@ -310,7 +327,7 @@ async function searchSimilarEssays(studentText, targetType) {
             
             return ragContent;
         } else {
-            console.warn(`🤷‍♂️ [RAG] 找不到相似文章 (相似度低於 0.3)`);
+            console.warn(`🤷‍♂️ [RAG] 找不到相似文章 (庫: ${targetLevel}, 相似度低於 ${currentThreshold})`);
             return "";
         }
 
@@ -12781,9 +12798,8 @@ async function submitArgumentGuide() {
 }
 
 // ==========================================
-// === 議論文提交函式 (單系統) ===
+// === 議論文提交函式 (雙錨點評分完整版) ===
 // ==========================================
-
 async function submitArgumentWriting() {
     const submitBtn = document.getElementById('submitArgumentWritingBtn');
     submitBtn.disabled = true;
@@ -12812,28 +12828,49 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-        showLoading(`${currentReviewerName} 正在比對 5** 範文並細閱文章...`); // 更新提示
+        showLoading(`${currentReviewerName} 正在比對 5** 與 LV3 範文庫...`); 
 
-        // ★★★ RAG 邏輯 (已更新) ★★★
-        const ragReference = await searchSimilarEssays(content, 'argument');
+        // ★★★ 核心升級：並行檢索雙重標準 (議論) ★★★
+        // 5star 預設取 3 篇，lv3 預設取 2 篇
+        // 注意：如果你尚未建立 argument 的 documents_lv3 數據，ragPass 可能是空的，這不影響程式運行
+        const [ragHigh, ragPass] = await Promise.all([
+            searchSimilarEssays(content, 'argument', '5star'), 
+            searchSimilarEssays(content, 'argument', 'lv3')    
+        ]);
 
-       // ★★★ 新增：獲取議論閱卷員的偏好 ★★★
+        // 組合 RAG 參考資料字串
+        const combinedRagReference = `
+=== 🏆 評分參考標準 A：5** 級數 (高分目標，共3篇) ===
+${ragHigh}
+
+=== ✅ 評分參考標準 B：LV3 級數 (合格基準，共2篇) ===
+${ragPass}
+        `;
+
+       // 獲取議論閱卷員的偏好
         const reviewerId = document.getElementById('argumentReviewer').value;
         const specificPreference = argumentReviewerPreferences[reviewerId] || "";
 
-        // ★★★ 關鍵修改：Prompt 結構重組 (已加入閱卷員偏好) ★★★
+        // ★★★ Prompt 升級：雙錨點評分指令 ★★★
         const finalPromptContent = `
 【系統強制指令 (System Instruction)】
-1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出都必須是繁體中文。
-2. **專業術語**：請使用香港高中中文科議論文術語（如：論點、論據、論證、語例、設例等）。
-3. **區分參考與正文**：下方的【參考資料】僅供參考，請只對【待評核學生文章】進行評分。
-4. **格式嚴格**：嚴格遵守 JSON/XML 輸出格式，不要輸出其他文字。
-5. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
+1. **必須使用繁體中文 (Traditional Chinese)**：所有輸出必須為繁體中文。
+2. **專業術語**：請使用香港高中中文科議論文術語。
+3. **雙錨點評分法 (Dual-Anchor Grading)**：
+   - 上方提供了【標準 A (5**)】與【標準 B (LV3)】的參考範文。
+   - 請將【待評核學生文章】與這兩組範文進行比較：
+     - 若論證能力**低於**【標準 B】，評分為 1-2 分 (不及格)。
+     - 若論證能力**接近**【標準 B】，評分為 3 分 (合格)。
+     - 若論證能力**介於**【標準 A】與【標準 B】之間，評分為 4-5 分 (良好)。
+     - 若論證能力**接近或等同**【標準 A】，評分為 5*-5** 分 (優異)。
+4. **區分參考與正文**：參考資料僅供參考，請只對【待評核學生文章】進行評分。
+5. **格式嚴格**：嚴格遵守 JSON/XML 輸出格式。
+6. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分。
 
 【閱卷員特定評分取向】
 ${specificPreference}
 
-${ragReference ? ragReference : "(本次未檢索到參考範文)"}
+${combinedRagReference}
 
 === 📝 待評核學生文章 (Target Student Essay) ===
 ${content}
@@ -12852,7 +12889,8 @@ ${content}
                 selectedScopes: selectedScopes
             }
         };
-        // 議論文通常使用 Reading API (DeepSeek) 處理複雜邏輯
+        
+        // 議論文使用 Reading API (DeepSeek)
         const response = await callReadingAPI(payload, 0); 
         
         currentContextContent = content;
@@ -13935,10 +13973,10 @@ await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inpu
 
 	
 // ==========================================
-// === 敘事抒情提交函式 (大綱模式只存題目)
+// === 敘事抒情提交函式 (雙錨點評分完整版) ===
 // ==========================================
 async function submitWriting() {
-    console.log("🖱️ [系統] 提交按鈕被點擊了！"); // <--- 加入這行
+    console.log("🖱️ [系統] 提交按鈕被點擊了！"); 
     const submitBtn = document.getElementById('submitWritingBtn');
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
@@ -13967,7 +14005,7 @@ async function submitWriting() {
         const tone = document.getElementById("writingTone").value;
         let content = "";
 
-        // === 模式一：大綱點評 ===
+        // === 模式一：大綱點評 (完整保留) ===
         if (writingType === "大綱") {
             const structure = document.getElementById("structure").value;
             const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
@@ -14002,12 +14040,10 @@ async function submitWriting() {
             currentContextReview = response;
             displayOutlineComment(response, outlineData);
             
-            // ★★★ 關鍵修改：歷史紀錄只存題目 ★★★
-            // 原本可能是 `題目：${topic}\n結構：...`，現在改為單純的題目
             saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
 
         } 
-        // === 模式二：敘事物象 ===
+        // === 模式二：敘事物象 (完整保留) ===
         else if (writingType === "敘事物象") {
             content = document.getElementById("narrativeElements").value.trim();
             showLoading("陳SIR 正在生成物象...");
@@ -14037,9 +14073,9 @@ async function submitWriting() {
             await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
 
         } 
-        // === 模式三：片段描寫 ===
-      else { 
-            console.log("📝 [系統] 進入敘事抒情全文模式，準備呼叫 RAG...");
+        // === 模式三：片段描寫 (核心修訂處：雙錨點 RAG) ===
+        else { 
+            console.log("📝 [系統] 進入敘事抒情全文模式，啟動雙錨點 RAG...");
 
             content = document.getElementById("writingContent").value.trim();
             if (!content) { alert("請先輸入寫作內容"); submitBtn.disabled = false; return; }
@@ -14047,30 +14083,49 @@ async function submitWriting() {
             const selectedScopes = Array.from(document.querySelectorAll('input[name="reviewScope"]:checked')).map(cb => cb.value);
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-            showLoading(`${currentReviewerName} 正在點評...`);
+            showLoading(`${currentReviewerName} 正在比對 5** 與 LV3 範文庫...`);
 
-            // ★★★ RAG 邏輯 (已更新) ★★★
-            const ragReference = await searchSimilarEssays(content, 'narrative');
+            // ★★★ 核心升級：並行檢索雙重標準 (敘事) ★★★
+            // 5star 預設取 3 篇，lv3 預設取 2 篇 (由 searchSimilarEssays 內部控制)
+            const [ragHigh, ragPass] = await Promise.all([
+                searchSimilarEssays(content, 'narrative', '5star'), 
+                searchSimilarEssays(content, 'narrative', 'lv3')    
+            ]);
             
-            // ★★★ 新增：獲取敘事閱卷員的偏好 ★★★
-        const reviewerId = document.getElementById('writingReviewer').value;
-        const specificPreference = narrativeReviewerPreferences[reviewerId] || "";
+            // 組合 RAG 參考資料字串
+            const combinedRagReference = `
+=== 🏆 評分參考標準 A：5** 級數 (高分目標，共3篇) ===
+${ragHigh}
 
-        // ★★★ 關鍵修改：Prompt 結構重組 (已加入閱卷員偏好) ★★★
-        const finalPromptContent = `
+=== ✅ 評分參考標準 B：LV3 級數 (合格基準，共2篇) ===
+${ragPass}
+            `;
+            
+            // 獲取敘事閱卷員的偏好
+            const reviewerId = document.getElementById('writingReviewer').value;
+            const specificPreference = narrativeReviewerPreferences[reviewerId] || "";
+
+            // ★★★ Prompt 升級：雙錨點評分指令 ★★★
+            const finalPromptContent = `
 【系統強制指令 (System Instruction)】
-1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出（點評、建議、改寫）都必須轉換為繁體中文（香港習慣）。
-2. **區分角色**：下方的【參考資料】是用來幫助你建立評分標準的「範文」，下方的【待評核學生文章】才是你需要評改的對象。千萬不要評改參考資料。
-3. **格式嚴格**：嚴格遵守原本設定的 XML/JSON 輸出格式，不要輸出額外的「改寫說明」或閒聊文字。
-4. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
+1. **必須使用繁體中文 (Traditional Chinese)**：所有輸出（點評、建議、改寫）都必須轉換為繁體中文（香港習慣）。
+2. **雙錨點評分法 (Dual-Anchor Grading)**：
+   - 上方提供了【標準 A (5**)】與【標準 B (LV3)】的參考範文。
+   - 請將【待評核學生文章】與這兩組範文進行比較：
+     - 若文章水平**低於**【標準 B】，評分為 1-2 分 (不及格)。
+     - 若文章水平**接近**【標準 B】，評分為 3 分 (邊緣/合格)。
+     - 若文章水平**介於**【標準 A】與【標準 B】之間，評分為 4-5 分 (良好)。
+     - 若文章水平**接近或等同**【標準 A】，評分為 5*-5** 分 (優異)。
+3. **區分角色**：參考資料僅供評分對照，請只評改下方的【待評核學生文章】。
+4. **格式嚴格**：嚴格遵守原本設定的 XML/JSON 輸出格式。
+5. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分，務必體現該閱卷員重視的特點。
 
 【閱卷員特定評分取向】
 ${specificPreference}
 
-${ragReference ? ragReference : "(本次未檢索到參考範文)"}
+${combinedRagReference}
 
 === 📝 待評核學生文章 (Target Student Essay) ===
-(請針對以下文章進行評分與點評)
 ${content}
 `;
 
