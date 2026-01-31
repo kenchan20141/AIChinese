@@ -16247,29 +16247,25 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
         if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
             try {
-                // ★★★ 修改處：使用 safeJSONParse 取代 JSON.parse ★★★
-                // 這樣即使 AI 輸出了 "[**分數量化步驟**] { ... }" 也能成功讀取
+                // 使用 safeJSONParse 取代 JSON.parse
                 const originalScores = safeJSONParse(originalGradingMatch[1]);
                 
-                // 對 Llama3 (如果有的話) 也做同樣的防護
                 let llama3Scores = null;
                 if (llama3GradingMatch && llama3GradingMatch[1]) {
                     llama3Scores = safeJSONParse(llama3GradingMatch[1]);
                 }
 
-                // 如果解析失敗 (null)，拋出錯誤讓下方 catch 處理
                 if (!originalScores || !llama3Scores) {
                     throw new Error("JSON 解析失敗 (格式嚴重錯誤)");
                 }
                 
-              // 定義 V8 規則函式 (內部使用) - 已修訂表達分計算公式
+                // 定義 V8 規則函式
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
                     s.radar = s.radar || {};
                     if (s.radar && s.radar.扣題 !== undefined) {
                         let final = { kouTi: s.radar.扣題, xiangLue: s.radar.詳略, structure: s.structure, liYi: s.radar.立意, quCai: s.radar.取材, ciHui: s.radar.詞彙, wenXueXing: s.radar.文學性, expression: s.expression, content: s.content };
                         
-                        // --- 既有的內容/結構限制規則 (保持不變) ---
                         if (final.kouTi >= 5) { final.liYi = Math.max(final.liYi, 5); final.quCai = Math.max(final.quCai, 5); }
                         if (final.kouTi <= 5) { final.liYi = Math.min(final.liYi, 5); final.quCai = Math.min(final.quCai, 5); }
                         if (final.kouTi <= 4) { final.xiangLue = Math.min(final.xiangLue, 4); final.structure = Math.min(final.structure, 4); }
@@ -16277,23 +16273,17 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                         if (!(final.liYi >= 7 && final.quCai >= 7)) { final.ciHui = Math.min(final.ciHui, 8); final.wenXueXing = Math.min(final.wenXueXing, 8); }
                         final.quCai = Math.min(final.quCai, final.liYi);
                         
-                        // 內容分計算 (保持不變)
                         if (final.kouTi <= 4) { let t = final.kouTi; t = Math.min(t, 4); t = Math.max(t, 2); final.content = t; }
                         else { if (final.liYi === 10 && final.quCai === 10) final.content = 9; else if (final.liYi === 9 && final.quCai === 9) final.content = 8; else if (final.liYi === 8 && final.quCai === 8) final.content = 7; else final.content = Math.round((final.liYi + final.quCai) / 2); }
                         
                         if (final.ciHui < 8 || final.wenXueXing < 8) { final.content = Math.min(final.content, 7); }
                         
-                        // ★★★【核心修改】表達分：改為取詞彙與文學性的平均值 (四捨五入) ★★★
-                        // 舊邏輯：if (final.ciHui === final.wenXueXing) { final.expression = final.ciHui - 1; } else { final.expression = Math.min(final.ciHui, final.wenXueXing); }
-                        // 新邏輯：
                         final.expression = Math.round((final.ciHui + final.wenXueXing) / 2);
 
-                        // 結構分計算 (保持不變)
                         const structureLowerBound = final.content - 1;
                         final.structure = Math.min(final.structure, final.content);
                         final.structure = Math.max(final.structure, structureLowerBound);
                         
-                        // 寫回物件
                         s.content = final.content; s.expression = final.expression; s.structure = final.structure;
                         s.radar.立意 = final.liYi; s.radar.取材 = final.quCai; s.radar.詳略 = final.xiangLue;
                         s.radar.詞彙 = final.ciHui; s.radar.文學性 = final.wenXueXing; s.radar.扣題 = final.kouTi;
@@ -16301,7 +16291,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                     return s;
                 };
                 
-                // 定義字數規則 (保持不變)
                 const applyWordCountRule = (scores, textContent) => {
                      let s = JSON.parse(JSON.stringify(scores));
                      const wordCount = textContent.length;
@@ -16312,26 +16301,21 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                      return s;
                 };
 
-                // 1. 處理主模型 (Qwen/DeepSeek)
                 let finalQwenScores = applyV8Rules(originalScores);
                 finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
                 
-                // 2. 處理驗證模型 (Llama-3)
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
-                // 這裡加入了上一輪建議的修正：讓 Llama3 也通過 V8 規則 (包含新的表達分計算)
                 finalLlama3Scores = applyV8Rules(finalLlama3Scores); 
                 finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
 
-                // 計算總分進行比較
                 const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
                 const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
                 
-                // ★★★【新增】Log 顯示選擇結果 ★★★
                 if (totalLlama3 > totalQwen) {
-                    console.log(`🏆 [System] 最終採用模型: Gemini 2 (總分較高: ${totalLlama3} vs ${totalQwen})`, finalLlama3Scores);
+                    console.log(`🏆 [System] 最終採用模型: Gemini 2`, finalLlama3Scores);
                     scoresForDisplay = finalLlama3Scores;
                 } else {
-                    console.log(`🏆 [System] 最終採用模型: Gemini/DeepSeek (總分較高或持平: ${totalQwen} vs ${totalLlama3})`, finalQwenScores);
+                    console.log(`🏆 [System] 最終採用模型: Gemini/DeepSeek`, finalQwenScores);
                     scoresForDisplay = finalQwenScores;
                 }
 
@@ -16353,9 +16337,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     // 計算最終總分與等級
     if (scoresForDisplay) {
-        // 應用最終一致性規則 (扣題<=4 則其他不超4)
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
-        
         const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
@@ -16396,7 +16378,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     let emojiInstruction = "";
     if (currentTone === "chen") {
-        emojiInstruction = "務必在句子中自然地穿插大量 Emoji (如 😎, 🔥, 👎, 🧐, ✨，表示揶揄時會用🤌這個EMOJI)，讓語氣輕鬆幽默。";
+        emojiInstruction = "務必在句子中自然地穿插大量 Emoji，讓語氣輕鬆幽默。";
     } else {
         emojiInstruction = "語氣要專業嚴肅，絕對不要使用 Emoji。";
     }
@@ -16412,32 +16394,18 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     `;
 
     try {
-        // ★★★ 【核心修復】戰術性冷卻：強制等待 3000 毫秒 (3秒) ★★★
-        // 這能讓 API 有時間「喘口氣」，避免觸發 429 (Too Many Requests)
         console.log("正在等待 API 冷卻...");
         await new Promise(resolve => setTimeout(resolve, 5000));
-
-        // 嘗試重寫點評
         finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5); 
     } catch (e) {
-        // 失敗則使用原文
         console.warn("語氣重寫失敗 (可能是 API 忙碌)，將使用原文:", e);
         finalCritiqueText = originalCritiqueText;
     }
 
-    // ★★★【核心修復：強力清洗雜訊】★★★
-    // 1. 移除 Markdown 標題 (### 點評重寫...)
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
-    
-    // 2. 移除括號內的指令 (嚴格遵循...)
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
-    
-    // 3. 移除可能殘留的 "原文：" 或 "改寫：" 標籤
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容)[：:]/gim, '');
-
-    // 4. 清除前後空白
     finalCritiqueText = finalCritiqueText.trim();
-    // ★★★ 修復結束 ★★★
 
     // --- 組合 HTML ---
     if (scoresForDisplay) {
@@ -16453,8 +16421,23 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     
+    // ★★★ [修改開始] 處理改寫範例：加入 OpenCC 繁體轉換 ★★★
     if (rewriteMatch && rewriteMatch[1]) {
-        const rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
+        let rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
+
+        // 強制簡轉繁 (OpenCC)
+        if (typeof OpenCC !== 'undefined') {
+            try {
+                const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+                rewriteContent = converter(rewriteContent);
+            } catch (e) {
+                console.error("[OpenCC] 轉換失敗:", e);
+            }
+        }
+
+        // 強制替換引號 (將 "" 或 “” 轉為 「」)
+        rewriteContent = rewriteContent.replace(/["“](.*?)["”]/g, '「$1」');
+
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -16462,6 +16445,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             </div>
         </div>`;
     }
+    // ★★★ [修改結束] ★★★
 
     // 加入聊天室 HTML
     const chatType = uniqueIdPrefix === 'narrative' ? 'narrative_writing' : 'argument_writing';
@@ -16470,11 +16454,9 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 注入 HTML
     resultContainer.innerHTML = finalHTML;
 
-    // 初始化雷達圖 (雖然 HTML 已經有數據，但 Canvas 仍需 JS 繪製)
+    // 初始化雷達圖
     if (scoresForDisplay) {
         setTimeout(() => {
-            // 注意：這裡仍然呼叫 initializeGradingSystem 是為了繪製雷達圖
-            // 以及確保隱藏的 input 被正確賦值 (如果 createGradingSystemHTML 漏掉的話)
             initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
         }, 50);
     }
@@ -16482,18 +16464,14 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
     
-    // 使用 captureContainerHTML 確保儲存時雷達圖不消失 (記得要用不轉圖片的修復版)
-    // 使用 captureContainerHTML 確保儲存時雷達圖不消失
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
      await saveToHistory(
-        // ★★★ 這一行必須保留，不能改！它會自動判斷是敘事還是議論 ★★★
         uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
-        
         "文章點評", 
         topic || "無題目", 
         `題目：${topic}\n\n文章：${fullTextContent}`, 
-        htmlContent, // 這裡傳入完整的 HTML (含聊天室) 即可
+        htmlContent,
         scoresForDisplay 
     );
 }
