@@ -11493,6 +11493,9 @@ function getCanvasChatHTML(type) {
 // ==========================================
 // === [修訂版] 畫布聊天室發送邏輯 (相對定位查找) ===
 // ==========================================
+// ==========================================
+// === [修訂版] 畫布聊天室發送邏輯 (繁體化 + 引號修正) ===
+// ==========================================
 async function sendCanvasMessage(btnElement) {
     // 1. 鎖定觸發按鈕：優先使用傳入的 this (btnElement)
     let sendBtn = btnElement;
@@ -11609,10 +11612,21 @@ async function sendCanvasMessage(btnElement) {
         promptContext = `【背景資料】\n${readableContent.substring(0, 1500)}\n\n【之前的點評】\n${(typeof currentContextReview !== 'undefined' ? currentContextReview : "").substring(0, 800)}...`;
     }
     
-    const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 針對問題具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。`;
+    const fullPrompt = `你是一位${activeReviewer}。${promptContext}\n【對話紀錄】${historyText}\n【學生最新問題】${userText}\n1. 針對問題具體舉例說明。\n2. 語氣要求：${toneNote}\n3. 字數200字內。\n\n【重要】請必須使用繁體中文(Traditional Chinese)回答，並使用香港用語。`;
+    
     try {
         // 統一使用 Reading API (DeepSeek)
-        const response = await callReadingAPI(fullPrompt);
+        let response = await callReadingAPI(fullPrompt);
+
+        // ★★★ 強制繁體化 (OpenCC) ★★★
+        if (typeof OpenCC !== 'undefined') {
+            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+            response = converter(response);
+        }
+
+        // ★★★ 強制替換引號 (將 "" 或 “” 轉為 「」) ★★★
+        response = response.replace(/["“](.*?)["”]/g, '「$1」');
+        
         let formattedResponse = response.replace(/\n/g, '<br>');
         formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         
@@ -11635,7 +11649,6 @@ async function sendCanvasMessage(btnElement) {
         historyBox.scrollTop = historyBox.scrollHeight;
     }
 }
-
 	
 
 
@@ -13678,21 +13691,30 @@ async function continueWritingGuideDiscussion() {
     【背景資料】解題指引內容：${currentGuideAnalysis}
     【對話紀錄】${conversationHistoryForPrompt}
     【學生追問】${userInputText}
-    【任務】請針對學生追問回應，緊扣剛才的指引，字數200字以內。
+    【任務】請針對學生追問回應，緊扣剛才的指引，字數200字以內。\n【重要】請必須使用繁體中文(Traditional Chinese)回答。
     `;
 
    try {
         // 使用通用 API (Gemini)
-        const aiResponse = await callAPI(prompt);
+        let aiResponse = await callAPI(prompt);
         if (!aiResponse) throw new Error('API 傳回無效回應');
         
+        // ★★★ 強制繁體化 (OpenCC) ★★★
+        if (typeof OpenCC !== 'undefined') {
+            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+            aiResponse = converter(aiResponse);
+        }
+
+        // ★★★ 強制替換引號 (將 "" 或 “” 轉為 「」) ★★★
+        aiResponse = aiResponse.replace(/["“](.*?)["”]/g, '「$1」');
+
         let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         formattedResponse = formattedResponse.replace(/\n/g, '<br>');
         aiMessageBubble.innerHTML = formattedResponse;
         
         writingGuideChatHistoryData.push({ sender: 'ai', message: aiResponse });
 
-        // ★★★ 關鍵新增：更新歷史紀錄 ★★★
+        // 更新歷史紀錄
         await updateHistoryChat();
 
     } catch (error) {
@@ -14450,13 +14472,21 @@ async function continueArgumentDiscussion() {
         toneNote = "請用日常的語言回應我，不要過於理論化。";
     }
     
-    // 建構一般對話的 Prompt (這部分比較動態，依然在前端組裝字串，但呼叫方式改為字串模式)
-    // 這裡我們直接傳送字串，Worker 的 chat_general 會接收它
-    const prompt = `我是一位高中生，你正在點評我的議論文。\n原文：${currentArgumentArticle}\n對話紀錄：${conversationHistoryForPrompt}\n請針對最新追問回應。${toneNote}`;
+    // 建構一般對話的 Prompt
+    const prompt = `我是一位高中生，你正在點評我的議論文。\n原文：${currentArgumentArticle}\n對話紀錄：${conversationHistoryForPrompt}\n請針對最新追問回應。${toneNote}\n\n【重要】請必須使用繁體中文(Traditional Chinese)回答。`;
     
     try {
         // 使用 callReadingAPI (議論文通常用 DeepSeek)
-        const aiResponse = await callReadingAPI(prompt);
+        let aiResponse = await callReadingAPI(prompt);
+        
+        // ★★★ 強制繁體化 (OpenCC) ★★★
+        if (typeof OpenCC !== 'undefined') {
+            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+            aiResponse = converter(aiResponse);
+        }
+
+        // ★★★ 強制替換引號 (將 "" 或 “” 轉為 「」) ★★★
+        aiResponse = aiResponse.replace(/["“](.*?)["”]/g, '「$1」');
         
         let formattedResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         formattedResponse = formattedResponse.replace(/\n/g, '<br>');
@@ -14464,7 +14494,7 @@ async function continueArgumentDiscussion() {
         
         argumentChatHistoryData.push({ sender: 'ai', message: aiResponse });
 
-        // ★★★ 關鍵新增：更新歷史紀錄 ★★★
+        // 更新歷史紀錄
         await updateHistoryChat();
 
     } catch (error) {
@@ -14482,9 +14512,6 @@ async function continueArgumentDiscussion() {
 
 async function continueWritingDiscussion() {
     // 這裡我們仍然需要構建 Prompt，因為 chat_general action 需要 raw prompt
-    // 或者你可以創建一個新的 chat_writing action，但為了保持簡單，這裡使用 chat_general 
-    // 注意：這裡的 Prompt 不含敏感評分邏輯，相對安全。
-    
     const continueBtn = document.getElementById('continueWritingBtn');
     continueBtn.disabled = true;
     const userInputText = sanitizeHTML(document.getElementById("writingUserInput").value.trim());
@@ -14501,7 +14528,7 @@ async function continueWritingDiscussion() {
     const tone = document.getElementById("writingTone").value;
     let toneNote = tone === "chen" ? "請用幽默詼諧的語氣，就像陳SIR一樣。" : "請用日常語言，不要過於理論。";
     
-    const prompt = `我是一位高中生，你剛剛點評了我的文章。\n原文：${currentWritingArticle}\n點評：${currentWritingReview}\n追問：${userInputText}\n請用日常語言回應，詳細分析並舉例。${toneNote}`;
+    const prompt = `我是一位高中生，你剛剛點評了我的文章。\n原文：${currentWritingArticle}\n點評：${currentWritingReview}\n追問：${userInputText}\n請用日常語言回應，詳細分析並舉例。${toneNote}\n\n【重要】請必須使用繁體中文(Traditional Chinese)回答。`;
     
     const aiMessageBubble = document.createElement('div');
     aiMessageBubble.className = 'message-bubble ai-message';
@@ -14510,7 +14537,17 @@ async function continueWritingDiscussion() {
 
     try {
         // 使用字串模式呼叫，自動觸發 chat_general
-        const aiResponse = await callReadingAPI(prompt);
+        let aiResponse = await callReadingAPI(prompt);
+
+        // ★★★ 強制繁體化 (OpenCC) ★★★
+        if (typeof OpenCC !== 'undefined') {
+            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+            aiResponse = converter(aiResponse);
+        }
+
+        // ★★★ 強制替換引號 (將 "" 或 “” 轉為 「」) ★★★
+        aiResponse = aiResponse.replace(/["“](.*?)["”]/g, '「$1」');
+
         aiMessageBubble.innerHTML = aiResponse.replace(/\n/g, '<br>');
         await updateHistoryChat();
     } catch (error) {
