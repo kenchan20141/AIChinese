@@ -16389,25 +16389,38 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                     throw new Error("JSON 解析失敗 (格式嚴重錯誤)");
                 }
                 
-                // 定義 V8 規則函式 (內部使用)
+              // 定義 V8 規則函式 (內部使用) - 已修訂表達分計算公式
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
                     s.radar = s.radar || {};
                     if (s.radar && s.radar.扣題 !== undefined) {
                         let final = { kouTi: s.radar.扣題, xiangLue: s.radar.詳略, structure: s.structure, liYi: s.radar.立意, quCai: s.radar.取材, ciHui: s.radar.詞彙, wenXueXing: s.radar.文學性, expression: s.expression, content: s.content };
+                        
+                        // --- 既有的內容/結構限制規則 (保持不變) ---
                         if (final.kouTi >= 5) { final.liYi = Math.max(final.liYi, 5); final.quCai = Math.max(final.quCai, 5); }
                         if (final.kouTi <= 5) { final.liYi = Math.min(final.liYi, 5); final.quCai = Math.min(final.quCai, 5); }
                         if (final.kouTi <= 4) { final.xiangLue = Math.min(final.xiangLue, 4); final.structure = Math.min(final.structure, 4); }
                         if (final.ciHui <= 6 && final.wenXueXing <= 6) { final.liYi = Math.min(final.liYi, 6); final.quCai = Math.min(final.quCai, 6); }
                         if (!(final.liYi >= 7 && final.quCai >= 7)) { final.ciHui = Math.min(final.ciHui, 8); final.wenXueXing = Math.min(final.wenXueXing, 8); }
                         final.quCai = Math.min(final.quCai, final.liYi);
+                        
+                        // 內容分計算 (保持不變)
                         if (final.kouTi <= 4) { let t = final.kouTi; t = Math.min(t, 4); t = Math.max(t, 2); final.content = t; }
                         else { if (final.liYi === 10 && final.quCai === 10) final.content = 9; else if (final.liYi === 9 && final.quCai === 9) final.content = 8; else if (final.liYi === 8 && final.quCai === 8) final.content = 7; else final.content = Math.round((final.liYi + final.quCai) / 2); }
+                        
                         if (final.ciHui < 8 || final.wenXueXing < 8) { final.content = Math.min(final.content, 7); }
-                        if (final.ciHui === final.wenXueXing) { final.expression = final.ciHui - 1; } else { final.expression = Math.min(final.ciHui, final.wenXueXing); }
+                        
+                        // ★★★【核心修改】表達分：改為取詞彙與文學性的平均值 (四捨五入) ★★★
+                        // 舊邏輯：if (final.ciHui === final.wenXueXing) { final.expression = final.ciHui - 1; } else { final.expression = Math.min(final.ciHui, final.wenXueXing); }
+                        // 新邏輯：
+                        final.expression = Math.round((final.ciHui + final.wenXueXing) / 2);
+
+                        // 結構分計算 (保持不變)
                         const structureLowerBound = final.content - 1;
                         final.structure = Math.min(final.structure, final.content);
                         final.structure = Math.max(final.structure, structureLowerBound);
+                        
+                        // 寫回物件
                         s.content = final.content; s.expression = final.expression; s.structure = final.structure;
                         s.radar.立意 = final.liYi; s.radar.取材 = final.quCai; s.radar.詳略 = final.xiangLue;
                         s.radar.詞彙 = final.ciHui; s.radar.文學性 = final.wenXueXing; s.radar.扣題 = final.kouTi;
@@ -16415,7 +16428,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                     return s;
                 };
                 
-                // 定義字數規則 (內部使用)
+                // 定義字數規則 (保持不變)
                 const applyWordCountRule = (scores, textContent) => {
                      let s = JSON.parse(JSON.stringify(scores));
                      const wordCount = textContent.length;
@@ -16426,21 +16439,26 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                      return s;
                 };
 
+                // 1. 處理主模型 (Qwen/DeepSeek)
                 let finalQwenScores = applyV8Rules(originalScores);
                 finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
+                
+                // 2. 處理驗證模型 (Llama-3)
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
-				// ★★★【核心修復】請在此處加入這行！★★★
-// 強制 Llama3 的分數也必須遵守您的 V8 規則 (包含表達分不能高於詞彙/文學性)
-finalLlama3Scores = applyV8Rules(finalLlama3Scores); 
-// ★★★ 加入結束 ★★★
-                finalLlama3Scores = applyContentStructureRule(finalLlama3Scores); // 假設此函式已定義
+                // 這裡加入了上一輪建議的修正：讓 Llama3 也通過 V8 規則 (包含新的表達分計算)
+                finalLlama3Scores = applyV8Rules(finalLlama3Scores); 
+                finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
 
+                // 計算總分進行比較
                 const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
                 const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
                 
+                // ★★★【新增】Log 顯示選擇結果 ★★★
                 if (totalLlama3 > totalQwen) {
+                    console.log(`🏆 [System] 最終採用模型: Gemini 2 (總分較高: ${totalLlama3} vs ${totalQwen})`, finalLlama3Scores);
                     scoresForDisplay = finalLlama3Scores;
                 } else {
+                    console.log(`🏆 [System] 最終採用模型: Gemini/DeepSeek (總分較高或持平: ${totalQwen} vs ${totalLlama3})`, finalQwenScores);
                     scoresForDisplay = finalQwenScores;
                 }
 
