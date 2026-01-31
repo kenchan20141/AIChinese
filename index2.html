@@ -16244,22 +16244,16 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     // --- 分數解析邏輯 ---
     if (uniqueIdPrefix === 'narrative') {
+        // ... (敘事抒情邏輯保持不變) ...
         const llama3GradingMatch = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
         if (originalGradingMatch && originalGradingMatch[1] && llama3GradingMatch && llama3GradingMatch[1]) {
             try {
-                // 使用 safeJSONParse 取代 JSON.parse
                 const originalScores = safeJSONParse(originalGradingMatch[1]);
-                
-                let llama3Scores = null;
-                if (llama3GradingMatch && llama3GradingMatch[1]) {
-                    llama3Scores = safeJSONParse(llama3GradingMatch[1]);
-                }
+                let llama3Scores = safeJSONParse(llama3GradingMatch[1]);
 
-                if (!originalScores || !llama3Scores) {
-                    throw new Error("JSON 解析失敗 (格式嚴重錯誤)");
-                }
+                if (!originalScores || !llama3Scores) throw new Error("JSON 解析失敗");
                 
-                // 定義 V8 規則函式
+                // 定義 V8 規則
                 const applyV8Rules = (scores) => {
                     let s = JSON.parse(JSON.stringify(scores)); 
                     s.radar = s.radar || {};
@@ -16303,41 +16297,41 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
 
                 let finalQwenScores = applyV8Rules(originalScores);
                 finalQwenScores = applyWordCountRule(finalQwenScores, fullTextContent);
-                
                 let finalLlama3Scores = applyWordCountRule(llama3Scores, fullTextContent);
                 finalLlama3Scores = applyV8Rules(finalLlama3Scores); 
                 finalLlama3Scores = applyContentStructureRule(finalLlama3Scores);
 
-                const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 5 + 1;
-                const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 5 + 1;
+                const totalQwen = (finalQwenScores.content * 4) + (finalQwenScores.expression * 3) + (finalQwenScores.structure * 2) + 6;
+                const totalLlama3 = (finalLlama3Scores.content * 4) + (finalLlama3Scores.expression * 3) + (finalLlama3Scores.structure * 2) + 6;
                 
-                if (totalLlama3 > totalQwen) {
-                    console.log(`🏆 [System] 最終採用模型: Gemini 2`, finalLlama3Scores);
-                    scoresForDisplay = finalLlama3Scores;
-                } else {
-                    console.log(`🏆 [System] 最終採用模型: Gemini/DeepSeek`, finalQwenScores);
-                    scoresForDisplay = finalQwenScores;
-                }
+                scoresForDisplay = (totalLlama3 > totalQwen) ? finalLlama3Scores : finalQwenScores;
 
             } catch (e) {
-                console.error("解析評分時出錯:", e);
+                console.error("Narrative Parsing Error:", e);
                 scoresForDisplay = null;
             }
         }
     } 
     else if (uniqueIdPrefix === 'argument') {
+        // ★★★ [修復重點] 議論文章解析邏輯 ★★★
         if (originalGradingMatch && originalGradingMatch[1]) {
-             try {
-                scoresForDisplay = JSON.parse(originalGradingMatch[1].trim());
-             } catch(e) {
-                scoresForDisplay = null;
+             // 使用 safeJSONParse 來處理可能不乾淨的 JSON 字串
+             scoresForDisplay = safeJSONParse(originalGradingMatch[1]);
+             
+             if (!scoresForDisplay) {
+                 console.error("Argument JSON Parsing Failed even with safeJSONParse");
+                 console.log("Raw String:", originalGradingMatch[1]);
              }
+        } else {
+            console.error("找不到 <grading_json> 標籤");
         }
     }
     
     // 計算最終總分與等級
     if (scoresForDisplay) {
+        // 應用最終一致性規則
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
+        
         const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
@@ -16361,50 +16355,42 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
 
-    // --- AI 點評語氣重寫 (Prompt 結構鎖定) ---
+    // --- AI 點評語氣重寫 ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
 
-    if (finalGradeForDisplay === "5**") {
-        critiqueRewriteInstruction = "點評中應為讚賞。請完全移除所有批評或負面評價。";
-    } else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") {
-        critiqueRewriteInstruction = "點評主要以讚賞為主，可提及微小的建議。";
-    } else if (finalGradeForDisplay === "4") {
-        critiqueRewriteInstruction = "點評應有褒有貶，份量大致均衡。";
-    } else {
-        critiqueRewriteInstruction = "點評以批評為主，集中分析核心問題。";
-    }
+    if (finalGradeForDisplay === "5**") critiqueRewriteInstruction = "點評中應為讚賞。";
+    else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") critiqueRewriteInstruction = "點評主要以讚賞為主。";
+    else if (finalGradeForDisplay === "4") critiqueRewriteInstruction = "點評應有褒有貶。";
+    else critiqueRewriteInstruction = "點評以批評為主。";
     
-    let emojiInstruction = "";
-    if (currentTone === "chen") {
-        emojiInstruction = "務必在句子中自然地穿插大量 Emoji，讓語氣輕鬆幽默。";
-    } else {
-        emojiInstruction = "語氣要專業嚴肅，絕對不要使用 Emoji。";
-    }
+    let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨。" : "語氣專業嚴肅，不使用 Emoji。";
 
      const rewritePrompt = `請重寫以下點評內容。
     原文：${originalCritiqueText}
-
     【嚴格重寫要求】
-    1. **結構鎖定**：必須嚴格維持原本的列點數量（保持原來的2-3個重點）。**絕對禁止**將內容拆解成瑣碎的短句，或增加額外的點數。
-    2. **篇幅鎖定**：每點的分析篇幅必須與原本相若，不可縮寫成一句話。
+    1. **結構鎖定**：嚴格維持原本的列點數量。
+    2. **篇幅鎖定**：內容長度相若。
     3. **評級調整**：${critiqueRewriteInstruction}
     4. **語氣風格**：${emojiInstruction}
     `;
 
     try {
-        console.log("正在等待 API 冷卻...");
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        console.log("等待 API 冷卻...");
+        await new Promise(resolve => setTimeout(resolve, 3500)); // 稍微縮短等待時間到 3.5s
         finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5); 
     } catch (e) {
-        console.warn("語氣重寫失敗 (可能是 API 忙碌)，將使用原文:", e);
+        console.warn("語氣重寫失敗:", e);
         finalCritiqueText = originalCritiqueText;
     }
 
+    // ★★★ [修復重點] 強力清洗「重寫點評」等標題 ★★★
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
+    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*重寫.*$/gim, '');
+    finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, ''); // 移除 【重寫點評】
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
-    finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容)[：:]/gim, '');
+    finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
     finalCritiqueText = finalCritiqueText.trim();
 
     // --- 組合 HTML ---
@@ -16421,11 +16407,10 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     
-    // ★★★ [修改開始] 處理改寫範例：加入 OpenCC 繁體轉換 ★★★
+    // ★★★ [修復重點] 改寫範例繁體化 + 引號修正 ★★★
     if (rewriteMatch && rewriteMatch[1]) {
         let rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
 
-        // 強制簡轉繁 (OpenCC)
         if (typeof OpenCC !== 'undefined') {
             try {
                 const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
@@ -16435,7 +16420,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             }
         }
 
-        // 強制替換引號 (將 "" 或 “” 轉為 「」)
         rewriteContent = rewriteContent.replace(/["“](.*?)["”]/g, '「$1」');
 
         finalHTML += `<div class="rewrite-explanation-container">
@@ -16445,7 +16429,6 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             </div>
         </div>`;
     }
-    // ★★★ [修改結束] ★★★
 
     // 加入聊天室 HTML
     const chatType = uniqueIdPrefix === 'narrative' ? 'narrative_writing' : 'argument_writing';
