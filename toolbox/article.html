@@ -1292,13 +1292,15 @@
                 });
             });
 
-         generateBtn.addEventListener('click', async () => { // 注意這裡加了 async
+       generateBtn.addEventListener('click', async () => {
                 const topic = topicInput.value.trim();
                 const userGuidelines = guidelinesInput.value.trim();
-                const hiddenInstruction = "句組要長一點，要詳寫現實和回憶片段。";
+                
+                // 【修訂 1】將字數控制提示語加入 hiddenInstruction
+                // 明確告知模型這是一篇考試作文，而非連載小說，需精準控制篇幅
+                const hiddenInstruction = "敘事節奏要緊湊，切勿拖沓。必須精準控制在預設字數範圍內，過長會被扣分。";
 
-                // 組合用戶的輸入，這將用於生成向量
-              const queryForRAG = `這是一篇關於「${topic}」的敘事抒情文。內容包含對${topic}的深刻描寫、個人回憶、情感抒發以及人生感悟。${userGuidelines}`;
+                const queryForRAG = `這是一篇關於「${topic}」的敘事抒情文。內容包含對${topic}的深刻描寫、個人回憶、情感抒發以及人生感悟。${userGuidelines}`;
 
                 const finalGuidelines = userGuidelines 
                     ? `${userGuidelines}\n${hiddenInstruction}` 
@@ -1314,7 +1316,7 @@
 
                 // UI 狀態更新
                 generateBtn.disabled = true;
-                generateBtn.textContent = '搜尋範文並生成中...'; // 更新文字提示
+                generateBtn.textContent = '搜尋範文並生成中...';
                 loader.style.display = 'block';
                 essayPlaceholder.style.display = 'none';
                 generatedEssay.style.display = 'none';
@@ -1322,7 +1324,6 @@
                 
                 try {
                     // ★★★ RAG 步驟：檢索相關範文 ★★★
-                    // 這一步會去 Supabase 找尋相似的敘事文
                     const ragContent = await getReferenceMaterials(queryForRAG);
                     
                     // 根據選擇的結構獲取對應的教學筆記
@@ -1333,9 +1334,19 @@
                         writingInstructions = document.getElementById('sanxian-notes').textContent;
                     }
 
-                    // ★★★ 構建核心指令 (加入 RAG 內容) ★★★
-                 // ★★★ 構建核心指令 (加入 RAG 內容 + 強力字數控制) ★★★
-                    const systemPrompt = `你是一位世界級的文學作家，擅長創作深刻且富有文學性的敘事抒情文。你的任務是根據用家提供的題目、指引以及【以下指定的寫作框架與要求】，創作一篇高質素的文章。
+                    // 【修訂 2】動態計算各部分的字數預算 (Pacing Budget)
+                    // 這能幫助模型在生成過程中更有意識地分配篇幅
+                    const totalTarget = wordCount;
+                    const limitHigh = Math.floor(totalTarget * 1.15); // 上限 +15%
+                    
+                    // 計算結構配速 (起: 15%, 承+轉: 60%, 合: 25%)
+                    const sectionStart = Math.floor(totalTarget * 0.15);
+                    const sectionBody = Math.floor(totalTarget * 0.60);
+                    const sectionEnd = Math.floor(totalTarget * 0.25);
+
+                    // ★★★ 構建核心指令 (加入 RAG 內容 + 強力字數配速控制) ★★★
+                    // 重點：將字數限制放在 Prompt 的開頭和結尾 (Recency Bias)，並要求模型進行「字數預算」
+                    const systemPrompt = `你是一位精準控制篇幅的世界級文學作家。你的任務是創作一篇高質素的敘事抒情文，但必須**嚴格遵守字數限制**。
 
 ${ragContent}
 
@@ -1344,39 +1355,33 @@ ${ragContent}
 ${writingInstructions}
 
 ---
-【⛔️ 絕對嚴格的字數與篇幅限制 ⛔️】
-1. **目標字數**：用戶要求約 **${wordCount}** 字。
-2. **篇幅規劃**：你必須根據這個字數來分配「起、承、轉、合」的長度。
-   - 如果目標字數較少（如 600-800字），請精簡描寫，不要過度堆砌辭藻。
-   - 如果目標字數較多（如 1200字以上），才允許進行極度細膩的刻劃。
-3. **煞車機制**：寫作時請時刻監控篇幅。如果發現情節才發展到一半但字數已接近目標，請立即加速敘事節奏，盡快進入結尾。
-4. **懲罰條款**：作為評卷員，**若文章字數超過目標字數的 20%（即超過 ${Math.floor(wordCount * 1.2)} 字），將被視為「冗贅拖沓」，內容分將會被大幅扣減，甚至直接重寫。**
+【⛔️ 絕對嚴格的篇幅配速指引 (Pacing Guide) ⛔️】
+你的目標字數是 **${totalTarget} 字**。為了避免文章過長，你必須嚴格按照以下比例分配筆墨，**切勿戀戰**：
+
+1. **第一部分（起/引子）：約 ${sectionStart} 字**。
+   - 迅速入題，不要過度鋪陳無關的環境描寫。
+2. **第二部分（承與轉/核心情節）：約 ${sectionBody} 字**。
+   - 這是文章主體。請挑選**一個**核心衝突或畫面進行詳寫（示現法），其他次要情節必須略寫或一句帶過。
+   - **嚴重警告**：不要試圖把所有細節都寫得鉅細靡遺。如果發現這部分字數已超過 ${sectionBody} 字，必須立刻進入轉折或結尾。
+3. **第三部分（合/昇華）：約 ${sectionEnd} 字**。
+   - 收束全文，點出立意。
+
+**【致命錯誤檢查】**
+- 如果你寫出了 2000 字以上的文章，代表你**失敗**了。
+- 請展現你「剪裁」的功力，而非「堆砌」的能力。
+- **寧願情節簡單深刻，也不要冗長拖沓。**
 
 ---
 
-**你的核心工作流程如下，請極度嚴格地遵守：**
+**你的核心工作流程：**
 
-1.  **參考與融合**：首先閱讀上方的【參考範文庫】(若有)，分析其描寫手法與用詞，並將其優點融入到你的創作中，但切勿直接抄襲。
-
-2.  **初稿寫作**：根據以下用家要求及你收到的【寫作框架與要求】，創作一篇約 ${wordCount} 字的初稿。
+1.  **參考**：參考上方範文的語感，但保持原創。
+2.  **寫作**：根據以下指引創作。
     -   **題目**: 《${topic}》
     -   **創作指引**: ${finalGuidelines}
+3.  **自我監控**：在寫作每一段時，請在心中預估字數。如果覺得某個描寫太長，請立即縮減。
 
-3.  **內部自我評核 (絕不外洩)**：寫作完成後，你必須立刻化身為一位極其嚴苛的 DSE 語文科評卷員。使用你內置的評分系統，對你的初稿進行評分。
-    -   **重點檢查項目**：字數是否控制在 ${wordCount} 字左右？(誤差範圍 ±15%)。如果字數嚴重超標（例如超過 2000 字），這是一篇失敗的文章。
-
-4.  **計算總分與決策 (絕不外洩)**：
-    -   總分 = (內容分數 * 4) + (表達分數 * 3) + (結構分數 * 3)
-    -   **合格標準**：總分必須達到或超過 **78分**，且**字數必須符合要求**。
-
-5.  **迭代修訂 (內部過程，絕不外洩)**：
-    -   如果字數嚴重超標或分數不足，你必須 **刪減冗文** 或 **重寫**，直到字數和質量都達標。
-
-6.  **最終輸出**：
-    -   **你的最終回覆，必須且只能是那篇通過了合格標準（含字數標準）的最終文章成品。**
-    -   **絕對禁止** 在你的回覆中包含任何關於評分過程、分數、評語、草稿、或任何與最終文章無關的文字。
-
-請現在開始你的創作。`;
+請現在開始你的創作，輸出一篇結構完整、情感動人，且字數精準控制在 ${totalTarget} 字左右的文章。`;
 
                     // 發送請求至 GAS 後端
                     const response = await fetch(CLOUDFLARE_WORKER_URL, {
@@ -1385,7 +1390,8 @@ ${writingInstructions}
                             model: selectedModel,
                             messages: [
                                 { role: 'system', content: systemPrompt },
-                                { role: 'user', content: `請根據以上所有指示(包含參考範文)，為題目《${topic}》生成文章。` }
+                                // 【修訂 3】在 User Prompt 中再次強調字數
+                                { role: 'user', content: `請為題目《${topic}》生成文章。注意：請務必將總字數控制在 ${totalTarget} 字左右，不要寫太長，精簡非必要的細節。` }
                             ],
                             stream: false
                         })
