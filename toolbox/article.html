@@ -1856,27 +1856,29 @@ function uploadOneMinute() {
     }
 
     // 3. 執行搜尋並格式化結果
-    async function getReferenceMaterials(userQuery) {
+  // 修改後的 getReferenceMaterials 函數 (含詳細除錯 Log)
+async function getReferenceMaterials(userQuery) {
     try {
+        console.time("RAG 執行時間"); // 開始計時
         initSupabase();
         await initEmbeddingModel();
 
-        // 1. 提取純題目 (去除 "題目：" 等前綴)
+        // 1. 提取純題目
         const rawTopic = userQuery.split("題目：")[1]?.split("。")[0]?.trim() || "";
         
-        // 2. 【策略一：關鍵詞加權】
-        // 我們將題目重複 5 次，這在向量空間中會產生強大的「引力」，
-        // 確保搜尋結果會向這個主題靠攏，而不是被其他修飾語帶偏。
+        // 2. 關鍵詞加權
         const weightedQuery = `${rawTopic} ${rawTopic} ${rawTopic} ${rawTopic} ${rawTopic}。這是一篇關於${rawTopic}的敘事抒情文，描寫深刻，情感真摯。${userQuery}`;
 
-        console.log("正在搜尋題目:", rawTopic);
+        console.group("🔍 [RAG 系統啟動] 搜尋目標分析");
+        console.log("原始題目:", rawTopic);
+        console.log("加權後搜尋語句:", weightedQuery);
+        console.groupEnd();
 
-        // A. 計算加權後的向量
+        // A. 計算向量
         const output = await embeddingExtractor(weightedQuery.substring(0, 300), { pooling: 'mean', normalize: true });
         const vector = Array.from(output.data);
 
         // B. 向 Supabase 查詢 (廣撒網)
-        // 我們抓取 6 篇 (match_count: 6)，門檻 0.15
         const { data, error } = await supabaseClient.rpc('match_documents_for_fanshui', {
             query_embedding: vector,
             match_threshold: 0.15, 
@@ -1885,44 +1887,62 @@ function uploadOneMinute() {
         });
 
         if (error) {
-            console.error("Supabase Error:", error);
+            console.error("❌ Supabase Error:", error);
             return "";
         }
 
         if (!data || data.length === 0) {
-            console.log("未找到相關範文");
+            console.warn("⚠️ 未找到任何相似度 > 0.15 的文章");
             return "";
         }
 
-        // C. 【策略二：關鍵詞嚴格過濾】
-        // 只有當文章的「標題」或「內容」真的包含用戶輸入的題目關鍵詞時，才保留。
-        // 這能 100% 杜絕「題目是等待，卻抓到運動會」的情況。
+        // --- 詳細 Log：原始搜尋結果 ---
+        console.groupCollapsed(`📚 [RAG] 初步檢索結果 (共 ${data.length} 篇)`);
+        data.forEach((doc, index) => {
+            const score = (doc.similarity * 100).toFixed(2);
+            console.log(`[${index + 1}] 《${doc.metadata.title}》 | 相似度: ${score}%`);
+        });
+        console.groupEnd();
+
+        // C. 關鍵詞嚴格過濾
         let validDocs = data.filter(doc => {
             const title = doc.metadata?.title || "";
             const content = doc.content || "";
-            // 檢查標題或內容是否包含題目 (rawTopic)
-            return title.includes(rawTopic) || content.includes(rawTopic);
+            // 檢查標題或內容是否包含題目
+            const hasKeyword = title.includes(rawTopic) || content.includes(rawTopic);
+            return hasKeyword;
         });
 
-        // 如果過濾後太少 (少於 1 篇)，為了避免完全沒參考，我們放寬標準：
-        // 回退使用原始搜尋結果的前 1 篇 (至少有一篇風格相近的)
-        if (validDocs.length === 0 && data.length > 0) {
-            console.log("嚴格過濾後無結果，退回使用關聯度最高的文章");
-            validDocs = [data[0]]; 
+        // --- 詳細 Log：過濾狀況 ---
+        console.group("🛡️ [RAG] 關鍵詞過濾報告");
+        if (validDocs.length > 0) {
+            console.log(`✅ 成功篩選出 ${validDocs.length} 篇包含「${rawTopic}」的文章。`);
+        } else {
+            console.warn(`❌ 初步結果中沒有任何文章包含「${rawTopic}」。`);
+            if (data.length > 0) {
+                console.log("⚠️ 啟動保底機制：強制採用相似度最高的第一篇，以免 RAG 空白。");
+                validDocs = [data[0]]; // 保底機制
+            }
         }
+        console.groupEnd();
 
         // D. 格式化輸出 (只取前 3 篇)
         let referenceText = "\n\n【參考範文庫 (Reference Examples)】\n(以下是與題目高度相關的範文片段，請參考其寫作風格、描寫手法及情感鋪排。)\n";
         
+        // --- 詳細 Log：最終採用 ---
+        console.group("🎯 [RAG] 最終注入 AI 的範文");
         validDocs.slice(0, 3).forEach((doc, index) => {
+            console.log(`📝 範文 ${index + 1}: 《${doc.metadata.title}》`);
+            console.log(`   摘要: ${doc.content.substring(0, 60)}...`);
             referenceText += `\n[範文 ${index + 1}]: ${doc.metadata.title}\n${doc.content}\n----------------\n`;
         });
+        console.groupEnd();
 
-        console.log(`✅ 檢索到 ${data.length} 篇，經關鍵詞過濾後採用 ${Math.min(validDocs.length, 3)} 篇`);
+        console.timeEnd("RAG 執行時間");
         return referenceText;
 
     } catch (err) {
-        console.error("RAG 執行失敗:", err);
+        console.error("❌ RAG 執行失敗:", err);
         return ""; 
     }
 }
