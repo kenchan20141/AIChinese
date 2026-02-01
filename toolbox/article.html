@@ -1298,7 +1298,7 @@
                 const hiddenInstruction = "句組要長一點，要詳寫現實和回憶片段。";
 
                 // 組合用戶的輸入，這將用於生成向量
-                const queryForRAG = `題目：${topic}。${userGuidelines}`;
+              const queryForRAG = `這是一篇關於「${topic}」的敘事抒情文。內容包含對${topic}的深刻描寫、個人回憶、情感抒發以及人生感悟。${userGuidelines}`;
 
                 const finalGuidelines = userGuidelines 
                     ? `${userGuidelines}\n${hiddenInstruction}` 
@@ -1857,50 +1857,75 @@ function uploadOneMinute() {
 
     // 3. 執行搜尋並格式化結果
     async function getReferenceMaterials(userQuery) {
-        try {
-            initSupabase();
-            await initEmbeddingModel();
+    try {
+        initSupabase();
+        await initEmbeddingModel();
 
-            // A. 計算用戶輸入的向量
-            // 擷取前 300 字做向量即可，太長會影響效能
-            const output = await embeddingExtractor(userQuery.substring(0, 300), { pooling: 'mean', normalize: true });
-            const vector = Array.from(output.data);
+        // 1. 提取純題目 (去除 "題目：" 等前綴)
+        const rawTopic = userQuery.split("題目：")[1]?.split("。")[0]?.trim() || "";
+        
+        // 2. 【策略一：關鍵詞加權】
+        // 我們將題目重複 5 次，這在向量空間中會產生強大的「引力」，
+        // 確保搜尋結果會向這個主題靠攏，而不是被其他修飾語帶偏。
+        const weightedQuery = `${rawTopic} ${rawTopic} ${rawTopic} ${rawTopic} ${rawTopic}。這是一篇關於${rawTopic}的敘事抒情文，描寫深刻，情感真摯。${userQuery}`;
 
-            // B. 向 Supabase 查詢 (只找 narrative)
-            // filter_type: 'narrative' 對應第一步 SQL 中的參數
-           // ★ 改用專用函數，避開神思的通道
-const { data, error } = await supabaseClient.rpc('match_documents_for_fanshui', {
-    query_embedding: vector,
-    match_threshold: 0.3, 
-    match_count: 3,
-    filter_type: 'narrative'
-});
+        console.log("正在搜尋題目:", rawTopic);
 
-            if (error) {
-                console.error("Supabase Error:", error);
-                return "";
-            }
+        // A. 計算加權後的向量
+        const output = await embeddingExtractor(weightedQuery.substring(0, 300), { pooling: 'mean', normalize: true });
+        const vector = Array.from(output.data);
 
-            if (!data || data.length === 0) {
-                console.log("未找到相關範文");
-                return "";
-            }
+        // B. 向 Supabase 查詢 (廣撒網)
+        // 我們抓取 6 篇 (match_count: 6)，門檻 0.15
+        const { data, error } = await supabaseClient.rpc('match_documents_for_fanshui', {
+            query_embedding: vector,
+            match_threshold: 0.15, 
+            match_count: 6,        
+            filter_type: 'narrative' 
+        });
 
-            // C. 格式化輸出給 AI 的文字
-            let referenceText = "\n\n【參考範文庫 (Reference Examples)】\n(以下是與題目或情境相關的高分範文片段，請參考其寫作風格、描寫手法及情感鋪排，以提升文章水平。)\n";
-            
-            data.forEach((doc, index) => {
-                referenceText += `\n[範文 ${index + 1}]: ${doc.metadata.title}\n${doc.content}\n----------------\n`;
-            });
-
-            console.log(`✅ 成功檢索 ${data.length} 篇範文`);
-            return referenceText;
-
-        } catch (err) {
-            console.error("RAG 執行失敗:", err);
-            return ""; // 失敗時回傳空字串，不影響主流程
+        if (error) {
+            console.error("Supabase Error:", error);
+            return "";
         }
+
+        if (!data || data.length === 0) {
+            console.log("未找到相關範文");
+            return "";
+        }
+
+        // C. 【策略二：關鍵詞嚴格過濾】
+        // 只有當文章的「標題」或「內容」真的包含用戶輸入的題目關鍵詞時，才保留。
+        // 這能 100% 杜絕「題目是等待，卻抓到運動會」的情況。
+        let validDocs = data.filter(doc => {
+            const title = doc.metadata?.title || "";
+            const content = doc.content || "";
+            // 檢查標題或內容是否包含題目 (rawTopic)
+            return title.includes(rawTopic) || content.includes(rawTopic);
+        });
+
+        // 如果過濾後太少 (少於 1 篇)，為了避免完全沒參考，我們放寬標準：
+        // 回退使用原始搜尋結果的前 1 篇 (至少有一篇風格相近的)
+        if (validDocs.length === 0 && data.length > 0) {
+            console.log("嚴格過濾後無結果，退回使用關聯度最高的文章");
+            validDocs = [data[0]]; 
+        }
+
+        // D. 格式化輸出 (只取前 3 篇)
+        let referenceText = "\n\n【參考範文庫 (Reference Examples)】\n(以下是與題目高度相關的範文片段，請參考其寫作風格、描寫手法及情感鋪排。)\n";
+        
+        validDocs.slice(0, 3).forEach((doc, index) => {
+            referenceText += `\n[範文 ${index + 1}]: ${doc.metadata.title}\n${doc.content}\n----------------\n`;
+        });
+
+        console.log(`✅ 檢索到 ${data.length} 篇，經關鍵詞過濾後採用 ${Math.min(validDocs.length, 3)} 篇`);
+        return referenceText;
+
+    } catch (err) {
+        console.error("RAG 執行失敗:", err);
+        return ""; 
     }
+}
 </script>
 
 
