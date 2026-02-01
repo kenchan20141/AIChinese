@@ -13770,10 +13770,10 @@ await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inpu
 
 	
 // ==========================================
-// === 敘事抒情提交函式 (大綱模式只存題目)
+// === 敘事抒情提交函式 (大綱模式只存題目) ===
 // ==========================================
 async function submitWriting() {
-    console.log("🖱️ [系統] 提交按鈕被點擊了！"); // <--- 加入這行
+    console.log("🖱️ [系統] 提交按鈕被點擊了！");
     const submitBtn = document.getElementById('submitWritingBtn');
     submitBtn.disabled = true;
     hideAllSaveHtmlButtons();
@@ -13837,8 +13837,6 @@ async function submitWriting() {
             currentContextReview = response;
             displayOutlineComment(response, outlineData);
             
-            // ★★★ 關鍵修改：歷史紀錄只存題目 ★★★
-            // 原本可能是 `題目：${topic}\n結構：...`，現在改為單純的題目
             saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
 
         } 
@@ -13873,7 +13871,7 @@ async function submitWriting() {
 
         } 
         // === 模式三：片段描寫 ===
-      else { 
+        else { 
             console.log("📝 [系統] 進入敘事抒情全文模式，準備呼叫 RAG...");
 
             content = document.getElementById("writingContent").value.trim();
@@ -13884,23 +13882,19 @@ async function submitWriting() {
 
             showLoading(`${currentReviewerName} 正在點評...`);
 
-            // ★★★ RAG 邏輯 (已更新) ★★★
+            // RAG 邏輯
             const ragReference = await searchSimilarEssays(content, 'narrative');
             
-            // ★★★ 新增：獲取敘事閱卷員的偏好 ★★★
-        const reviewerId = document.getElementById('writingReviewer').value;
-        const specificPreference = narrativeReviewerPreferences[reviewerId] || "";
+            // ★★★ 修正處：移除了前端獲取 narrativeReviewerPreferences 的邏輯 ★★★
+            // 因為這些資料現在位於後端，我們只需要傳送 reviewer ID 即可。
 
-        // ★★★ 關鍵修改：Prompt 結構重組 (已加入閱卷員偏好) ★★★
-        const finalPromptContent = `
+            // ★★★ 修正處：移除了 ${specificPreference} 變數 ★★★
+            const finalPromptContent = `
 【系統強制指令 (System Instruction)】
 1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出（點評、建議、改寫）都必須轉換為繁體中文（香港習慣）。
 2. **區分角色**：下方的【參考資料】是用來幫助你建立評分標準的「範文」，下方的【待評核學生文章】才是你需要評改的對象。千萬不要評改參考資料。
 3. **格式嚴格**：嚴格遵守原本設定的 XML/JSON 輸出格式，不要輸出額外的「改寫說明」或閒聊文字。
-4. **閱卷員風格**：請嚴格根據下方的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
-
-【閱卷員特定評分取向】
-${specificPreference}
+4. **閱卷員風格**：請嚴格根據後端系統指示的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
 
 ${ragReference ? ragReference : "(本次未檢索到參考範文)"}
 
@@ -13909,7 +13903,7 @@ ${ragReference ? ragReference : "(本次未檢索到參考範文)"}
 ${content}
 `;
 
-            // ★ 建構 Payload
+            // 建構 Payload
             const payload = {
                 action: "grade_narrative",
                 data: {
@@ -13918,8 +13912,8 @@ ${content}
                     topic: topic,
                     focus: localStorage.getItem("currentFocus"), 
                     plot: localStorage.getItem("currentPlot"),   
-                    content: finalPromptContent, // 傳送組合好的 Prompt
-                    reviewer: document.getElementById('writingReviewer').value,
+                    content: finalPromptContent, 
+                    reviewer: document.getElementById('writingReviewer').value, // 後端會根據此 ID 讀取對應的 Preference
                     tone: tone,
                     selectedScopes: selectedScopes
                 }
@@ -13965,7 +13959,6 @@ ${content}
         hideLoading();
     }
 }
-
 
 
 // 輔助函式，用於顯示大綱的評論 (從 submitWriting 中提取出來)
