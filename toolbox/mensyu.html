@@ -2266,19 +2266,47 @@ async function callApi(prompt) {
 }
 
 function extractJson(text) {
-const startIndex = text.indexOf('{');
-const endIndex = text.lastIndexOf('}');
-if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
-const jsonString = text.substring(startIndex, endIndex + 1);
-try {
-return JSON.parse(jsonString);
-} catch (e) {
-console.error("無法解析提取的 JSON 字串:", jsonString, e);
-throw new Error("API 返回了格式錯誤的 JSON。");
-}
-}
-console.error("在API回應中找不到有效的JSON對象:", text);
-throw new Error("API 回應中不包含有效的 JSON 對象。");
+    const startIndex = text.indexOf('{');
+    const endIndex = text.lastIndexOf('}');
+    
+    if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
+        // 擷取 JSON 部分
+        let jsonString = text.substring(startIndex, endIndex + 1);
+ 
+        // =======================================================
+        // ★★★ 強力修復：清理 AI 輸出的非法 JSON 格式 ★★★
+        // =======================================================
+        
+        try {
+            // 1. 移除單行註釋 (例如: // 這裡解釋...)
+            jsonString = jsonString.replace(/\/\/.*$/gm, '');
+            
+            // 2. 移除多行註釋 (例如: /* ... */)
+            jsonString = jsonString.replace(/\/\*[\s\S]*?\*\//g, '');
+            
+            // 3. 移除物件或陣列最後一個多餘的逗號 (Trailing Commas)
+            // 例如: { "a": 1, } -> { "a": 1 }
+            jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1');
+ 
+            // 嘗試解析清理後的字串
+            return JSON.parse(jsonString);
+            
+        } catch (e) {
+            console.error("JSON 清理後仍無法解析:", jsonString, e);
+            
+            // 如果清理後還是失敗，嘗試最後一招：使用更寬鬆的提取方式 (針對 DeepSeek 等模型偶爾的 Markdown 錯誤)
+            try {
+                 // 有時候 AI 會把 JSON 包在 ```json ... ``` 裡但我們上面已經 substring 了
+                 // 這裡不做額外處理，直接拋出錯誤讓重試機制 (retry) 接手
+                 throw e;
+            } catch (ignored) {}
+ 
+            throw new Error("API 返回的 JSON 含有無法修復的語法錯誤。");
+        }
+    }
+    
+    console.error("在API回應中找不到有效的JSON對象:", text);
+    throw new Error("API 回應中不包含有效的 JSON 對象。");
 }
 
 async function callApiWithRetry(prompt, retries = 3) {
