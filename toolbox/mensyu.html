@@ -2266,19 +2266,42 @@ async function callApi(prompt) {
 }
 
 function extractJson(text) {
-const startIndex = text.indexOf('{');
-const endIndex = text.lastIndexOf('}');
-if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
-const jsonString = text.substring(startIndex, endIndex + 1);
-try {
-return JSON.parse(jsonString);
-} catch (e) {
-console.error("無法解析提取的 JSON 字串:", jsonString, e);
-throw new Error("API 返回了格式錯誤的 JSON。");
-}
-}
-console.error("在API回應中找不到有效的JSON對象:", text);
-throw new Error("API 回應中不包含有效的 JSON 對象。");
+    // 1. 尋找 JSON 的開頭與結尾
+    const startIndex = text.indexOf('{');
+    const endIndex = text.lastIndexOf('}');
+ 
+    if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
+        let jsonString = text.substring(startIndex, endIndex + 1);
+ 
+        try {
+            // 2. 嘗試直接解析 (最快)
+            return JSON.parse(jsonString);
+        } catch (e) {
+            console.warn("第一次解析 JSON 失敗，檢測到潛在的格式錯誤，正在嘗試自動修復...", e.message);
+ 
+            try {
+                // 3. 執行清理邏輯 (修復 AI 常見的 JSON 錯誤)
+                
+                // 保護字串內容，只刪除不在引號內的註釋
+                // 這個正則表達式會匹配：字串 OR 註釋。如果是註釋(group 1)則替換為空，如果是字串則保留。
+                jsonString = jsonString.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (m, g1) => g1 ? "" : m);
+ 
+                // 移除尾部逗號 (Trailing Commas)，例如 [ "a", "b", ] 改為 [ "a", "b" ]
+                // 這也是 JSON.parse 常見的報錯原因
+                jsonString = jsonString.replace(/,\s*([\]}])/g, '$1');
+ 
+                // 4. 再次嘗試解析
+                return JSON.parse(jsonString);
+            } catch (e2) {
+                console.error("無法解析提取的 JSON 字串 (清理後仍失敗):", jsonString, e2);
+                // 為了方便除錯，這裡將清理後的字串也打印出來
+                throw new Error("API 返回了格式錯誤的 JSON，且無法自動修復。");
+            }
+        }
+    }
+    
+    console.error("在 API 回應中找不到有效的 JSON 對象:", text);
+    throw new Error("API 回應中不包含有效的 JSON 對象。");
 }
 
 async function callApiWithRetry(prompt, retries = 3) {
