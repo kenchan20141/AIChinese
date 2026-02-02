@@ -2266,59 +2266,74 @@ async function callApi(prompt) {
 }
 
 function extractJson(text) {
-    if (!text) throw new Error("API 回傳內容為空");
- 
-    // --- 步驟 1: 移除干擾雜訊 (思考過程 & Markdown) ---
-    
-    // 1.1 移除 DeepSeek/推理模型的 <think>...</think> 區塊
-    // 使用 [\s\S]*? 來匹配跨行內容
-    let cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
- 
-    // 1.2 移除 Markdown 程式碼區塊標記 (```json ... ```)
-    cleanText = cleanText.replace(/```json/gi, "").replace(/```/g, "");
- 
-    // --- 步驟 2: 精準鎖定 JSON 範圍 ---
-    
-    const startIndex = cleanText.indexOf('{');
-    // 使用 lastIndexOf 找最後一個 '}'，確保包住整個物件
-    const endIndex = cleanText.lastIndexOf('}');
- 
-    if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-        console.error("無法在內容中找到 JSON 對象。原始回應:", text);
-        throw new Error("API 回應中找不到有效的 JSON 括號 {}");
+    // 1. 基礎防呆
+    if (!text || typeof text !== 'string') {
+        throw new Error("API 回傳內容為空或非字串格式");
     }
  
-    // 擷取潛在的 JSON 字串
+    // 2. 移除干擾雜訊 (思考標籤 & Markdown)
+    // 移除 DeepSeek 等推理模型的 <think> 區塊
+    let cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+    // 移除 Markdown 標記 (```json, ```)
+    cleanText = cleanText.replace(/```json/gi, "").replace(/```/g, "");
+ 
+    // 3. 智能定位 (錨點搜索)
+    // 我們知道正確的格式一定包含 "translations" 這個鍵
+    // 所以我們尋找 "translations" 的位置，而不是盲目找第一個 '{'
+    const anchorKey = '"translations"';
+    const keyIndex = cleanText.indexOf(anchorKey);
+    
+    let startIndex = -1;
+    let endIndex = -1;
+ 
+    if (keyIndex !== -1) {
+        // 策略 A (精準定位):
+        // 找到 "translations" 後，往回找最近的一個 '{'，這通常是 JSON 的開頭
+        startIndex = cleanText.lastIndexOf('{', keyIndex);
+        // 從這個開頭往後找最後一個 '}'
+        endIndex = cleanText.lastIndexOf('}');
+    } else {
+        // 策略 B (回退方案):
+        // 如果 AI 沒輸出 "translations" (極少見)，則退回尋找最外層的大括號
+        // 我們找第一個 '{' 和最後一個 '}'
+        startIndex = cleanText.indexOf('{');
+        endIndex = cleanText.lastIndexOf('}');
+    }
+ 
+    // 檢查是否找到了有效的範圍
+    if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+        // 如果日誌顯示這里報錯，通常是因為 AI 廢話太多導致 JSON 根本沒生成 (被截斷)
+        console.warn("原始回應預覽:", text.substring(0, 200) + "...");
+        throw new Error("無法定位有效的 JSON 區塊。這通常是因為 AI 的思考過程過長導致回應被截斷，請嘗試縮短原文或增加 max_tokens。");
+    }
+ 
+    // 擷取目標字串
     let jsonString = cleanText.substring(startIndex, endIndex + 1);
  
-    // --- 步驟 3: 解析與自動修復 ---
- 
+    // 4. 解析與強力修復 (處理註釋與格式錯誤)
     try {
-        // 3.1 嘗試直接解析
+        // 嘗試直接解析
         return JSON.parse(jsonString);
     } catch (e) {
-        console.warn("第一次解析失敗，正在嘗試清理註釋與尾部逗號...", e.message);
- 
+        console.warn("標準解析失敗，正在執行強力修復 (移除註釋與尾部逗號)...");
+        
         try {
-            // 3.2 進階清理：
-            // 正則解釋：
-            // 1. 保護雙引號內的內容： "(?:\\"|[^"])*"
-            // 2. 匹配單行註釋： //.*
-            // 3. 匹配多行註釋： /\*[\s\S]*?\*/
-            // 4. 替換邏輯：如果是引號內容則保留(g1)，如果是註釋則刪除
+            // 修復 A: 移除 JavaScript 風格註釋 (//... 和 /*...*/)
+            // 正則解釋：捕捉 "引號內的內容"(群組1) 以保護它不被修改，或者捕捉註釋(群組2)並替換為空
             jsonString = jsonString.replace(
                 /("(?:\\"|[^"])*")|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
                 (match, group1) => group1 ? match : ""
             );
  
-            // 3.3 移除尾部逗號 (Trailing Commas)，例如 [1, 2, ] -> [1, 2]
+            // 修復 B: 移除尾部逗號 (Trailing Commas)
+            // 例如: { "a": 1, } -> { "a": 1 }
             jsonString = jsonString.replace(/,\s*([\]}])/g, '$1');
  
-            // 3.4 再次嘗試解析
+            // 再次嘗試解析
             return JSON.parse(jsonString);
         } catch (e2) {
-            console.error("最終解析失敗。清理後的字串:", jsonString);
-            throw new Error("無法解析 API 回傳的 JSON，即使經過自動修復。請檢查 API 模型是否輸出了非 JSON 格式的文字。");
+            console.error("修復後解析仍然失敗。字串片段:", jsonString.substring(0, 100) + "...");
+            throw new Error(`JSON 解析失敗: ${e2.message} (已嘗試自動修復但無效)`);
         }
     }
 }
