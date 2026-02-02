@@ -2388,110 +2388,123 @@ throw error;
 }
 }
 
-// === 新增：解析自定義文本格式的函式 ===
+// === 修訂版：更強健的文本解析函式 (基於區塊標記) ===
 function parseCustomTextResponse(text) {
     const translations = [];
     
-    // 1. 使用 === 作為區塊分隔符
-    // 這會把文本切成多個區塊，每個區塊代表一句話
-    const blocks = text.split(/===+/); // 匹配 3 個或以上的 =
+    // 1. 清洗文本：移除 Markdown 代碼塊標記 (```)
+    // 這是最常見導致解析失敗的原因
+    let cleanText = text.replace(/```(?:plaintext|text)?/g, '').replace(/```/g, '');
  
-    blocks.forEach(block => {
+    // 2. 以 "【原文】" 作為主要切割點
+    // 這樣可以忽略掉 AI 在開頭可能輸出的 "好的，這是分析結果..." 之類的廢話
+    const rawBlocks = cleanText.split(/【原文】|原文：/);
+ 
+    rawBlocks.forEach(block => {
         block = block.trim();
         if (!block) return;
  
-        // 2. 提取原文 (匹配 "原文：" 後面的內容)
-        const originalMatch = block.match(/原文：(.*?)(?:\n|$)/);
+        // 3. 在每個區塊中尋找 【語譯】 和 【解釋】
+        // 使用非貪婪匹配 (.*?) 抓取內容
+        // 兼容兩種常見標點：全形冒號與無冒號
         
-        // 3. 提取語譯 (匹配 "語譯：" 後面的內容)
-        const translationMatch = block.match(/語譯：(.*?)(?:\n|$)/);
+        // 提取語譯內容：從標記開始，直到遇到【解釋】或字串結束
+        let translationPart = "";
+        const transMatch = block.match(/(?:【語譯】|語譯：)([\s\S]*?)(?:【解釋】|解釋：|$)/);
         
-        // 4. 提取解釋 (匹配 "解釋：" 後面的所有行)
-        // 這裡會抓取 "解釋：" 之後直到區塊結束的所有內容
-        let breakdownRaw = "";
-        const breakdownMatch = block.match(/解釋：([\s\S]*)/);
-        
-        if (originalMatch && translationMatch) {
-            const original = originalMatch[1].trim();
-            const translation = translationMatch[1].trim();
-            
-            // 處理逐字解釋：將每一行拆分並過濾空行
-            let breakdownList = [];
-            if (breakdownMatch && breakdownMatch[1]) {
-                breakdownList = breakdownMatch[1]
-                    .split('\n')
-                    .map(line => line.trim())
-                    .filter(line => line.length > 0 && !line.startsWith('===')); // 移除空行和分隔符殘留
-            }
+        // 提取解釋內容：從標記開始，直到字串結束
+        let breakdownPart = "";
+        const breakMatch = block.match(/(?:【解釋】|解釋：)([\s\S]*)/);
  
-            // 存入結果陣列
+        // 如果找不到語譯，這可能是一個無效的區塊，跳過
+        if (!transMatch) return;
+ 
+        // 原文其實就是 split 切割後剩下的 block 開頭部分 (在語譯標記之前)
+        let originalText = block.split(/(?:【語譯】|語譯：)/)[0].trim();
+        
+        // 清理原文中的標點殘留
+        if (originalText.endsWith("===/")) originalText = originalText.replace("===/", "");
+ 
+        translationPart = transMatch[1].trim();
+        
+        if (breakMatch) {
+            breakdownPart = breakMatch[1].trim();
+        }
+ 
+        // 4. 處理逐字解釋列表
+        let breakdownList = [];
+        if (breakdownPart) {
+            breakdownList = breakdownPart
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => {
+                    // 過濾掉空行、分隔線、或看起來不像解釋的行
+                    return line.length > 0 &&
+                           !line.includes('===') &&
+                           (line.includes('：') || line.includes(':'));
+                });
+        }
+ 
+        // 只有當原文和翻譯都有內容時才加入結果
+        if (originalText && translationPart) {
             translations.push({
-                original: original,
-                translation: translation,
+                original: originalText,
+                translation: translationPart,
                 breakdown: breakdownList
             });
         }
     });
  
     if (translations.length === 0) {
-        throw new Error("無法從文本中解析出翻譯內容，請重試。");
+        console.warn("解析失敗，原始文本預覽:", text.substring(0, 200));
+        throw new Error("無法識別回應格式。請確保 AI 輸出了【原文】、【語譯】等標記。");
     }
  
     return { translations: translations };
 }
  
-// === 修改後的 fetchTranslationData (不再使用 JSON) ===
+// === 修訂版：fetchTranslationData (配合新的標記格式) ===
 async function fetchTranslationData(text) {
-    // 定義一個非常明確的文本模板
     const prompt = `你是一個文言文教學助手。請將以下文章的「每一句」進行分析。
-請**嚴格**按照以下格式輸出，不要使用 JSON，不要使用 Markdown 代碼塊（如 \`\`\`json），直接輸出純文字。
+請**嚴格**按照以下格式輸出，直接輸出純文字，**不要**使用 Markdown 代碼框 (如 \`\`\`)。
  
-每一句的分析必須用 "===" 分隔。格式如下：
+請務必使用【】括號作為區塊標記，格式如下：
  
-===
-原文：[這裡是原文句子]
-語譯：[這裡是白話文翻譯]
-解釋：
-[詞]：[解釋]
-[**重要詞彙**]：[解釋]
-===
+【原文】這裡放原文句子
+【語譯】這裡放白話文翻譯
+【解釋】
+詞：解釋
+**重要詞**：解釋
+(請換行繼續下一個【原文】)
  
 範例：
-===
-原文：國無常強，無常弱。
-語譯：國家不會永遠強盛，也不會永遠衰弱。
-解釋：
+【原文】國無常強，無常弱。
+【語譯】國家不會永遠強盛，也不會永遠衰弱。
+【解釋】
 國：國家。
-**無**：沒有，不會。
-常：永遠，恆常。
-===
+**無**：沒有。
+常：永遠。
  
-待處理的文言文如下：
+待處理文言文：
 ${text}`;
  
-    // ★ 注意：這裡我們直接呼叫 callApi，而不使用 callApiWithRetry
-    // 因為 callApiWithRetry 裡面綁死了 extractJson，我們要繞過它。
-    
-    let rawText = "";
     try {
+        // 直接呼叫 callApi，繞過 JSON 解析
         const response = await callApi(prompt);
+        
+        let rawText = "";
         if (response && response.choices && response.choices[0].message.content) {
             rawText = response.choices[0].message.content;
+            console.log("AI 原始回應:", rawText); // 在 Console 方便除錯
         } else {
             throw new Error("API 回應為空。");
         }
         
-        // 解析文本
-        const parsedData = parseCustomTextResponse(rawText);
-        return parsedData;
+        return parseCustomTextResponse(rawText);
  
     } catch (error) {
-        console.error("文本解析模式失敗:", error);
-        // 如果第一次失敗，可以嘗試簡單的重試邏輯 (選用)
-        console.log("正在重試請求...");
-        const retryResponse = await callApi(prompt);
-        const retryText = retryResponse.choices[0].message.content;
-        return parseCustomTextResponse(retryText);
+        console.error("翻譯流程錯誤:", error);
+        throw error;
     }
 }
 // --- History Feature ---
