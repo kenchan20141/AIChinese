@@ -2388,53 +2388,112 @@ throw error;
 }
 }
 
-// === 修訂版：加強提示詞的翻譯請求函式 ===
+// === 新增：解析自定義文本格式的函式 ===
+function parseCustomTextResponse(text) {
+    const translations = [];
+    
+    // 1. 使用 === 作為區塊分隔符
+    // 這會把文本切成多個區塊，每個區塊代表一句話
+    const blocks = text.split(/===+/); // 匹配 3 個或以上的 =
+ 
+    blocks.forEach(block => {
+        block = block.trim();
+        if (!block) return;
+ 
+        // 2. 提取原文 (匹配 "原文：" 後面的內容)
+        const originalMatch = block.match(/原文：(.*?)(?:\n|$)/);
+        
+        // 3. 提取語譯 (匹配 "語譯：" 後面的內容)
+        const translationMatch = block.match(/語譯：(.*?)(?:\n|$)/);
+        
+        // 4. 提取解釋 (匹配 "解釋：" 後面的所有行)
+        // 這裡會抓取 "解釋：" 之後直到區塊結束的所有內容
+        let breakdownRaw = "";
+        const breakdownMatch = block.match(/解釋：([\s\S]*)/);
+        
+        if (originalMatch && translationMatch) {
+            const original = originalMatch[1].trim();
+            const translation = translationMatch[1].trim();
+            
+            // 處理逐字解釋：將每一行拆分並過濾空行
+            let breakdownList = [];
+            if (breakdownMatch && breakdownMatch[1]) {
+                breakdownList = breakdownMatch[1]
+                    .split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0 && !line.startsWith('===')); // 移除空行和分隔符殘留
+            }
+ 
+            // 存入結果陣列
+            translations.push({
+                original: original,
+                translation: translation,
+                breakdown: breakdownList
+            });
+        }
+    });
+ 
+    if (translations.length === 0) {
+        throw new Error("無法從文本中解析出翻譯內容，請重試。");
+    }
+ 
+    return { translations: translations };
+}
+ 
+// === 修改後的 fetchTranslationData (不再使用 JSON) ===
 async function fetchTranslationData(text) {
-    const prompt = `你是一個專門生成 JSON 的 AI。請將以下文言文的每一句（以標點符號如 ，。？！；： 分隔）進行分析，並嚴格按照指定的 JSON 格式輸出。
+    // 定義一個非常明確的文本模板
+    const prompt = `你是一個文言文教學助手。請將以下文章的「每一句」進行分析。
+請**嚴格**按照以下格式輸出，不要使用 JSON，不要使用 Markdown 代碼塊（如 \`\`\`json），直接輸出純文字。
  
-【嚴格規則】：
-1. 你的回覆**必須**是一個單一的、完整的 JSON 物件。
-2. **絕對不要**在 JSON 內使用 \`//\` 或 \`/* */\` 進行註釋，這會導致程式崩潰。
-3. **絕對不要**使用省略號 \`...\` 來表示未完的內容。
-4. JSON 的最後一個元素後面**不能**有逗號。
-5. 必須用繁體中文輸出。
+每一句的分析必須用 "===" 分隔。格式如下：
  
-JSON 物件應包含一個名為 "translations" 的 key，其值為一個陣列 (array)。陣列中的每個元素都是一個物件，代表原文中的一個句子片段。每個句子物件都必須包含以下三個 key：
-1. \`"original"\`：字串 (string)，包含原始的文言文句子片段。
-2. \`"translation"\`：字串 (string)，包含該片段的完整白話文翻譯。
-3. \`"breakdown"\`：一個字串陣列 (array of strings)，其中每個字串是對句子中一個詞的解釋，格式為「詞：解釋」。請將常見的文言實詞或虛詞用 markdown 粗體標示，例如「**之**：的」。
+===
+原文：[這裡是原文句子]
+語譯：[這裡是白話文翻譯]
+解釋：
+[詞]：[解釋]
+[**重要詞彙**]：[解釋]
+===
+ 
+範例：
+===
+原文：國無常強，無常弱。
+語譯：國家不會永遠強盛，也不會永遠衰弱。
+解釋：
+國：國家。
+**無**：沒有，不會。
+常：永遠，恆常。
+===
  
 待處理的文言文如下：
-\`\`\`
-${text}
-\`\`\`
+${text}`;
  
-範例輸出格式（請嚴格參考此結構，不要加註釋）：
-{
-"translations": [
-{
-"original": "國無常強，無常弱。",
-"translation": "國家不會永遠強盛，也不會永遠衰弱。",
-"breakdown": [
-"國：國家。",
-"**無**：沒有，不會。",
-"常：永遠，恆常。",
-"強：強盛。",
-"弱：衰弱。"
-]
-}
-]
-}`;
+    // ★ 注意：這裡我們直接呼叫 callApi，而不使用 callApiWithRetry
+    // 因為 callApiWithRetry 裡面綁死了 extractJson，我們要繞過它。
     
-    // 使用 callApiWithRetry 確保有重試機制
-    const translationJson = await callApiWithRetry(prompt, 3);
-    
-    if (!translationJson || !Array.isArray(translationJson.translations)) {
-        throw new Error("API 返回的翻譯 JSON 結構不正確或為空。");
+    let rawText = "";
+    try {
+        const response = await callApi(prompt);
+        if (response && response.choices && response.choices[0].message.content) {
+            rawText = response.choices[0].message.content;
+        } else {
+            throw new Error("API 回應為空。");
+        }
+        
+        // 解析文本
+        const parsedData = parseCustomTextResponse(rawText);
+        return parsedData;
+ 
+    } catch (error) {
+        console.error("文本解析模式失敗:", error);
+        // 如果第一次失敗，可以嘗試簡單的重試邏輯 (選用)
+        console.log("正在重試請求...");
+        const retryResponse = await callApi(prompt);
+        const retryText = retryResponse.choices[0].message.content;
+        return parseCustomTextResponse(retryText);
     }
-    return translationJson;
 }
-
 // --- History Feature ---
 function loadHistory() {
 state.history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
