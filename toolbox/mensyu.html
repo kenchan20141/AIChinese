@@ -2266,76 +2266,19 @@ async function callApi(prompt) {
 }
 
 function extractJson(text) {
-    // 1. 基礎防呆
-    if (!text || typeof text !== 'string') {
-        throw new Error("API 回傳內容為空或非字串格式");
-    }
- 
-    // 2. 移除干擾雜訊 (思考標籤 & Markdown)
-    // 移除 DeepSeek 等推理模型的 <think> 區塊
-    let cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
-    // 移除 Markdown 標記 (```json, ```)
-    cleanText = cleanText.replace(/```json/gi, "").replace(/```/g, "");
- 
-    // 3. 智能定位 (錨點搜索)
-    // 我們知道正確的格式一定包含 "translations" 這個鍵
-    // 所以我們尋找 "translations" 的位置，而不是盲目找第一個 '{'
-    const anchorKey = '"translations"';
-    const keyIndex = cleanText.indexOf(anchorKey);
-    
-    let startIndex = -1;
-    let endIndex = -1;
- 
-    if (keyIndex !== -1) {
-        // 策略 A (精準定位):
-        // 找到 "translations" 後，往回找最近的一個 '{'，這通常是 JSON 的開頭
-        startIndex = cleanText.lastIndexOf('{', keyIndex);
-        // 從這個開頭往後找最後一個 '}'
-        endIndex = cleanText.lastIndexOf('}');
-    } else {
-        // 策略 B (回退方案):
-        // 如果 AI 沒輸出 "translations" (極少見)，則退回尋找最外層的大括號
-        // 我們找第一個 '{' 和最後一個 '}'
-        startIndex = cleanText.indexOf('{');
-        endIndex = cleanText.lastIndexOf('}');
-    }
- 
-    // 檢查是否找到了有效的範圍
-    if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-        // 如果日誌顯示這里報錯，通常是因為 AI 廢話太多導致 JSON 根本沒生成 (被截斷)
-        console.warn("原始回應預覽:", text.substring(0, 200) + "...");
-        throw new Error("無法定位有效的 JSON 區塊。這通常是因為 AI 的思考過程過長導致回應被截斷，請嘗試縮短原文或增加 max_tokens。");
-    }
- 
-    // 擷取目標字串
-    let jsonString = cleanText.substring(startIndex, endIndex + 1);
- 
-    // 4. 解析與強力修復 (處理註釋與格式錯誤)
-    try {
-        // 嘗試直接解析
-        return JSON.parse(jsonString);
-    } catch (e) {
-        console.warn("標準解析失敗，正在執行強力修復 (移除註釋與尾部逗號)...");
-        
-        try {
-            // 修復 A: 移除 JavaScript 風格註釋 (//... 和 /*...*/)
-            // 正則解釋：捕捉 "引號內的內容"(群組1) 以保護它不被修改，或者捕捉註釋(群組2)並替換為空
-            jsonString = jsonString.replace(
-                /("(?:\\"|[^"])*")|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
-                (match, group1) => group1 ? match : ""
-            );
- 
-            // 修復 B: 移除尾部逗號 (Trailing Commas)
-            // 例如: { "a": 1, } -> { "a": 1 }
-            jsonString = jsonString.replace(/,\s*([\]}])/g, '$1');
- 
-            // 再次嘗試解析
-            return JSON.parse(jsonString);
-        } catch (e2) {
-            console.error("修復後解析仍然失敗。字串片段:", jsonString.substring(0, 100) + "...");
-            throw new Error(`JSON 解析失敗: ${e2.message} (已嘗試自動修復但無效)`);
-        }
-    }
+const startIndex = text.indexOf('{');
+const endIndex = text.lastIndexOf('}');
+if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
+const jsonString = text.substring(startIndex, endIndex + 1);
+try {
+return JSON.parse(jsonString);
+} catch (e) {
+console.error("無法解析提取的 JSON 字串:", jsonString, e);
+throw new Error("API 返回了格式錯誤的 JSON。");
+}
+}
+console.error("在API回應中找不到有效的JSON對象:", text);
+throw new Error("API 回應中不包含有效的 JSON 對象。");
 }
 
 async function callApiWithRetry(prompt, retries = 3) {
@@ -2371,9 +2314,9 @@ async function generateProse() {
     
     let selectionInstruction = "";
     if (userPromptText) {
-        selectionInstruction = `用戶希望尋找的主題或關鍵詞是：「${userPromptText}」。請從候選清單中，挑選一篇內容最相關的文章。請直接輸出純 JSON，不要輸出任何 <think> 思考過程，不要使用 Markdown 代碼塊，也不要在 JSON 內包含 // 註釋。`;
+        selectionInstruction = `用戶希望尋找的主題或關鍵詞是：「${userPromptText}」。請從候選清單中，挑選一篇內容最相關的文章。`;
     } else {
-        selectionInstruction = `用戶沒有指定主題，請從候選清單中，隨機推薦一篇經典文章。請直接輸出純 JSON，不要輸出任何 <think> 思考過程，不要使用 Markdown 代碼塊，也不要在 JSON 內包含 // 註釋。`;
+        selectionInstruction = `用戶沒有指定主題，請從候選清單中，隨機推薦一篇經典文章。`;
     }
 
     // ★★★ 關鍵修改：在 Prompt 中加入強制的節錄指令 ★★★
@@ -2395,9 +2338,7 @@ ${JSON.stringify(GUWEN_LIST)}
    - 如果選中的文章很長（如《鄭伯克段于鄢》、《出師表》），**請務必進行「語意完整的節錄」**。
    - **節錄要求**：選取文章中最具代表性、敘事完整的一段（例如開頭至第一個轉折，或中間某個完整的對話場景）。**確保節錄的開頭和結尾在語意上是完整的**，不要在句子中間突然切斷。
 
-3. 請直接輸出純 JSON，不要輸出任何 <think> 思考過程，不要使用 Markdown 代碼塊，也不要在 JSON 內包含 // 註釋。
-
-4. 你的回傳內容必須嚴格遵循以下 JSON 格式：
+3. 你的回傳內容必須嚴格遵循以下 JSON 格式：
 {
 "title": "作品標題（必須完全匹配清單中的名稱，如果是節錄，標題保持原名即可）",
 "author": "作家姓名",
