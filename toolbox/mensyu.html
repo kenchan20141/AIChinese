@@ -2265,49 +2265,76 @@ async function callApi(prompt) {
     }
 }
 
+// ===============================================================
+// 核心 JSON 提取與清理函數 (修復版：自動移除註釋與修正格式)
+// ===============================================================
 function extractJson(text) {
-const startIndex = text.indexOf('{');
-const endIndex = text.lastIndexOf('}');
-if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
-const jsonString = text.substring(startIndex, endIndex + 1);
-try {
-return JSON.parse(jsonString);
-} catch (e) {
-console.error("無法解析提取的 JSON 字串:", jsonString, e);
-throw new Error("API 返回了格式錯誤的 JSON。");
+    // 1. 尋找 JSON 的大括號範圍
+    const startIndex = text.indexOf('{');
+    const endIndex = text.lastIndexOf('}');
+    
+    if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
+        let jsonString = text.substring(startIndex, endIndex + 1);
+        
+        try {
+            // --- 關鍵修復：在解析前清理 JSON 字串 ---
+            
+            // 1. 移除單行註釋 (// ...)
+            jsonString = jsonString.replace(/\/\/.*$/gm, '');
+            
+            // 2. 移除多行註釋 (/* ... */)
+            jsonString = jsonString.replace(/\/\*[\s\S]*?\*\//g, '');
+            
+            // 3. 嘗試修復常見的尾部逗號錯誤 (例如: "key": "value", } -> "key": "value" })
+            jsonString = jsonString.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+ 
+            // 4. 解析
+            return JSON.parse(jsonString);
+        } catch (e) {
+            console.error("JSON 解析失敗，原始字串:", jsonString, e);
+            throw new Error("API 返回了無效的 JSON 格式 (含有非法字符或註釋)。");
+        }
+    }
+    
+    console.error("在 API 回應中找不到有效的 JSON 對象:", text);
+    throw new Error("API 回應中不包含有效的 JSON 對象範圍 ({...})。");
 }
-}
-console.error("在API回應中找不到有效的JSON對象:", text);
-throw new Error("API 回應中不包含有效的 JSON 對象。");
-}
-
+ 
+// ===============================================================
+// API 調用重試機制 (保持不變，但在錯誤捕捉時增加 Log)
+// ===============================================================
 async function callApiWithRetry(prompt, retries = 3) {
-let lastError = null;
-for (let i = 0; i < retries; i++) {
-try {
-console.log(`JSON API 呼叫嘗試 ${i + 1}/${retries}...`);
-const response = await callApi(prompt);
-if (response && response.choices && response.choices[0].message.content) {
-const content = response.choices[0].message.content;
-const jsonData = extractJson(content);
-return jsonData;
-} else {
-throw new Error("API 回應為空或格式不正確。");
+    let lastError = null;
+    for (let i = 0; i < retries; i++) {
+        try {
+            console.log(`JSON API 呼叫嘗試 ${i + 1}/${retries}...`);
+            const response = await callApi(prompt);
+            
+            if (response && response.choices && response.choices[0].message.content) {
+                const content = response.choices[0].message.content;
+                const jsonData = extractJson(content);
+                return jsonData;
+            } else {
+                throw new Error("API 回應為空或格式不正確。");
+            }
+        } catch (error) {
+            lastError = error;
+            console.error(`嘗試 ${i + 1} 失敗:`, error.message);
+            
+            // 如果是語法錯誤，稍微等待後重試
+            if (i < retries - 1) {
+                console.log("正在重試...");
+                await new Promise(resolve => setTimeout(resolve, 800)); // 增加等待時間
+            }
+        }
+    }
+    console.error("所有 JSON API 呼叫嘗試均失敗。");
+    throw lastError || new Error(`經過 ${retries} 次重試後，所有 JSON API 呼叫均失敗。`);
 }
-} catch (error) {
-lastError = error;
-console.error(`嘗試 ${i + 1} 失敗:`, error.message);
-if (i < retries - 1) {
-console.log("正在重試...");
-await new Promise(resolve => setTimeout(resolve, 500));
-}
-}
-}
-console.error("所有 JSON API 呼叫嘗試均失敗。");
-throw lastError || new Error(`經過 ${retries} 次重試後，所有 JSON API 呼叫均失敗。`);
-}
-
-// === 修改後的 generateProse 函數 (控制篇幅版) ===
+ 
+// ===============================================================
+// 尋找篇章函數 (修復版：強制繁體中文與 JSON 格式)
+// ===============================================================
 async function generateProse() {
     const userPromptText = aiPromptTextarea.value.trim();
     const historyTitles = state.history.map(item => item.title).filter(t => !t.startsWith('手動輸入'));
@@ -2318,33 +2345,36 @@ async function generateProse() {
     } else {
         selectionInstruction = `用戶沒有指定主題，請從候選清單中，隨機推薦一篇經典文章。`;
     }
-
-    // ★★★ 關鍵修改：在 Prompt 中加入強制的節錄指令 ★★★
+ 
     const systemPrompt = `你是一位精通中國古籍的學者。你的任務是從指定的《古文觀止》篇章清單中，為用戶挑選一篇合適的文章。
-
+ 
 【候選篇章清單】：
 ${JSON.stringify(GUWEN_LIST)}
-
+ 
 【用戶偏好】：
 1. 難度偏好：${state.difficulty}顆星。
 2. ${selectionInstruction}
 3. 已閱覽過的文章：[${historyTitles.join(', ')}]
-
-【重要指示】：
-1. 必須從上述清單中選擇標題。
-2. **篇幅控制（極重要）：** 
-   由於系統需要對每一個字進行深度分析，**輸出的文言文內容絕對不能超過 280 個字**。
-   - 如果選中的文章很短（如《陋室銘》），請提供全文。
-   - 如果選中的文章很長（如《鄭伯克段于鄢》、《出師表》），**請務必進行「語意完整的節錄」**。
-   - **節錄要求**：選取文章中最具代表性、敘事完整的一段（例如開頭至第一個轉折，或中間某個完整的對話場景）。**確保節錄的開頭和結尾在語意上是完整的**，不要在句子中間突然切斷。
-
-3. 你的回傳內容必須嚴格遵循以下 JSON 格式：
+ 
+【嚴格輸出規則】：
+1. **必須使用繁體中文 (Traditional Chinese)** 輸出所有內容。
+2. 必須從上述清單中選擇標題。
+3. **篇幅控制（極重要）：**
+   - 輸出的文言文內容絕對不能超過 280 個字。
+   - 若文章過長，**請務必進行「語意完整的節錄」**。
+   - 節錄必須保留完整的句子，不可在句中切斷。
+4. **JSON 格式要求：**
+   - 僅回傳純淨的 JSON。
+   - **絕對禁止** 在 JSON 內使用 // 或 /* */ 註釋。
+   - **絕對禁止** 在 JSON 結尾添加逗號。
+ 
+你的回傳內容必須嚴格遵循以下 JSON 格式：
 {
-"title": "作品標題（必須完全匹配清單中的名稱，如果是節錄，標題保持原名即可）",
-"author": "作家姓名",
-"content": "控制在280字以內的完整文言文節錄"
+"title": "作品標題（必須完全匹配清單中的名稱）",
+"author": "作家姓名（繁體）",
+"content": "控制在280字以內的完整文言文節錄（繁體）"
 }`;
-
+ 
     const article = await callApiWithRetry(systemPrompt, 3);
     
     if (article && typeof article.title === 'string' && typeof article.content === 'string' && typeof article.author === 'string') {
@@ -2352,91 +2382,93 @@ ${JSON.stringify(GUWEN_LIST)}
         if (matchedTitle) {
             article.title = matchedTitle;
         }
-        // 如果是節錄，可以在標題後標註 (可選)
-        if (article.content.length > 50 && article.content.length < 500) { 
-             // 這裡不做額外處理，保持原標題
-        }
         return { ...article, isManual: false };
     }
     throw new Error("API 返回的 JSON 物件結構不正確。");
 }
-	
+ 
+// ===============================================================
+// 生成簡介函數 (修復版：強制繁體中文與 JSON 格式)
+// ===============================================================
 async function generateIntroductions(title, author) {
-const prompt = `你是一個負責生成 JSON 資料的 AI。根據以下提供的作品標題和作者，生成一段作者簡介和文章簡介。
+    const prompt = `你是一個負責生成 JSON 資料的 AI。根據以下提供的作品標題和作者，生成一段作者簡介和文章簡介。
 作品標題: "${title}"
 作者: "${author}"
-嚴格遵循以下要求：
-- 您的回覆 **必須** 是一個單一的 JSON 物件。
-- JSON 物件必須包含 "authorIntro" 和 "articleIntro" 兩個鍵。
-- 鍵值必須是使用繁體中文書寫的簡介文字，長度約 50 到 100 字。
-- **絕對不要** 在 JSON 物件前後添加任何說明、註釋或 markdown 語法（例如 \`\`\`json）。
+ 
+【嚴格遵循以下要求】：
+1. **所有輸出內容必須是 100% 繁體中文 (Traditional Chinese)**。
+2. 您的回覆 **必須** 是一個單一的 JSON 物件。
+3. JSON 物件必須包含 "authorIntro" 和 "articleIntro" 兩個鍵。
+4. 簡介文字長度約 50 到 100 字。
+5. **絕對不要** 在 JSON 物件前後添加任何說明、註釋、Markdown 標記或 // 註解。
+ 
 範例輸出格式：
 {
-"authorIntro": "（此處為關於作者的簡介）",
-"articleIntro": "（此處為關於文章的簡介）"
+"authorIntro": "（此處為關於作者的繁體中文簡介）",
+"articleIntro": "（此處為關於文章的繁體中文簡介）"
 }`;
-try {
-const intros = await callApiWithRetry(prompt, 3);
-if (intros && typeof intros.authorIntro === 'string' && typeof intros.articleIntro === 'string') {
-return intros;
-} else {
-throw new Error("返回的簡介 JSON 物件結構不正確。");
+ 
+    try {
+        const intros = await callApiWithRetry(prompt, 3);
+        if (intros && typeof intros.authorIntro === 'string' && typeof intros.articleIntro === 'string') {
+            return intros;
+        } else {
+            throw new Error("返回的簡介 JSON 物件結構不正確。");
+        }
+    } catch (error) {
+        console.error("生成簡介失敗 (多次重試後):", error);
+        throw error;
+    }
 }
-} catch (error) {
-console.error("生成簡介失敗 (多次重試後):", error);
-throw error;
-}
-}
-
+ 
+// ===============================================================
+// 獲取翻譯數據函數 (修復版：解決 SyntaxError: Unexpected token '/' 問題)
+// ===============================================================
 async function fetchTranslationData(text) {
-const prompt = `你是一個專門生成 JSON 的 AI。請將以下文言文的每一句（以標點符號如 ，。？！；： 分隔）進行分析，並嚴格按照指定的 JSON 格式輸出。
-
-你的回覆**必須**是一個單一的、完整的 JSON 物件，不要包含任何 JSON 區塊之外的說明或 markdown 語法，而且必須用繁體中文輸出。
-
-JSON 物件應包含一個名為 "translations" 的 key，其值為一個陣列 (array)。陣列中的每個元素都是一個物件，代表原文中的一個句子片段。每個句子物件都必須包含以下三個 key：
-1. \`"original"\`：字串 (string)，包含原始的文言文句子片段。
-2. \`"translation"\`：字串 (string)，包含該片段的完整白話文翻譯。
-3. \`"breakdown"\`：一個字串陣列 (array of strings)，其中每個字串是對句子中一個詞的解釋，格式為「詞：解釋」。「解釋」在去除標點符號後，不可以與「詞」完全一樣，反例如「遠：遠。」，合理例子如「遠：遙遠地。」。請將常見的文言實詞或虛詞用 markdown 粗體標示，例如「**之**：的」。
-
-待處理的文言文如下：
+    const prompt = `你是一個專門生成 JSON 的 AI。請將以下文言文的每一句（以標點符號如 ，。？！；： 分隔）進行分析，並嚴格按照指定的 JSON 格式輸出。
+ 
+【待處理的文言文】：
 \`\`\`
 ${text}
 \`\`\`
-
-範例輸出格式：
+ 
+【極其重要的規則】：
+1. **所有輸出內容必須是 100% 繁體中文 (Traditional Chinese)**。如果 AI 內部是簡體，請務必轉換為繁體。
+2. **絕對禁止** 在 JSON 輸出中包含任何形式的註釋（如 \`// 這是一段註釋\` 或 \`/* ... */\`）。這是導致程式崩潰的主因。
+3. JSON 格式必須標準、合法，字串必須用雙引號包圍。
+ 
+【輸出結構要求】：
+你的回覆**必須**是一個單一的、完整的 JSON 物件。
+JSON 物件應包含一個名為 "translations" 的 key，其值為一個陣列 (array)。
+陣列中的每個元素都是一個物件，必須包含以下三個 key：
+1. \`"original"\`：字串，包含原始的文言文句子片段。
+2. \`"translation"\`：字串，包含該片段的完整白話文翻譯（繁體）。
+3. \`"breakdown"\`：一個字串陣列，其中每個字串是對句子中一個詞的解釋，格式為「詞：解釋」。
+   - 請將常見的文言實詞或虛詞用 markdown **粗體** 標示，例如「**之**：的」。
+ 
+【範例輸出（請嚴格參考此格式，不要加註釋）】：
 {
-"translations": [
-{
-"original": "國無常強，無常弱。",
-"translation": "國家不會永遠強盛，也不會永遠衰弱。",
-"breakdown": [
-"國：國家。",
-"**無**：沒有，不會。",
-"常：永遠，恆常。",
-"強：強盛。",
-"弱：衰弱。"
-]
-},
-{
-"original": "奉法者強，則國強；",
-"translation": "遵循法令的人強大，國家就會強盛；",
-"breakdown": [
-"奉：遵守、遵循。",
-"法：法令。",
-"者：...的人。",
-"強：強大。",
-"**則**：那麼，就。",
-"國：國家。",
-"強：強盛。"
-]
-}
-]
+  "translations": [
+    {
+      "original": "國無常強，無常弱。",
+      "translation": "國家不會永遠強盛，也不會永遠衰弱。",
+      "breakdown": [
+        "國：國家。",
+        "**無**：沒有，不會。",
+        "常：永遠，恆常。",
+        "強：強盛。",
+        "弱：衰弱。"
+      ]
+    }
+  ]
 }`;
-const translationJson = await callApiWithRetry(prompt, 3);
-if (!translationJson || !Array.isArray(translationJson.translations)) {
-throw new Error("API 返回的翻譯 JSON 結構不正確或為空。");
-}
-return translationJson;
+ 
+    const translationJson = await callApiWithRetry(prompt, 3);
+    
+    if (!translationJson || !Array.isArray(translationJson.translations)) {
+        throw new Error("API 返回的翻譯 JSON 結構不正確或為空。");
+    }
+    return translationJson;
 }
 
 // --- History Feature ---
