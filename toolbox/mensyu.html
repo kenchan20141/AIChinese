@@ -1796,17 +1796,22 @@ transform: scale(1.1);
 
 	
 <script>
-// API 配置信息
-
-// === 修改後的代碼 ===
-// API Key 已移至後端 (Google Apps Script) 管理，前端無需保留
-const API_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec";
-const MODEL = "deepseek";
-
-// 懸浮窗狀態管理
+// ===============================================================
+// API 配置信息 (已更新為前端直接呼叫)
+// ===============================================================
+ 
+// 定義 API 金鑰列表
+const API_KEYS = ["friend1"];
+ 
+// 定義 API 端點
+const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
+ 
+// 定義模型名稱
+const MODEL = "qwen-3-235b-a22b-instruct-2507";
+ 
+// 懸浮窗狀態管理 (保持不變)
 let isFloatingEnabled = true;
 let currentOriginalTexts = [];
-
 // App 狀態管理
 const HISTORY_KEY = 'wenshu_history_v3';
 let state = {
@@ -2206,19 +2211,24 @@ aiSearchBtn.disabled = false;
 }
 
 // === 修改後的 callApi 函式 ===
-// === 修改後的 callApi 函式 (顯示 Provider 來源版) ===
+// ===============================================================
+// 修改後的 callApi 函式 (前端直接呼叫版)
+// ===============================================================
 async function callApi(prompt) {
-    // 簡單的防呆，不需要複雜邏輯
+    // 簡單的防呆，檢測是否登入 (保留原有邏輯)
     if (!localStorage.getItem('studentProfile')) {
-        console.log("呼叫 API 時檢測到未登入，將由攔截器處理...");
+        console.log("呼叫 API 時檢測到未登入，訪客限制將由攔截器處理...");
     }
-
+ 
     try {
+        // 從列表中隨機選取一個 Key (目前只有 friend1)
+        const apiKey = API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
+ 
         const response = await fetch(API_URL, {
-
             method: 'POST',
             headers: {
-                'Content-Type': 'text/plain;charset=utf-8'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}` // 加入 Bearer Token
             },
             body: JSON.stringify({
                 model: MODEL,
@@ -2227,32 +2237,27 @@ async function callApi(prompt) {
                     content: prompt
                 }],
                 temperature: 0.7,
-                max_tokens: 4096, // 這裡保持 4096，配合上一輪的「節錄」策略
-                seed: Math.floor(Math.random() * 1000000) 
+                max_tokens: 4096,
+                stream: false // 確保不使用串流模式，以便與現有 JSON 解析邏輯兼容
             })
         });
-
+ 
         if (!response.ok) {
             let errorDetails = "";
             try {
-                errorDetails = await response.text(); 
+                errorDetails = await response.text();
             } catch (e) {
                 errorDetails = "無法讀取錯誤詳細資訊";
             }
             console.error(`API 請求失敗詳細資訊 (Status ${response.status}):`, errorDetails);
             throw new Error(`API 請求失敗 (${response.status}): ${errorDetails}`);
         }
-
+ 
         const data = await response.json();
         
-        // ★★★ 關鍵修改：在這裡把後端傳回來的 Provider 資訊印出來 ★★★
-        if (data._provider_log) {
-            console.log(`%c🚀 [API 來源] ${data._provider_log}`, "color: #00bcd4; font-weight: bold; font-size: 14px; background: #333; padding: 4px; border-radius: 4px;");
-        } else {
-            console.warn("⚠️ 未收到 Provider 資訊，請確認 GAS 腳本是否已更新並重新部署。");
-        }
-        // ★★★ 修改結束 ★★★
-
+        // 記錄使用的模型資訊
+        console.log(`%c🚀 [API 成功] Model: ${MODEL}`, "color: #00bcd4; font-weight: bold; font-size: 14px; background: #333; padding: 4px; border-radius: 4px;");
+ 
         if (data.error) {
             throw new Error(`API 返回錯誤: ${data.error.message || data.error}`);
         }
