@@ -1801,7 +1801,7 @@ transform: scale(1.1);
 // === 修改後的代碼 ===
 // API Key 已移至後端 (Google Apps Script) 管理，前端無需保留
 const API_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec";
-const MODEL = "gemini";
+const MODEL = "deepseek";
 
 // 懸浮窗狀態管理
 let isFloatingEnabled = true;
@@ -2388,22 +2388,28 @@ throw error;
 }
 }
 
+// === 修訂版：加強提示詞的翻譯請求函式 ===
 async function fetchTranslationData(text) {
-const prompt = `你是一個專門生成 JSON 的 AI。請將以下文言文的每一句（以標點符號如 ，。？！；： 分隔）進行分析，並嚴格按照指定的 JSON 格式輸出。
-
-你的回覆**必須**是一個單一的、完整的 JSON 物件，不要包含任何 JSON 區塊之外的說明或 markdown 語法，而且必須用繁體中文輸出。
-
+    const prompt = `你是一個專門生成 JSON 的 AI。請將以下文言文的每一句（以標點符號如 ，。？！；： 分隔）進行分析，並嚴格按照指定的 JSON 格式輸出。
+ 
+【嚴格規則】：
+1. 你的回覆**必須**是一個單一的、完整的 JSON 物件。
+2. **絕對不要**在 JSON 內使用 \`//\` 或 \`/* */\` 進行註釋，這會導致程式崩潰。
+3. **絕對不要**使用省略號 \`...\` 來表示未完的內容。
+4. JSON 的最後一個元素後面**不能**有逗號。
+5. 必須用繁體中文輸出。
+ 
 JSON 物件應包含一個名為 "translations" 的 key，其值為一個陣列 (array)。陣列中的每個元素都是一個物件，代表原文中的一個句子片段。每個句子物件都必須包含以下三個 key：
 1. \`"original"\`：字串 (string)，包含原始的文言文句子片段。
 2. \`"translation"\`：字串 (string)，包含該片段的完整白話文翻譯。
-3. \`"breakdown"\`：一個字串陣列 (array of strings)，其中每個字串是對句子中一個詞的解釋，格式為「詞：解釋」。「解釋」在去除標點符號後，不可以與「詞」完全一樣，反例如「遠：遠。」，合理例子如「遠：遙遠地。」。請將常見的文言實詞或虛詞用 markdown 粗體標示，例如「**之**：的」。
-
+3. \`"breakdown"\`：一個字串陣列 (array of strings)，其中每個字串是對句子中一個詞的解釋，格式為「詞：解釋」。請將常見的文言實詞或虛詞用 markdown 粗體標示，例如「**之**：的」。
+ 
 待處理的文言文如下：
 \`\`\`
 ${text}
 \`\`\`
-
-範例輸出格式：
+ 
+範例輸出格式（請嚴格參考此結構，不要加註釋）：
 {
 "translations": [
 {
@@ -2416,27 +2422,17 @@ ${text}
 "強：強盛。",
 "弱：衰弱。"
 ]
-},
-{
-"original": "奉法者強，則國強；",
-"translation": "遵循法令的人強大，國家就會強盛；",
-"breakdown": [
-"奉：遵守、遵循。",
-"法：法令。",
-"者：...的人。",
-"強：強大。",
-"**則**：那麼，就。",
-"國：國家。",
-"強：強盛。"
-]
 }
 ]
 }`;
-const translationJson = await callApiWithRetry(prompt, 3);
-if (!translationJson || !Array.isArray(translationJson.translations)) {
-throw new Error("API 返回的翻譯 JSON 結構不正確或為空。");
-}
-return translationJson;
+    
+    // 使用 callApiWithRetry 確保有重試機制
+    const translationJson = await callApiWithRetry(prompt, 3);
+    
+    if (!translationJson || !Array.isArray(translationJson.translations)) {
+        throw new Error("API 返回的翻譯 JSON 結構不正確或為空。");
+    }
+    return translationJson;
 }
 
 // --- History Feature ---
