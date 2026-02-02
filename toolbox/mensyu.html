@@ -2388,64 +2388,80 @@ throw error;
 }
 }
 
-// === 修訂版：更強健的文本解析函式 (基於區塊標記) ===
+// === 最終修訂版：雙語兼容（繁/簡）與 符號兼容（全/半形）解析器 ===
 function parseCustomTextResponse(text) {
     const translations = [];
     
-    // 1. 清洗文本：移除 Markdown 代碼塊標記 (```)
-    // 這是最常見導致解析失敗的原因
-    let cleanText = text.replace(/```(?:plaintext|text)?/g, '').replace(/```/g, '');
+    // 1. 清洗文本：移除 Markdown 代碼塊標記 (```) 及前後空白
+    let cleanText = text.replace(/```(?:plaintext|text|json)?/g, '').replace(/```/g, '').trim();
  
-    // 2. 以 "【原文】" 作為主要切割點
-    // 這樣可以忽略掉 AI 在開頭可能輸出的 "好的，這是分析結果..." 之類的廢話
-    const rawBlocks = cleanText.split(/【原文】|原文：/);
+    // 2. 切割區塊：以 "原文" 作為切割點
+    // 正則解說：
+    // (?:【|\[)?  -> 開頭可能是 【 或 [ 或 什麼都沒有
+    // 原文        -> 核心詞 (繁簡寫法相同)
+    // (?:】|\]|:|：)? -> 結尾可能是 】 或 ] 或 : 或 ：
+    const splitRegex = /(?:【|\[)\s*原文\s*(?:】|\])|原文\s*[:：]/g;
+    
+    // 使用 split 切割，過濾掉第一塊通常是空的或廢話
+    const rawBlocks = cleanText.split(splitRegex);
  
     rawBlocks.forEach(block => {
         block = block.trim();
         if (!block) return;
  
-        // 3. 在每個區塊中尋找 【語譯】 和 【解釋】
-        // 使用非貪婪匹配 (.*?) 抓取內容
-        // 兼容兩種常見標點：全形冒號與無冒號
-        
-        // 提取語譯內容：從標記開始，直到遇到【解釋】或字串結束
-        let translationPart = "";
-        const transMatch = block.match(/(?:【語譯】|語譯：)([\s\S]*?)(?:【解釋】|解釋：|$)/);
-        
-        // 提取解釋內容：從標記開始，直到字串結束
-        let breakdownPart = "";
-        const breakMatch = block.match(/(?:【解釋】|解釋：)([\s\S]*)/);
+        // 3. 定義寬鬆的正則表達式來抓取 "語譯" 和 "解釋"
+        // 允許：【語譯】、【语译】、語譯：、语译: ...等各種組合
+        const transMarkerRegex = /(?:【|\[)\s*(?:語譯|语译|翻譯|翻译)\s*(?:】|\])|(?:語譯|语译|翻譯|翻译)\s*[:：]/;
+        const explainMarkerRegex = /(?:【|\[)\s*(?:解釋|解释|詞解|註釋)\s*(?:】|\])|(?:解釋|解释|詞解|註釋)\s*[:：]/;
  
-        // 如果找不到語譯，這可能是一個無效的區塊，跳過
+        // 尋找分隔點位置
+        const transMatch = block.match(transMarkerRegex);
+        const explainMatch = block.match(explainMarkerRegex);
+ 
+        // 如果連語譯都找不到，這塊資料大概是壞的，跳過
         if (!transMatch) return;
  
-        // 原文其實就是 split 切割後剩下的 block 開頭部分 (在語譯標記之前)
-        let originalText = block.split(/(?:【語譯】|語譯：)/)[0].trim();
+        // --- 提取原文 ---
+        // 原文 = 區塊開頭 到 語譯標記出現之前
+        let originalText = block.substring(0, transMatch.index).trim();
         
-        // 清理原文中的標點殘留
-        if (originalText.endsWith("===/")) originalText = originalText.replace("===/", "");
+        // --- 提取語譯 ---
+        let translationPart = "";
+        let breakdownPart = "";
  
-        translationPart = transMatch[1].trim();
-        
-        if (breakMatch) {
-            breakdownPart = breakMatch[1].trim();
+        if (explainMatch) {
+            // 如果有解釋標記：語譯 = 語譯標記後 到 解釋標記前
+            // 我們需要計算語譯內容的開始位置 (標記開始位置 + 標記長度)
+            const transContentStart = transMatch.index + transMatch[0].length;
+            translationPart = block.substring(transContentStart, explainMatch.index).trim();
+            
+            // 解釋 = 解釋標記後 到 區塊結束
+            const explainContentStart = explainMatch.index + explainMatch[0].length;
+            breakdownPart = block.substring(explainContentStart).trim();
+        } else {
+            // 如果沒有解釋標記：語譯 = 語譯標記後 到 區塊結束
+            const transContentStart = transMatch.index + transMatch[0].length;
+            translationPart = block.substring(transContentStart).trim();
         }
  
-        // 4. 處理逐字解釋列表
+        // --- 處理解釋列表 ---
         let breakdownList = [];
         if (breakdownPart) {
             breakdownList = breakdownPart
                 .split('\n')
                 .map(line => line.trim())
                 .filter(line => {
-                    // 過濾掉空行、分隔線、或看起來不像解釋的行
+                    // 過濾條件：
+                    // 1. 不是空行
+                    // 2. 不包含分隔線 (===)
+                    // 3. 包含冒號 (全形或半形) -> 這代表是 "詞：解釋" 的格式
                     return line.length > 0 &&
                            !line.includes('===') &&
                            (line.includes('：') || line.includes(':'));
                 });
         }
  
-        // 只有當原文和翻譯都有內容時才加入結果
+        // 確保有抓到東西才存入
         if (originalText && translationPart) {
             translations.push({
                 original: originalText,
@@ -2456,17 +2472,25 @@ function parseCustomTextResponse(text) {
     });
  
     if (translations.length === 0) {
-        console.warn("解析失敗，原始文本預覽:", text.substring(0, 200));
-        throw new Error("無法識別回應格式。請確保 AI 輸出了【原文】、【語譯】等標記。");
+        console.warn("解析結果為空。原始回應:", text);
+        // 不拋出錯誤，而是回傳一個錯誤提示的結果，讓 UI 顯示出來而不是卡在 Loading
+        return {
+            translations: [{
+                original: "解析失敗",
+                translation: "系統無法識別 AI 回傳的格式，請嘗試重新生成。",
+                breakdown: ["錯誤：格式不符"]
+            }]
+        };
     }
  
     return { translations: translations };
 }
  
-// === 修訂版：fetchTranslationData (配合新的標記格式) ===
+// === fetchTranslationData (配合各種可能的 AI 輸出) ===
 async function fetchTranslationData(text) {
+    // 提示詞中我們還是盡量要求繁體，但上面的解析器已經可以處理簡體了
     const prompt = `你是一個文言文教學助手。請將以下文章的「每一句」進行分析。
-請**嚴格**按照以下格式輸出，直接輸出純文字，**不要**使用 Markdown 代碼框 (如 \`\`\`)。
+請直接輸出純文字，不要使用 Markdown 代碼框。
  
 請務必使用【】括號作為區塊標記，格式如下：
  
@@ -2477,25 +2501,16 @@ async function fetchTranslationData(text) {
 **重要詞**：解釋
 (請換行繼續下一個【原文】)
  
-範例：
-【原文】國無常強，無常弱。
-【語譯】國家不會永遠強盛，也不會永遠衰弱。
-【解釋】
-國：國家。
-**無**：沒有。
-常：永遠。
- 
 待處理文言文：
 ${text}`;
  
     try {
-        // 直接呼叫 callApi，繞過 JSON 解析
         const response = await callApi(prompt);
         
         let rawText = "";
         if (response && response.choices && response.choices[0].message.content) {
             rawText = response.choices[0].message.content;
-            console.log("AI 原始回應:", rawText); // 在 Console 方便除錯
+            console.log("AI 原始回應:", rawText); // Debug 用
         } else {
             throw new Error("API 回應為空。");
         }
@@ -2504,7 +2519,7 @@ ${text}`;
  
     } catch (error) {
         console.error("翻譯流程錯誤:", error);
-        throw error;
+        throw error; // 這裡拋出錯誤會被外層的 catch 抓到並顯示在 UI 上
     }
 }
 // --- History Feature ---
