@@ -2029,17 +2029,65 @@ async function generateIntroductions(title, author) {
 }
  
 // ===============================================================
-// 4. 獲取翻譯數據 (核心重寫：改用 ===分隔線=== 解析)
+// 輔助工具：將長文切分為小區塊 (避免 Token 溢出)
 // ===============================================================
-async function fetchTranslationData(text) {
-    const prompt = `你是一個文言文解析引擎。請分析以下文本。
+function splitTextIntoChunks(text, sentencesPerChunk = 4) {
+    // 1. 先用標點符號將文章切成單句
+    // 包含：句號、問號、驚嘆號、分號
+    const rawSentences = text.split(/([。？！；?!;]+)/).filter(Boolean);
+    
+    const chunks = [];
+    let currentChunk = "";
+    let count = 0;
  
-【文本】：
-${text}
+    for (let i = 0; i < rawSentences.length; i += 2) {
+        // 內容 + 標點 (因為 split 會把標點也變成分割項)
+        const sentence = rawSentences[i] + (rawSentences[i+1] || "");
+        
+        currentChunk += sentence;
+        count++;
+ 
+        // 達到設定的句數，或是最後一句，就打包成一個 chunk
+        if (count >= sentencesPerChunk || i >= rawSentences.length - 2) {
+            chunks.push(currentChunk);
+            currentChunk = "";
+            count = 0;
+        }
+    }
+    
+    return chunks;
+}
+ 
+// ===============================================================
+// 4. 獲取翻譯數據 (分段請求 + 標籤解析版)
+// ===============================================================
+async function fetchTranslationData(fullText) {
+    // 1. 將長文切成數個小段落 (每段約 5 句，依長度可自行調整)
+    const chunks = splitTextIntoChunks(fullText, 5);
+    let allTranslations = [];
+    
+    const loadingText = document.querySelector('#loading p');
+    const originalLoadingText = loadingText ? loadingText.textContent : "正在生成中...";
+ 
+    // 2. 逐段處理
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        
+        // 更新畫面上的 Loading 文字，讓用戶知道進度
+        if (loadingText) {
+            loadingText.textContent = `正在翻譯第 ${i + 1} / ${chunks.length} 段，請稍候...`;
+        }
+ 
+        try {
+            const prompt = `你是一個文言文解析引擎。請分析以下這段文本。
+這是一篇文章的第 ${i + 1} 部分，共 ${chunks.length} 部分。
+ 
+【本次需處理的文本】：
+${chunk}
  
 【規則】：
 1. **必須輸出繁體中文**。
-2. 將文章拆解為數個小段落或句子。
+2. 將文本拆解為句子。
 3. 對於「逐字解釋」，請將重要實詞或虛詞用 markdown 粗體標示 (如 **之**)。
 4. **格式嚴格限制**：請使用 ===分隔線=== 格式，機器將直接讀取。
  
@@ -2057,56 +2105,77 @@ ${text}
 ...
 ===結束===
 `;
+            // 呼叫 API 獲取該段落的純文本
+            const rawText = await callApiGetText(prompt, 3); // 失敗會重試 3 次
  
-    const rawText = await callApiGetText(prompt, 3);
+            // 解析該段落
+            const chunkTranslations = parseTagBasedResponse(rawText);
+            
+            // 合併到總結果
+            allTranslations = allTranslations.concat(chunkTranslations);
  
-    // 解析邏輯
+        } catch (error) {
+            console.error(`第 ${i+1} 段翻譯失敗:`, error);
+            // 即使某一段失敗，也不要讓整個程式崩潰，插入一個錯誤提示塊繼續下一段
+            allTranslations.push({
+                original: chunk,
+                translation: "（此段落 AI 翻譯連線逾時或失敗，請稍後重試）",
+                breakdown: ["系統：此段落讀取失敗"]
+            });
+        }
+    }
+ 
+    // 還原 Loading 文字
+    if (loadingText) loadingText.textContent = originalLoadingText;
+ 
+    if (allTranslations.length === 0) {
+        throw new Error("所有段落均解析失敗。");
+    }
+ 
+    return { translations: allTranslations };
+}
+ 
+// ===============================================================
+// 獨立出來的解析函數 (專門處理 ===分隔線=== 格式)
+// ===============================================================
+function parseTagBasedResponse(rawText) {
     const translations = [];
     
-    // 1. 先用 "===分隔===" 或 "===原文===" 切割成大區塊
-    // 這裡我們用正則表達式來尋找每一個區塊
-    // 邏輯：尋找 ===原文=== ... (直到下一個 ===原文=== 或 ===分隔=== 或 ===結束===)
-    
-    // 簡單的分割策略：先移除 "===結束==="
+    // 移除結束標記
     let workingText = rawText.replace(/===結束===/g, '');
     
-    // 根據 "===分隔===" 拆分，如果 AI 沒用 ===分隔=== 而是直接接 ===原文===，我們用 Lookahead 處理
-    // 這裡使用更通用的拆分方式：以 ===原文=== 作為切分點
+    // 以 ===原文=== 切分
     let blocks = workingText.split('===原文===');
  
     for (let block of blocks) {
-        if (!block.trim()) continue; // 跳過空區塊
+        if (!block.trim()) continue;
  
-        // 每個 block 現在應該包含： (原文內容) ===語譯=== (翻譯內容) ===逐字解釋=== (解釋內容)
-        
         let original = "";
         let translation = "";
         let breakdownRaw = "";
  
-        // 提取原文 (位於開頭，直到遇到 ===語譯===)
+        // 切割語譯
         let parts1 = block.split('===語譯===');
         if (parts1.length > 0) {
             original = parts1[0].trim();
         }
  
         if (parts1.length > 1) {
-            // 剩下的部分包含 語譯 和 逐字解釋
+            // 切割逐字解釋
             let parts2 = parts1[1].split('===逐字解釋===');
             translation = parts2[0].trim();
             
             if (parts2.length > 1) {
-                breakdownRaw = parts2[1].split('===分隔===')[0].trim(); // 確保不會讀到下一個分隔標記
+                // 確保不讀到下一個分隔
+                breakdownRaw = parts2[1].split('===分隔===')[0].trim();
             }
         }
  
-        // 處理 Breakdown 陣列
         let breakdownList = [];
         if (breakdownRaw) {
-            // 逐行讀取
             breakdownList = breakdownRaw.split('\n').map(line => line.trim()).filter(line => line.length > 0);
         }
  
-        // 只有當原文和翻譯都有內容時才加入
         if (original && translation) {
             translations.push({
                 original: original,
@@ -2115,14 +2184,7 @@ ${text}
             });
         }
     }
- 
-    if (translations.length === 0) {
-        console.error("解析後無數據。原始文本:", rawText);
-        throw new Error("翻譯格式解析失敗，請稍後再試。");
-    }
- 
-    // 回傳符合原本 JSON 結構的物件，這樣前端渲染代碼完全不用改
-    return { translations: translations };
+    return translations;
 }
  
 
