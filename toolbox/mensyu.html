@@ -1899,6 +1899,233 @@ autoResizeTextarea.call(classicalText);
 autoResizeTextarea.call(aiPromptTextarea);
 }
 
+
+	// ===============================================================
+// 1. 核心清洗工具 (移除思考過程與 Markdown，保留純文本)
+// ===============================================================
+function cleanAiResponse(text) {
+    if (!text) return "";
+    // 移除 <think>...</think> 標籤及其內容
+    let clean = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    // 移除 markdown 程式碼標記
+    clean = clean.replace(/```json/gi, '').replace(/```/g, '');
+    // 移除可能出現的 "好的，這是結果：" 之類的開頭廢話 (簡單過濾)
+    return clean.trim();
+}
+ 
+// 替換原本的 callApiWithRetry，不再解析 JSON，只回傳清洗後的文本
+async function callApiGetText(prompt, retries = 3) {
+    let lastError = null;
+    for (let i = 0; i < retries; i++) {
+        try {
+            // 使用原本的 callApi (保持不變)
+            const response = await callApi(prompt);
+            
+            if (response && response.choices && response.choices[0].message.content) {
+                return cleanAiResponse(response.choices[0].message.content);
+            } else {
+                throw new Error("API 回應為空");
+            }
+        } catch (error) {
+            lastError = error;
+            console.warn(`嘗試 ${i + 1} 失敗: ${error.message}`);
+            await new Promise(resolve => setTimeout(resolve, 800));
+        }
+    }
+    throw lastError || new Error("API 重試次數耗盡");
+}
+ 
+// ===============================================================
+// 2. 尋找篇章 (改用【標籤】解析)
+// ===============================================================
+async function generateProse() {
+    const userPromptText = aiPromptTextarea.value.trim();
+    const historyTitles = state.history.map(item => item.title).filter(t => !t.startsWith('手動輸入'));
+    
+    let selectionInstruction = userPromptText 
+        ? `用戶主題：「${userPromptText}」。請挑選最相關篇章。`
+        : `請隨機推薦一篇經典文章。`;
+ 
+    // Prompt 改為要求標籤格式
+    const systemPrompt = `你是一個文言文推薦系統。
+【任務】：從清單中選一篇《古文觀止》文章。
+【清單】：${JSON.stringify(GUWEN_LIST)}
+【要求】：
+1. 難度：${state.difficulty}星。
+2. ${selectionInstruction}
+3. 已讀排除：[${historyTitles.join(', ')}]
+4. **輸出必須是 100% 繁體中文**。
+5. **格式嚴格限制**：請務必使用下方標籤格式輸出，不要包含其他廢話。
+ 
+【輸出格式】：
+【標題】(作品名稱)
+【作者】(作者名稱)
+【內容】
+(這裡填寫文言文內容，限280字內)
+【結束】
+`;
+ 
+    const rawText = await callApiGetText(systemPrompt, 3);
+    
+    // 解析邏輯
+    const titleMatch = rawText.match(/【標題】\s*(.*?)\n/);
+    const authorMatch = rawText.match(/【作者】\s*(.*?)\n/);
+    // 內容可能跨多行，使用 [\s\S]*?
+    const contentMatch = rawText.match(/【內容】\s*([\s\S]*?)(\n【結束】|$)/);
+ 
+    if (titleMatch && contentMatch) {
+        let title = titleMatch[1].trim();
+        let author = authorMatch ? authorMatch[1].trim() : "未知";
+        let content = contentMatch[1].trim();
+ 
+        // 校正標題
+        const matchedTitle = GUWEN_LIST.find(t => title.includes(t) || t.includes(title));
+        if (matchedTitle) title = matchedTitle;
+ 
+        return { 
+            title: title, 
+            author: author, 
+            content: content, 
+            isManual: false 
+        };
+    }
+    
+    console.error("解析失敗，原始文本:", rawText);
+    throw new Error("AI 回傳格式無法識別，請重試。");
+}
+ 
+// ===============================================================
+// 3. 生成簡介 (改用【標籤】解析)
+// ===============================================================
+async function generateIntroductions(title, author) {
+    const prompt = `你是一個文言文資料庫。
+任務：生成 "${title}" (${author}) 的簡介。
+ 
+【嚴格規則】：
+1. **全部使用繁體中文**。
+2. 請嚴格按照以下標籤格式輸出，不要加任何其他文字。
+ 
+【輸出格式】：
+【作者簡介】
+(這裡寫作者簡介，約50字)
+【文章簡介】
+(這裡寫文章簡介，約50字)
+`;
+ 
+    const rawText = await callApiGetText(prompt, 3);
+ 
+    // 解析邏輯
+    const authorIntroMatch = rawText.match(/【作者簡介】\s*([\s\S]*?)(\n【文章簡介】|$)/);
+    const articleIntroMatch = rawText.match(/【文章簡介】\s*([\s\S]*?)($)/);
+ 
+    if (authorIntroMatch || articleIntroMatch) {
+        return {
+            authorIntro: authorIntroMatch ? authorIntroMatch[1].trim() : "",
+            articleIntro: articleIntroMatch ? articleIntroMatch[1].trim() : ""
+        };
+    }
+    
+    throw new Error("簡介生成失敗，格式不符。");
+}
+ 
+// ===============================================================
+// 4. 獲取翻譯數據 (核心重寫：改用 ===分隔線=== 解析)
+// ===============================================================
+async function fetchTranslationData(text) {
+    const prompt = `你是一個文言文解析引擎。請分析以下文本。
+ 
+【文本】：
+${text}
+ 
+【規則】：
+1. **必須輸出繁體中文**。
+2. 將文章拆解為數個小段落或句子。
+3. 對於「逐字解釋」，請將重要實詞或虛詞用 markdown 粗體標示 (如 **之**)。
+4. **格式嚴格限制**：請使用 ===分隔線=== 格式，機器將直接讀取。
+ 
+【輸出格式範例】：
+===原文===
+(原文句子1)
+===語譯===
+(白話翻譯1)
+===逐字解釋===
+詞1：解釋
+**詞2**：解釋
+===分隔===
+===原文===
+(原文句子2)
+...
+===結束===
+`;
+ 
+    const rawText = await callApiGetText(prompt, 3);
+ 
+    // 解析邏輯
+    const translations = [];
+    
+    // 1. 先用 "===分隔===" 或 "===原文===" 切割成大區塊
+    // 這裡我們用正則表達式來尋找每一個區塊
+    // 邏輯：尋找 ===原文=== ... (直到下一個 ===原文=== 或 ===分隔=== 或 ===結束===)
+    
+    // 簡單的分割策略：先移除 "===結束==="
+    let workingText = rawText.replace(/===結束===/g, '');
+    
+    // 根據 "===分隔===" 拆分，如果 AI 沒用 ===分隔=== 而是直接接 ===原文===，我們用 Lookahead 處理
+    // 這裡使用更通用的拆分方式：以 ===原文=== 作為切分點
+    let blocks = workingText.split('===原文===');
+ 
+    for (let block of blocks) {
+        if (!block.trim()) continue; // 跳過空區塊
+ 
+        // 每個 block 現在應該包含： (原文內容) ===語譯=== (翻譯內容) ===逐字解釋=== (解釋內容)
+        
+        let original = "";
+        let translation = "";
+        let breakdownRaw = "";
+ 
+        // 提取原文 (位於開頭，直到遇到 ===語譯===)
+        let parts1 = block.split('===語譯===');
+        if (parts1.length > 0) {
+            original = parts1[0].trim();
+        }
+ 
+        if (parts1.length > 1) {
+            // 剩下的部分包含 語譯 和 逐字解釋
+            let parts2 = parts1[1].split('===逐字解釋===');
+            translation = parts2[0].trim();
+            
+            if (parts2.length > 1) {
+                breakdownRaw = parts2[1].split('===分隔===')[0].trim(); // 確保不會讀到下一個分隔標記
+            }
+        }
+ 
+        // 處理 Breakdown 陣列
+        let breakdownList = [];
+        if (breakdownRaw) {
+            // 逐行讀取
+            breakdownList = breakdownRaw.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        }
+ 
+        // 只有當原文和翻譯都有內容時才加入
+        if (original && translation) {
+            translations.push({
+                original: original,
+                translation: translation,
+                breakdown: breakdownList
+            });
+        }
+    }
+ 
+    if (translations.length === 0) {
+        console.error("解析後無數據。原始文本:", rawText);
+        throw new Error("翻譯格式解析失敗，請稍後再試。");
+    }
+ 
+    // 回傳符合原本 JSON 結構的物件，這樣前端渲染代碼完全不用改
+    return { translations: translations };
+}
+ 
+
 function setupEventListeners() {
 translateBtn.addEventListener('click', handleManualTranslateClick);
 clearBtn.addEventListener('click', handleClearClick);
@@ -2353,107 +2580,7 @@ async function callApiWithRetry(prompt, retries = 3) {
     throw lastError || new Error("API 重試次數耗盡，無法獲取有效 JSON。");
 }
  
-// ===============================================================
-// 3. 尋找篇章函數 (Prompt 強制繁體 + JSON)
-// ===============================================================
-async function generateProse() {
-    const userPromptText = aiPromptTextarea.value.trim();
-    const historyTitles = state.history.map(item => item.title).filter(t => !t.startsWith('手動輸入'));
-    
-    let selectionInstruction = userPromptText 
-        ? `用戶主題：「${userPromptText}」。請挑選最相關篇章。`
-        : `請隨機推薦一篇經典文章。`;
- 
-    // Prompt 硬性規定
-    const systemPrompt = `你是一個只輸出 JSON 的程式。
-【任務】：從清單中選一篇《古文觀止》文章。
-【清單】：${JSON.stringify(GUWEN_LIST)}
-【要求】：
-1. 難度：${state.difficulty}星。
-2. ${selectionInstruction}
-3. 已讀排除：[${historyTitles.join(', ')}]
-4. **輸出必須是 100% 繁體中文**。
-5. **格式嚴格限制**：只回傳純 JSON，**禁止使用 // 或 /* */ 註釋**。
- 
-【JSON 格式範例】：
-{
-"title": "作品標題",
-"author": "作者(繁體)",
-"content": "文言文內容(繁體，限280字內)"
-}`;
- 
-    const article = await callApiWithRetry(systemPrompt, 3);
-    
-    if (article && article.title && article.content) {
-        // 校正標題
-        const matchedTitle = GUWEN_LIST.find(t => article.title.includes(t) || t.includes(article.title));
-        if (matchedTitle) article.title = matchedTitle;
-        return { ...article, isManual: false };
-    }
-    throw new Error("API 返回 JSON 缺少必要欄位。");
-}
- 
-// ===============================================================
-// 4. 生成簡介函數 (Prompt 強制繁體 + JSON)
-// ===============================================================
-async function generateIntroductions(title, author) {
-    const prompt = `你是一個只輸出 JSON 的資料庫。
-任務：生成 "${title}" (${author}) 的簡介。
- 
-【嚴格規則】：
-1. **全部使用繁體中文**。
-2. 只回傳 JSON，**嚴禁任何註釋 (Comments)**。
-3. 簡介約 50-100 字。
- 
-【JSON 格式】：
-{
-"authorIntro": "作者簡介(繁體)",
-"articleIntro": "文章簡介(繁體)"
-}`;
- 
-    const intros = await callApiWithRetry(prompt, 3);
-    if (intros && intros.authorIntro && intros.articleIntro) {
-        return intros;
-    }
-    throw new Error("簡介 JSON 缺少必要欄位。");
-}
- 
-// ===============================================================
-// 5. 獲取翻譯數據函數 (Prompt 強制繁體 + JSON)
-// ===============================================================
-async function fetchTranslationData(text) {
-    const prompt = `你是一個文言文解析引擎。請分析以下文本並輸出 JSON。
- 
-【文本】：
-${text}
- 
-【規則】：
-1. **必須輸出繁體中文 (Traditional Chinese)**。
-2. **絕對禁止輸出任何 // 或 /* */ 註釋**，這會導致程式崩潰。
-3. 陣列中每個物件代表一句話。
-4. "breakdown" 陣列中，將常見實詞/虛詞用 markdown 粗體標示 (如 **之**)。
- 
-【JSON 格式範例 (請嚴格遵守)】：
-{
-  "translations": [
-    {
-      "original": "原文句子",
-      "translation": "白話翻譯(繁體)",
-      "breakdown": [
-        "詞：解釋1。",
-        "**關鍵詞**：解釋2。"
-      ]
-    }
-  ]
-}`;
- 
-    const translationJson = await callApiWithRetry(prompt, 3);
-    
-    if (!translationJson || !Array.isArray(translationJson.translations)) {
-        throw new Error("翻譯 JSON 格式錯誤 (缺少 translations 陣列)。");
-    }
-    return translationJson;
-}
+
  
 // --- History Feature ---
 function loadHistory() {
