@@ -2266,43 +2266,58 @@ async function callApi(prompt) {
 }
 
 // ===============================================================
-// 1. 硬編碼 JSON 提取與清洗函數 (核心修復：暴力移除註釋)
+// 1. 硬編碼 JSON 提取與清洗函數 (終極版：移除思考標籤與註釋)
 // ===============================================================
 function extractJson(text) {
-    // 步驟 1: 尋找 JSON 的核心範圍 {...}
-    const startIndex = text.indexOf('{');
-    const endIndex = text.lastIndexOf('}');
+    if (!text) throw new Error("API 回應為空");
+ 
+    // --- 硬編碼清洗步驟 1: 暴力移除 <think>...</think> 思考過程 ---
+    // DeepSeek 等模型常會輸出思考標籤，必須在尋找 JSON 前先切除
+    // 使用 [\s\S]*? 匹配跨行內容，gi 代表全局+不分大小寫
+    let cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+ 
+    // 步驟 2: 尋找 JSON 的核心範圍 {...}
+    // 這樣可以過濾掉 <think> 標籤後可能殘留的文字（如 "好的，這是 JSON："）
+    const startIndex = cleanText.indexOf('{');
+    const endIndex = cleanText.lastIndexOf('}');
     
     if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-        console.error("無法在回應中找到 JSON 大括號範圍:", text);
-        throw new Error("API 回應中找不到 JSON 物件。");
+        // 如果清洗後找不到，嘗試從原始文本找（防止 AI 沒輸出 think 標籤但 JSON 在某處）
+        console.warn("清洗後未發現 JSON，嘗試從原始文本提取...");
+        const rawStart = text.indexOf('{');
+        const rawEnd = text.lastIndexOf('}');
+        if (rawStart === -1) {
+            console.error("無法在回應中找到 JSON 大括號範圍:", text);
+            throw new Error("API 回應中找不到 JSON 物件。");
+        }
+        cleanText = text.substring(rawStart, rawEnd + 1);
+    } else {
+        // 截取 JSON 部分
+        cleanText = cleanText.substring(startIndex, endIndex + 1);
     }
     
-    // 截取 JSON 部分
-    let jsonString = text.substring(startIndex, endIndex + 1);
-    
     try {
-        // --- 硬編碼清洗邏輯 (Client-side Hardcoding) ---
+        // --- 硬編碼清洗步驟 3: 移除程式碼註釋 ---
         
-        // 1. 強制移除單行註釋 (// 開頭直到行尾)
-        // 解決 SyntaxError: Unexpected token '/'
-        jsonString = jsonString.replace(/\/\/.*$/gm, '');
+        // 強制移除單行註釋 (// ...)
+        cleanText = cleanText.replace(/\/\/.*$/gm, '');
         
-        // 2. 強制移除多行註釋 (/* ... */)
-        jsonString = jsonString.replace(/\/\*[\s\S]*?\*\//g, '');
+        // 強制移除多行註釋 (/* ... */)
+        cleanText = cleanText.replace(/\/\*[\s\S]*?\*\//g, '');
         
-        // 3. 移除可能存在的 Markdown 標記 (如果截取範圍沒過濾乾淨)
-        jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '');
+        // --- 硬編碼清洗步驟 4: 格式修復 ---
  
-        // 4. 修復尾部逗號 (Trailing Commas) - 標準 JSON 不允許，但 AI 常犯
-        // 例如: { "a": 1, } -> { "a": 1 }
-        jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1');
+        // 移除 Markdown 標記
+        cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '');
+ 
+        // 修復尾部逗號 (Trailing Commas)
+        cleanText = cleanText.replace(/,(\s*[}\]])/g, '$1');
  
         // 5. 解析
-        return JSON.parse(jsonString);
+        return JSON.parse(cleanText);
         
     } catch (e) {
-        console.error("JSON 清洗後仍解析失敗。原始字串:", text, "清洗後:", jsonString);
+        console.error("JSON 最終解析失敗。\n原始文本:", text, "\n清洗後文本:", cleanText);
         throw new Error(`JSON 解析失敗: ${e.message}`);
     }
 }
