@@ -3650,18 +3650,29 @@ function renderCharSwitcher() {
 }
 
 // 4. 初始化 Hanzi Writer
-function initHanziWriter(char) {
+// 4. 初始化 Hanzi Writer (修訂版：加入自動測驗參數 與 繁體字庫修正)
+function initHanziWriter(char, autoStartQuiz = false) {
     const els = getStrokeElements();
     if (!els.targetDiv) return;
-
-    els.targetDiv.innerHTML = ''; 
+ 
+    // --- [修正 2] 字形/異體字手動校正表 ---
+    // 如果還有其他字顯示不喜歡的寫法，可以在此處新增映射，例如 { '某': '某的通用字' }
+    const charCorrectionMap = {
+        // 這裡可以留空，下方的 charDataLoader 通常能解決大部分繁簡異體問題
+        // '顚': '顛'
+    };
+    
+    // 如果該字在校正表中，則使用校正後的字
+    const targetChar = charCorrectionMap[char] || char;
+ 
+    els.targetDiv.innerHTML = '';
     els.statusText.textContent = "載入字型數據中...";
     els.statusText.style.color = 'var(--text-secondary-light)';
-
+ 
     const isDark = document.body.classList.contains('dark-mode');
     
     try {
-        hanziWriterInstance = HanziWriter.create('hanzi-target', char, {
+        hanziWriterInstance = HanziWriter.create('hanzi-target', targetChar, {
             width: 300,
             height: 300,
             padding: 20,
@@ -3674,14 +3685,38 @@ function initHanziWriter(char) {
             drawingColor: isDark ? '#7A9E9F' : '#5e7067',
             drawingWidth: 25,
             showHintAfterMisses: 1,
-            highlightOnComplete: true
+            highlightOnComplete: true,
+            // --- [修正 2] 關鍵：強制使用繁體中文資料庫 ---
+            // 這能解決「顛」顯示為「顚」的問題，確保顯示標準繁體字形
+            charDataLoader: function(char, onComplete) {
+                fetch('https://cdn.jsdelivr.net/npm/hanzi-writer-data-traditional@2.0/' + char + '.json')
+                .then(res => {
+                    if (!res.ok) throw new Error('Network response was not ok');
+                    return res.json();
+                })
+                .then(charData => onComplete(charData))
+                .catch(err => {
+                    console.warn("繁體字庫載入失敗，嘗試載入預設字庫:", err);
+                    // 如果繁體庫沒有這個字，回退到預設載入方式
+                    fetch('https://cdn.jsdelivr.net/npm/hanzi-writer-data@2.0/' + char + '.json')
+                        .then(res => res.json())
+                        .then(charData => onComplete(charData));
+                });
+            }
         });
-
+ 
+        // 等待載入後的行為
         setTimeout(() => {
-             els.statusText.textContent = `當前字元：${char}。請選擇「播放」或「測驗」。`;
-             hanziWriterInstance.animateCharacter();
+             // 如果是自動跳轉過來的，直接開始測驗；否則播放動畫
+             if (autoStartQuiz) {
+                 els.statusText.textContent = `載入完成，請書寫「${targetChar}」...`;
+                 startStrokeQuiz();
+             } else {
+                 els.statusText.textContent = `當前字元：${targetChar}。請選擇「播放」或「測驗」。`;
+                 hanziWriterInstance.animateCharacter();
+             }
         }, 600);
-
+ 
     } catch (e) {
         console.error("Init Error:", e);
         els.statusText.textContent = "字型載入失敗，請重試。";
@@ -3708,7 +3743,7 @@ function animateStrokeChar() {
     });
 }
 
-// 6. 開始測驗
+// 6. 開始測驗 (修訂版：加入自動跳轉下一字邏輯)
 function startStrokeQuiz() {
     const els = getStrokeElements();
     
@@ -3723,7 +3758,7 @@ function startStrokeQuiz() {
     } catch(e) { console.warn(e); }
     
     els.statusText.textContent = "測驗開始！請用滑鼠或手指書寫...";
-    els.statusText.style.color = '#E65100'; 
+    els.statusText.style.color = '#E65100';
     
     hanziWriterInstance.quiz({
         onMistake: function(strokeData) {
@@ -3736,19 +3771,40 @@ function startStrokeQuiz() {
             els.statusText.style.color = 'var(--accent-color)';
         },
         onComplete: function(summaryData) {
-            els.statusText.textContent = `恭喜完成！錯誤次數: ${summaryData.totalMistakes}`;
-            els.statusText.style.color = '#4CAF50';
+            // 播放震動回饋
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-            
+ 
+            // --- [修正 1] 自動跳轉邏輯 ---
+            // 判斷是否還有下一個字
             if (currentStrokeVocab.length > 1 && currentStrokeCharIndex < currentStrokeVocab.length - 1) {
+                
+                const nextChar = currentStrokeVocab[currentStrokeCharIndex + 1];
+                els.statusText.textContent = `太棒了！1秒後自動切換至：「${nextChar}」`;
+                els.statusText.style.color = '#4CAF50';
+ 
                 setTimeout(() => {
-                   els.statusText.textContent = `太棒了！請切換下一個字：「${currentStrokeVocab[currentStrokeCharIndex+1]}」`; 
-                }, 2000);
+                    // 1. 更新索引
+                    currentStrokeCharIndex++;
+ 
+                    // 2. 更新上方按鈕 UI (移除舊的 active，新增新的 active)
+                    const btns = document.querySelectorAll('.char-btn');
+                    btns.forEach((btn, index) => {
+                        btn.classList.toggle('active', index === currentStrokeCharIndex);
+                    });
+ 
+                    // 3. 載入新字，並傳入 true 開啟自動測驗
+                    initHanziWriter(currentStrokeVocab[currentStrokeCharIndex], true);
+ 
+                }, 1200); // 1.2秒後跳轉
+ 
+            } else {
+                // 如果是最後一個字，顯示完成訊息
+                els.statusText.textContent = `恭喜完成！總錯誤次數: ${summaryData.totalMistakes}`;
+                els.statusText.style.color = '#4CAF50';
             }
         }
     });
 }
-	
   
 function showToast(message, type = 'info') {
 vocabToast.textContent = message;
