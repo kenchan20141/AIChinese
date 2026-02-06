@@ -16196,41 +16196,52 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     
     // --- 分數解析邏輯 (極簡化：直接信任後端回傳的 JSON) ---
+   // --- 分數解析邏輯 ---
     if (originalGradingMatch && originalGradingMatch[1]) {
-        // 使用 safeJSONParse 來處理
         scoresForDisplay = safeJSONParse(originalGradingMatch[1]);
-        
-        if (!scoresForDisplay) {
-            console.error("JSON Parsing Failed. Raw:", originalGradingMatch[1]);
-        }
-    } else {
-        console.warn("找不到 <grading_json> 標籤，可能由後端被過濾或生成失敗。");
     }
     
-    // 計算最終總分與等級 (這部份仍保留在前端作顯示用，因為只是單純加總)
+    // 計算最終總分與等級
     if (scoresForDisplay) {
-        // ★★★ 注意：這裡不再執行 applyV8Rules 或 applyWordCountRule ★★★
-        // 這些規則已經在後端執行完畢，scoresForDisplay 已經是調整後的數值。
-        
-        // 應用最終一致性規則 (可以保留作為前端最後一道防線，或也移至後端)
+        // 1. 先執行一致性規則 (扣題分數把關)
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         
-        const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
-        finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
-        
-        // 針對字數過少的極端情況進行降級 (可選：保留在前端做即時反應，或移至後端)
+        // 2. ★★★ 修正核心：字數限制規則 (Cap Rule) ★★★
+        // 邏輯：字數不足時，將各項分數的「上限」鎖死，但不影響原本就低分的情況
         const wordCount = fullTextContent.length;
+        let scoreCap = 10; // 預設上限為 10 (滿分)
+ 
         if (wordCount < 500) {
-            finalGradeForDisplay = "1";
+            scoreCap = 2; // 字數嚴重不足，分數上限鎖定為 2 (對應 LV1)
         } else if (wordCount < 800) {
-            const gradeHierarchy = ["1", "2", "3", "4", "5", "5*", "5**"];
-            const originalGradeIndex = gradeHierarchy.indexOf(finalGradeForDisplay);
-            if (originalGradeIndex > gradeHierarchy.indexOf("3")) {
-                finalGradeForDisplay = "3";
+            scoreCap = 5; // 字數不足，分數上限鎖定為 5 (對應 LV3)
+        }
+ 
+        // 如果觸發了限制 (上限變低了)，執行數值壓制
+        if (scoreCap < 10) {
+            console.log(`觸發字數限制規則 (${wordCount}字)：分數上限設定為 ${scoreCap}`);
+            
+            // 使用 Math.min 確保：
+            // - 原本 8分 -> 變成 5分
+            // - 原本 3分 -> 保持 3分 (不會變成 5分)
+            scoresForDisplay.content = Math.min(scoresForDisplay.content, scoreCap);
+            scoresForDisplay.expression = Math.min(scoresForDisplay.expression, scoreCap);
+            scoresForDisplay.structure = Math.min(scoresForDisplay.structure, scoreCap);
+            
+            // 同步限制雷達圖數據
+            if (scoresForDisplay.radar) {
+                for (let key in scoresForDisplay.radar) {
+                    scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], scoreCap);
+                }
             }
         }
+ 
+        // 3. ★★★ 最後才計算總分與等級 ★★★
+        // 這樣算出來的總分就會自然反映出 LV3, LV2 或 LV1，而不會不合理地卡在 72分
+        const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1; // +5(標點預設) +1(錯別字預設)
+        
+        finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
-
     // --- AI 點評語氣重寫 (保留) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
