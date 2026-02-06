@@ -16107,33 +16107,60 @@ ${basePrompt}
  * 嘗試從骯髒的字串中提取並解析 JSON
  * 能處理 AI 在 JSON 前後添加的廢話、Markdown 代碼塊等
  */
+/**
+ * 嘗試從骯髒的字串中提取並解析 JSON (增強容錯版)
+ * 能處理 AI 在 JSON 前後添加的廢話、Markdown 代碼塊
+ * ★ 修復：自動將缺失的數值 (如 "key":,) 補為 0
+ */
 function safeJSONParse(rawString) {
     if (!rawString) return null;
-
-    // 1. 嘗試直接解析
+ 
+    // --- 預處理：清洗並修復常見的 AI 語法錯誤 ---
+    let cleanString = rawString;
+ 
+    // 1. 移除 Markdown 代碼塊標記
+    cleanString = cleanString.replace(/```json/g, '').replace(/```/g, '');
+ 
+    // 2. ★ 核心修復：填補缺失的數值 ★
+    // 將 "key":, 替換為 "key": 0,
+    cleanString = cleanString.replace(/:\s*,/g, ': 0,');
+    // 將 "key": } 替換為 "key": 0 } (針對最後一項)
+    cleanString = cleanString.replace(/:\s*}/g, ': 0}');
+    // 將 "key": NaN 替換為 "key": 0
+    cleanString = cleanString.replace(/:\s*NaN/gi, ': 0');
+ 
+    // --- 第一次嘗試：直接解析 ---
     try {
-        return JSON.parse(rawString);
+        return JSON.parse(cleanString);
     } catch (e) {
-        // 忽略錯誤，繼續嘗試修復
+        // 忽略錯誤，繼續嘗試提取
     }
-
-    // 2. 尋找 JSON 物件的開始 `{` 和結束 `}`
-    const firstBrace = rawString.indexOf('{');
-    const lastBrace = rawString.lastIndexOf('}');
-
+ 
+    // --- 第二次嘗試：提取 {} 內容後再解析 ---
+    const firstBrace = cleanString.indexOf('{');
+    const lastBrace = cleanString.lastIndexOf('}');
+ 
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        const cleanString = rawString.substring(firstBrace, lastBrace + 1);
+        let extracted = cleanString.substring(firstBrace, lastBrace + 1);
+        
+        // 對提取後的字串再次執行修復 (雙重保險)
+        extracted = extracted.replace(/:\s*,/g, ': 0,');
+        extracted = extracted.replace(/:\s*}/g, ': 0}');
+        extracted = extracted.replace(/:\s*NaN/gi, ': 0');
+ 
         try {
-            return JSON.parse(cleanString);
+            return JSON.parse(extracted);
         } catch (e) {
-            console.error("JSON 修復失敗 (提取後仍格式錯誤):", cleanString);
+            console.error("JSON 修復失敗 (提取後仍格式錯誤):", extracted);
+            // ★★★ 修改：解析失敗直接回傳 null，不回傳預設 0 分物件 ★★★
             return null;
         }
     }
-
+ 
     console.error("無法在字串中找到有效的 JSON 結構");
     return null;
 }
+ 
 
 
 
