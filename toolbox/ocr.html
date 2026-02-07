@@ -13,6 +13,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
 
     <style>
+        /* 保持原有樣式不變 */
         :root {
             --bg-color: #F5F3EF;
             --text-color: #3D3B37;
@@ -52,7 +53,6 @@
         h1 { margin: 0 0 0.5rem 0.2em; font-size: 2rem; letter-spacing: 0.2em; }
         #subtitle { font-size: 0.9rem; color: var(--accent-color); margin-bottom: 2rem; }
 
-        /* 圖片預覽區樣式 */
         #image-input-area {
             position: relative;
             width: 100%;
@@ -75,7 +75,6 @@
         .preview-image { width: 100%; height: 100%; object-fit: cover; }
         .preview-number { position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.6); color: #fff; padding: 2px 8px; font-size: 0.8rem; z-index: 10; font-family: var(--font-display); }
 
-        /* 按鈕樣式 */
         .control-btn { 
             position: absolute; 
             width: 34px; 
@@ -91,39 +90,13 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             transition: all 0.2s ease;
         }
+        .control-btn svg { width: 18px; height: 18px; stroke-width: 2; stroke: currentColor; fill: none; }
 
-        /* 按鈕內的 SVG 設定 */
-        .control-btn svg {
-            width: 18px;
-            height: 18px;
-            stroke-width: 2;
-            stroke: currentColor;
-            fill: none;
-        }
+        .delete-btn { top: 5px; right: 5px; color: var(--danger-color); }
+        .delete-btn:hover { background-color: var(--danger-color); color: #fff; transform: scale(1.1); }
 
-        /* 刪除按鈕 (右上) */
-        .delete-btn { 
-            top: 5px; 
-            right: 5px; 
-            color: var(--danger-color); 
-        }
-        .delete-btn:hover {
-            background-color: var(--danger-color);
-            color: #fff;
-            transform: scale(1.1);
-        }
-
-        /* 裁切按鈕 (右下) */
-        .crop-btn { 
-            bottom: 5px; 
-            right: 5px; 
-            color: var(--text-color); 
-        }
-        .crop-btn:hover {
-            background-color: var(--text-color);
-            color: #fff;
-            transform: scale(1.1);
-        }
+        .crop-btn { bottom: 5px; right: 5px; color: var(--text-color); }
+        .crop-btn:hover { background-color: var(--text-color); color: #fff; transform: scale(1.1); }
         
         #upload-prompt.hidden { display: none; }
         .upload-icon { width: 32px; height: 32px; color: var(--accent-color); margin-bottom: 0.5rem; }
@@ -133,7 +106,6 @@
         .action-btn:hover:not(:disabled) { background-color: var(--bg-color); border-color: var(--accent-color); color: var(--text-color); }
         .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* 結果顯示區 - 確保支援換行 */
         #result-container { margin-top: 2rem; width: 100%; padding: 1.5rem; border-top: 1px solid var(--border-color); text-align: left; display: none; position: relative; background: rgba(255,255,255,0.4); }
         #result-container.visible { display: block; animation: fadeIn 0.5s ease; }
         #ocr-result { 
@@ -141,7 +113,7 @@
             font-size: 1.1rem; 
             line-height: 1.8; 
             color: var(--text-color); 
-            white-space: pre-wrap; /* 關鍵：保留後端傳回的換行符 */
+            white-space: pre-wrap; 
             margin: 0; 
             padding-right: 2rem; 
         }
@@ -151,7 +123,6 @@
         #loading-indicator { display: none; margin: 1rem 0; color: var(--accent-color); }
         #loading-indicator.visible { display: block; }
         
-        /* Modal */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); flex-direction: column; justify-content: center; align-items: center; }
         .modal-content-container { max-width: 90%; max-height: 70vh; background: #fff; overflow: hidden; }
         #image-to-crop { display: block; max-width: 100%; }
@@ -162,30 +133,11 @@
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
-        /* 隱藏原生 input */
         #file-input, #camera-input { display: none; }
 
-
-.copyright-footer {
-    position: fixed;
-    bottom: 0;
-    right: 0;
-    padding: 5px 10px;
-    background-color: #f1f1f1;
-}
-
-.copyright-footer p {
-    margin: 0;
-    font-size: 14px;
-}
-
-@media (max-width: 600px) {
-    .copyright-footer p {
-        font-size: 12px;
-    }
-}
-
-        
+        .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: #f1f1f1; }
+        .copyright-footer p { margin: 0; font-size: 14px; }
+        @media (max-width: 600px) { .copyright-footer p { font-size: 12px; } }
     </style>
 </head>
 <body>
@@ -236,6 +188,9 @@
         // PDF Worker Setup
         if (typeof pdfjsLib !== 'undefined') pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
+        // 定義 GAS Exec URL
+        const GAS_API_URL = 'https://script.google.com/macros/s/AKfycby_bFZLYfPvfv5EUsbpnYE3I5NuB5wrGEnXU0ojmDMo7_GYFsR2uKKrTSES9Q4clJkVAg/exec';
+
         document.addEventListener('DOMContentLoaded', () => {
             const dom = {
                 inputArea: document.getElementById('image-input-area'),
@@ -277,9 +232,12 @@
             
             // Crop Events
             dom.btns.cropCancel.onclick = () => { dom.modal.self.style.display = 'none'; if(cropper) cropper.destroy(); };
-            dom.btns.cropConfirm.onclick = () => {
+            dom.btns.cropConfirm.onclick = async () => {
                 if(cropper && currentCropEl) {
-                    currentCropEl.src = cropper.getCroppedCanvas().toDataURL('image/jpeg', 0.9);
+                    // 裁切後也需要確保不超過 2MB
+                    const rawBase64 = cropper.getCroppedCanvas().toDataURL('image/jpeg', 0.95);
+                    const compressedBase64 = await resizeAndCompressImage(rawBase64);
+                    currentCropEl.src = compressedBase64;
                     dom.modal.self.style.display = 'none';
                     cropper.destroy();
                 }
@@ -290,15 +248,22 @@
                 if(!files.length) return;
                 
                 dom.loader.classList.add('visible');
-                dom.loader.textContent = "載入圖片中...";
+                dom.loader.textContent = "最佳化圖片中 (限制 2MB)...";
                 
                 for(let file of files) {
-                    if(file.type === 'application/pdf') {
-                        const pages = await processPdf(file);
-                        pages.forEach(addPreview);
-                    } else {
-                        const base64 = await readFile(file);
-                        addPreview(base64);
+                    try {
+                        if(file.type === 'application/pdf') {
+                            const pages = await processPdf(file);
+                            pages.forEach(addPreview);
+                        } else {
+                            const base64 = await readFile(file);
+                            // 圖片上傳也要壓縮
+                            const compressed = await resizeAndCompressImage(base64);
+                            addPreview(compressed);
+                        }
+                    } catch(err) {
+                        console.error("檔案處理失敗", err);
+                        alert(`檔案 ${file.name} 處理失敗: ` + err.message);
                     }
                 }
                 
@@ -355,114 +320,52 @@
                 });
             }
 
-          async function startOCR() {
-            // 1. 獲取所有待處理圖片
-            const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
-            if(!imgs.length) return;
+            /**
+             * 關鍵功能：智能壓縮
+             * 1. 檢查 Base64 大小
+             * 2. 若超過 limit (1.9MB)，降低品質
+             * 3. 若品質過低仍超標，則縮小尺寸
+             */
+            async function resizeAndCompressImage(base64Str, maxBytes = 1.9 * 1024 * 1024) {
+                // 簡易計算 Base64 大小 (bytes)
+                let sizeInBytes = (base64Str.length * 3) / 4; 
+                if (sizeInBytes <= maxBytes) return base64Str; // 合格直接回傳
 
-            // 2. 鎖定 UI 狀態
-            dom.btns.recognize.disabled = true;
-            dom.resultBox.classList.remove('visible');
-            dom.loader.classList.add('visible');
-            
-            let results = [];
-            
-            // 3. 逐張執行 OCR
-            for(let i=0; i<imgs.length; i++) {
-                dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
-                try {
-                    // 呼叫後端 API
-                    const res = await runGas(imgs[i].src, `ocr_${Date.now()}.jpg`);
-                    
-                    if(res.status === 'success') {
-                        results.push(res.text);
-                    } else {
-                        results.push(`[第 ${i+1} 頁錯誤: ${res.message}]`);
-                    }
-                } catch(err) {
-                    results.push(`[系統錯誤: ${err}]`);
-                }
-            }
-            
-            // 4. 組合結果並顯示
-            const finalContent = results.join('\n\n'); // 頁與頁之間空兩行
-            dom.resultText.textContent = finalContent;
-            dom.resultBox.classList.add('visible');
-            dom.loader.classList.remove('visible');
-            dom.btns.recognize.disabled = false;
-            dom.btns.recognize.textContent = "重新辨識";
-
-            // 5. 【核心修訂】訊息回傳機制 (確保只傳送一次)
-            const messageData = {
-                type: 'ocrResult',
-                text: finalContent
-            };
-
-            console.log("準備回傳文字:", messageData);
-
-            let targetWindow = null;
-
-            // 優先順序判斷，鎖定單一目標：
-            // A. 標準情況：透過 window.open 開啟的新視窗
-            if (window.opener && window.opener !== window) {
-                targetWindow = window.opener;
-            } 
-            // B. GAS 沙盒情況：即使在 iframe 中也能找到最上層的 opener
-            else if (window.top && window.top.opener && window.top.opener !== window.top) {
-                targetWindow = window.top.opener;
-            }
-            // C. 嵌入情況：如果是直接嵌入在 iframe 中
-            else if (window.parent && window.parent !== window) {
-                targetWindow = window.parent;
-            }
-
-            // 發送訊息並關閉
-            if (targetWindow) {
-                // 使用 '*' 允許跨網域溝通 (解決 GAS 網域不固定問題)
-                targetWindow.postMessage(messageData, '*');
-                
-                console.log("訊息已發送，視窗即將關閉...");
-                
-                // 成功發送後，給予極短緩衝時間再關閉，確保訊息傳出
-                setTimeout(() => {
-                    window.close();
-                }, 100);
-            } else {
-                // 如果沒有父視窗 (單獨開啟測試時)，保留在當前頁面顯示結果
-                console.log("無父視窗，保留在當前頁面顯示結果。");
-            }
-        }
-
-            // 1. 定義您的 GAS Exec URL
-const GAS_API_URL = 'https://script.google.com/macros/s/AKfycby_bFZLYfPvfv5EUsbpnYE3I5NuB5wrGEnXU0ojmDMo7_GYFsR2uKKrTSES9Q4clJkVAg/exec';
-
-// 2. 替換原本的 runGas 函式
-async function runGas(base64, name) {
-    // 移除 base64 頭部 (data:image/jpeg;base64,)
-    const content = base64.split(',')[1];
-    
-    // 使用 fetch 發送 POST 請求
-    const response = await fetch(GAS_API_URL, {
-        method: 'POST',
-        // 使用 text/plain 避免 Google 的 CORS 預檢 (Simple Request)
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-            imageContent: content,
-            filename: name,
-            mimeType: 'image/jpeg'
-        })
-    });
-
-    const result = await response.json();
-    return result;
-}
-
-            // Utils
-            function readFile(file) {
-                return new Promise(r => {
-                    const reader = new FileReader();
-                    reader.onload = e => r(e.target.result);
-                    reader.readAsDataURL(file);
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.src = base64Str;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        // 初始設置
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        let quality = 0.9;
+                        let newDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        
+                        // 循環壓縮
+                        while ((newDataUrl.length * 3 / 4) > maxBytes) {
+                            if (quality > 0.5) {
+                                // 階段一：只降品質
+                                quality -= 0.1;
+                            } else {
+                                // 階段二：降品質無效，開始縮圖
+                                width *= 0.9;
+                                height *= 0.9;
+                                canvas.width = width;
+                                canvas.height = height;
+                                ctx.drawImage(img, 0, 0, width, height); // 重畫
+                            }
+                            newDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        }
+                        console.log(`壓縮完成。原始: ${(sizeInBytes/1024/1024).toFixed(2)}MB, 結果: ${(newDataUrl.length*3/4/1024/1024).toFixed(2)}MB, 品質: ${quality.toFixed(1)}, 尺寸: ${Math.round(width)}x${Math.round(height)}`);
+                        resolve(newDataUrl);
+                    };
                 });
             }
 
@@ -472,14 +375,90 @@ async function runGas(base64, name) {
                 const pages = [];
                 for(let i=1; i<=pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
-                    const viewport = page.getViewport({scale: 2});
+                    
+                    // 【關鍵修改】這裡設定 scale: 2 甚至 2.5 來獲取高畫質
+                    // 雖然這會產生大檔案，但後面的 resizeAndCompressImage 會負責把它壓回 2MB 下
+                    const viewport = page.getViewport({scale: 2.5}); 
+                    
                     const canvas = document.createElement('canvas');
                     canvas.width = viewport.width;
                     canvas.height = viewport.height;
                     await page.render({canvasContext: canvas.getContext('2d'), viewport}).promise;
-                    pages.push(canvas.toDataURL('image/jpeg', 0.8));
+                    
+                    // 取得原始高畫質圖片
+                    const rawBase64 = canvas.toDataURL('image/jpeg', 0.95);
+                    
+                    // 進行智能壓縮 (確保 < 2MB)
+                    const optimizedBase64 = await resizeAndCompressImage(rawBase64);
+                    pages.push(optimizedBase64);
                 }
                 return pages;
+            }
+
+            async function runGas(base64, name) {
+                const content = base64.split(',')[1];
+                const response = await fetch(GAS_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({
+                        imageContent: content,
+                        filename: name,
+                        mimeType: 'image/jpeg'
+                    })
+                });
+                return await response.json();
+            }
+
+            async function startOCR() {
+                const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
+                if(!imgs.length) return;
+
+                dom.btns.recognize.disabled = true;
+                dom.resultBox.classList.remove('visible');
+                dom.loader.classList.add('visible');
+                
+                let results = [];
+                
+                for(let i=0; i<imgs.length; i++) {
+                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
+                    try {
+                        const res = await runGas(imgs[i].src, `ocr_${Date.now()}.jpg`);
+                        if(res.status === 'success') {
+                            results.push(res.text);
+                        } else {
+                            results.push(`[第 ${i+1} 頁錯誤: ${res.message}]`);
+                        }
+                    } catch(err) {
+                        results.push(`[系統錯誤: ${err}]`);
+                    }
+                }
+                
+                const finalContent = results.join('\n\n');
+                dom.resultText.textContent = finalContent;
+                dom.resultBox.classList.add('visible');
+                dom.loader.classList.remove('visible');
+                dom.btns.recognize.disabled = false;
+                dom.btns.recognize.textContent = "重新辨識";
+
+                const messageData = { type: 'ocrResult', text: finalContent };
+                
+                let targetWindow = null;
+                if (window.opener && window.opener !== window) targetWindow = window.opener;
+                else if (window.top && window.top.opener && window.top.opener !== window.top) targetWindow = window.top.opener;
+                else if (window.parent && window.parent !== window) targetWindow = window.parent;
+
+                if (targetWindow) {
+                    targetWindow.postMessage(messageData, '*');
+                    setTimeout(() => { window.close(); }, 100);
+                }
+            }
+
+            function readFile(file) {
+                return new Promise(r => {
+                    const reader = new FileReader();
+                    reader.onload = e => r(e.target.result);
+                    reader.readAsDataURL(file);
+                });
             }
 
             function copyText() {
@@ -490,10 +469,8 @@ async function runGas(base64, name) {
         });
     </script>
 
-<footer class="copyright-footer">
-<p>Copyright © 2025 陳冠健. All rights reserved.</p>
-</footer>
-
-    
+    <footer class="copyright-footer">
+        <p>Copyright © 2025 陳冠健. All rights reserved.</p>
+    </footer>
 </body>
 </html>
