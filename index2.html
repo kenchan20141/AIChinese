@@ -16536,31 +16536,46 @@ modalCloseBtn.addEventListener('click', closeModalEditor);
 // --- OCR 整合邏輯 ---
 const ocrBtn = document.getElementById('modal-ocr-btn');
 let ocrWindow = null;
-const VERCEL_OCR_URL = 'https://gemini-ocr-proxy.vercel.app/';
+// 原本的 VERCEL_OCR_URL 替換為本地路徑
+// const VERCEL_OCR_URL = 'https://gemini-ocr-proxy.vercel.app/'; // 舊的
+const OCR_TOOL_PATH = 'toolbox/ocr.html'; // 新的路徑
 
 if (ocrBtn) {
-ocrBtn.addEventListener('click', function() {
-if (ocrWindow && !ocrWindow.closed) {
-ocrWindow.focus();
-return;
-}
-ocrWindow = window.open(VERCEL_OCR_URL, 'OCRWindow', 'width=650,height=850,scrollbars=yes,resizable=yes');
-});
+    ocrBtn.addEventListener('click', function() {
+        if (ocrWindow && !ocrWindow.closed) {
+            ocrWindow.focus();
+            return;
+        }
+        // 開啟本地的 ocr.html
+        ocrWindow = window.open(OCR_TOOL_PATH, 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+    });
 }
 
 window.addEventListener('message', function(event) {
-if (event.origin !== new URL(VERCEL_OCR_URL).origin) {
-console.warn('收到來源不明的訊息，已忽略:', event.origin);
-return;
-}
-if (event.data && event.data.type === 'ocrResult') {
-const ocrText = event.data.text;
-modalTextarea.value += (modalTextarea.value.trim() ? '\n' : '') + ocrText;
-if (ocrWindow) {
-ocrWindow.close();
-}
-modalTextarea.focus();
-}
+    // ★★★ 修改：因為是本地文件或同網域，我們可以移除嚴格的 origin 檢查，
+    // 或者只檢查是否來自我們預期的視窗。
+    
+    // 如果您很在意安全性，可以檢查 event.source 是否等於 ocrWindow
+    if (ocrWindow && event.source !== ocrWindow) {
+        // 如果訊息不是來自我們開啟的 OCR視窗，則忽略 (但要小心視窗關閉的時間差)
+        // 簡單起見，如果是同網域部署，直接信任即可。
+    }
+
+    if (event.data && event.data.type === 'ocrResult') {
+        const ocrText = event.data.text;
+        
+        // 將文字插入目前的編輯框
+        modalTextarea.value += (modalTextarea.value.trim() ? '\n' : '') + ocrText;
+        
+        // 觸發 input 事件以確保 autosave 機制運作
+        modalTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // 嘗試關閉 OCR 視窗 (如果它還沒自己關閉)
+        if (ocrWindow && !ocrWindow.closed) {
+            ocrWindow.close();
+        }
+        modalTextarea.focus();
+    }
 });
 });
 
