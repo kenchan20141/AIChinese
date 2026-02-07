@@ -23643,12 +23643,15 @@ recognition.onresult = (event) => {
         '資源': { display: '自學資源', action: () => triggerTool('self-learning') }
     };
 
-    // 核心邏輯：攔截錯字
+   // ★ 關鍵修訂：將所有關鍵字按字數「由長到短」排序 ★
+    const sortedKeywords = Object.keys(voiceCommands).sort((a, b) => b.length - a.length);
+
     let foundMatch = null;
-    for (const [key, command] of Object.entries(voiceCommands)) {
+    // 依照排序後的順序進行比對
+    for (const key of sortedKeywords) {
         if (transcript.includes(key)) {
-            foundMatch = command;
-            break;
+            foundMatch = voiceCommands[key];
+            break; // 找到最精確（最長）的匹配後立即停止
         }
     }
 
@@ -23656,6 +23659,7 @@ recognition.onresult = (event) => {
         if (foundMatch) {
             statusText.innerText = `正在跳轉: ${foundMatch.display}`;
             if (navigator.vibrate) navigator.vibrate([30, 30, 30]);
+            
             setTimeout(() => {
                 foundMatch.action();
                 stopListening();
