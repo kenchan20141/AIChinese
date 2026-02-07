@@ -326,10 +326,33 @@
              * 2. 若超過 limit (1.9MB)，降低品質
              * 3. 若品質過低仍超標，則縮小尺寸
              */
-            async function resizeAndCompressImage(base64Str, maxBytes = 1.9 * 1024 * 1024) {
-                // 簡易計算 Base64 大小 (bytes)
-                let sizeInBytes = (base64Str.length * 3) / 4; 
-                if (sizeInBytes <= maxBytes) return base64Str; // 合格直接回傳
+           async function resizeAndCompressImage(base64Str, maxBytes = 1.9 * 1024 * 1024) {
+                // 1. 定義影像處理函數 (將圖片轉為純黑白，去除陰影)
+                function applyBinarization(ctx, width, height) {
+                    // 取得像素資料
+                    const imageData = ctx.getImageData(0, 0, width, height);
+                    const data = imageData.data;
+                    
+                    // 設定閾值 (0-255)，數值越高越容易變黑，越低越容易變白
+                    // 160-180 是一個適合白紙黑字的數值
+                    const threshold = 170; 
+
+                    for (let i = 0; i < data.length; i += 4) {
+                        // 取得 RGB 平均值 (灰階化)
+                        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                        
+                        // 二值化邏輯：如果亮度超過閾值則變全白，否則變全黑
+                        // 這能有效去除紙張皺褶陰影和泛黃背景
+                        const value = avg > threshold ? 255 : 0;
+                        
+                        data[i] = value;     // R
+                        data[i + 1] = value; // G
+                        data[i + 2] = value; // B
+                        // data[i + 3] 是 Alpha (透明度)，保持不變
+                    }
+                    // 將處理後的像素放回 Canvas
+                    ctx.putImageData(imageData, 0, 0);
+                }
 
                 return new Promise((resolve) => {
                     const img = new Image();
@@ -343,15 +366,23 @@
                         canvas.width = width;
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
+                        
+                        // A. 繪製原始圖片
                         ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // B. 【新增】應用二值化濾鏡 (讓文字變黑，背景變全白)
+                        applyBinarization(ctx, width, height);
                         
                         let quality = 0.9;
                         let newDataUrl = canvas.toDataURL('image/jpeg', quality);
                         
-                        // 循環壓縮
-                        while ((newDataUrl.length * 3 / 4) > maxBytes) {
+                        // 簡易計算大小 (byte)
+                        let currentSize = (newDataUrl.length * 3) / 4;
+
+                        // 循環壓縮 (如果處理後檔案仍太大)
+                        while (currentSize > maxBytes) {
                             if (quality > 0.5) {
-                                // 階段一：只降品質
+                                // 階段一：只降品質 (不需要重畫 Canvas，直接重新輸出)
                                 quality -= 0.1;
                             } else {
                                 // 階段二：降品質無效，開始縮圖
@@ -359,11 +390,18 @@
                                 height *= 0.9;
                                 canvas.width = width;
                                 canvas.height = height;
-                                ctx.drawImage(img, 0, 0, width, height); // 重畫
+                                
+                                // 縮圖後必須重畫
+                                ctx.drawImage(img, 0, 0, width, height);
+                                // 【重要】重畫後必須再次應用濾鏡
+                                applyBinarization(ctx, width, height);
                             }
+                            
                             newDataUrl = canvas.toDataURL('image/jpeg', quality);
+                            currentSize = (newDataUrl.length * 3) / 4;
                         }
-                        console.log(`壓縮完成。原始: ${(sizeInBytes/1024/1024).toFixed(2)}MB, 結果: ${(newDataUrl.length*3/4/1024/1024).toFixed(2)}MB, 品質: ${quality.toFixed(1)}, 尺寸: ${Math.round(width)}x${Math.round(height)}`);
+                        
+                        console.log(`影像處理完成。尺寸: ${Math.round(width)}x${Math.round(height)}, 大小: ${(currentSize/1024/1024).toFixed(2)}MB`);
                         resolve(newDataUrl);
                     };
                 });
@@ -467,7 +505,21 @@
                     .catch(() => alert('複製失敗'));
             }
         });
+
+
+
+
+
+
+
+
+        
     </script>
+
+
+
+
+    
 
     <footer class="copyright-footer">
         <p>Copyright © 2025 陳冠健. All rights reserved.</p>
