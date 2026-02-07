@@ -16551,32 +16551,58 @@ if (ocrBtn) {
     });
 }
 
-window.addEventListener('message', function(event) {
-    // ★★★ 修改：因為是本地文件或同網域，我們可以移除嚴格的 origin 檢查，
-    // 或者只檢查是否來自我們預期的視窗。
+// ▼▼▼▼▼ 貼上這段新代碼 ▼▼▼▼▼
+
+// === OCR 訊息接收監聽器 (防重複版) ===
+// 定義一個處理函式，而不是匿名函式，這樣比較好管理
+function handleOCRMessage(event) {
+    // 1. 安全檢查 (放寬 Origin 檢查，但過濾非 OCR 訊息)
+    if (!event.data || event.data.type !== 'ocrResult') return;
+
+    console.log("收到 OCR 文字:", event.data.text);
+
+    // 2. 獲取當前編輯框 (如果您有使用 sessionStorage 記錄 ID)
+    let targetId = sessionStorage.getItem('sansi_current_editing_id');
+    let targetEl = null;
+
+    if (targetId) {
+        targetEl = document.getElementById(targetId);
+    } 
     
-    // 如果您很在意安全性，可以檢查 event.source 是否等於 ocrWindow
-    if (ocrWindow && event.source !== ocrWindow) {
-        // 如果訊息不是來自我們開啟的 OCR視窗，則忽略 (但要小心視窗關閉的時間差)
-        // 簡單起見，如果是同網域部署，直接信任即可。
+    // 如果找不到指定的框，就用懸浮視窗的框
+    if (!targetEl) {
+        targetEl = document.getElementById('modal-textarea');
     }
 
-    if (event.data && event.data.type === 'ocrResult') {
-        const ocrText = event.data.text;
+    if (targetEl) {
+        // 3. 插入文字 (自動換行)
+        const newText = event.data.text;
+        const currentVal = targetEl.value;
         
-        // 將文字插入目前的編輯框
-        modalTextarea.value += (modalTextarea.value.trim() ? '\n' : '') + ocrText;
+        // 如果原本有字，且不是以換行結尾，補一個換行
+        const prefix = (currentVal && !currentVal.endsWith('\n')) ? '\n' : '';
         
-        // 觸發 input 事件以確保 autosave 機制運作
-        modalTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        targetEl.value += prefix + newText;
 
-        // 嘗試關閉 OCR 視窗 (如果它還沒自己關閉)
-        if (ocrWindow && !ocrWindow.closed) {
+        // 4. 觸發 input 事件 (確保 autosave 運作)
+        targetEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // 5. 嘗試關閉 OCR 視窗 (如果它還開著)
+        // 注意：這裡假設 ocrWindow 是全域變數
+        if (typeof ocrWindow !== 'undefined' && ocrWindow && !ocrWindow.closed) {
             ocrWindow.close();
         }
-        modalTextarea.focus();
+        
+        // 6. 聚焦回輸入框
+        targetEl.focus();
     }
-});
+}
+
+// ★★★ 關鍵：先移除舊的監聽器 (防止重複綁定)，再加入新的 ★★★
+window.removeEventListener('message', handleOCRMessage);
+window.addEventListener('message', handleOCRMessage);
+
+// ▲▲▲▲▲ 貼上結束 ▲▲▲▲▲
 });
 
 /**
