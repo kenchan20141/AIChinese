@@ -5096,32 +5096,54 @@ document.addEventListener('DOMContentLoaded', function() {
     const originalFetch = window.fetch;
     const TARGET_URL_PART = "script.google.com"; // 攔截所有發往 GAS 的請求
 
-   window.fetch = async function(url, options) {
-    // 1. 檢查是否為目標請求且包含 body
-    if (typeof url === 'string' && url.includes(TARGET_URL_PART) && 
-        options && options.method === 'POST' && options.body) {
-        
-        try {
-            // 獲取 User 並注入 Token
-            const user = firebase.auth().currentUser || await new Promise(r => {
-                const unsub = firebase.auth().onAuthStateChanged(u => { unsub(); r(u); });
-                setTimeout(() => r(null), 2000);
+    window.fetch = async function(url, options) {
+        // 1. 檢查是否為發往後端的 POST 請求
+        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
+            
+            console.log("[Interceptor] 偵測到後端請求，準備注入 Token...");
+
+            // 2. 等待並獲取最新的 Firebase User (解決初始化時間差)
+            const user = await new Promise((resolve) => {
+                // 如果 currentUser 已存在，直接返回
+                if (firebase.auth().currentUser) {
+                    resolve(firebase.auth().currentUser);
+                } else {
+                    // 否則等待狀態變化 (最多等 2 秒)
+                    const unsubscribe = firebase.auth().onAuthStateChanged(u => {
+                        unsubscribe();
+                        resolve(u);
+                    });
+                    // 超時機制：如果 2 秒沒反應，假設未登入
+                    setTimeout(() => resolve(null), 2000);
+                }
             });
 
             if (user) {
-                const token = await user.getIdToken(true);
-                // 安全地解析與注入
-                let bodyData = JSON.parse(options.body);
-                bodyData.token = token;
-                options.body = JSON.stringify(bodyData);
+                try {
+                    // 3. 強制刷新並獲取 Token
+                    const token = await user.getIdToken(true);
+                    
+                    // 4. 解析原本的 Body 並注入 Token
+                    let bodyData = JSON.parse(options.body);
+                    bodyData.token = token; // ★ 強制注入
+                    
+                    // 5. 更新 Body
+                    options.body = JSON.stringify(bodyData);
+                    console.log("[Interceptor] Token 注入成功！");
+                } catch (e) {
+                    console.error("[Interceptor] Token 獲取失敗:", e);
+                    // 這裡不阻擋請求，讓後端去報錯，或者你可以選擇在這裡 alert
+                }
+            } else {
+                console.warn("[Interceptor] 用戶未登入，無法注入 Token");
+                // 這裡可以選擇直接 return Promise.reject("未登入") 來阻止請求發送
             }
-        } catch (e) {
-            console.error("[Interceptor Error]:", e);
-            // 發生解析錯誤時不干擾原始請求，直接發送
         }
-    }
-    return originalFetch(url, options);
-};
+        
+        // 6. 執行原始請求
+        return originalFetch(url, options);
+    };
+})();
 
 
 
