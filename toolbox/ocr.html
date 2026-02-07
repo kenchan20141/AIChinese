@@ -333,78 +333,83 @@
                 });
             }
 
-           async function startOCR() {
-                const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
-                if(!imgs.length) return;
+          async function startOCR() {
+            // 1. 獲取所有待處理圖片
+            const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
+            if(!imgs.length) return;
 
-                dom.btns.recognize.disabled = true;
-                dom.resultBox.classList.remove('visible');
-                dom.loader.classList.add('visible');
-                
-                let results = [];
-                
-                for(let i=0; i<imgs.length; i++) {
-                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
-                    try {
-                        const res = await runGas(imgs[i].src, `ocr_${Date.now()}.jpg`);
-                        if(res.status === 'success') {
-                            results.push(res.text);
-                        } else {
-                            results.push(`[第 ${i+1} 頁錯誤: ${res.message}]`);
-                        }
-                    } catch(err) {
-                        results.push(`[系統錯誤: ${err}]`);
+            // 2. 鎖定 UI 狀態
+            dom.btns.recognize.disabled = true;
+            dom.resultBox.classList.remove('visible');
+            dom.loader.classList.add('visible');
+            
+            let results = [];
+            
+            // 3. 逐張執行 OCR
+            for(let i=0; i<imgs.length; i++) {
+                dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
+                try {
+                    // 呼叫後端 API
+                    const res = await runGas(imgs[i].src, `ocr_${Date.now()}.jpg`);
+                    
+                    if(res.status === 'success') {
+                        results.push(res.text);
+                    } else {
+                        results.push(`[第 ${i+1} 頁錯誤: ${res.message}]`);
                     }
+                } catch(err) {
+                    results.push(`[系統錯誤: ${err}]`);
                 }
-                
-                const finalContent = results.join('\n\n'); // 頁與頁之間空兩行
-                dom.resultText.textContent = finalContent;
-                dom.resultBox.classList.add('visible');
-                dom.loader.classList.remove('visible');
-                dom.btns.recognize.disabled = false;
-                dom.btns.recognize.textContent = "重新辨識";
-
-                // ★★★ 核心修正：針對 GAS 環境的通訊機制 ★★★
-                const messageData = {
-                    type: 'ocrResult',
-                    text: finalContent
-                };
-
-                console.log("嘗試回傳文字...", messageData);
-
-                // GAS 的 Web App 運行在 iframe 中，且可能發生網域跳轉
-                // 我們嘗試向所有可能的父層發送訊息
-                const targets = [
-                    window.opener,       // 一般情況
-                    window.top.opener,   // GAS 沙盒穿透 (關鍵)
-                    window.parent        // 如果是嵌入模式
-                ];
-
-                let sent = false;
-                targets.forEach(target => {
-                    if (target && target !== window) {
-                        // 使用 '*' 允許跨網域發送 (因為 GAS 的網域是不固定的)
-                        target.postMessage(messageData, '*');
-                        sent = true;
-                    }
-                });
-
-              // 確保向開啟者 (神思主頁面) 發送訊息
-if (window.opener) {
-    window.opener.postMessage(messageData, '*');
-    sent = true;
-}
-
-if (sent) {
-    // 成功後提示並自動關閉 (提升體驗)
-    // navigator.clipboard.writeText(finalContent).catch(()=>{}); // 可選：寫入剪貼簿
-    // alert("辨識完成！"); // 可選：是否要彈出提示
-    window.close(); // 直接關閉視窗，讓使用者回到神思看到結果
-} else {
-    // 如果是單獨開啟此頁面測試
-    alert("辨識完成！\n" + finalContent);
-}
             }
+            
+            // 4. 組合結果並顯示
+            const finalContent = results.join('\n\n'); // 頁與頁之間空兩行
+            dom.resultText.textContent = finalContent;
+            dom.resultBox.classList.add('visible');
+            dom.loader.classList.remove('visible');
+            dom.btns.recognize.disabled = false;
+            dom.btns.recognize.textContent = "重新辨識";
+
+            // 5. 【核心修訂】訊息回傳機制 (確保只傳送一次)
+            const messageData = {
+                type: 'ocrResult',
+                text: finalContent
+            };
+
+            console.log("準備回傳文字:", messageData);
+
+            let targetWindow = null;
+
+            // 優先順序判斷，鎖定單一目標：
+            // A. 標準情況：透過 window.open 開啟的新視窗
+            if (window.opener && window.opener !== window) {
+                targetWindow = window.opener;
+            } 
+            // B. GAS 沙盒情況：即使在 iframe 中也能找到最上層的 opener
+            else if (window.top && window.top.opener && window.top.opener !== window.top) {
+                targetWindow = window.top.opener;
+            }
+            // C. 嵌入情況：如果是直接嵌入在 iframe 中
+            else if (window.parent && window.parent !== window) {
+                targetWindow = window.parent;
+            }
+
+            // 發送訊息並關閉
+            if (targetWindow) {
+                // 使用 '*' 允許跨網域溝通 (解決 GAS 網域不固定問題)
+                targetWindow.postMessage(messageData, '*');
+                
+                console.log("訊息已發送，視窗即將關閉...");
+                
+                // 成功發送後，給予極短緩衝時間再關閉，確保訊息傳出
+                setTimeout(() => {
+                    window.close();
+                }, 100);
+            } else {
+                // 如果沒有父視窗 (單獨開啟測試時)，保留在當前頁面顯示結果
+                console.log("無父視窗，保留在當前頁面顯示結果。");
+            }
+        }
 
             // 1. 定義您的 GAS Exec URL
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycby_bFZLYfPvfv5EUsbpnYE3I5NuB5wrGEnXU0ojmDMo7_GYFsR2uKKrTSES9Q4clJkVAg/exec';
