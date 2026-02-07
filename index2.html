@@ -23324,7 +23324,6 @@ function enterFeaturedFromMenu() {
 </script>
 
 
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // 1. 設定與變數
@@ -23351,14 +23350,61 @@ document.addEventListener('DOMContentLoaded', function() {
     recognition.maxAlternatives = 1;
 
     // --- 核心：智慧判斷點擊位置 ---
-    function isValidTarget(target) {
-        if (['INPUT', 'TEXTAREA', 'BUTTON', 'A', 'SELECT', 'OPTION'].includes(target.tagName)) return false;
-        if (target.isContentEditable) return false;
-        const selection = window.getSelection();
-        if (selection.toString().length > 0) return false;
-        return true;
+   // 1. 修正目標判定：允許在語薈的節點 (.node) 上長按
+// 1. 修正目標判定：允許在語薈的節點 (.node) 上長按
+function isValidTarget(target) {
+    // 如果是在語薈的節點 (.node) 或其子元素上長按，允許觸發
+    if (target.closest('.node')) return true;
+    
+    // 排除輸入框、按鈕等互動元素
+    if (['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT', 'OPTION'].includes(target.tagName)) return false;
+    
+    // 如果是普通 A 標籤且不在 .node 內，則不允許（避免跟普通超連結衝突）
+    if (target.tagName === 'A' && !target.closest('.node')) return false;
+    
+    if (target.isContentEditable) return false;
+    const selection = window.getSelection();
+    if (selection.toString().length > 0) return false;
+    return true;
+}
+
+
+function handleCommands(transcript) {
+    let match = false;
+    const statusText = document.getElementById('voiceStatusText');
+    
+    // 遍歷所有定義的語音關鍵字
+    for (const [keyword, command] of Object.entries(voiceCommands)) {
+        // 如果辨識到的文字包含關鍵字
+        if (transcript.includes(keyword)) {
+            // 1. 震動回饋
+            if (navigator.vibrate) navigator.vibrate([30, 30, 30]);
+            
+            // 2. ★ 修正顯示文字：改為我們預設的正確工具名
+            if (statusText) {
+                statusText.innerText = `跳轉: ${command.display}`;
+            }
+            
+            // 3. 延遲一下讓用家看清楚「修正後」的文字，然後執行動作
+            setTimeout(() => {
+                command.action();
+                stopListening(); // 執行完動作後關閉語音介面
+            }, 600);
+            
+            match = true;
+            break; 
+        }
     }
 
+    if (!match) {
+        if (statusText) statusText.innerText = "未能識別指令";
+        // 如果沒對中，1.5秒後自動關閉
+        setTimeout(stopListening, 1500);
+    }
+}
+
+
+	
     // --- 啟動語音 ---
     function startListening() {
         isLongPressing = true;
@@ -23419,73 +23465,167 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('mouseleave', handleEnd);
 
     // --- 語音識別結果處理 (優化版) ---
-    recognition.onresult = (event) => {
-        // 取得最新的一段識別結果
-        const result = event.results[event.resultIndex];
-        const transcript = result[0].transcript;
-        
-        // ★★★ 關鍵修改 2：即時顯示使用者正在說的話 ★★★
-        statusText.innerText = transcript; 
+// 2. 修正識別與跳轉邏輯
+recognition.onresult = (event) => {
+    const result = event.results[event.resultIndex];
+    const transcript = result[0].transcript.trim();
+    const statusText = document.getElementById('voiceStatusText');
 
-        // 如果這句還沒講完 (isFinal = false)，就不執行指令匹配，只顯示文字
-        if (!result.isFinal) return;
+    // 輔助函式：模擬點擊語薈中的工具連結
+    const triggerTool = (toolId) => {
+        // 先判斷語薈是否已開啟
+        const toolsContainer = document.getElementById('toolsContainer2');
+        const isAlreadyOpen = toolsContainer && toolsContainer.style.display === 'flex';
 
-        console.log("語音最終結果:", transcript);
+        if (!isAlreadyOpen) {
+            const expandBtn = document.getElementById('expandToolsBtn2');
+            if (expandBtn) expandBtn.click();
+        }
 
-        // 指令映射表
-        const commands = {
-            '作家文粹': () => checkFeaturedAccess(),
-            '文粹': () => checkFeaturedAccess(),
-            '文章': () => checkFeaturedAccess(),
-            
-            '主頁': () => returnToHome(),
-            '返去': () => returnToHome(),
-            '首頁': () => returnToHome(),
-
-            '寫作': () => document.getElementById('writingBtn').click(),
-            '敘事': () => document.getElementById('writingBtn').click(),
-            
-            '閱讀': () => document.getElementById('readingBtn').click(),
-            
-            '議論': () => document.getElementById('argumentBtn').click(),
-            
-            '拓展': () => document.getElementById('expandBtn').click(),
-            '整合': () => document.getElementById('expandBtn').click(),
-            
-            '歷史': () => openHistoryContainer(),
-            '紀錄': () => openHistoryContainer(),
-            
-            '雲端': () => openStudentLoginModal(),
-            '功課': () => openStudentLoginModal(),
-            
-            '語薈': () => document.getElementById('expandToolsBtn2').click(),
-            '工具': () => document.getElementById('expandToolsBtn2').click(),
-            
-            '音樂': () => toggleMusicPlayer(),
-            '開歌': () => toggleMusicPlayer()
-        };
-
-        let match = false;
-        for (const [key, action] of Object.entries(commands)) {
-            if (transcript.includes(key)) {
-                if (navigator.vibrate) navigator.vibrate([30, 30, 30]);
-                statusText.innerText = `正在跳轉: ${key}`;
-                setTimeout(() => {
-                    action();
-                    stopListening();
-                }, 500);
-                match = true;
-                break;
+        // 延遲執行以等待 DOM 或動畫就緒
+        setTimeout(() => {
+            const link = document.querySelector(`a[data-tool-id="${toolId}"]`);
+            if (link) {
+                // 如果預覽視窗開著，先關閉它
+                if (typeof closePreviewModal === 'function') closePreviewModal();
+                link.click();
             }
-        }
-
-        if (!match) {
-            statusText.innerText = "??? (未識別指令)";
-            // 識別失敗後稍等一下再關閉，讓用戶看到問號
-            setTimeout(stopListening, 1500);
-        }
+        }, isAlreadyOpen ? 100 : 400);
     };
 
+    // 指令映射表（完整保留您提供的版本）
+    const voiceCommands = {
+        // --- 頂層主功能 ---
+        '作家文粹': { display: '作家文粹', action: () => checkFeaturedAccess() },
+        '作家': { display: '作家文粹', action: () => checkFeaturedAccess() },
+        '文粹': { display: '作家文粹', action: () => checkFeaturedAccess() },
+        '文章': { display: '作家文粹', action: () => checkFeaturedAccess() },
+        '主頁': { display: '返回主頁', action: () => returnToHome() },
+        '返回': { display: '返回主頁', action: () => returnToHome() },
+        '首頁': { display: '返回主頁', action: () => returnToHome() },
+        '作文': { display: '敘事抒情', action: () => document.getElementById('writingBtn').click() },
+        '敘事': { display: '敘事抒情', action: () => document.getElementById('writingBtn').click() },
+        '敘事抒情': { display: '敘事抒情', action: () => document.getElementById('writingBtn').click() },
+        '閱讀': { display: '閱讀', action: () => document.getElementById('readingBtn').click() },
+        '議論': { display: '議論', action: () => document.getElementById('argumentBtn').click() },
+        '議論文': { display: '議論', action: () => document.getElementById('argumentBtn').click() },
+        '拓展': { display: '整合拓展', action: () => document.getElementById('expandBtn').click() },
+        '整合': { display: '整合拓展', action: () => document.getElementById('expandBtn').click() },
+        '歷史': { display: '歷史紀錄', action: () => openHistoryContainer() },
+        '紀錄': { display: '歷史紀錄', action: () => openHistoryContainer() },
+        '雲端': { display: '雲端同步', action: () => openStudentLoginModal() },
+        '功課': { display: '雲端同步', action: () => openStudentLoginModal() },
+        '語薈': { display: '語薈', action: () => document.getElementById('expandToolsBtn2').click() },
+        '工具': { display: '語薈', action: () => document.getElementById('expandToolsBtn2').click() },
+        '與會': { display: '語薈', action: () => document.getElementById('expandToolsBtn2').click() },
+        '月會': { display: '語薈', action: () => document.getElementById('expandToolsBtn2').click() },
+        '音樂': { display: '音樂播放器', action: () => toggleMusicPlayer() },
+        '歌': { display: '音樂播放器', action: () => toggleMusicPlayer() },
+
+        // --- 語薈：應試與課外探索 ---
+        '題孳': { display: '題孳', action: () => triggerTool('tizi') },
+        '體脂': { display: '題孳', action: () => triggerTool('tizi') },
+        '出題': { display: '題孳', action: () => triggerTool('tizi') },
+        '擬題': { display: '題孳', action: () => triggerTool('tizi') },
+        '文學片段': { display: '文學片段', action: () => triggerTool('reading-pieces') },
+        '文學': { display: '文學片段', action: () => triggerTool('reading-pieces') },
+        '片段': { display: '文學片段', action: () => triggerTool('reading-pieces') },
+        '文樞': { display: '文樞', action: () => triggerTool('mensyu') },
+        '文書': { display: '文樞', action: () => triggerTool('mensyu') },
+        '翻譯': { display: '文樞', action: () => triggerTool('mensyu') },
+        '文言文': { display: '文樞', action: () => triggerTool('mensyu') },
+        '慢讀': { display: '慢讀', action: () => triggerTool('slowreading') },
+        '萬毒': { display: '慢讀', action: () => triggerTool('slowreading') },
+        '專題探究': { display: '專題探究', action: () => triggerTool('study') },
+        '探究': { display: '專題探究', action: () => triggerTool('study') },
+        '研究': { display: '專題探究', action: () => triggerTool('study') },
+        '一瞬之詩': { display: '一瞬之詩', action: () => triggerTool('wabisabi') },
+        '一瞬': { display: '一瞬之詩', action: () => triggerTool('wabisabi') },
+        '詩意': { display: '一瞬之詩', action: () => triggerTool('wabisabi') },
+        '書籍概覽': { display: '書籍概覽', action: () => triggerTool('book-overview') },
+        '詞海拾心': { display: '詞海拾心', action: () => triggerTool('lyrics') },
+        '詞海': { display: '詞海拾心', action: () => triggerTool('lyrics') },
+        '辭海': { display: '詞海拾心', action: () => triggerTool('lyrics') },
+        '歌詞': { display: '詞海拾心', action: () => triggerTool('lyrics') },
+        '遊戲': { display: '詞海拾心', action: () => triggerTool('lyrics') },
+
+        // --- 語薈：寫作創作相關 ---
+        '翻水': { display: '翻水', action: () => triggerTool('fanshui-narrative') },
+        '番薯': { display: '翻水', action: () => triggerTool('fanshui-narrative') },
+        '範文': { display: '翻水', action: () => triggerTool('fanshui-narrative') },
+        '原稿紙': { display: '原稿紙', action: () => triggerTool('manuscript') },
+        '字斟句酌': { display: '字斟句酌', action: () => triggerTool('words') },
+        '自針巨著': { display: '字斟句酌', action: () => triggerTool('words') },
+        '潤色': { display: '字斟句酌', action: () => triggerTool('words') },
+        '幻燈片': { display: '幻燈片', action: () => triggerTool('slideshow') },
+        '展示': { display: '幻燈片', action: () => triggerTool('slideshow') },
+
+        // --- 語薈：閱讀溫習 ---
+        '語弈錄': { display: '語弈錄', action: () => triggerTool('yuyilu') },
+        '乳液龍': { display: '語弈錄', action: () => triggerTool('yuyilu') },
+        '課文溫習': { display: '語弈錄', action: () => triggerTool('yuyilu') },
+        '計時器': { display: '背書神器', action: () => triggerTool('timer') },
+        '背書': { display: '背書神器', action: () => triggerTool('timer') },
+
+        // --- 語薈：實用工具與流程 ---
+        '帙雲': { display: '帙雲', action: () => triggerTool('zhiyun') },
+        '奪魂': { display: '帙雲', action: () => triggerTool('zhiyun') },
+        '疊雲': { display: '帙雲', action: () => triggerTool('zhiyun') },
+        '琢玉': { display: '琢玉', action: () => triggerTool('zhuoyu') },
+        '剁肉': { display: '琢玉', action: () => triggerTool('zhuoyu') },
+        '批閱': { display: '琢玉', action: () => triggerTool('zhuoyu') },
+        '搶答器': { display: '搶答器', action: () => triggerTool('quizbuzzer') },
+        '脈問堂': { display: '脈問堂', action: () => triggerTool('pulseqa') },
+        '麥問堂': { display: '脈問堂', action: () => triggerTool('pulseqa') },
+        '文字轉換': { display: '文字轉換 (OCR)', action: () => triggerTool('ocr') },
+        'OCR': { display: '文字轉換 (OCR)', action: () => triggerTool('ocr') },
+        '手寫': { display: '文字轉換 (OCR)', action: () => triggerTool('ocr') },
+        '電子書': { display: '電子書', action: () => triggerTool('epub') },
+        '分貝計': { display: '分貝計', action: () => triggerTool('decibelmeter') },
+        '量度': { display: '分貝計', action: () => triggerTool('decibelmeter') },
+        '以文會友': { display: '以文會友', action: () => triggerTool('friends') },
+        '指紋會有': { display: '以文會友', action: () => triggerTool('friends') },
+        '交友': { display: '以文會友', action: () => triggerTool('friends') },
+
+        // --- 語薈：學習支援 (AI 聊天室) ---
+        '喻蛋': { display: '喻蛋教室', action: () => triggerTool('chitutor') },
+        '魚蛋': { display: '喻蛋教室', action: () => triggerTool('chitutor') },
+        '史萊姆': { display: '史萊姆教室', action: () => triggerTool('histutor') },
+        '解憂': { display: '解憂雜貨店', action: () => triggerTool('counseling') },
+        '雜貨店': { display: '解憂雜貨店', action: () => triggerTool('counseling') },
+        '自學': { display: '自學資源', action: () => triggerTool('self-learning') },
+        '資源': { display: '自學資源', action: () => triggerTool('self-learning') }
+    };
+
+    // 核心邏輯：攔截錯字
+    let foundMatch = null;
+    for (const [key, command] of Object.entries(voiceCommands)) {
+        if (transcript.includes(key)) {
+            foundMatch = command;
+            break;
+        }
+    }
+
+    if (result.isFinal) {
+        if (foundMatch) {
+            statusText.innerText = `正在跳轉: ${foundMatch.display}`;
+            if (navigator.vibrate) navigator.vibrate([30, 30, 30]);
+            setTimeout(() => {
+                foundMatch.action();
+                stopListening();
+            }, 500);
+        } else {
+            statusText.innerText = transcript + " (未識別)";
+            setTimeout(stopListening, 1500);
+        }
+    } else {
+        if (foundMatch) {
+            statusText.innerText = `識別到: ${foundMatch.display}`;
+        } else {
+            statusText.innerText = transcript;
+        }
+    }
+};
     // --- 錯誤處理 (優化版) ---
     recognition.onerror = (e) => {
         console.error("語音錯誤:", e.error);
@@ -23512,6 +23652,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 });
 </script>
+	
 	
 
 
