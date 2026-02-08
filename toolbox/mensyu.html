@@ -4,9 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>文樞</title>
+
+
+
+	
 <link rel="manifest" href="manifest.json">
 
 
+<!-- 引入 jsonrepair 函式庫，用於修復不完美的 JSON -->
+<script src="https://cdn.jsdelivr.net/npm/jsonrepair/lib/umd/jsonrepair.min.js"></script>
+	
 <!-- 引入 Font Awesome 圖示庫 -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
 
@@ -2273,51 +2280,55 @@ async function callApi(prompt) {
 // ===============================================================
 // 1. 強力 JSON 提取與清洗函數 (修訂版：防止崩潰核心)
 // ===============================================================
+// ===============================================================
+// 1. 強力 JSON 提取與清洗函數 (jsonrepair 優化版)
+// ===============================================================
 function extractJson(text) {
     if (!text) throw new Error("API 回應為空");
     let cleanText = text;
- 
-    // --- 步驟 1: 移除 <think>...</think> 思考過程 ---
-    // DeepSeek 經常會輸出思考過程，必須先移除
+
+    // --- 步驟 1: 移除 <think>...</think> 思考過程 (DeepSeek 特性) ---
     cleanText = cleanText.replace(/<think>[\s\S]*?<\/think>/gi, '');
- 
+
     // --- 步驟 2: 移除 Markdown 標記 ---
     cleanText = cleanText.replace(/```json/gi, '').replace(/```/g, '');
- 
-    // --- 步驟 3: 鎖定 JSON 範圍 ({ ... }) ---
-    const startIndex = cleanText.indexOf('{');
-    const endIndex = cleanText.lastIndexOf('}');
-    
+
+    // --- 步驟 3: 鎖定 JSON 範圍 ({ ... } 或 [ ... ]) ---
+    // 有時候 AI 會回傳陣列，有時候是物件，這裡做一個簡單的判斷
+    const firstObj = cleanText.indexOf('{');
+    const firstArr = cleanText.indexOf('[');
+    let startIndex = -1;
+    let endIndex = -1;
+
+    // 判斷是物件還是陣列在前面
+    if (firstObj !== -1 && (firstArr === -1 || firstObj < firstArr)) {
+        startIndex = firstObj;
+        endIndex = cleanText.lastIndexOf('}');
+    } else if (firstArr !== -1) {
+        startIndex = firstArr;
+        endIndex = cleanText.lastIndexOf(']');
+    }
+
     if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
-        console.warn("清洗後未發現 JSON 結構，嘗試從原始文本提取...");
-        // 兜底：如果清洗過頭，嘗試回原本的 text 找
-        const rawStart = text.indexOf('{');
-        const rawEnd = text.lastIndexOf('}');
-        if (rawStart === -1) {
-            throw new Error("API 回應中找不到有效的 JSON 物件範圍。");
-        }
-        cleanText = text.substring(rawStart, rawEnd + 1);
+        console.warn("清洗後未發現標準 JSON 結構，將嘗試修復整個文本...");
+        // 如果找不到括號，就讓 jsonrepair 嘗試處理整個清洗後的文本
     } else {
         cleanText = cleanText.substring(startIndex, endIndex + 1);
     }
-    
+
     try {
-        // --- 步驟 4: 清除可能的 JS 註釋 (// 或 /* */) ---
-        // 這是導致 JSON.parse 崩潰的主因之一
-        cleanText = cleanText.replace(/\/\/.*$/gm, ''); // 移除單行註釋
-        cleanText = cleanText.replace(/\/\*[\s\S]*?\*\//g, ''); // 移除多行註釋
-        // --- 步驟 5: 修復常見的 JSON 格式錯誤 ---
-        // 移除尾部逗號 (Trailing Commas)，例如: {"a":1,} -> {"a":1}
-        cleanText = cleanText.replace(/,(\s*[}\]])/g, '$1');
- 
-        // 將非標準引號替換為雙引號
-        cleanText = cleanText.replace(/[\u201C\u201D]/g, '"');
-        // 解析
-        return JSON.parse(cleanText);
+        // --- 步驟 4: 使用 jsonrepair 神器進行修復 ---
+        // 它可以處理：單引號、缺少引號的 Key、尾部逗號、註解等等
+        const repaired = jsonrepair(cleanText);
         
+        // 解析修復後的字串
+        return JSON.parse(repaired);
+
     } catch (e) {
-        console.error("JSON 最終解析失敗。\n清洗後文本:", cleanText);
-        throw new Error(`JSON 解析失敗: ${e.message}`);
+        console.error("jsonrepair 解析失敗。");
+        console.error("原始文本片段:", text.substring(0, 200) + "...");
+        console.error("清洗後文本:", cleanText);
+        throw new Error(`JSON 修復與解析失敗: ${e.message}`);
     }
 }
 // ===============================================================
