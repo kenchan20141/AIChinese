@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>文樞</title>
+
+
+
+<!-- 引入 jsonrepair 函式庫，用於修復不完美的 JSON -->
+<script src="https://cdn.jsdelivr.net/npm/jsonrepair/lib/umd/jsonrepair.min.js"></script>
+	
 <link rel="manifest" href="manifest.json">
 
 
@@ -2266,64 +2272,57 @@ async function callApi(prompt) {
 }
 
 function extractJson(text) {
-    // 1. 嘗試尋找最外層的 {}
-    let startIndex = text.indexOf('{');
-    let endIndex = text.lastIndexOf('}');
- 
-    // 如果找不到 {}，可能是 AI 回傳了 Markdown 代碼塊 ```json [ ... ] ``` 格式
-    if (startIndex === -1) {
-        startIndex = text.indexOf('[');
-        endIndex = text.lastIndexOf(']');
+    if (!text) throw new Error("API 回應為空");
+    let cleanText = text;
+
+    // --- 步驟 1: 移除 <think>...</think> 思考過程 (DeepSeek 特性) ---
+    cleanText = cleanText.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+    // --- 步驟 2: 移除 Markdown 標記 ---
+    cleanText = cleanText.replace(/```json/gi, '').replace(/```/g, '');
+
+    // --- 步驟 3: 鎖定 JSON 範圍 ({ ... } 或 [ ... ]) ---
+    // 有時候 AI 會回傳陣列，有時候是物件，這裡做一個簡單的判斷
+    const firstObj = cleanText.indexOf('{');
+    const firstArr = cleanText.indexOf('[');
+    let startIndex = -1;
+    let endIndex = -1;
+
+    // 判斷是物件還是陣列在前面
+    if (firstObj !== -1 && (firstArr === -1 || firstObj < firstArr)) {
+        startIndex = firstObj;
+        endIndex = cleanText.lastIndexOf('}');
+    } else if (firstArr !== -1) {
+        startIndex = firstArr;
+        endIndex = cleanText.lastIndexOf(']');
     }
- 
-    if (startIndex > -1 && endIndex > -1 && endIndex > startIndex) {
-        let jsonString = text.substring(startIndex, endIndex + 1);
- 
-        // --- 方法 A：標準解析 (最安全) ---
-        try {
-            return JSON.parse(jsonString);
-        } catch (e) {
-            console.warn("標準 JSON 解析失敗，嘗試寬鬆解析模式...");
-        }
- 
-        // --- 方法 B：寬鬆解析 (容忍註釋與尾隨逗號) ---
-        // 這是解決 "SyntaxError: Unexpected token /" 的殺手鐧
-        try {
-            // 為了安全，我們先簡單過濾掉可能的危險關鍵字
-            if (/Function|eval|window|document/i.test(jsonString)) {
-                throw new Error("JSON 中包含潛在的不安全代碼，拒絕執行。");
-            }
-            
-            // 使用 Function 建構子將字串當作 JS 物件執行
-            //這允許 // 註釋, 尾隨逗號, 以及未加引號的鍵
-            const looseJson = new Function('"use strict"; return (' + jsonString + ')')();
-            console.log("寬鬆解析成功！");
-            return looseJson;
-        } catch (e2) {
-            console.error("寬鬆解析也失敗:", e2);
-            console.error("有問題的字串片段:", jsonString.substring(0, 200) + "...");
-            
-            // 最後嘗試：手動清理常見錯誤後再試一次
-            try {
-                // 移除 // 註釋 (小心不移除 http://)
-                let cleaned = jsonString.replace(/(^|[^:])\/\/.*$/gm, '$1');
-                // 移除多行註釋
-                cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
-                // 移除尾隨逗號
-                cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
-                // 處理未跳脫的換行
-                cleaned = cleaned.replace(/\n/g, "\\n");
-                
-                return JSON.parse(cleaned);
-            } catch (e3) {
-                throw new Error("數據格式嚴重損毀，無法修復。");
-            }
-        }
+
+    if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+        console.warn("清洗後未發現標準 JSON 結構，將嘗試修復整個文本...");
+        // 如果找不到括號，就讓 jsonrepair 嘗試處理整個清洗後的文本
+    } else {
+        cleanText = cleanText.substring(startIndex, endIndex + 1);
     }
-    
-    console.error("API 回應中找不到 JSON 區塊:", text);
-    throw new Error("API 回應中不包含有效的 JSON 對象。");
+
+    try {
+        // --- 步驟 4: 使用 jsonrepair 神器進行修復 ---
+        // 它可以處理：單引號、缺少引號的 Key、尾部逗號、註解等等
+        const repaired = jsonrepair(cleanText);
+        
+        // 解析修復後的字串
+        return JSON.parse(repaired);
+
+    } catch (e) {
+        console.error("jsonrepair 解析失敗。");
+        console.error("原始文本片段:", text.substring(0, 200) + "...");
+        console.error("清洗後文本:", cleanText);
+        throw new Error(`JSON 修復與解析失敗: ${e.message}`);
+    }
 }
+
+
+
+	
 async function callApiWithRetry(prompt, retries = 3) {
 let lastError = null;
 for (let i = 0; i < retries; i++) {
