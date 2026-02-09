@@ -7732,12 +7732,16 @@ button, .btn, .anime-card, .side-menu-item {
 
 
 
-/* === [修復] 語音按鈕禁止選取與系統長按選單 === */
-#sideMenuVoiceBtn {
-    -webkit-user-select: none !important; /* Safari/Chrome 禁止選取 */
-    user-select: none !important;         /* 標準禁止選取 */
-    -webkit-touch-callout: none !important; /* iOS 禁止長按彈出放大鏡/選單 */
-    touch-action: none !important;        /* 禁止瀏覽器預設觸控行為 */
+/* === [修復] 語音按鈕專用：防止選取與彈出菜單 === */
+#sideMenuVoiceBtn, 
+#sideMenuVoiceBtn * {
+    -webkit-touch-callout: none !important; /* iOS 禁止長按彈出選單 */
+    -webkit-user-select: none !important;   /* Safari/Chrome 禁止選取 */
+    -khtml-user-select: none !important;
+    -moz-user-select: none !important;      /* Firefox 禁止選取 */
+    -ms-user-select: none !important;
+    user-select: none !important;           /* 標準禁止選取 */
+    -webkit-tap-highlight-color: transparent !important; /* 移除點擊高亮 */
 }
  
 /* === 1. 錯誤回饋：搖晃動畫 (Shake) === */
@@ -23569,17 +23573,16 @@ document.addEventListener('DOMContentLoaded', function() {
         if (sideMenuToggle) sideMenuToggle.classList.remove('active');
     }
 
- // --- 觸控/滑鼠 事件監聽 ---
+// --- 觸控/滑鼠 事件監聽 (修復版) ---
     let lastTouchEndTime = 0;
 
     const handleStart = (e) => {
-        // ★★★ 核心修復：阻止默認行為 (選取文字/放大鏡) ★★★
-        // 只有在支援 cancelable 的事件上呼叫，避免報錯
-        if (e.cancelable) {
-            e.preventDefault();
+        // ★★★ 核心修復 1：不要阻止默認行為，但強制清除當下的文字選取 ★★★
+        if (window.getSelection) {
+            window.getSelection().removeAllRanges();
         }
-
-        // 1. 防鬼影
+        
+        // 1. 防鬼影 (防止 touch 觸發後的 mouse 事件)
         if (e.type === 'mousedown' && (Date.now() - lastTouchEndTime < 1000)) return;
 
         // 2. iPad 多指攔截
@@ -23603,6 +23606,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 4. 開始長按計時
         longPressTimer = setTimeout(() => {
+            // ★★★ 再次確保沒有選取文字 ★★★
+            if (window.getSelection) {
+                window.getSelection().removeAllRanges();
+            }
             startListening();
         }, PRESS_DURATION);
     };
@@ -23612,12 +23619,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (voiceBtn) voiceBtn.classList.remove('holding');
 
-        // 如果計時器還在，代表短按
+        // 如果計時器還在，代表短按 (未達長按時間)
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
 
             // 錯誤回饋：搖晃 (短按不觸發功能)
+            // 只有在未開啟狀態下才搖晃
             if (voiceBtn && !overlay.classList.contains('active')) {
                 voiceBtn.classList.add('voice-shake');
                 if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
@@ -23636,9 +23644,8 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     if (voiceBtn) {
-        // ★★★ 核心修復：passive 必須設為 false 才能使用 preventDefault ★★★
-        voiceBtn.addEventListener('touchstart', handleStart, { passive: false });
-        
+        // ★★★ 核心修復 2：改回 passive: true，讓瀏覽器處理滾動，但依靠 CSS 禁止選取 ★★★
+        voiceBtn.addEventListener('touchstart', handleStart, { passive: true });
         voiceBtn.addEventListener('touchend', handleEnd);
         voiceBtn.addEventListener('touchmove', handleMove, { passive: true });
         
@@ -23653,7 +23660,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return false;
         });
         
-        // 禁止右鍵選單 (僅針對此按鈕，避免長按彈出系統選單)
+        // ★★★ 核心修復 3：只攔截右鍵選單，這是防止出現系統選單的關鍵 ★★★
         voiceBtn.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             e.stopPropagation();
