@@ -16389,14 +16389,7 @@ function safeJSONParse(rawString) {
  * @param {string} fullTextContent - 用戶提交的完整文章內容
  */
 /**
- * 【最終安全版】顯示完整的點評與評分
- * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
- */
-/**
- * 【最終修訂版】顯示完整的點評、評分系統 (雙模型取低分 + 詳細 Log 版)
- */
-/**
- * 【最終修訂版】顯示完整的點評、評分系統 (雙模型平均分 + 零分異常保護版)
+ * 【最終修訂版】顯示完整的點評、評分系統 (雙模型平均分 + 零分保護 + 漂亮Log版)
  */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
     // 1. 找出閱卷員的名字
@@ -16456,54 +16449,67 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
  
-    // --- ★★★ 核心邏輯：雙模型整合 (平均分 + 異常保護) ★★★ ---
+    // --- ★★★ 核心邏輯：雙模型整合 (平均分 + 異常保護 + 漂亮Log) ★★★ ---
     if (scoresForDisplay && llama3Scores) {
         console.group("⚖️ [雙模型評分整合]"); 
         const wordCount = fullTextContent.length;
-        console.log(`字數檢查: ${wordCount} 字 (閾值: 200)`);
+        console.log(`字數檢查: ${wordCount} 字 (異常閾值: 200)`);
  
-        // 定義計算邏輯的輔助函式
-        const calculateDualScore = (scoreA, scoreB, typeName) => {
+        // 定義計算邏輯 (但不直接 Log，只回傳結果供表格使用)
+        const calculateDualScore = (scoreA, scoreB) => {
             const sA = parseFloat(scoreA) || 0;
             const sB = parseFloat(scoreB) || 0;
-            let finalS = 0;
-            let method = "";
- 
-            // 規則二：零分異常保護 (字數 > 200 時)
+            
+            // 規則：字數>200時，若有一方為0，取另一方
             if (wordCount > 200) {
-                if (sA === 0 && sB > 0) {
-                    finalS = sB;
-                    method = "🛡️ 保護觸發 (Gemini異常0分，取Llama)";
-                } else if (sB === 0 && sA > 0) {
-                    finalS = sA;
-                    method = "🛡️ 保護觸發 (Llama異常0分，取Gemini)";
-                } else {
-                    // 正常情況：取平均
-                    finalS = Math.round((sA + sB) / 2);
-                    method = "🤝 取平均值";
-                }
-            } else {
-                // 字數不足 200，0分是合理的，直接取平均
-                finalS = Math.round((sA + sB) / 2);
-                method = "🤝 取平均值 (短文)";
+                if (sA === 0 && sB > 0) return { val: sB, method: "🛡️ 保護 (取Llama)" };
+                if (sB === 0 && sA > 0) return { val: sA, method: "🛡️ 保護 (取Gemini)" };
             }
- 
-            // 記錄詳細 Log
-            console.log(`[${typeName}] Gemini:${sA} | Llama:${sB} => 最終:${finalS} (${method})`);
-            return finalS;
+            // 正常情況取平均
+            return { val: Math.round((sA + sB) / 2), method: "🤝 平均" };
         };
  
-        // 1. 計算主要範疇
-        scoresForDisplay.content = calculateDualScore(scoresForDisplay.content, llama3Scores.content, "內容");
-        scoresForDisplay.expression = calculateDualScore(scoresForDisplay.expression, llama3Scores.expression, "表達");
-        scoresForDisplay.structure = calculateDualScore(scoresForDisplay.structure, llama3Scores.structure, "結構");
+        // 1. 計算主要範疇結果
+        const resContent = calculateDualScore(scoresForDisplay.content, llama3Scores.content);
+        const resExpress = calculateDualScore(scoresForDisplay.expression, llama3Scores.expression);
+        const resStruct = calculateDualScore(scoresForDisplay.structure, llama3Scores.structure);
+ 
+        // 2. 準備漂亮的表格數據
+        const comparisonTable = {
+            "內容 (Content)": {
+                "Gemini": scoresForDisplay.content,
+                "Llama-3": llama3Scores.content,
+                "策略": resContent.method,
+                "最終分": resContent.val
+            },
+            "表達 (Expression)": {
+                "Gemini": scoresForDisplay.expression,
+                "Llama-3": llama3Scores.expression,
+                "策略": resExpress.method,
+                "最終分": resExpress.val
+            },
+            "結構 (Structure)": {
+                "Gemini": scoresForDisplay.structure,
+                "Llama-3": llama3Scores.structure,
+                "策略": resStruct.method,
+                "最終分": resStruct.val
+            }
+        };
+ 
+        // 3. 印出表格
+        console.table(comparisonTable);
+ 
+        // 4. 應用分數到顯示物件
+        scoresForDisplay.content = resContent.val;
+        scoresForDisplay.expression = resExpress.val;
+        scoresForDisplay.structure = resStruct.val;
         
-        // 2. 計算雷達圖細項
+        // 5. 計算雷達圖細項 (同樣邏輯，但不印表格以免太長)
         if (scoresForDisplay.radar && llama3Scores.radar) {
-            console.log("📊 [雷達圖細項整合]");
             for (let key in scoresForDisplay.radar) {
                 if (llama3Scores.radar[key] !== undefined) {
-                    scoresForDisplay.radar[key] = calculateDualScore(scoresForDisplay.radar[key], llama3Scores.radar[key], key);
+                    const res = calculateDualScore(scoresForDisplay.radar[key], llama3Scores.radar[key]);
+                    scoresForDisplay.radar[key] = res.val;
                 }
             }
         }
@@ -16657,6 +16663,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
  
     appendGoToSubmitButton();
 }
+ 
  
 
 // =======================================================
