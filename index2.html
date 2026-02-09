@@ -23507,78 +23507,46 @@ function handleCommands(transcript) {
 
 // --- [修正版] 觸控/滑鼠 事件監聽 ---
     
-  // --- [針對 iPad 優化版] 觸控/滑鼠 事件監聽 ---
-    
+    // 用來記錄最後一次觸控的時間，防止 iOS 放手時觸發滑鼠點擊
     let lastTouchEndTime = 0;
-    let startX = 0; // 記錄按下時的座標
-    let startY = 0;
  
     const handleStart = (e) => {
-        // 1. [防鬼影] 防止 iOS 放手後觸發滑鼠點擊
+        // 1. 如果是滑鼠事件，但距離上次觸控結束不足 1 秒，視為「鬼影點擊」，直接忽略
         if (e.type === 'mousedown' && (Date.now() - lastTouchEndTime < 1000)) {
             return;
         }
  
-        // 2. [關鍵修改] 檢查觸控點數量：如果是 2 指或以上 (例如縮放)，直接忽略
-        if (e.touches && e.touches.length > 1) {
-            if (longPressTimer) clearTimeout(longPressTimer);
-            return;
-        }
- 
-        // 3. 如果介面已經開啟，則執行關閉邏輯
+        // 2. 如果介面已經開啟，則關閉 (這是一般的開關邏輯)
         if (overlay.classList.contains('active')) {
             stopListening();
             return;
         }
  
-        // 4. 檢查目標是否有效
+        // 3. 檢查目標是否有效
         if (!isValidTarget(e.target)) return;
  
-        // 5. 記錄起始座標 (用於檢測手指移動)
-        if (e.touches) {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-        } else {
-            startX = e.clientX;
-            startY = e.clientY;
-        }
- 
-        // 6. 開始長按計時
+        // 4. 開始長按計時
         longPressTimer = setTimeout(() => {
-            // 再次檢查：確保沒有選取文字
             if (window.getSelection().toString().length === 0) {
                 startListening();
             }
         }, PRESS_DURATION);
     };
  
-    // [新增] 更嚴格的移動檢測：防止滑動頁面時誤觸發語音
-    const handleMove = (e) => {
-        // 如果計時器沒啟動，就不需要做任何事
-        if (!longPressTimer) return;
+    const handleEnd = (e) => {
+        // 如果是觸控結束，記錄時間
+        if (e.type === 'touchend') {
+            lastTouchEndTime = Date.now();
+        }
  
-        // 如果變成多指觸控，立即取消
-        if (e.touches && e.touches.length > 1) {
+        if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
-            return;
         }
+    };
  
-        // 計算移動距離
-        let clientX, clientY;
-        if (e.touches) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = e.clientX;
-            clientY = e.clientY;
-        }
- 
-        const diffX = Math.abs(clientX - startX);
-        const diffY = Math.abs(clientY - startY);
- 
-        // 如果移動超過 10px (容錯範圍)，視為滑動，取消長按
-        if (diffX > 10 || diffY > 10) {
+    const handleMove = () => {
+        if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
