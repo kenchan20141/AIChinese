@@ -7710,24 +7710,24 @@ body.cat-dragging { cursor: grabbing !important; }
 
 
 
-/* === iOS 長按修復：禁止選取文字與放大鏡 === */
+/* === 解除限制：允許長按複製與選取 === */
 body {
-    -webkit-touch-callout: none !important; /* 禁止 iOS 長按彈出系統選單 */
-    -webkit-user-select: none !important;   /* 禁止選取文字 */
-    user-select: none !important;
+    -webkit-touch-callout: default !important; /* 恢復 iOS 長按選單 (複製/查詢) */
+    -webkit-user-select: text !important;      /* 恢復文字選取功能 */
+    user-select: text !important;
 }
  
-/* ★★★ 關鍵：必須把輸入框還原，否則學生無法打字 ★★★ */
+/* 保持輸入框可編輯 (這部分維持不變，確保輸入無礙) */
 input, textarea, [contenteditable="true"] {
     -webkit-user-select: text !important;
     user-select: text !important;
-    -webkit-touch-callout: default !important; /* 允許輸入框出現剪下/貼上選單 */
+    -webkit-touch-callout: default !important;
 }
  
-/* 如果有特定區域(如文章內容)需要允許學生選取複製，請加上這個 class */
-.selectable-text {
-    -webkit-user-select: text !important;
-    user-select: text !important;
+/* (選用) 如果你想讓按鈕仍然不能選取文字，保持 App 質感，可以加上這段： */
+button, .btn, .anime-card, .side-menu-item {
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 
@@ -23522,6 +23522,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- 停止語音 ---
+    // --- 停止語音 ---
     function stopListening() {
         overlay.classList.remove('active');
         if (voiceBtn) {
@@ -23529,13 +23530,33 @@ document.addEventListener('DOMContentLoaded', function() {
             voiceBtn.classList.remove('holding');
         }
         try { recognition.stop(); } catch(e){}
+        
+        // 加入這行：取消時也瞬間收起選單
+        closeSideMenu();
     }
 
-    // --- 關閉側邊選單 (跳轉成功時呼叫) ---
+   // --- 關閉側邊選單 (瞬間關閉版) ---
     function closeSideMenu() {
         const sideMenu = document.getElementById('sideMenu');
         const sideMenuToggle = document.getElementById('sideMenuToggle');
-        if (sideMenu) sideMenu.classList.remove('active');
+        
+        if (sideMenu) {
+            // 1. 關鍵：暫時禁用過渡動畫，讓它瞬間消失
+            sideMenu.style.transition = 'none';
+            
+            // 2. 移除 active class (此時會立即跳回 right: -80px)
+            sideMenu.classList.remove('active');
+            
+            // 3. 強制瀏覽器重繪 (Reflow)，確保上面的樣式變更生效
+            void sideMenu.offsetWidth;
+            
+            // 4. 恢復 CSS 原始的過渡設定 (清空 inline style)，確保下次「打開」時有動畫
+            // 使用 setTimeout 確保在視覺上已經關閉後才恢復
+            setTimeout(() => {
+                sideMenu.style.transition = '';
+            }, 50);
+        }
+        
         if (sideMenuToggle) sideMenuToggle.classList.remove('active');
     }
 
