@@ -13359,22 +13359,26 @@ async function callReadingAPI(input, temperature = null) {
  
 // 3. 驗證專用 API (Llama3) - 安全版
 // 3. 驗證專用 API (Llama3) - 安全版 (已修復 Crash 問題)
+// 3. 驗證專用 API (Llama3) - 安全版
 async function callLlama3API(input, temperature = null) {
     const user = firebase.auth().currentUser;
     if (!user) {
+        // Llama3 通常是背景調用，這裡直接拋錯即可
         throw new Error("請先登入學校帳號 (Client blocked)");
     }
     const token = await user.getIdToken();
- 
+
     const TIMEOUT_MS = 100000;
     const controller = new AbortController();
     globalAbortController = controller;
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+ 
     try {
         let requestBody = {};
+ 
         if (typeof input === 'object' && input.action) {
             requestBody = {
-                token: token,
+                token: token, // ★ 加入 Token
                 model: LLAMA3_MODEL,
                 action: input.action,
                 data: input.data,     
@@ -13382,56 +13386,48 @@ async function callLlama3API(input, temperature = null) {
             };
         } else if (typeof input === 'string') {
              requestBody = {
-                token: token,
+                token: token, // ★ 加入 Token
                 model: LLAMA3_MODEL,
                 messages: [{ role: "user", content: input }],
                 max_tokens: 8000
             };
         }
+ 
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
+ 
         const response = await fetch(LLAMA3_API_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(requestBody),
             signal: controller.signal
         });
+ 
         clearTimeout(timeoutId);
+ 
         if (!response.ok) {
             throw new Error(`驗證 API 調用失敗: ${response.status}`);
         }
-        const data = await response.json();
  
-        // 檢查權限錯誤
-        if (data.error && typeof data.error === 'string' && data.error.includes("Unauthorized")) {
+        const data = await response.json();
+
+        if (data.error && data.error.includes("Unauthorized")) {
             throw new Error(data.error);
         }
- 
+
         logProviderInfo(data, "Llama3 API");
- 
-        // ★★★ [核心修復] 加入防呆檢查，防止讀取 '0' of undefined ★★★
-        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-            console.error("Llama3 API 格式錯誤，原始回傳:", data);
-            
-            // 如果後端回傳了具體的 error 物件
-            if (data.error) {
-                throw new Error("Llama3 運算失敗: " + JSON.stringify(data.error));
-            }
-            
-            throw new Error("Llama3 API 回傳格式異常 (Missing choices)");
-        }
- 
+
         let content = data.choices[0].message.content.trim();
         return content.replace(/<think\s*>.*?<\/think\s*>|<think\s*\/>|<think\s*>|<\/think\s*>/gis, '').trim();
+ 
     } catch (error) {
         clearTimeout(timeoutId);
         console.error("callLlama3API Error:", error);
-        // 這裡拋出錯誤後，submitWriting 內的 Promise.all 會捕捉到，
-        // 建議在 submitWriting 那邊做一個容錯：如果 Llama3 失敗，就只用 Original Response
         throw error;
     }
 }
+
 
 
 
