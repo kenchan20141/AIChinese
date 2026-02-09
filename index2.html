@@ -381,9 +381,14 @@ async function searchSimilarEssays(studentText, targetType) {
 
 
 
-<!-- ★★★ 新增：語音導航按鈕 (長按使用) ★★★ -->
-<button class="side-menu-item" id="sideMenuVoiceBtn" title="長按開啟語音導航">
-    <i class="fas fa-microphone-alt" style="font-size: 24px;"></i>
+<!-- 語音導航按鈕 (含進度光環) -->
+<button class="side-menu-item" id="sideMenuVoiceBtn" title="">
+    <!-- 進度光環 SVG -->
+    <svg class="progress-ring" width="44" height="44">
+        <circle class="progress-ring__circle" stroke="white" stroke-width="3" fill="transparent" r="20" cx="22" cy="22"/>
+    </svg>
+    <!-- 原本的圖示 -->
+    <i class="fas fa-microphone-alt" style="font-size: 24px; position: relative; z-index: 2;"></i>
     <span>語音導航</span>
 </button>
 
@@ -7727,19 +7732,61 @@ input, textarea, [contenteditable="true"] {
 
 
 
-	/* === 語音按鈕點亮狀態 === */
+/* === 語音按鈕容器設定 === */
 #sideMenuVoiceBtn {
-    transition: all 0.3s ease;
+    position: relative;
+    overflow: visible !important; /* 讓光環可以顯示 */
+    transition: transform 0.2s ease, background-color 0.3s;
 }
  
-/* 當語音開啟時加入這個 class */
-#sideMenuVoiceBtn.voice-active {
-    background-color: #8fa398 !important; /* 莫蘭迪綠 */
-    color: white !important;
-    box-shadow: 0 0 15px rgba(143, 163, 152, 0.8); /* 發光效果 */
-    transform: scale(1.1); /* 稍微放大 */
-    border: 1px solid rgba(255, 255, 255, 0.5);
+/* === 1. 錯誤回饋：搖晃動畫 (Shake) === */
+@keyframes button-shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
 }
+ 
+.voice-shake {
+    animation: button-shake 0.4s ease-in-out;
+    background-color: rgba(214, 154, 146, 0.5) !important; /* 閃爍紅色提示錯誤 */
+    border-color: #d69a92 !important;
+}
+ 
+/* === 2. 長按引導：進度光環 === */
+.progress-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-90deg); /* 從上方開始轉 */
+    pointer-events: none;
+    z-index: 1;
+}
+ 
+.progress-ring__circle {
+    stroke-dasharray: 126; /* 2 * PI * r(20) ≈ 125.6 */
+    stroke-dashoffset: 126; /* 初始隱藏 (全空) */
+    transition: stroke-dashoffset 0.8s linear; /* ★ 時間必須對應 JS 的長按時間 */
+    opacity: 0.6;
+}
+ 
+/* 當按住時 (.holding)，光環開始跑 */
+#sideMenuVoiceBtn.holding .progress-ring__circle {
+    stroke-dashoffset: 0; /* 跑滿 */
+    stroke: #8fa398; /* 莫蘭迪綠 */
+}
+ 
+/* 當成功開啟時 (.voice-active)，保持綠色並發光 */
+#sideMenuVoiceBtn.voice-active {
+    background-color: #8fa398 !important;
+    box-shadow: 0 0 15px rgba(143, 163, 152, 0.8);
+    transform: scale(1.1);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    z-index: 100;
+}
+
+
+
+	
 	
 	
 	
@@ -23429,26 +23476,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     let recognition = null;
     let longPressTimer = null;
-    const PRESS_DURATION = 800; // 長按 0.8 秒觸發
+    const PRESS_DURATION = 800; // 長按 0.8 秒觸發 (與 CSS transition 一致)
 
     // ★★★ [新增] 點擊畫面任意處 (遮罩) 即關閉 ★★★
     if (overlay) {
-        overlay.addEventListener('click', function(e) {
-            stopListening();
-        });
-        // 針對 iPad/手機增加 touchstart 監聽，讓反應更靈敏
+        overlay.addEventListener('click', stopListening);
         overlay.addEventListener('touchstart', function(e) {
-            // 只有當這是一個新的點擊動作時才關閉
-            if (overlay.classList.contains('active')) {
-                stopListening();
-            }
+            if (overlay.classList.contains('active')) stopListening();
         }, {passive: true});
     }
 
     // 檢查瀏覽器支援
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-        if(voiceBtn) voiceBtn.style.display = 'none'; // 不支援則隱藏按鈕
+        if(voiceBtn) voiceBtn.style.display = 'none';
         return; 
     }
 
@@ -23459,13 +23500,16 @@ document.addEventListener('DOMContentLoaded', function() {
     recognition.interimResults = true; 
     recognition.maxAlternatives = 1;
 
-    // --- 啟動語音 (點亮按鈕) ---
+    // --- 啟動語音 ---
     function startListening() {
         overlay.classList.add('active'); 
         statusText.innerText = "請說指令...";
         
-        // ★ 點亮按鈕
-        if (voiceBtn) voiceBtn.classList.add('voice-active');
+        // 成功開啟：點亮按鈕，移除集氣動畫
+        if (voiceBtn) {
+            voiceBtn.classList.add('voice-active');
+            voiceBtn.classList.remove('holding'); // 停止集氣動畫
+        }
         
         try {
             recognition.start();
@@ -23476,13 +23520,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // --- 停止語音 (熄滅按鈕) ---
+    // --- 停止語音 ---
     function stopListening() {
         overlay.classList.remove('active');
-        
-        // ★ 熄滅按鈕
-        if (voiceBtn) voiceBtn.classList.remove('voice-active');
-
+        if (voiceBtn) {
+            voiceBtn.classList.remove('voice-active');
+            voiceBtn.classList.remove('holding');
+        }
         try { recognition.stop(); } catch(e){}
     }
 
@@ -23490,21 +23534,26 @@ document.addEventListener('DOMContentLoaded', function() {
     let lastTouchEndTime = 0;
 
     const handleStart = (e) => {
-        // 1. [防鬼影] 防止 iOS 放手後觸發滑鼠點擊
-        if (e.type === 'mousedown' && (Date.now() - lastTouchEndTime < 1000)) {
-            return;
-        }
+        // 1. 防鬼影
+        if (e.type === 'mousedown' && (Date.now() - lastTouchEndTime < 1000)) return;
 
-        // 2. [iPad多指攔截] 兩指接觸不觸發
+        // 2. iPad 多指攔截
         if (e.touches && e.touches.length > 1) {
             if (longPressTimer) clearTimeout(longPressTimer);
+            if (voiceBtn) voiceBtn.classList.remove('holding');
             return;
         }
 
-        // 3. 如果已經開啟，再次長按或點擊則關閉
+        // 3. 如果已經開啟，再次操作則關閉
         if (overlay.classList.contains('active')) {
             stopListening();
             return;
+        }
+
+        // ★★★ 視覺回饋：開始集氣 (光環動畫) ★★★
+        if (voiceBtn) {
+            voiceBtn.classList.remove('voice-shake'); // 移除之前的搖晃
+            voiceBtn.classList.add('holding');        // 開始轉圈
         }
 
         // 4. 開始長按計時
@@ -23514,56 +23563,71 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     const handleEnd = (e) => {
-        if (e.type === 'touchend') {
-            lastTouchEndTime = Date.now();
-        }
-        // 手指離開時清除計時器 (如果還沒觸發長按，就取消)
+        if (e.type === 'touchend') lastTouchEndTime = Date.now();
+
+        // ★★★ 視覺回饋：停止集氣 ★★★
+        if (voiceBtn) voiceBtn.classList.remove('holding');
+
+        // 如果計時器還在，代表長按未完成（短按）
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
+
+            // ★★★ 錯誤回饋：觸發搖晃動畫 ★★★
+            // 這告訴用戶「按太短了 / 操作錯誤」，且不關閉選單
+            if (voiceBtn && !overlay.classList.contains('active')) {
+                voiceBtn.classList.add('voice-shake');
+                // 震動兩下提示錯誤
+                if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+                
+                // 0.4秒後移除 class，以便下次能再搖
+                setTimeout(() => voiceBtn.classList.remove('voice-shake'), 400);
+            }
         }
     };
 
     const handleMove = (e) => {
-        // 如果手指移出按鈕範圍，取消長按
+        // 手指移開，取消長按
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
+            if (voiceBtn) voiceBtn.classList.remove('holding');
         }
     };
 
-    // ★★★ 關鍵：只將開啟事件綁定在 voiceBtn 上 ★★★
     if (voiceBtn) {
-        // 觸控事件
+        // 觸控
         voiceBtn.addEventListener('touchstart', handleStart, { passive: true });
         voiceBtn.addEventListener('touchend', handleEnd);
         voiceBtn.addEventListener('touchmove', handleMove, { passive: true });
         
-        // 滑鼠事件 (電腦版)
+        // 滑鼠
         voiceBtn.addEventListener('mousedown', handleStart);
         voiceBtn.addEventListener('mouseup', handleEnd);
         voiceBtn.addEventListener('mouseleave', handleEnd);
         
-        // 點擊事件 (防止單點觸發其他行為，純粹作為視覺回饋)
-        voiceBtn.addEventListener('click', (e) => e.preventDefault());
+        // ★★★ 核心修正：強制阻止點擊冒泡 ★★★
+        // 這行代碼保證了點擊按鈕時，側邊選單絕對不會縮回去
+        voiceBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        });
     }
 
-    // --- 語音識別結果處理 (完整邏輯) ---
+    // --- 語音識別結果處理 (保持原本邏輯) ---
     recognition.onresult = (event) => {
         const result = event.results[event.resultIndex];
         const transcript = result[0].transcript.trim();
         const statusText = document.getElementById('voiceStatusText');
 
-        // 輔助函式：模擬點擊語薈中的工具連結
         const triggerTool = (toolId) => {
             const toolsContainer = document.getElementById('toolsContainer2');
             const isAlreadyOpen = toolsContainer && toolsContainer.style.display === 'flex';
-
             if (!isAlreadyOpen) {
                 const expandBtn = document.getElementById('expandToolsBtn2');
                 if (expandBtn) expandBtn.click();
             }
-
             setTimeout(() => {
                 const link = document.querySelector(`a[data-tool-id="${toolId}"]`);
                 if (link) {
@@ -23573,9 +23637,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }, isAlreadyOpen ? 100 : 400);
         };
 
-        // 指令映射表（完整列表）
         const voiceCommands = {
-            // --- 頂層主功能 ---
             '作家文粹': { display: '作家文粹', action: () => checkFeaturedAccess() },
             '作家': { display: '作家文粹', action: () => checkFeaturedAccess() },
             '文粹': { display: '作家文粹', action: () => checkFeaturedAccess() },
@@ -23604,13 +23666,9 @@ document.addEventListener('DOMContentLoaded', function() {
             '愚昧': { display: '語薈', action: () => document.getElementById('expandToolsBtn2').click() },
             '音樂': { display: '音樂播放器', action: () => toggleMusicPlayer() },
             '歌': { display: '音樂播放器', action: () => toggleMusicPlayer() },
-
-            // --- 書籍討論 ---
             '書籍討論': { display: '書籍討論', action: () => forceOpenBooks() },
             '討論': { display: '書籍討論', action: () => forceOpenBooks() },
             '書本': { display: '書籍討論', action: () => forceOpenBooks() },
-
-            // --- 雲端中心 / 課業狀態 ---
             '課業狀態': { display: '課業狀態', action: () => openStudentLoginModal() },
             '我': { display: '課業狀態', action: () => openStudentLoginModal() },
             '個人中心': { display: '課業狀態', action: () => openStudentLoginModal() },
@@ -23619,13 +23677,9 @@ document.addEventListener('DOMContentLoaded', function() {
             '評語': { display: '課業狀態', action: () => openStudentLoginModal() },
             '登入': { display: '課業狀態', action: () => openStudentLoginModal() },
             '登出': { display: '課業狀態', action: () => openStudentLoginModal() },
-            
-            // --- 貓咪功能 ---
             '貓': { display: '貓咪選單', action: () => openCatMenu() },
             '貓咪': { display: '貓咪選單', action: () => openCatMenu() },
             '揀貓': { display: '貓咪選單', action: () => openCatMenu() },
-
-            // --- 語薈：應試與課外探索 ---
             '題孳': { display: '題孳', action: () => triggerTool('tizi') },
             '體脂': { display: '題孳', action: () => triggerTool('tizi') },
             '提子': { display: '題孳', action: () => triggerTool('tizi') },
@@ -23639,7 +23693,7 @@ document.addEventListener('DOMContentLoaded', function() {
             '片段': { display: '文學片段', action: () => triggerTool('reading-pieces') },
             '文樞': { display: '文樞', action: () => triggerTool('mensyu') },
             '文書': { display: '文樞', action: () => triggerTool('mensyu') },
-			 '默書': { display: '文樞', action: () => triggerTool('mensyu') },
+			    '默書': { display: '文樞', action: () => triggerTool('mensyu') },
             '翻譯': { display: '文樞', action: () => triggerTool('mensyu') },
             '文言文': { display: '文樞', action: () => triggerTool('mensyu') },
             '慢讀': { display: '慢讀', action: () => triggerTool('slowreading') },
@@ -23660,8 +23714,6 @@ document.addEventListener('DOMContentLoaded', function() {
             '辭海': { display: '詞海拾心', action: () => triggerTool('lyrics') },
             '歌詞': { display: '詞海拾心', action: () => triggerTool('lyrics') },
             '遊戲': { display: '詞海拾心', action: () => triggerTool('lyrics') },
-
-            // --- 語薈：寫作創作相關 ---
             '翻水': { display: '翻水 (敘事)', action: () => triggerTool('fanshui-narrative') },
             '返水': { display: '翻水 (敘事)', action: () => triggerTool('fanshui-narrative') },
             '番水': { display: '翻水 (敘事)', action: () => triggerTool('fanshui-narrative') },
@@ -23687,8 +23739,6 @@ document.addEventListener('DOMContentLoaded', function() {
             '潤色': { display: '字斟句酌', action: () => triggerTool('words') },
             '幻燈片': { display: '幻燈片', action: () => triggerTool('slideshow') },
             '展示': { display: '幻燈片', action: () => triggerTool('slideshow') },
-
-            // --- 語薈：閱讀溫習 ---
             '語弈錄': { display: '語弈錄', action: () => triggerTool('yuyilu') },
             '乳液龍': { display: '語弈錄', action: () => triggerTool('yuyilu') },
             '語譯錄': { display: '語弈錄', action: () => triggerTool('yuyilu') },
@@ -23696,8 +23746,6 @@ document.addEventListener('DOMContentLoaded', function() {
             '課文溫習': { display: '語弈錄', action: () => triggerTool('yuyilu') },
             '計時器': { display: '背書神器', action: () => triggerTool('timer') },
             '背書': { display: '背書神器', action: () => triggerTool('timer') },
-
-            // --- 語薈：實用工具與流程 ---
             '帙雲': { display: '帙雲', action: () => triggerTool('zhiyun') },
             '蝶': { display: '帙雲', action: () => triggerTool('zhiyun') },
             '奪魂': { display: '帙雲', action: () => triggerTool('zhiyun') },
@@ -23725,8 +23773,6 @@ document.addEventListener('DOMContentLoaded', function() {
             '有': { display: '以文會友', action: () => triggerTool('friends') },
             '友': { display: '以文會友', action: () => triggerTool('friends') },
             '交友': { display: '以文會友', action: () => triggerTool('friends') },
-
-            // --- 語薈：學習支援 (AI 聊天室) ---
             '喻蛋': { display: '喻蛋教室', action: () => triggerTool('chitutor') },
             '魚蛋': { display: '喻蛋教室', action: () => triggerTool('chitutor') },
             '史萊姆': { display: '史萊姆教室', action: () => triggerTool('histutor') },
@@ -23736,30 +23782,22 @@ document.addEventListener('DOMContentLoaded', function() {
             '資源': { display: '自學資源', action: () => triggerTool('self-learning') }
         };
 
-        // 將所有關鍵字按字數「由長到短」排序
         const sortedKeywords = Object.keys(voiceCommands).sort((a, b) => b.length - a.length);
-
         let foundMatch = null;
-        // 依照排序後的順序進行比對
         for (const key of sortedKeywords) {
             if (transcript.includes(key)) {
                 foundMatch = voiceCommands[key];
-                break; // 找到最精確（最長）的匹配後立即停止
+                break; 
             }
         }
 
         if (result.isFinal) {
             if (foundMatch) {
                 statusText.innerText = `正在跳轉: ${foundMatch.display}`;
-                
-                // 1. 播放「跳轉.mp3」音效
                 const jumpSound = new Audio('跳轉.mp3');
                 jumpSound.volume = 1.0;
                 jumpSound.play().catch(e => console.log("跳轉音效播放失敗:", e));
-
-                // 2. 震動
                 if (navigator.vibrate) navigator.vibrate(50);
-                
                 setTimeout(() => {
                     foundMatch.action();
                     stopListening();
@@ -23779,26 +23817,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     recognition.onerror = (e) => {
         console.error("語音錯誤:", e.error);
-        
-        if (e.error === 'no-speech') {
-            statusText.innerText = "沒聽到聲音...";
-        } else if (e.error === 'network') {
-            statusText.innerText = "網絡不穩...";
-        } else if (e.error === 'not-allowed') {
-            statusText.innerText = "請允許麥克風權限";
-        } else {
-            statusText.innerText = "識別錯誤";
-        }
-        
+        if (e.error === 'no-speech') statusText.innerText = "沒聽到聲音...";
+        else if (e.error === 'network') statusText.innerText = "網絡不穩...";
+        else if (e.error === 'not-allowed') statusText.innerText = "請允許麥克風權限";
+        else statusText.innerText = "識別錯誤";
         setTimeout(stopListening, 1500);
     };
     
     recognition.onend = () => {
-        // 確保自然結束時也熄燈
         if (voiceBtn) voiceBtn.classList.remove('voice-active');
-        if (overlay.classList.contains('active') && statusText.innerText === "請說指令...") {
-             stopListening();
-        }
+        if (overlay.classList.contains('active') && statusText.innerText === "請說指令...") stopListening();
     };
 });
 </script>
