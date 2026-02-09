@@ -7765,7 +7765,7 @@ input, textarea, [contenteditable="true"] {
 .progress-ring__circle {
     stroke-dasharray: 126; /* 2 * PI * r(20) ≈ 125.6 */
     stroke-dashoffset: 126; /* 初始隱藏 (全空) */
-    transition: stroke-dashoffset 0.8s linear; /* ★ 時間必須對應 JS 的長按時間 */
+    transition: stroke-dashoffset 0.5s linear; /* ★ 時間必須對應 JS 的長按時間 */
     opacity: 0.6;
 }
  
@@ -23476,9 +23476,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     let recognition = null;
     let longPressTimer = null;
-    const PRESS_DURATION = 800; // 長按 0.8 秒觸發 (與 CSS transition 一致)
+    
+    // ★★★ 關鍵修改：縮短為 0.5 秒 ★★★
+    const PRESS_DURATION = 500; 
 
-    // ★★★ [新增] 點擊畫面任意處 (遮罩) 即關閉 ★★★
+    // 點擊畫面任意處 (遮罩) 即關閉
     if (overlay) {
         overlay.addEventListener('click', stopListening);
         overlay.addEventListener('touchstart', function(e) {
@@ -23505,10 +23507,9 @@ document.addEventListener('DOMContentLoaded', function() {
         overlay.classList.add('active'); 
         statusText.innerText = "請說指令...";
         
-        // 成功開啟：點亮按鈕，移除集氣動畫
         if (voiceBtn) {
             voiceBtn.classList.add('voice-active');
-            voiceBtn.classList.remove('holding'); // 停止集氣動畫
+            voiceBtn.classList.remove('holding');
         }
         
         try {
@@ -23530,7 +23531,15 @@ document.addEventListener('DOMContentLoaded', function() {
         try { recognition.stop(); } catch(e){}
     }
 
-    // --- [針對按鈕優化] 觸控/滑鼠 事件監聽 ---
+    // --- 關閉側邊選單 (跳轉成功時呼叫) ---
+    function closeSideMenu() {
+        const sideMenu = document.getElementById('sideMenu');
+        const sideMenuToggle = document.getElementById('sideMenuToggle');
+        if (sideMenu) sideMenu.classList.remove('active');
+        if (sideMenuToggle) sideMenuToggle.classList.remove('active');
+    }
+
+    // --- 觸控/滑鼠 事件監聽 ---
     let lastTouchEndTime = 0;
 
     const handleStart = (e) => {
@@ -23550,10 +23559,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // ★★★ 視覺回饋：開始集氣 (光環動畫) ★★★
+        // 視覺回饋：開始集氣
         if (voiceBtn) {
-            voiceBtn.classList.remove('voice-shake'); // 移除之前的搖晃
-            voiceBtn.classList.add('holding');        // 開始轉圈
+            voiceBtn.classList.remove('voice-shake');
+            voiceBtn.classList.add('holding');
         }
 
         // 4. 開始長按計時
@@ -23565,29 +23574,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const handleEnd = (e) => {
         if (e.type === 'touchend') lastTouchEndTime = Date.now();
 
-        // ★★★ 視覺回饋：停止集氣 ★★★
         if (voiceBtn) voiceBtn.classList.remove('holding');
 
-        // 如果計時器還在，代表長按未完成（短按）
+        // 如果計時器還在，代表短按
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
 
-            // ★★★ 錯誤回饋：觸發搖晃動畫 ★★★
-            // 這告訴用戶「按太短了 / 操作錯誤」，且不關閉選單
+            // 錯誤回饋：搖晃
             if (voiceBtn && !overlay.classList.contains('active')) {
                 voiceBtn.classList.add('voice-shake');
-                // 震動兩下提示錯誤
                 if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
-                
-                // 0.4秒後移除 class，以便下次能再搖
                 setTimeout(() => voiceBtn.classList.remove('voice-shake'), 400);
             }
         }
     };
 
     const handleMove = (e) => {
-        // 手指移開，取消長按
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
@@ -23596,26 +23599,30 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     if (voiceBtn) {
-        // 觸控
         voiceBtn.addEventListener('touchstart', handleStart, { passive: true });
         voiceBtn.addEventListener('touchend', handleEnd);
         voiceBtn.addEventListener('touchmove', handleMove, { passive: true });
         
-        // 滑鼠
         voiceBtn.addEventListener('mousedown', handleStart);
         voiceBtn.addEventListener('mouseup', handleEnd);
         voiceBtn.addEventListener('mouseleave', handleEnd);
         
-        // ★★★ 核心修正：強制阻止點擊冒泡 ★★★
-        // 這行代碼保證了點擊按鈕時，側邊選單絕對不會縮回去
+        // 阻止點擊冒泡 (防止選單縮回)
         voiceBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        });
+        
+        // 禁止右鍵選單 (僅針對此按鈕，避免長按彈出系統選單)
+        voiceBtn.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             e.stopPropagation();
             return false;
         });
     }
 
-    // --- 語音識別結果處理 (保持原本邏輯) ---
+    // --- 語音識別結果處理 ---
     recognition.onresult = (event) => {
         const result = event.results[event.resultIndex];
         const transcript = result[0].transcript.trim();
@@ -23693,7 +23700,7 @@ document.addEventListener('DOMContentLoaded', function() {
             '片段': { display: '文學片段', action: () => triggerTool('reading-pieces') },
             '文樞': { display: '文樞', action: () => triggerTool('mensyu') },
             '文書': { display: '文樞', action: () => triggerTool('mensyu') },
-			    '默書': { display: '文樞', action: () => triggerTool('mensyu') },
+			'默書': { display: '文樞', action: () => triggerTool('mensyu') },
             '翻譯': { display: '文樞', action: () => triggerTool('mensyu') },
             '文言文': { display: '文樞', action: () => triggerTool('mensyu') },
             '慢讀': { display: '慢讀', action: () => triggerTool('slowreading') },
@@ -23783,6 +23790,7 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         const sortedKeywords = Object.keys(voiceCommands).sort((a, b) => b.length - a.length);
+
         let foundMatch = null;
         for (const key of sortedKeywords) {
             if (transcript.includes(key)) {
@@ -23794,12 +23802,17 @@ document.addEventListener('DOMContentLoaded', function() {
         if (result.isFinal) {
             if (foundMatch) {
                 statusText.innerText = `正在跳轉: ${foundMatch.display}`;
+                
                 const jumpSound = new Audio('跳轉.mp3');
                 jumpSound.volume = 1.0;
                 jumpSound.play().catch(e => console.log("跳轉音效播放失敗:", e));
+
                 if (navigator.vibrate) navigator.vibrate(50);
+                
                 setTimeout(() => {
                     foundMatch.action();
+                    // ★★★ 關鍵修改：成功跳轉後才關閉選單 ★★★
+                    closeSideMenu();
                     stopListening();
                 }, 500);
             } else {
