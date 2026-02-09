@@ -12654,6 +12654,7 @@ async function submitArgumentGuide() {
         const guide = await callReadingAPI(payload);
         
         currentContextContent = `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`;
+		appendGoToSubmitButton(); // <--- ★ 加入這行
         currentContextReview = guide;
  
         // --- 組裝 HTML ---
@@ -12801,6 +12802,7 @@ ${content}
             
             const htmlToSave = captureContainerHTML('resultCanvasBody'); 
             saveToHistory("議論", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
+			appendGoToSubmitButton(); // <--- ★ 加入這行
         }
 
     } catch (error) {
@@ -12873,6 +12875,7 @@ async function submitArgumentOutline() {
         // ★★★ 關鍵修改：存入歷史紀錄的 User Content 只包含題目 ★★★
         // 這裡傳入 `題目：${topic}`，而不是 `readableContext`
         await saveToHistory("議論", "大綱點評", topic, `題目：${topic}`, htmlToSave);
+		appendGoToSubmitButton(); // <--- ★ 加入這行
 
     } catch (error) {
         console.error("提交大綱失敗", error);
@@ -13841,6 +13844,7 @@ async function submitWritingGuide() {
         // === 儲存歷史紀錄 ===
         // 新的邏輯：完整儲存 (包含聊天室介面)
 await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inputTopic}`, finalHTML);
+		appendGoToSubmitButton(); // <--- ★ 加入這行
         
         // 顯示儲存按鈕 (如果有的話)
         hideAllSaveHtmlButtons();
@@ -13928,6 +13932,7 @@ async function submitWriting() {
             displayOutlineComment(response, outlineData);
             
             saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
+			appendGoToSubmitButton(); // <--- ★ 加入這行
 
         } 
         // === 模式二：敘事物象 ===
@@ -13958,6 +13963,7 @@ async function submitWriting() {
             openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
+			appendGoToSubmitButton(); // <--- ★ 加入這行
 
         } 
         // === 模式三：片段描寫 ===
@@ -14039,6 +14045,7 @@ ${content}
                 
                 const htmlToSave = captureContainerHTML('resultCanvasBody'); 
                 saveToHistory("敘事抒情", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
+				appendGoToSubmitButton(); // <--- ★ 加入這行
             }
         }
     } catch (error) {
@@ -14251,6 +14258,7 @@ async function submitReading() {
             openResultCanvas("閱讀理解點評");
             document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             saveToHistory("閱讀", "點評", question || "閱讀練習", `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, finalHTML);
+			appendGoToSubmitButton(); // <--- ★ 加入這行
 
         } else { // guide
             const guideParts = result.split("###").map(part => part.trim()).filter(part => part);
@@ -14294,6 +14302,7 @@ async function submitReading() {
             openResultCanvas("閱讀理解指引");
             document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             await saveToHistory("閱讀", "指引", question || "閱讀指引", `篇章：${passage}\n題目：${question}`, guideHTML);
+			appendGoToSubmitButton(); // <--- ★ 加入這行
         }
 
     } catch (error) {
@@ -14904,6 +14913,7 @@ async function submitExpandComment() {
             `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${content}`, 
             historyHTML
         );
+		appendGoToSubmitButton(); // <--- ★ 加入這行
 
     } catch (error) {
         console.error("提交整合拓展點評時出錯:", error);
@@ -14989,6 +14999,7 @@ async function submitExpandGuide() {
         // 儲存歷史紀錄 (移除聊天室)
         const historyHTML = guideHTML.split('<div class="canvas-chat-container">')[0];
         saveToHistory("整合拓展", "指引", title, `題目：${title}\n主題句：${theme}\n抄錄資料：${data}\n內容：${expand}`, historyHTML);
+		appendGoToSubmitButton(); // <--- ★ 加入這行
 
     } catch (error) {
         console.error("提交整合拓展指引時出錯:", error);
@@ -16486,6 +16497,10 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         htmlContent,
         scoresForDisplay 
     );
+
+appendGoToSubmitButton();
+
+	
 }
 
 
@@ -17268,6 +17283,7 @@ function captureContainerHTML(containerId) {
 
 
 
+	
 	
 // ==========================================
 // === 修訂版：儲存紀錄 (保留聊天介面結構) ===
@@ -23361,8 +23377,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- 核心：智慧判斷點擊位置 ---
    // 1. 修正目標判定：允許在語薈的節點 (.node) 上長按
-// 1. 修正目標判定：允許在語薈的節點 (.node) 上長按
+// 1. 修正目標判定：排除文章列表卡片，避免與「長按取消已讀」衝突
 function isValidTarget(target) {
+    // ★★★ 新增：如果點擊目標在文章列表卡片內，直接忽略 (讓給取消已讀功能) ★★★
+    if (target.closest('.article-item')) return false;
+ 
     // 如果是在語薈的節點 (.node) 或其子元素上長按，允許觸發
     if (target.closest('.node')) return true;
     
@@ -23735,8 +23754,139 @@ recognition.onresult = (event) => {
     };
 });
 </script>
+
+
+
+<script>
+
+// =================================================================
+// === [終極修復 V2] 包含跳轉功能的完整補丁 ===
+// =================================================================
+ 
+// 1. 自動將視窗 HTML 插入到 Body 最外層 (防止被其他元素遮擋或切斷)
+(function forceInjectJumpModal() {
+    const oldModal = document.getElementById('jumpToRecordModal');
+    if (oldModal) oldModal.remove();
+ 
+    const modalHTML = `
+    <div id="jumpToRecordModal" class="morandi-modal-overlay"
+         style="display: none; position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; z-index: 999999 !important; background-color: rgba(253, 252, 248, 0.8) !important; justify-content: center !important; align-items: center !important; backdrop-filter: blur(5px);">
+        
+        <div class="morandi-modal-card" style="position: relative; z-index: 1000000;">
+            <h3 class="morandi-title">前往繳交？</h3>
+            <p class="morandi-text">即將離開此頁面並跳轉至紀錄詳情。</p>
+            <div class="morandi-btn-group">
+                <button onclick="closeJumpConfirmModal()" class="morandi-btn btn-gray">取消</button>
+                <button onclick="confirmJumpAndGo()" class="morandi-btn" style="background-color: #8fa398; color: white; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">確定</button>
+            </div>
+        </div>
+    </div>`;
+ 
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+})();
+ 
+// 2. 開啟確認視窗
+function openJumpConfirmModal() {
+    const modal = document.getElementById('jumpToRecordModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+}
+ 
+// 3. 關閉確認視窗
+function closeJumpConfirmModal() {
+    const modal = document.getElementById('jumpToRecordModal');
+    if (modal) {
+        modal.style.display = 'none';
+        const canvas = document.getElementById('resultCanvas');
+        if (!canvas || canvas.style.display === 'none') {
+            document.body.style.overflow = 'auto';
+        }
+    }
+}
+ 
+// 4. 確認後執行 (呼叫跳轉函式)
+async function confirmJumpAndGo() {
+    closeJumpConfirmModal();
+    await jumpToLatestHistoryRecord(); // 呼叫下方定義的函式
+}
+ 
+// 5. [補回] 核心跳轉函式 (您之前缺失的部分)
+async function jumpToLatestHistoryRecord() {
+    if (!lastGeneratedTimestamp) {
+        alert("找不到剛生成的紀錄，請嘗試直接進入「歷史紀錄」查看。");
+        return;
+    }
+ 
+    // 根據時間戳找回 ID (此函式存在於主程式中)
+    const id = await findIdByTimestamp(lastGeneratedTimestamp);
+    
+    if (id) {
+        // 關閉結果畫布
+        closeResultCanvas();
+        
+        // 打開歷史紀錄
+        openHistoryContainer();
+        
+        // 打開詳情
+        await viewHistoryDetail(id);
+        
+        // 自動捲動到繳交按鈕
+        setTimeout(() => {
+            const modalBody = document.querySelector('#historyModal .preview-modal-body');
+            if (modalBody) {
+                modalBody.scrollTo({ top: modalBody.scrollHeight, behavior: 'smooth' });
+                
+                // 視覺提示
+                setTimeout(() => {
+                    const submitBtn = modalBody.querySelector('.btn-morandi');
+                    if (submitBtn) {
+                        submitBtn.style.transition = "transform 0.2s, box-shadow 0.2s";
+                        submitBtn.style.transform = "scale(1.15)";
+                        submitBtn.style.boxShadow = "0 0 15px rgba(143, 163, 152, 0.8)";
+                        setTimeout(() => {
+                            submitBtn.style.transform = "scale(1)";
+                            submitBtn.style.boxShadow = "";
+                        }, 400);
+                    }
+                }, 600);
+            }
+        }, 300);
+    } else {
+        alert("無法定位紀錄，請手動前往歷史紀錄查看。");
+    }
+}
+ 
+// 6. [按鈕產生器]
+function appendGoToSubmitButton() {
+    const container = document.getElementById("resultCanvasBody");
+    if (!container) return;
+    if (container.querySelector('#goToSubmitBtnWrapper')) return;
+ 
+    const btnHTML = `
+        <div id="goToSubmitBtnWrapper" style="margin-top: 30px; margin-bottom: 60px; text-align: right; border-top: 1px dashed #e0ddd7; padding-top: 15px;">
+            <button class="btn-action"
+                    onclick="openJumpConfirmModal()"
+                    title="跳轉至繳交頁面"
+                    style="background-color: #8fa398; border: none; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4); display: inline-flex; align-items: center; gap: 8px;">
+                <i class="fas fa-external-link-alt"></i> 前往繳交
+            </button>
+        
+        </div>`;
+    
+    container.insertAdjacentHTML('beforeend', btnHTML);
+}
+
+
+</script>
+
+
+
 	
+
 	
+
 
 
 <!-- === 新增：閱讀資源選擇視窗 (二合一) === -->
@@ -24316,6 +24466,19 @@ function forceOpenBooks() {
         <i class="fas fa-microphone voice-icon"></i>
     </div>
     <div class="voice-status" id="voiceStatusText">聆聽中</div>
+</div>
+
+
+	<!-- === 前往繳交確認視窗 (沿用通用莫蘭迪設計) === -->
+<div id="jumpToRecordModal" class="morandi-modal-overlay" style="z-index: 40000;">
+    <div class="morandi-modal-card">
+        <h3 class="morandi-title">前往繳交？</h3>
+        <p class="morandi-text">即將離開此頁面並跳轉至紀錄詳情。</p>
+        <div class="morandi-btn-group">
+            <button onclick="document.getElementById('jumpToRecordModal').style.display='none'" class="morandi-btn btn-gray">取消</button>
+            <button onclick="confirmJumpAndGo()" class="morandi-btn" style="background-color: #8fa398; color: white; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">確定</button>
+        </div>
+    </div>
 </div>
 	
 
