@@ -16392,6 +16392,9 @@ function safeJSONParse(rawString) {
  * 【最終安全版】顯示完整的點評與評分
  * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
  */
+/**
+ * 【最終修訂版】顯示完整的點評、評分系統 (雙模型取低分 + 詳細 Log 版)
+ */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
     // 1. 找出閱卷員的名字
     let reviewerName = "陳SIR"; 
@@ -16426,93 +16429,147 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     let finalHTML = `<h3>${reviewerName}點評：</h3>`;
     
+    // --- 解析 Gemini (主) 數據 ---
     let scoresForDisplay = null;
     let finalGradeForDisplay = "評級中"; 
 
-    // 使用 i 標誌來忽略大小寫匹配標籤
     const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     
-    // --- 分數解析邏輯 (極簡化：直接信任後端回傳的 JSON) ---
-   // --- 分數解析邏輯 ---
     if (originalGradingMatch && originalGradingMatch[1]) {
         scoresForDisplay = safeJSONParse(originalGradingMatch[1]);
     }
-    
-    // 計算最終總分與等級
+
+    // --- 解析 Llama-3 (輔) 數據 ---
+    let llama3Scores = null;
+    if (llama3ApiResponse) {
+        const llamaGradingMatch = llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
+        if (llamaGradingMatch && llamaGradingMatch[1]) {
+            llama3Scores = safeJSONParse(llamaGradingMatch[1]);
+        } else {
+            llama3Scores = safeJSONParse(llama3ApiResponse);
+        }
+    }
+
+    // --- ★★★ 核心邏輯：雙模型比對取低分 (含詳細 Log) ★★★ ---
+    if (scoresForDisplay && llama3Scores) {
+        console.group("⚖️ [雙模型評分對決]"); // 開啟群組，方便閱讀
+
+        // 1. 準備比較表格數據 (視覺化)
+        const comparisonData = {
+            "內容 (Content)": {
+                "Gemini (主)": scoresForDisplay.content,
+                "Llama-3 (輔)": llama3Scores.content,
+                "差異": scoresForDisplay.content - llama3Scores.content,
+                "最終採用 (Min)": Math.min(scoresForDisplay.content, llama3Scores.content)
+            },
+            "表達 (Expression)": {
+                "Gemini (主)": scoresForDisplay.expression,
+                "Llama-3 (輔)": llama3Scores.expression,
+                "差異": scoresForDisplay.expression - llama3Scores.expression,
+                "最終採用 (Min)": Math.min(scoresForDisplay.expression, llama3Scores.expression)
+            },
+            "結構 (Structure)": {
+                "Gemini (主)": scoresForDisplay.structure,
+                "Llama-3 (輔)": llama3Scores.structure,
+                "差異": scoresForDisplay.structure - llama3Scores.structure,
+                "最終採用 (Min)": Math.min(scoresForDisplay.structure, llama3Scores.structure)
+            }
+        };
+
+        // 在 Console 印出漂亮的表格
+        console.table(comparisonData);
+
+        // 2. 實際執行分數壓制邏輯 (並印出 Log)
+        if (typeof llama3Scores.content === 'number') {
+            if (llama3Scores.content < scoresForDisplay.content) {
+                console.log(`%c🔻 [內容] Llama-3 較嚴格 (${llama3Scores.content} < ${scoresForDisplay.content})，分數下調。`, "color: orange; font-weight: bold;");
+                scoresForDisplay.content = llama3Scores.content;
+            } else {
+                console.log(`%c✅ [內容] Gemini 分數較低或相等，維持原判。`, "color: green;");
+            }
+        }
+
+        if (typeof llama3Scores.expression === 'number') {
+            if (llama3Scores.expression < scoresForDisplay.expression) {
+                console.log(`%c🔻 [表達] Llama-3 較嚴格 (${llama3Scores.expression} < ${scoresForDisplay.expression})，分數下調。`, "color: orange; font-weight: bold;");
+                scoresForDisplay.expression = llama3Scores.expression;
+            } else {
+                console.log(`%c✅ [表達] Gemini 分數較低或相等，維持原判。`, "color: green;");
+            }
+        }
+
+        if (typeof llama3Scores.structure === 'number') {
+            if (llama3Scores.structure < scoresForDisplay.structure) {
+                console.log(`%c🔻 [結構] Llama-3 較嚴格 (${llama3Scores.structure} < ${scoresForDisplay.structure})，分數下調。`, "color: orange; font-weight: bold;");
+                scoresForDisplay.structure = llama3Scores.structure;
+            } else {
+                console.log(`%c✅ [結構] Gemini 分數較低或相等，維持原判。`, "color: green;");
+            }
+        }
+        
+        // 3. 雷達圖細項也取低值
+        if (scoresForDisplay.radar && llama3Scores.radar) {
+            console.log("📊 [雷達圖] 正在校正細項分數...");
+            for (let key in scoresForDisplay.radar) {
+                if (llama3Scores.radar[key] !== undefined) {
+                    const oldVal = scoresForDisplay.radar[key];
+                    const newVal = Math.min(scoresForDisplay.radar[key], llama3Scores.radar[key]);
+                    if (oldVal !== newVal) {
+                        console.log(`   - ${key}: ${oldVal} -> ${newVal} (Llama-3 修正)`);
+                    }
+                    scoresForDisplay.radar[key] = newVal;
+                }
+            }
+        }
+        console.groupEnd(); // 關閉群組
+
+    } else if (!llama3Scores && llama3ApiResponse) {
+        console.warn("⚠️ Llama-3 回傳無法解析，降級為單模型評分。");
+    }
+
+    // --- JS 硬規則後處理 (保持不變) ---
     if (scoresForDisplay) {
-        // 1. 先執行一致性規則 (扣題分數把關)
+        // 1. 執行一致性規則 (扣題 <= 4 則內容/結構 <= 4)
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         
-        // 2. ★★★ 修正核心：字數限制規則 (Cap Rule) ★★★
-        // 邏輯：字數不足時，將各項分數的「上限」鎖死，但不影響原本就低分的情況
-     // 2. ★★★ 修正核心：字數限制規則 (Cap Rule V4 - 表達分完全獨立) ★★★
-         const wordCount = fullTextContent.length;
-        
-        // 定義各項分數上限 (預設 10 分，即不設限)
-        let contentCap = 10;
-        let structureCap = 10;
-        let expressionCap = 10;
+        // 2. 字數刑罰規則 (Cap Rule)
+        const wordCount = fullTextContent.length;
+        let contentCap = 10, structureCap = 10, expressionCap = 10;
  
-        // --- 根據字數設定內容、結構與表達的限制 ---
         if (wordCount < 500) {
-            // < 500字：極刑，內容結構上限 2，文筆上限 6
-            contentCap = 2;
-            structureCap = 2;
-            expressionCap = 6;
+            contentCap = 2; structureCap = 2; expressionCap = 6;
         } else if (wordCount < 650) {
-            // < 650字：內容上限 4，結構上限 5，文筆上限 6
-            contentCap = 4;
-            structureCap = 5;
-            expressionCap = 6;
+            contentCap = 4; structureCap = 5; expressionCap = 6;
         } else if (wordCount < 800) {
-            // < 800字：內容結構上限 5，文筆不設限 (讓它最高可達 Level 5，約 66 分)
-            contentCap = 5;
-            structureCap = 5;
-            // expressionCap 保持 10
+            contentCap = 5; structureCap = 5; 
         } else if (wordCount < 1000) {
-            // ★★★ 新增規則：< 1000字，封鎖 5* 及 5** ★★★
-            // 目標：總分必須 < 69。
-            // 設定：內容上限 7，表達上限 7，結構上限 6
-            // 計算：(7*4) + (7*3) + (6*2) + 6(標點錯字) = 67分 (Level 5 頂)
-            contentCap = 6;
-            expressionCap = 7;
-            structureCap = 6;
-            console.log(`觸發字數規則 (<1000字)：限制分數上限以確保不超過 Level 5`);
+            contentCap = 6; expressionCap = 7; structureCap = 6;
         }
-        // --- 執行數值壓制 ---
+
         if (contentCap < 10 || structureCap < 10 || expressionCap < 10) {
-            
-            // 壓制分數
+            console.log(`📏 [字數規則] 字數 ${wordCount} 字，觸發分數上限：內容${contentCap}/結構${structureCap}/表達${expressionCap}`);
             scoresForDisplay.content = Math.min(scoresForDisplay.content, contentCap);
             scoresForDisplay.structure = Math.min(scoresForDisplay.structure, structureCap);
             scoresForDisplay.expression = Math.min(scoresForDisplay.expression, expressionCap);
             
-            // 同步限制雷達圖數據
             if (scoresForDisplay.radar) {
                 for (let key in scoresForDisplay.radar) {
-                    if (['立意', '取材', '扣題'].includes(key)) {
-                        // 內容範疇
-                        scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], contentCap);
-                    } else if (['詳略'].includes(key)) {
-                        // 結構範疇
-                        scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], structureCap);
-                    } else {
-                        // 詞彙、文學性 -> 表達範疇
-                        scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], expressionCap);
-                    }
+                    if (['立意', '取材', '扣題'].includes(key)) scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], contentCap);
+                    else if (['詳略'].includes(key)) scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], structureCap);
+                    else scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], expressionCap);
                 }
             }
         }
  
-        // 3. ★★★ 最後才計算總分與等級 ★★★
-        // 這樣算出來的總分就會自然反映出 LV3, LV2 或 LV1，而不會不合理地卡在 72分
-        const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1; // +5(標點預設) +1(錯別字預設)
-        
+        // 3. 計算總分與等級
+        const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
+        console.log(`🏁 [最終結果] 總分: ${finalTotalScoreAfterRules}, 等級: ${finalGradeForDisplay}`);
     }
+
     // --- AI 點評語氣重寫 (保留) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
@@ -16615,9 +16672,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         scoresForDisplay 
     );
 
-appendGoToSubmitButton();
-
-	
+    appendGoToSubmitButton();
 }
 
 
