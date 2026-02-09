@@ -16332,58 +16332,58 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         // 2. ★★★ 修正核心：字數限制規則 (Cap Rule) ★★★
         // 邏輯：字數不足時，將各項分數的「上限」鎖死，但不影響原本就低分的情況
      // 2. ★★★ 修正核心：字數限制規則 (Cap Rule V4 - 表達分完全獨立) ★★★
-        const wordCount = fullTextContent.length;
+         const wordCount = fullTextContent.length;
         
-        // 定義各項分數上限
-        // contentCap 和 structureCap 根據字數嚴格限制
+        // 定義各項分數上限 (預設 10 分，即不設限)
         let contentCap = 10;
         let structureCap = 10;
-        
-    // 1. 將 const 改為 let，允許修改 expressionCap
         let expressionCap = 10;
-        // --- 根據字數設定內容與結構的限制 ---
+ 
+        // --- 根據字數設定內容、結構與表達的限制 ---
         if (wordCount < 500) {
-            // < 500字：內容與結構極刑，上限 2分；文筆上限 6分
+            // < 500字：極刑，內容結構上限 2，文筆上限 6
             contentCap = 2;
             structureCap = 2;
-            expressionCap = 6; // 這裡也要設為 6，確保邏輯一致
+            expressionCap = 6;
         } else if (wordCount < 650) {
-            // < 650字：內容上限 4分，結構上限 5分
+            // < 650字：內容上限 4，結構上限 5，文筆上限 6
             contentCap = 4;
             structureCap = 5;
-            
-            // ★★★ 新增這行：650字以下，文筆最高限制在 6 分 ★★★
             expressionCap = 6;
-            
         } else if (wordCount < 800) {
-            // < 800字：內容與結構上限 5分
+            // < 800字：內容結構上限 5，文筆不設限 (讓它最高可達 Level 5，約 66 分)
             contentCap = 5;
             structureCap = 5;
-            // 800字以下的文筆維持不設限 (expressionCap 保持 10)
+            // expressionCap 保持 10
+        } else if (wordCount < 1000) {
+            // ★★★ 新增規則：< 1000字，封鎖 5* 及 5** ★★★
+            // 目標：總分必須 < 69。
+            // 設定：內容上限 7，表達上限 7，結構上限 6
+            // 計算：(7*4) + (7*3) + (6*2) + 6(標點錯字) = 67分 (Level 5 頂)
+            contentCap = 6;
+            expressionCap = 7;
+            structureCap = 6;
+            console.log(`觸發字數規則 (<1000字)：限制分數上限以確保不超過 Level 5`);
         }
- 
         // --- 執行數值壓制 ---
-        // 表達分數 (expression) 這裡使用 min(..., 10) 實際上就是不限制，保持原分
-        
-        if (contentCap < 10 || structureCap < 10) {
-            console.log(`觸發字數規則 (${wordCount}字)：內容上限${contentCap}, 結構上限${structureCap}, 表達分不設限`);
+        if (contentCap < 10 || structureCap < 10 || expressionCap < 10) {
             
+            // 壓制分數
             scoresForDisplay.content = Math.min(scoresForDisplay.content, contentCap);
             scoresForDisplay.structure = Math.min(scoresForDisplay.structure, structureCap);
-            // 表達分完全獨立
             scoresForDisplay.expression = Math.min(scoresForDisplay.expression, expressionCap);
             
-            // 同步限制雷達圖數據 (細緻化處理)
+            // 同步限制雷達圖數據
             if (scoresForDisplay.radar) {
                 for (let key in scoresForDisplay.radar) {
                     if (['立意', '取材', '扣題'].includes(key)) {
-                        // 內容範疇 -> 跟隨 contentCap
+                        // 內容範疇
                         scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], contentCap);
                     } else if (['詳略'].includes(key)) {
-                        // 結構範疇 -> 跟隨 structureCap
+                        // 結構範疇
                         scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], structureCap);
                     } else {
-                        // 詞彙、文學性 -> 屬於表達範疇，完全不設限
+                        // 詞彙、文學性 -> 表達範疇
                         scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], expressionCap);
                     }
                 }
