@@ -16395,6 +16395,9 @@ function safeJSONParse(rawString) {
 /**
  * 【最終修訂版】顯示完整的點評、評分系統 (雙模型取低分 + 詳細 Log 版)
  */
+/**
+ * 【最終修訂版】顯示完整的點評、評分系統 (雙模型平均分 + 零分異常保護版)
+ */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
     // 1. 找出閱卷員的名字
     let reviewerName = "陳SIR"; 
@@ -16410,16 +16413,16 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         const toneEl = document.getElementById('argumentWritingTone'); 
         if (toneEl) currentTone = toneEl.value;
     }
-
+ 
     if (reviewerSelect) {
         reviewerName = reviewerSelect.options[reviewerSelect.selectedIndex].text;
         reviewerName = reviewerName.replace(/\s*\(預設\)\s*/, ''); 
     }
-
+ 
     // 2. 打開畫布
     openResultCanvas(reviewerName + " 評核報告");
     const resultContainer = document.getElementById("resultCanvasBody");
-
+ 
     // 3. 處理舊的雷達圖實例
     const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
     if (window[instanceName]) {
@@ -16432,7 +16435,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // --- 解析 Gemini (主) 數據 ---
     let scoresForDisplay = null;
     let finalGradeForDisplay = "評級中"; 
-
+ 
     const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
@@ -16441,7 +16444,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     if (originalGradingMatch && originalGradingMatch[1]) {
         scoresForDisplay = safeJSONParse(originalGradingMatch[1]);
     }
-
+ 
     // --- 解析 Llama-3 (輔) 數據 ---
     let llama3Scores = null;
     if (llama3ApiResponse) {
@@ -16452,84 +16455,64 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             llama3Scores = safeJSONParse(llama3ApiResponse);
         }
     }
-
-    // --- ★★★ 核心邏輯：雙模型比對取低分 (含詳細 Log) ★★★ ---
+ 
+    // --- ★★★ 核心邏輯：雙模型整合 (平均分 + 異常保護) ★★★ ---
     if (scoresForDisplay && llama3Scores) {
-        console.group("⚖️ [雙模型評分對決]"); // 開啟群組，方便閱讀
-
-        // 1. 準備比較表格數據 (視覺化)
-        const comparisonData = {
-            "內容 (Content)": {
-                "Gemini (主)": scoresForDisplay.content,
-                "Llama-3 (輔)": llama3Scores.content,
-                "差異": scoresForDisplay.content - llama3Scores.content,
-                "最終採用 (Min)": Math.min(scoresForDisplay.content, llama3Scores.content)
-            },
-            "表達 (Expression)": {
-                "Gemini (主)": scoresForDisplay.expression,
-                "Llama-3 (輔)": llama3Scores.expression,
-                "差異": scoresForDisplay.expression - llama3Scores.expression,
-                "最終採用 (Min)": Math.min(scoresForDisplay.expression, llama3Scores.expression)
-            },
-            "結構 (Structure)": {
-                "Gemini (主)": scoresForDisplay.structure,
-                "Llama-3 (輔)": llama3Scores.structure,
-                "差異": scoresForDisplay.structure - llama3Scores.structure,
-                "最終採用 (Min)": Math.min(scoresForDisplay.structure, llama3Scores.structure)
+        console.group("⚖️ [雙模型評分整合]"); 
+        const wordCount = fullTextContent.length;
+        console.log(`字數檢查: ${wordCount} 字 (閾值: 200)`);
+ 
+        // 定義計算邏輯的輔助函式
+        const calculateDualScore = (scoreA, scoreB, typeName) => {
+            const sA = parseFloat(scoreA) || 0;
+            const sB = parseFloat(scoreB) || 0;
+            let finalS = 0;
+            let method = "";
+ 
+            // 規則二：零分異常保護 (字數 > 200 時)
+            if (wordCount > 200) {
+                if (sA === 0 && sB > 0) {
+                    finalS = sB;
+                    method = "🛡️ 保護觸發 (Gemini異常0分，取Llama)";
+                } else if (sB === 0 && sA > 0) {
+                    finalS = sA;
+                    method = "🛡️ 保護觸發 (Llama異常0分，取Gemini)";
+                } else {
+                    // 正常情況：取平均
+                    finalS = Math.round((sA + sB) / 2);
+                    method = "🤝 取平均值";
+                }
+            } else {
+                // 字數不足 200，0分是合理的，直接取平均
+                finalS = Math.round((sA + sB) / 2);
+                method = "🤝 取平均值 (短文)";
             }
+ 
+            // 記錄詳細 Log
+            console.log(`[${typeName}] Gemini:${sA} | Llama:${sB} => 最終:${finalS} (${method})`);
+            return finalS;
         };
-
-        // 在 Console 印出漂亮的表格
-        console.table(comparisonData);
-
-        // 2. 實際執行分數壓制邏輯 (並印出 Log)
-        if (typeof llama3Scores.content === 'number') {
-            if (llama3Scores.content < scoresForDisplay.content) {
-                console.log(`%c🔻 [內容] Llama-3 較嚴格 (${llama3Scores.content} < ${scoresForDisplay.content})，分數下調。`, "color: orange; font-weight: bold;");
-                scoresForDisplay.content = llama3Scores.content;
-            } else {
-                console.log(`%c✅ [內容] Gemini 分數較低或相等，維持原判。`, "color: green;");
-            }
-        }
-
-        if (typeof llama3Scores.expression === 'number') {
-            if (llama3Scores.expression < scoresForDisplay.expression) {
-                console.log(`%c🔻 [表達] Llama-3 較嚴格 (${llama3Scores.expression} < ${scoresForDisplay.expression})，分數下調。`, "color: orange; font-weight: bold;");
-                scoresForDisplay.expression = llama3Scores.expression;
-            } else {
-                console.log(`%c✅ [表達] Gemini 分數較低或相等，維持原判。`, "color: green;");
-            }
-        }
-
-        if (typeof llama3Scores.structure === 'number') {
-            if (llama3Scores.structure < scoresForDisplay.structure) {
-                console.log(`%c🔻 [結構] Llama-3 較嚴格 (${llama3Scores.structure} < ${scoresForDisplay.structure})，分數下調。`, "color: orange; font-weight: bold;");
-                scoresForDisplay.structure = llama3Scores.structure;
-            } else {
-                console.log(`%c✅ [結構] Gemini 分數較低或相等，維持原判。`, "color: green;");
-            }
-        }
+ 
+        // 1. 計算主要範疇
+        scoresForDisplay.content = calculateDualScore(scoresForDisplay.content, llama3Scores.content, "內容");
+        scoresForDisplay.expression = calculateDualScore(scoresForDisplay.expression, llama3Scores.expression, "表達");
+        scoresForDisplay.structure = calculateDualScore(scoresForDisplay.structure, llama3Scores.structure, "結構");
         
-        // 3. 雷達圖細項也取低值
+        // 2. 計算雷達圖細項
         if (scoresForDisplay.radar && llama3Scores.radar) {
-            console.log("📊 [雷達圖] 正在校正細項分數...");
+            console.log("📊 [雷達圖細項整合]");
             for (let key in scoresForDisplay.radar) {
                 if (llama3Scores.radar[key] !== undefined) {
-                    const oldVal = scoresForDisplay.radar[key];
-                    const newVal = Math.min(scoresForDisplay.radar[key], llama3Scores.radar[key]);
-                    if (oldVal !== newVal) {
-                        console.log(`   - ${key}: ${oldVal} -> ${newVal} (Llama-3 修正)`);
-                    }
-                    scoresForDisplay.radar[key] = newVal;
+                    scoresForDisplay.radar[key] = calculateDualScore(scoresForDisplay.radar[key], llama3Scores.radar[key], key);
                 }
             }
         }
-        console.groupEnd(); // 關閉群組
-
+        console.groupEnd();
+ 
     } else if (!llama3Scores && llama3ApiResponse) {
         console.warn("⚠️ Llama-3 回傳無法解析，降級為單模型評分。");
     }
-
+ 
     // --- JS 硬規則後處理 (保持不變) ---
     if (scoresForDisplay) {
         // 1. 執行一致性規則 (扣題 <= 4 則內容/結構 <= 4)
@@ -16548,7 +16531,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         } else if (wordCount < 1000) {
             contentCap = 6; expressionCap = 7; structureCap = 6;
         }
-
+ 
         if (contentCap < 10 || structureCap < 10 || expressionCap < 10) {
             console.log(`📏 [字數規則] 字數 ${wordCount} 字，觸發分數上限：內容${contentCap}/結構${structureCap}/表達${expressionCap}`);
             scoresForDisplay.content = Math.min(scoresForDisplay.content, contentCap);
@@ -16569,19 +16552,19 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
         console.log(`🏁 [最終結果] 總分: ${finalTotalScoreAfterRules}, 等級: ${finalGradeForDisplay}`);
     }
-
+ 
     // --- AI 點評語氣重寫 (保留) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
-
+ 
     if (finalGradeForDisplay === "5**") critiqueRewriteInstruction = "點評中應為讚賞。";
     else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") critiqueRewriteInstruction = "點評主要以讚賞為主。";
     else if (finalGradeForDisplay === "4") critiqueRewriteInstruction = "點評應有褒有貶。";
     else critiqueRewriteInstruction = "點評以批評為主。";
     
     let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨。" : "語氣專業嚴肅，不使用 Emoji。";
-
+ 
      const rewritePrompt = `請重寫以下點評內容。
     原文：${originalCritiqueText}
     【嚴格重寫要求】
@@ -16590,7 +16573,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     3. **評級調整**：${critiqueRewriteInstruction}
     4. **語氣風格**：${emojiInstruction}
     `;
-
+ 
     try {
         console.log("等待 API 冷卻...");
         await new Promise(resolve => setTimeout(resolve, 3500)); 
@@ -16599,7 +16582,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         console.warn("語氣重寫失敗:", e);
         finalCritiqueText = originalCritiqueText;
     }
-
+ 
     // 強力清洗標題
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*重寫.*$/gim, '');
@@ -16607,7 +16590,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
     finalCritiqueText = finalCritiqueText.trim();
-
+ 
     // --- 組合 HTML ---
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
@@ -16625,7 +16608,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 改寫範例繁體化 + 引號修正
     if (rewriteMatch && rewriteMatch[1]) {
         let rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
-
+ 
         if (typeof OpenCC !== 'undefined') {
             try {
                 const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
@@ -16634,9 +16617,9 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 console.error("[OpenCC] 轉換失敗:", e);
             }
         }
-
+ 
         rewriteContent = rewriteContent.replace(/["“](.*?)["”]/g, '「$1」');
-
+ 
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -16644,21 +16627,21 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             </div>
         </div>`;
     }
-
+ 
     // 加入聊天室 HTML
     const chatType = uniqueIdPrefix === 'narrative' ? 'narrative_writing' : 'argument_writing';
     finalHTML += getCanvasChatHTML(chatType);
-
+ 
     // 注入 HTML
     resultContainer.innerHTML = finalHTML;
-
+ 
     // 初始化雷達圖
     if (scoresForDisplay) {
         setTimeout(() => {
             initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
         }, 50);
     }
-
+ 
     // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
     const htmlContent = captureContainerHTML('resultCanvasBody'); 
@@ -16671,10 +16654,10 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         htmlContent,
         scoresForDisplay 
     );
-
+ 
     appendGoToSubmitButton();
 }
-
+ 
 
 // =======================================================
 // === 評等系統邏輯結束 ===
