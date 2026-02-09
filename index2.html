@@ -7694,6 +7694,28 @@ body.cat-dragging { cursor: grabbing !important; }
     0% { transform: scale(1); opacity: 0.6; }
     100% { transform: scale(2.5); opacity: 0; }
 }
+
+
+
+/* === iOS 長按修復：禁止選取文字與放大鏡 === */
+body {
+    -webkit-touch-callout: none !important; /* 禁止 iOS 長按彈出系統選單 */
+    -webkit-user-select: none !important;   /* 禁止選取文字 */
+    user-select: none !important;
+}
+ 
+/* ★★★ 關鍵：必須把輸入框還原，否則學生無法打字 ★★★ */
+input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important; /* 允許輸入框出現剪下/貼上選單 */
+}
+ 
+/* 如果有特定區域(如文章內容)需要允許學生選取複製，請加上這個 class */
+.selectable-text {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
 	
 	
 	
@@ -23375,6 +23397,8 @@ document.addEventListener('DOMContentLoaded', function() {
     recognition.interimResults = true; 
     recognition.maxAlternatives = 1;
 
+
+	
     // --- 核心：智慧判斷點擊位置 ---
    // 1. 修正目標判定：允許在語薈的節點 (.node) 上長按
 // 1. 修正目標判定：排除文章列表卡片，避免與「長按取消已讀」衝突
@@ -23457,42 +23481,76 @@ function handleCommands(transcript) {
         try { recognition.stop(); } catch(e){}
     }
 
-    // --- 觸控/滑鼠 事件監聽 ---
+// --- [修正版] 觸控/滑鼠 事件監聽 ---
+    
+    // 用來記錄最後一次觸控的時間，防止 iOS 放手時觸發滑鼠點擊
+    let lastTouchEndTime = 0;
+ 
     const handleStart = (e) => {
+        // 1. 如果是滑鼠事件，但距離上次觸控結束不足 1 秒，視為「鬼影點擊」，直接忽略
+        if (e.type === 'mousedown' && (Date.now() - lastTouchEndTime < 1000)) {
+            return;
+        }
+ 
+        // 2. 如果介面已經開啟，則關閉 (這是一般的開關邏輯)
         if (overlay.classList.contains('active')) {
             stopListening();
             return;
         }
+ 
+        // 3. 檢查目標是否有效
         if (!isValidTarget(e.target)) return;
-
+ 
+        // 4. 開始長按計時
         longPressTimer = setTimeout(() => {
             if (window.getSelection().toString().length === 0) {
                 startListening();
             }
         }, PRESS_DURATION);
     };
-
-    const handleEnd = () => {
+ 
+    const handleEnd = (e) => {
+        // 如果是觸控結束，記錄時間
+        if (e.type === 'touchend') {
+            lastTouchEndTime = Date.now();
+        }
+ 
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
     };
-
+ 
     const handleMove = () => {
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
     };
-
+ 
+    // 綁定事件
     document.addEventListener('touchstart', handleStart, { passive: true });
     document.addEventListener('touchend', handleEnd);
     document.addEventListener('touchmove', handleMove, { passive: true });
     document.addEventListener('mousedown', handleStart);
     document.addEventListener('mouseup', handleEnd);
     document.addEventListener('mouseleave', handleEnd);
+ 
+    // ★★★ [新增] 強制禁止 iOS 在背景長按時彈出系統選單 ★★★
+    window.addEventListener('contextmenu', function(e) {
+        // 檢查是否為輸入框
+        const isInput = ['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable;
+        
+        // 如果不是輸入框，就禁止右鍵選單 (讓語音圓圈能順利出來)
+        if (!isInput) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    }, { passive: false });
 
+
+	
     // --- 語音識別結果處理 (優化版) ---
 // --- 語音識別結果處理 (修正關鍵字重疊衝突版) ---
 recognition.onresult = (event) => {
