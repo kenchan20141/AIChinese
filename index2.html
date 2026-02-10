@@ -11504,7 +11504,7 @@ const LLAMA3_API_URL = CLOUDFLARE_WORKER_URL;
 // 模型設定保持不變
 const MODEL = "gemini-search";
 const READING_MODEL = "deepseek";
-const LLAMA3_MODEL = "deepseek";
+const LLAMA3_MODEL = "gemini-search";
 
 
 // =======================================================
@@ -16410,10 +16410,10 @@ function safeJSONParse(rawString) {
  * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
  */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
-    // 1. 找出閱卷員的名字與語氣
-    let reviewerName = "陳SIR";
+    // 1. 找出閱卷員的名字
+    let reviewerName = "陳SIR"; 
     let reviewerSelect;
-    let currentTone = "serious";
+    let currentTone = "serious"; 
     
     if (uniqueIdPrefix === 'narrative') {
         reviewerSelect = document.getElementById('writingReviewer');
@@ -16421,19 +16421,19 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         if (toneEl) currentTone = toneEl.value;
     } else if (uniqueIdPrefix === 'argument') {
         reviewerSelect = document.getElementById('argumentReviewer');
-        const toneEl = document.getElementById('argumentWritingTone');
+        const toneEl = document.getElementById('argumentWritingTone'); 
         if (toneEl) currentTone = toneEl.value;
     }
- 
+
     if (reviewerSelect) {
         reviewerName = reviewerSelect.options[reviewerSelect.selectedIndex].text;
-        reviewerName = reviewerName.replace(/\s*\(預設\)\s*/, '');
+        reviewerName = reviewerName.replace(/\s*\(預設\)\s*/, ''); 
     }
- 
+
     // 2. 打開畫布
     openResultCanvas(reviewerName + " 評核報告");
     const resultContainer = document.getElementById("resultCanvasBody");
- 
+
     // 3. 處理舊的雷達圖實例
     const instanceName = `${uniqueIdPrefix}_radarChartInstance`;
     if (window[instanceName]) {
@@ -16443,149 +16443,105 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     
     let finalHTML = `<h3>${reviewerName}點評：</h3>`;
     
-    // --- 4. 解析原始文字中的各個區塊 ---
+    let scoresForDisplay = null;
+    let finalGradeForDisplay = "評級中"; 
+
+    // 使用 i 標誌來忽略大小寫匹配標籤
     const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
+    const originalGradingMatch = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     
-    // 4.1 提取兩個模型的 JSON 字串
-    const jsonMatchA = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
-    const jsonMatchB = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
- 
-    // 4.2 解析為物件 (若解析失敗給予預設空結構)
-    let scoresA = (jsonMatchA && jsonMatchA[1]) ? safeJSONParse(jsonMatchA[1]) : null;
-    let scoresB = (jsonMatchB && jsonMatchB[1]) ? safeJSONParse(jsonMatchB[1]) : null;
- 
-    // 補全預設值防止報錯
-    const defaultScores = { content: 0, structure: 0, expression: 0, radar: { 立意:0, 取材:0, 扣題:0, 詳略:0, 詞彙:0, 文學性:0 } };
-    if (!scoresA) scoresA = JSON.parse(JSON.stringify(defaultScores));
-    if (!scoresB) scoresB = JSON.parse(JSON.stringify(defaultScores));
-    if (!scoresA.radar) scoresA.radar = defaultScores.radar;
-    if (!scoresB.radar) scoresB.radar = defaultScores.radar;
- 
-    // --- 5. 雙模型分數計算邏輯 (核心修訂) ---
-    let scoresForDisplay = JSON.parse(JSON.stringify(defaultScores)); // 最終結果容器
-    let finalGradeForDisplay = "評級中";
-    const wordCount = fullTextContent.length;
- 
-    // 判斷模型是否壞掉 (字數足夠卻全0分)
-    const isModelABroken = (wordCount > 150) && (scoresA.content === 0 && scoresA.structure === 0 && scoresA.expression === 0);
-    const isModelBBroken = (wordCount > 150) && (scoresB.content === 0 && scoresB.structure === 0 && scoresB.expression === 0);
- 
-    let usedSource = ""; // 用於記錄最終採用方案
- 
-    if (isModelABroken && !isModelBBroken) {
-        // A 壞 B 好 -> 用 B
-        scoresForDisplay = scoresB;
-        usedSource = "Model B Only (Llama3) - A Failed";
-    } else if (isModelBBroken && !isModelABroken) {
-        // B 壞 A 好 -> 用 A
-        scoresForDisplay = scoresA;
-        usedSource = "Model A Only (Gemini) - B Failed";
-    } else if (isModelABroken && isModelBBroken) {
-        // 兩個都壞 -> 沒救了，用 A (至少格式正確)
-        scoresForDisplay = scoresA;
-        usedSource = "Both Failed (Defaulting to A)";
-    } else {
-        // 兩個都正常 -> 取平均 (四捨五入)
-        usedSource = "Dual Model Average";
-        
-        // 平均三大項
-        scoresForDisplay.content = Math.round((scoresA.content + scoresB.content) / 2);
-        scoresForDisplay.structure = Math.round((scoresA.structure + scoresB.structure) / 2);
-        scoresForDisplay.expression = Math.round((scoresA.expression + scoresB.expression) / 2);
- 
-        // 平均雷達圖細項
-        for (let key in scoresForDisplay.radar) {
-            const valA = scoresA.radar[key] || 0;
-            const valB = scoresB.radar[key] || 0;
-            scoresForDisplay.radar[key] = Math.round((valA + valB) / 2);
-        }
+    // --- 分數解析邏輯 (極簡化：直接信任後端回傳的 JSON) ---
+   // --- 分數解析邏輯 ---
+    if (originalGradingMatch && originalGradingMatch[1]) {
+        scoresForDisplay = safeJSONParse(originalGradingMatch[1]);
     }
- 
-    // --- 6. F12 Console 輸出比對表 ---
-    console.group(`📊 雙模型評分比對 (${uniqueIdPrefix})`);
-    console.log(`字數: ${wordCount}`);
-    console.log(`決策: ${usedSource}`);
-    console.table([
-        {
-            Model: "A (Gemini)",
-            Status: isModelABroken ? "❌ Broken" : "✅ OK",
-            Content: scoresA.content,
-            Structure: scoresA.structure,
-            Expression: scoresA.expression
-        },
-        {
-            Model: "B (Llama3)",
-            Status: isModelBBroken ? "❌ Broken" : "✅ OK",
-            Content: scoresB.content,
-            Structure: scoresB.structure,
-            Expression: scoresB.expression
-        },
-        {
-            Model: "👉 FINAL",
-            Status: "Applied",
-            Content: scoresForDisplay.content,
-            Structure: scoresForDisplay.structure,
-            Expression: scoresForDisplay.expression
-        }
-    ]);
-    console.groupEnd();
- 
-    // --- 7. 套用後處理規則 (一致性與字數限制) ---
+    
+    // 計算最終總分與等級
     if (scoresForDisplay) {
-        // 7.1 扣題分數把關規則
+        // 1. 先執行一致性規則 (扣題分數把關)
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         
-        // 7.2 字數限制規則 (Cap Rule)
+        // 2. ★★★ 修正核心：字數限制規則 (Cap Rule) ★★★
+        // 邏輯：字數不足時，將各項分數的「上限」鎖死，但不影響原本就低分的情況
+     // 2. ★★★ 修正核心：字數限制規則 (Cap Rule V4 - 表達分完全獨立) ★★★
+         const wordCount = fullTextContent.length;
+        
+        // 定義各項分數上限 (預設 10 分，即不設限)
         let contentCap = 10;
         let structureCap = 10;
         let expressionCap = 10;
-        if (wordCount < 500) {
-            contentCap = 2; structureCap = 2; expressionCap = 6;
-        } else if (wordCount < 650) {
-            contentCap = 4; structureCap = 5; expressionCap = 6;
-        } else if (wordCount < 800) {
-            contentCap = 5; structureCap = 5; // 表達不設限
-        } else if (wordCount < 1000) {
-            contentCap = 6; expressionCap = 7; structureCap = 6;
-        }
  
-        // 執行壓分
+        // --- 根據字數設定內容、結構與表達的限制 ---
+        if (wordCount < 500) {
+            // < 500字：極刑，內容結構上限 2，文筆上限 6
+            contentCap = 2;
+            structureCap = 2;
+            expressionCap = 6;
+        } else if (wordCount < 650) {
+            // < 650字：內容上限 4，結構上限 5，文筆上限 6
+            contentCap = 4;
+            structureCap = 5;
+            expressionCap = 6;
+        } else if (wordCount < 800) {
+            // < 800字：內容結構上限 5，文筆不設限 (讓它最高可達 Level 5，約 66 分)
+            contentCap = 5;
+            structureCap = 5;
+            // expressionCap 保持 10
+        } else if (wordCount < 1000) {
+            // ★★★ 新增規則：< 1000字，封鎖 5* 及 5** ★★★
+            // 目標：總分必須 < 69。
+            // 設定：內容上限 7，表達上限 7，結構上限 6
+            // 計算：(7*4) + (7*3) + (6*2) + 6(標點錯字) = 67分 (Level 5 頂)
+            contentCap = 6;
+            expressionCap = 7;
+            structureCap = 6;
+            console.log(`觸發字數規則 (<1000字)：限制分數上限以確保不超過 Level 5`);
+        }
+        // --- 執行數值壓制 ---
         if (contentCap < 10 || structureCap < 10 || expressionCap < 10) {
+            
+            // 壓制分數
             scoresForDisplay.content = Math.min(scoresForDisplay.content, contentCap);
             scoresForDisplay.structure = Math.min(scoresForDisplay.structure, structureCap);
             scoresForDisplay.expression = Math.min(scoresForDisplay.expression, expressionCap);
             
+            // 同步限制雷達圖數據
             if (scoresForDisplay.radar) {
                 for (let key in scoresForDisplay.radar) {
                     if (['立意', '取材', '扣題'].includes(key)) {
+                        // 內容範疇
                         scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], contentCap);
                     } else if (['詳略'].includes(key)) {
+                        // 結構範疇
                         scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], structureCap);
                     } else {
+                        // 詞彙、文學性 -> 表達範疇
                         scoresForDisplay.radar[key] = Math.min(scoresForDisplay.radar[key], expressionCap);
                     }
                 }
             }
         }
-        // 7.3 計算總分與等級
-        const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
+ 
+        // 3. ★★★ 最後才計算總分與等級 ★★★
+        // 這樣算出來的總分就會自然反映出 LV3, LV2 或 LV1，而不會不合理地卡在 72分
+        const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1; // +5(標點預設) +1(錯別字預設)
+        
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
- 
-    // --- 8. AI 點評語氣重寫邏輯 (保持原有) ---
+    // --- AI 點評語氣重寫 (保留) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
- 
+
     if (finalGradeForDisplay === "5**") critiqueRewriteInstruction = "點評中應為讚賞。";
     else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") critiqueRewriteInstruction = "點評主要以讚賞為主。";
     else if (finalGradeForDisplay === "4") critiqueRewriteInstruction = "點評應有褒有貶。";
     else critiqueRewriteInstruction = "點評以批評為主。";
     
     let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨。" : "語氣專業嚴肅，不使用 Emoji。";
- 
+
      const rewritePrompt = `請重寫以下點評內容。
     原文：${originalCritiqueText}
     【嚴格重寫要求】
@@ -16594,25 +16550,25 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     3. **評級調整**：${critiqueRewriteInstruction}
     4. **語氣風格**：${emojiInstruction}
     `;
- 
+
     try {
         console.log("等待 API 冷卻...");
-        await new Promise(resolve => setTimeout(resolve, 3500));
-        finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5);
+        await new Promise(resolve => setTimeout(resolve, 3500)); 
+        finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5); 
     } catch (e) {
         console.warn("語氣重寫失敗:", e);
         finalCritiqueText = originalCritiqueText;
     }
- 
-    // 清洗標題
+
+    // 強力清洗標題
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*重寫.*$/gim, '');
-    finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, '');
+    finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, ''); 
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
     finalCritiqueText = finalCritiqueText.trim();
- 
-    // --- 9. 組合 HTML 輸出 ---
+
+    // --- 組合 HTML ---
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }  else {
@@ -16629,7 +16585,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     // 改寫範例繁體化 + 引號修正
     if (rewriteMatch && rewriteMatch[1]) {
         let rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
- 
+
         if (typeof OpenCC !== 'undefined') {
             try {
                 const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
@@ -16638,9 +16594,9 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 console.error("[OpenCC] 轉換失敗:", e);
             }
         }
- 
+
         rewriteContent = rewriteContent.replace(/["“](.*?)["”]/g, '「$1」');
- 
+
         finalHTML += `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
                 <h3>改寫範例</h3>
@@ -16648,35 +16604,37 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             </div>
         </div>`;
     }
- 
+
     // 加入聊天室 HTML
     const chatType = uniqueIdPrefix === 'narrative' ? 'narrative_writing' : 'argument_writing';
     finalHTML += getCanvasChatHTML(chatType);
- 
+
     // 注入 HTML
     resultContainer.innerHTML = finalHTML;
- 
+
     // 初始化雷達圖
     if (scoresForDisplay) {
         setTimeout(() => {
             initializeGradingSystem(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
         }, 50);
     }
- 
+
     // 儲存到歷史紀錄
     const topic = (uniqueIdPrefix === 'narrative') ? localStorage.getItem("currentTopic") : localStorage.getItem("argumentCurrentTopic");
-    const htmlContent = captureContainerHTML('resultCanvasBody');
+    const htmlContent = captureContainerHTML('resultCanvasBody'); 
     
      await saveToHistory(
-        uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論",
-        "文章點評",
-        topic || "無題目",
-        `題目：${topic}\n\n文章：${fullTextContent}`,
+        uniqueIdPrefix === 'narrative' ? "敘事抒情" : "議論", 
+        "文章點評", 
+        topic || "無題目", 
+        `題目：${topic}\n\n文章：${fullTextContent}`, 
         htmlContent,
-        scoresForDisplay
+        scoresForDisplay 
     );
- 
-    appendGoToSubmitButton();
+
+appendGoToSubmitButton();
+
+	
 }
 
 
