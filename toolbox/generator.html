@@ -3244,33 +3244,40 @@ function updateReferenceNumbers(textId) {
             }
         }
 
-     function validateInput(type) {
+   function validateInput(type) {
     if (type === 'reading') {
         const selectedTexts = getSelectedTexts();
         const targetPassage = document.getElementById('targetPassage').value.trim();
         
-        // 檢查是否選擇了範文或輸入了自訂內容
+        // 1. 檢查是否選擇了範文或輸入了自訂內容
         if (selectedTexts.length === 0 && !targetPassage) {
             showError('請選擇範文或輸入自訂篇章內容');
             return false;
         }
         
-        // 檢查是否選擇了題型
+        // 2. 檢查是否選擇了題型
         let hasSelectedTypes = false;
+        
         if (selectedTexts.length > 0) {
-            // 檢查範文的題型選擇
+            // --- 情況 A：使用了範文庫 ---
             if (window.independentSelections) {
-                for (const textId of Object.keys(window.independentSelections)) {
-                    if (window.independentSelections[textId].size > 0) {
+                // 遍歷所有已選範文的 ID，檢查是否有選題型
+                for (const text of selectedTexts) {
+                    if (window.independentSelections[text.id] &&
+                        window.independentSelections[text.id].size > 0) {
                         hasSelectedTypes = true;
                         break;
                     }
                 }
             }
         } else {
-            // 檢查自訂篇章的題型選擇
-            const customSelections = document.querySelectorAll('[data-text-id="custom"] .toggle-switch.active');
-            hasSelectedTypes = customSelections.length > 0;
+            // --- 情況 B：使用了自訂篇章 (修訂重點) ---
+            // 直接檢查全域變數中的 'custom' 鍵值，不再去 DOM 裡面搜元素
+            if (window.independentSelections &&
+                window.independentSelections['custom'] &&
+                window.independentSelections['custom'].size > 0) {
+                hasSelectedTypes = true;
+            }
         }
         
         if (!hasSelectedTypes) {
@@ -3278,7 +3285,7 @@ function updateReferenceNumbers(textId) {
             return false;
         }
     } else if (type === 'essay') {
-
+ 
         if (selectedWritingTypes.size === 0) {
             showError('請至少選擇一種題型');
             return false;
@@ -3323,14 +3330,13 @@ function updateReferenceNumbers(textId) {
     return true;
 }
 
-
         // 具體生成函數
-      async function generateReadingQuestions() {
+   async function generateReadingQuestions() {
     const selectedTexts = getSelectedTexts();
     let allQuestions = [];
     
     if (selectedTexts.length === 0) {
-        // 處理自訂篇章
+        // --- 情況 A：處理自訂篇章 (修訂重點) ---
         const targetPassage = document.getElementById('targetPassage').value.trim();
         if (!targetPassage) {
             showError('請選擇範文或輸入自訂篇章內容');
@@ -3338,25 +3344,30 @@ function updateReferenceNumbers(textId) {
             return;
         }
         
-        // 獲取自訂篇章的題型選擇
-        const customSelections = document.querySelectorAll('[data-text-id="custom"] .toggle-switch.active');
+        // 直接從 independentSelections['custom'] 獲取已選題型
         const selectedTypes = [];
-        customSelections.forEach(toggle => {
-            const questionTypeDiv = toggle.closest('.question-type-selection');
-            if (questionTypeDiv) {
-                const questionType = questionTypeDiv.getAttribute('data-type');
-                selectedTypes.push(questionType);
-            }
-        });
+        if (window.independentSelections && window.independentSelections['custom']) {
+            // 將 Set 轉為 Array 方便遍歷
+            window.independentSelections['custom'].forEach(type => {
+                selectedTypes.push(type);
+            });
+        }
+        
+        // 安全檢查 (雖然 validateInput 已經檢查過，但多一層保障)
+        if (selectedTypes.length === 0) {
+            showError('請至少選擇一種題型');
+            hideProgress();
+            return;
+        }
         
         // 為自訂篇章生成題目
         for (const questionType of selectedTypes) {
+            // 呼叫 API 生成函數，傳入 'custom' 作為 ID
             const questions = await generateQuestionsForText(questionType, targetPassage, 'custom');
             allQuestions = allQuestions.concat(questions);
         }
     } else {
-
-        // 處理選中的範文
+        // --- 情況 B：處理選中的範文 (保持不變) ---
         for (const text of selectedTexts) {
             if (window.independentSelections && window.independentSelections[text.id]) {
                 for (const questionType of window.independentSelections[text.id]) {
