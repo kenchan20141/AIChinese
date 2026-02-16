@@ -24687,5 +24687,104 @@ function forceOpenBooks() {
 	
 
 
+
+<script>
+// =======================================================
+// === [修復補丁] 智能取消生成邏輯 (解決卡死與錯誤彈窗) ===
+// =======================================================
+
+(function() {
+    // 1. 定義一個全域旗標，用來標記「使用者正在手動取消」
+    // 當這個旗標為 true 時，我們會攔截所有的 alert 錯誤提示
+    window._isManuallyCancelling = false;
+
+    // 2. 備份並覆寫 window.alert
+    // 目的：當使用者按下取消時，系統會拋出 AbortError，我們不希望這時候彈出「生成失敗」的 Alert
+    const originalAlert = window.alert;
+    window.alert = function(message) {
+        // 如果正在手動取消中，且訊息看起來像是錯誤提示，則忽略之
+        if (window._isManuallyCancelling) {
+            console.log("已攔截取消時的冗餘錯誤提示:", message);
+            return; 
+        }
+        originalAlert(message);
+    };
+
+    // 3. 覆寫：確認取消函式 (更強力的重置邏輯)
+    window.confirmCancel = function() {
+        // A. 標記開始取消 (抑制錯誤彈窗)
+        window._isManuallyCancelling = true;
+
+        // B. 關閉確認視窗
+        closeCancelModal();
+
+        // C. 嘗試中斷 API 連線
+        try {
+            if (typeof globalAbortController !== 'undefined' && globalAbortController) {
+                globalAbortController.abort(); // 發送中斷訊號
+                globalAbortController = null;
+                console.log("使用者手動取消生成 (Signal Aborted)");
+            }
+        } catch (e) {
+            console.warn("中斷控制器錯誤 (可忽略):", e);
+        }
+
+        // D. 強制隱藏加載畫面 (確保 UI 消失)
+        // 使用 setTimeout 確保在主線程執行
+        setTimeout(() => {
+            hideLoading();
+            
+            // E. 重新啟用所有被鎖定的提交按鈕 (加入防呆檢查)
+            enableSubmitButtonsSafe();
+
+            // F. 1秒後解除 Alert 封鎖 (恢復正常報錯功能)
+            setTimeout(() => {
+                window._isManuallyCancelling = false;
+            }, 1000);
+        }, 50);
+    };
+
+    // 4. 覆寫：隱藏加載畫面 (確保所有層級都關閉)
+    window.hideLoading = function() {
+        const overlay = document.getElementById('loadingOverlay');
+        const confirmModal = document.getElementById('cancelConfirmModal');
+        
+        if (confirmModal) confirmModal.style.display = 'none';
+        if (overlay) overlay.style.display = 'none';
+    };
+
+    // 5. 新增：安全版的按鈕啟用函式
+    window.enableSubmitButtonsSafe = function() {
+        // 定義所有可能被鎖定的按鈕 ID
+        const ids = [
+            'submitWritingBtn', 'submitReadingBtn', 'submitExpandBtn', 'submitExpandGuideBtn',
+            'submitArgumentOutlineBtn', 'submitArgumentWritingBtn', 'submitArgumentGuideBtn',
+            'submitWritingGuideBtn', 'startDiscussionBtn', 'continueBtn',
+            'continueWritingBtn', 'continueWritingGuideBtn', 'continueArgumentBtn',
+            'canvasChatSendBtn', 'modal-ocr-btn', 'modal-save-btn'
+        ];
+
+        ids.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.disabled = false;
+                // 如果按鈕內有 loading spinner，嘗試恢復 (這是一個通用的嘗試)
+                if (btn.innerHTML.includes('fa-spinner')) {
+                    // 簡單粗暴地重置文字，或者您可以針對特定按鈕做更細緻的處理
+                    // 這裡選擇不修改 innerHTML，只解鎖 disabled，通常按鈕會自己恢復或保持原樣
+                }
+            }
+        });
+        
+        // 額外檢查：搜尋頁面上的任何 disabled 按鈕並強制解鎖 (防止漏網之魚)
+        const allDisabledBtns = document.querySelectorAll('button[disabled]');
+        allDisabledBtns.forEach(btn => btn.disabled = false);
+    };
+
+    console.log("✅ 取消生成修復補丁已載入");
+})();
+</script>
+	
+
 </body>
 </html>
