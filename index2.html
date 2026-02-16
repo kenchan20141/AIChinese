@@ -24690,72 +24690,95 @@ function forceOpenBooks() {
 
 <script>
 // =======================================================
-// === [修復補丁] 智能取消生成邏輯 (解決卡死與錯誤彈窗) ===
+// === [終極修復補丁 V2] 智能取消生成邏輯 (閘門攔截版) ===
 // =======================================================
 
 (function() {
-    // 1. 定義一個全域旗標，用來標記「使用者正在手動取消」
-    // 當這個旗標為 true 時，我們會攔截所有的 alert 錯誤提示
-    window._isManuallyCancelling = false;
+    // 1. 定義全域狀態旗標
+    // false = 正常狀態, true = 使用者已按下取消，禁止任何後續動作
+    window._globalGenerationCancelled = false;
 
-    // 2. 備份並覆寫 window.alert
-    // 目的：當使用者按下取消時，系統會拋出 AbortError，我們不希望這時候彈出「生成失敗」的 Alert
+    // 2. 備份並覆寫 window.alert (攔截冗餘錯誤)
     const originalAlert = window.alert;
     window.alert = function(message) {
-        // 如果正在手動取消中，且訊息看起來像是錯誤提示，則忽略之
-        if (window._isManuallyCancelling) {
-            console.log("已攔截取消時的冗餘錯誤提示:", message);
-            return; 
+        // 如果處於取消狀態，且訊息看起來像是 API 錯誤，則攔截
+        if (window._globalGenerationCancelled) {
+            const msgStr = String(message);
+            if (msgStr.includes("失敗") || msgStr.includes("錯誤") || msgStr.includes("Error")) {
+                console.log("已攔截取消時的冗餘錯誤提示:", message);
+                return;
+            }
         }
         originalAlert(message);
     };
 
-    // 3. 覆寫：確認取消函式 (更強力的重置邏輯)
+    // 3. 攔截「顯示加載畫面」：這是每次新生成的起點
+    // 我們在這裡重置旗標，確保新的生成可以正常進行
+    const originalShowLoading = window.showLoading;
+    window.showLoading = function(text) {
+        window._globalGenerationCancelled = false; // 重置閘門，允許通行
+        if (originalShowLoading) originalShowLoading(text);
+    };
+
+    // 4. 覆寫：確認取消函式 (按下取消鍵時觸發)
     window.confirmCancel = function() {
-        // A. 標記開始取消 (抑制錯誤彈窗)
-        window._isManuallyCancelling = true;
+        console.log("🛑 使用者觸發強制取消");
+        
+        // A. 立起閘門：從這一刻起，禁止任何結果顯示或存檔
+        window._globalGenerationCancelled = true;
 
         // B. 關閉確認視窗
-        closeCancelModal();
+        if (typeof closeCancelModal === 'function') closeCancelModal();
 
-        // C. 嘗試中斷 API 連線
+        // C. 嘗試中斷 API 連線 (物理層)
         try {
             if (typeof globalAbortController !== 'undefined' && globalAbortController) {
-                globalAbortController.abort(); // 發送中斷訊號
+                globalAbortController.abort();
                 globalAbortController = null;
-                console.log("使用者手動取消生成 (Signal Aborted)");
             }
-        } catch (e) {
-            console.warn("中斷控制器錯誤 (可忽略):", e);
-        }
+        } catch (e) { console.warn("AbortController error:", e); }
 
-        // D. 強制隱藏加載畫面 (確保 UI 消失)
-        // 使用 setTimeout 確保在主線程執行
+        // D. 強制隱藏加載畫面並恢復介面
         setTimeout(() => {
-            hideLoading();
+            if (typeof hideLoading === 'function') hideLoading();
             
-            // E. 重新啟用所有被鎖定的提交按鈕 (加入防呆檢查)
-            enableSubmitButtonsSafe();
-
-            // F. 1秒後解除 Alert 封鎖 (恢復正常報錯功能)
-            setTimeout(() => {
-                window._isManuallyCancelling = false;
-            }, 1000);
+            // 恢復按鈕狀態
+            if (typeof enableSubmitButtonsSafe === 'function') {
+                enableSubmitButtonsSafe();
+            } else {
+                // 如果沒有定義該函式，手動恢復常見按鈕
+                const btns = document.querySelectorAll('button[disabled]');
+                btns.forEach(btn => btn.disabled = false);
+            }
         }, 50);
     };
 
-    // 4. 覆寫：隱藏加載畫面 (確保所有層級都關閉)
-    window.hideLoading = function() {
-        const overlay = document.getElementById('loadingOverlay');
-        const confirmModal = document.getElementById('cancelConfirmModal');
-        
-        if (confirmModal) confirmModal.style.display = 'none';
-        if (overlay) overlay.style.display = 'none';
+    // 5. 【核心關鍵】覆寫結果視窗開啟函式 (Gatekeeper)
+    // 這是防止結果在取消後依然彈出的最後一道防線
+    const originalOpenResultCanvas = window.openResultCanvas;
+    window.openResultCanvas = function(title) {
+        // 檢查閘門：如果已經取消，絕對禁止打開視窗
+        if (window._globalGenerationCancelled) {
+            console.warn("🚫 攔截到結果視窗開啟請求 (因為使用者已取消)");
+            return; // 直接結束，什麼都不做
+        }
+        // 否則正常打開
+        if (originalOpenResultCanvas) originalOpenResultCanvas(title);
     };
 
-    // 5. 新增：安全版的按鈕啟用函式
+    // 6. 【核心關鍵】覆寫歷史紀錄儲存函式
+    // 防止取消的內容被寫入資料庫
+    const originalSaveToHistory = window.saveToHistory;
+    window.saveToHistory = async function(...args) {
+        if (window._globalGenerationCancelled) {
+            console.warn("🚫 攔截到歷史紀錄儲存請求 (因為使用者已取消)");
+            return;
+        }
+        if (originalSaveToHistory) await originalSaveToHistory(...args);
+    };
+
+    // 7. 補充：安全版的按鈕啟用函式 (防止按鈕卡在灰色狀態)
     window.enableSubmitButtonsSafe = function() {
-        // 定義所有可能被鎖定的按鈕 ID
         const ids = [
             'submitWritingBtn', 'submitReadingBtn', 'submitExpandBtn', 'submitExpandGuideBtn',
             'submitArgumentOutlineBtn', 'submitArgumentWritingBtn', 'submitArgumentGuideBtn',
@@ -24763,25 +24786,15 @@ function forceOpenBooks() {
             'continueWritingBtn', 'continueWritingGuideBtn', 'continueArgumentBtn',
             'canvasChatSendBtn', 'modal-ocr-btn', 'modal-save-btn'
         ];
-
         ids.forEach(id => {
             const btn = document.getElementById(id);
-            if (btn) {
-                btn.disabled = false;
-                // 如果按鈕內有 loading spinner，嘗試恢復 (這是一個通用的嘗試)
-                if (btn.innerHTML.includes('fa-spinner')) {
-                    // 簡單粗暴地重置文字，或者您可以針對特定按鈕做更細緻的處理
-                    // 這裡選擇不修改 innerHTML，只解鎖 disabled，通常按鈕會自己恢復或保持原樣
-                }
-            }
+            if (btn) btn.disabled = false;
         });
-        
-        // 額外檢查：搜尋頁面上的任何 disabled 按鈕並強制解鎖 (防止漏網之魚)
-        const allDisabledBtns = document.querySelectorAll('button[disabled]');
-        allDisabledBtns.forEach(btn => btn.disabled = false);
+        // 暴力解鎖所有 disabled 按鈕
+        document.querySelectorAll('button[disabled]').forEach(btn => btn.disabled = false);
     };
 
-    console.log("✅ 取消生成修復補丁已載入");
+    console.log("✅ [終極版] 取消生成邏輯已載入 (閘門機制啟動)");
 })();
 </script>
 	
