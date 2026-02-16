@@ -255,7 +255,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
       }
   }
 
-  // RAG 搜尋核心函數 (升級版)
+// RAG 搜尋核心函數 (升級版：顯示內容預覽)
   async function searchSimilarEssays(studentText, targetType) {
     console.log(`%c🔍 [RAG] 啟動搜尋 (類型: ${targetType})...`, "color: yellow");
     
@@ -272,15 +272,9 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
             throw new Error("模型未能成功載入");
         }
 
-        // 1. 計算向量 (取前 500 字，避免 BGE 超出長度)
+        // 1. 計算向量
         const output = await embeddingExtractor(studentText.substring(0, 500), { pooling: 'mean', normalize: true });
         const vector = Array.from(output.data);
-
-        // 二次確認維度 (防止上傳失敗)
-        if (vector.length !== 512) {
-            console.error(`❌ 維度錯誤：產生了 ${vector.length} 維向量，但資料庫需要 512 維。請重新整理頁面。`);
-            return "";
-        }
 
         // 2. 呼叫 Supabase
         const { data, error } = await supabaseClient.rpc('match_documents', {
@@ -292,25 +286,33 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
         if (error) {
             console.error("❌ [RAG] Supabase 搜尋錯誤:", error);
-            // 通常是維度不匹配才會報錯
-            if (error.message.includes("dimension")) {
-                alert("⚠️ 系統偵測到模型版本不符，請強制重新整理頁面 (Ctrl+F5)。");
-            }
             return "";
         }
 
         if (data && data.length > 0) {
             console.group(`🎯 [RAG] 命中 ${data.length} 篇範文`);
+            
             data.forEach((match, idx) => {
-                console.log(`[${idx + 1}] ${match.metadata ? match.metadata.title : '無標題'} (相似度: ${(match.similarity * 100).toFixed(1)}%)`);
+                const title = match.metadata ? match.metadata.title : '無標題';
+                const score = (match.similarity * 100).toFixed(1) + '%';
+                
+                // ★★★ 這裡就是你要的修改：顯示內容預覽 ★★★
+                // 為了不讓 Console 太亂，這裡只顯示前 60 個字
+                const preview = match.content ? match.content.substring(0, 60).replace(/\n/g, ' ') + '...' : '(無內容)';
+
+                console.log(`%c[${idx + 1}] ${title} (相似度: ${score})`, "font-weight:bold; color: #4caf50;");
+                console.log(`    📄 內容: ${preview}`); // 這一行會讓你看見正文！
             });
+            
             console.groupEnd();
             
+            // 構建要給 AI 的參考資料
             let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 ⚡ ===\n";
             ragContent += "(注意：以下內容僅供評分標準參考，並非學生所寫)\n\n";
             data.forEach((match, index) => {
                 ragContent += `【參考範文 ${index + 1}】：${match.metadata.title || '無題'}\n${match.content}\n-------------------\n`;
             });
+            
             return ragContent;
         } else {
             console.warn(`🤷‍♂️ [RAG] 找不到相似文章`);
