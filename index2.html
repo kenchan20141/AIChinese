@@ -257,9 +257,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
       }
   }
 
-// RAG 搜尋核心函數 (升級版：支援題目加權)
-// 修改：增加了 studentTopic 參數
-// RAG 搜尋核心函數 (終極混合版：精確標題優先 + 向量語意補充)
+// RAG 搜尋核心函數 (終極混合版：精確標題優先 + 極端題目權重向量)
 async function searchSimilarEssays(studentTopic, studentText, targetType) {
     console.log(`%c🔍 [RAG] 啟動混合搜尋 (題目: ${studentTopic})...`, "color: yellow");
 
@@ -270,27 +268,22 @@ async function searchSimilarEssays(studentTopic, studentText, targetType) {
         }
 
         let finalResults = [];
-        const requiredCount = 3; // 我們總共需要幾篇參考範文
+        const requiredCount = 3; 
 
         // ==========================================
-        // 🔹 階段一：精確標題搜尋 (強制優先)
+        // 🔹 階段一：精確標題搜尋 (處理「重遊舊地」vs「重遊舊地有感」)
         // ==========================================
-        // 這一步會直接去資料庫找 metadata->title 包含學生題目的文章
-        // 例如：學生題目「重遊舊地」，資料庫有「重遊舊地所見有感」，就會被選中
         if (studentTopic && studentTopic.trim() !== "") {
             const { data: titleMatches, error: titleError } = await supabaseClient
                 .from('documents')
                 .select('*')
-                // 這裡的邏輯是：metadata 中的 title 欄位是否包含 studentTopic
                 .ilike('metadata->>title', `%${studentTopic}%`) 
-                .eq('metadata->>type', targetType) // 確保文體也符合 (narrative/argument)
+                .eq('metadata->>type', targetType) 
                 .limit(requiredCount);
 
             if (!titleError && titleMatches && titleMatches.length > 0) {
                 console.log(`%c🎯 [RAG] 標題精確命中 ${titleMatches.length} 篇!`, "color: #fff; background: #28a745; font-weight: bold;");
-                
                 titleMatches.forEach(doc => {
-                    // 標記這篇是來自標題匹配
                     doc._source = "標題命中";
                     doc._score = "100% (精確)"; 
                     finalResults.push(doc);
@@ -299,39 +292,38 @@ async function searchSimilarEssays(studentTopic, studentText, targetType) {
         }
 
         // ==========================================
-        // 🔹 階段二：向量語意搜尋 (填補剩餘名額)
+        // 🔹 階段二：向量語意搜尋 (處理「選擇」vs「抉擇」)
         // ==========================================
-        // 如果標題命中不足 3 篇，我們才用向量去搜剩下的
         if (finalResults.length < requiredCount) {
-            
-            await initEmbeddingModel(); // 確保模型載入
+            await initEmbeddingModel();
 
             if (embeddingExtractor) {
-                // 這裡依然保留題目加權的邏輯，作為雙重保險
                 const safeTopic = studentTopic || "無題目";
-                const weightedInput = `題目：${safeTopic}。題目：${safeTopic}。內容：${studentText.substring(0, 400)}`;
                 
+                // ★★★ 關鍵修改：極端加權策略 ★★★
+                // 1. 重複 5 次題目，使用不同前綴強調語意
+                // 2. 內容只截取 150 字，避免離題內容干擾向量
+                const weightedInput = `作文題目：${safeTopic}。核心主題：${safeTopic}。探討議題：${safeTopic}。標題：${safeTopic}。題目：${safeTopic}。內容概略：${studentText.substring(0, 150)}`;
+                
+                console.log("生成向量輸入:", weightedInput); // Debug用，可在Console查看
+
                 const output = await embeddingExtractor(weightedInput, { pooling: 'mean', normalize: true });
                 const vector = Array.from(output.data);
 
-                // 計算還需要幾篇
                 const remainingSlots = requiredCount - finalResults.length;
 
-                // 呼叫 RPC
                 const { data: vectorMatches, error: vectorError } = await supabaseClient.rpc('match_documents', {
                     query_embedding: vector,
-                    match_threshold: 0.3, // 相似度門檻
-                    match_count: remainingSlots + 2, // 多抓幾篇來過濾重複
+                    match_threshold: 0.25, // 稍微降低門檻，讓語意相似(非精確)的文章更容易進來
+                    match_count: remainingSlots + 2, 
                     filter_type: targetType
                 });
 
                 if (!vectorError && vectorMatches) {
                     vectorMatches.forEach(doc => {
-                        // 檢查重複：如果這篇文章已經在「標題命中」裡了，就不要再加
                         const isDuplicate = finalResults.some(existing => existing.id === doc.id);
-                        
                         if (!isDuplicate && finalResults.length < requiredCount) {
-                            doc._source = "向量相似";
+                            doc._source = "向量相似(語意)";
                             doc._score = (doc.similarity * 100).toFixed(1) + '%';
                             finalResults.push(doc);
                         }
@@ -346,7 +338,6 @@ async function searchSimilarEssays(studentTopic, studentText, targetType) {
         if (finalResults.length > 0) {
             console.group(`📂 [RAG] 最終選定參考範文 (${finalResults.length}篇)`);
             
-            // 構建給 AI 的參考資料
             let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 ⚡ ===\n";
             ragContent += "(注意：以下內容僅供評分標準參考，並非學生所寫)\n\n";
 
@@ -355,8 +346,7 @@ async function searchSimilarEssays(studentTopic, studentText, targetType) {
                 const source = match._source || "未知";
                 const score = match._score || "";
                 
-                console.log(`[${idx + 1}] ${title} | 來源: ${source} | 分數: ${score}`);
-                
+                console.log(`[${idx + 1}] ${title} | 來源: ${source} | 相似度: ${score}`);
                 ragContent += `【參考範文 ${idx + 1}】：${title}\n${match.content}\n-------------------\n`;
             });
             
@@ -364,7 +354,7 @@ async function searchSimilarEssays(studentTopic, studentText, targetType) {
             return ragContent;
 
         } else {
-            console.warn(`🤷‍♂️ [RAG] 無法找到任何相關文章 (標題與向量皆無)`);
+            console.warn(`🤷‍♂️ [RAG] 無法找到任何相關文章`);
             return "";
         }
 
