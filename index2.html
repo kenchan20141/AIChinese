@@ -198,6 +198,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
   // 初始化向量模型
   let embeddingExtractor = null;
  // 初始化向量模型
+// 初始化向量模型 (已修訂為 BGE-Small-ZH-v1.5)
   async function initEmbeddingModel() {
       if (!window.pipeline) {
           console.log("等待 Transformers 庫載入...");
@@ -205,31 +206,20 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
       }
 
       if (!embeddingExtractor) {
-          console.log("📥 [RAG] 正在下載/載入向量模型...");
+          console.log("📥 [RAG] 正在下載/載入 BGE 中文向量模型...");
           
-          // ★★★ 新增這兩行：強制設定不使用本地快取路徑，改用 CDN ★★★
+          // 強制設定不使用本地快取路徑，改用 CDN
           window.pipeline.env.allowLocalModels = false;
           window.pipeline.env.useBrowserCache = true;
 
-          // 使用 pipeline 建立特徵提取器
-          embeddingExtractor = await window.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-          console.log("✅ [RAG] 向量模型就緒");
+          // ★★★ 關鍵修改：更換為中文專用模型 Xenova/bge-small-zh-v1.5 ★★★
+          embeddingExtractor = await window.pipeline('feature-extraction', 'Xenova/bge-small-zh-v1.5');
+          console.log("✅ [RAG] BGE-Small-ZH 模型就緒");
       }
   }
 
-  // 將文字轉為向量的函式
-  async function getEmbedding(text) {
-      await initEmbeddingModel();
-      const output = await embeddingExtractor(text, { pooling: 'mean', normalize: true });
-      return Array.from(output.data);
-  }
-  
-  // 搜尋相似範文的函式
-// === RAG 搜尋核心函數 (支援類型過濾版) ===
-// targetType: 'narrative' (敘事) 或 'argument' (議論)
-// === RAG 搜尋核心函數 (升級版：抓取 3 篇 + 格式化) ===
-// === RAG 搜尋核心函數 (升級版：詳細 Log + 抓取 3 篇 + 格式化) ===
-async function searchSimilarEssays(studentText, targetType) {
+  // RAG 搜尋核心函數 (升級版：詳細 Log + 抓取 3 篇 + 格式化)
+  async function searchSimilarEssays(studentText, targetType) {
     console.log(`%c🔍 [RAG] 正在啟動向量搜尋 (類型: ${targetType})...`, "color: yellow");
     
     try {
@@ -241,19 +231,17 @@ async function searchSimilarEssays(studentText, targetType) {
         // 1. 動態匯入 Transformers.js
         const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
         
-        // 設定快取策略，確保下載一次後不用再下載
+        // 設定快取策略
         env.allowLocalModels = false;
         env.useBrowserCache = true;
 
         // 2. 初始化/載入模型 (加入進度監聽)
-        // 這裡會檢查快取，如果沒有快取，就會開始下載並觸發 callback
-        const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+        // ★★★ 關鍵修改：這裡也要確保模型名稱一致 ★★★
+        const extractor = await pipeline('feature-extraction', 'Xenova/bge-small-zh-v1.5', {
             progress_callback: (data) => {
-                // 只在下載進行中顯示，避免洗版
                 if (data.status === 'initiate') {
                     console.log(`⬇️ [RAG] 正在下載模型組件: ${data.file}`);
                 } else if (data.status === 'progress') {
-                    // 為了不讓 Console 太多訊息，我們可以只顯示整數進度
                     const percent = Math.round(data.progress);
                     if (percent % 10 === 0) { 
                         console.log(`📦 [RAG] 下載中... ${percent}%`);
@@ -264,13 +252,15 @@ async function searchSimilarEssays(studentText, targetType) {
             }
         });
         
-        console.log("✅ [RAG] 向量模型已就緒，開始計算特徵...");
+        console.log("✅ [RAG] BGE 向量模型已就緒，開始計算特徵...");
 
-        // 3. 計算向量 (擷取前 500 字)
+        // 3. 計算向量 (擷取前 512 個 tokens，BGE 對長度較敏感，建議截取)
+        // 注意：BGE 雖然支援 512 維度，但輸入文字過長會被截斷，這裡取前 500 字是安全的
         const output = await extractor(studentText.substring(0, 500), { pooling: 'mean', normalize: true });
         const vector = Array.from(output.data);
 
         // 4. 呼叫 Supabase 進行比對
+        // 注意：Supabase 的 match_documents 函數已經在 SQL 中更新為接受 512 維向量
         const { data, error } = await supabaseClient.rpc('match_documents', {
             query_embedding: vector,
             match_threshold: 0.3, // 相似度門檻
@@ -284,12 +274,11 @@ async function searchSimilarEssays(studentText, targetType) {
         }
 
         if (data && data.length > 0) {
-            // 詳細列印命中資料，方便您檢查
+            // 詳細列印命中資料
             console.group(`🎯 [RAG] 命中 ${data.length} 篇範文`);
             data.forEach((match, idx) => {
                 const similarityScore = (match.similarity * 100).toFixed(2) + '%';
                 const docTitle = match.metadata ? match.metadata.title : '無標題';
-                // 預覽前 50 個字
                 const preview = match.content ? match.content.substring(0, 50).replace(/\n/g, ' ') + '...' : '';
                 
                 console.log(`%c[${idx + 1}] ${docTitle}`, "font-weight: bold; color: #4caf50;");
