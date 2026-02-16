@@ -257,110 +257,73 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
       }
   }
 
-// RAG 搜尋核心函數 (終極混合版：精確標題優先 + 極端題目權重向量)
-async function searchSimilarEssays(studentTopic, studentText, targetType) {
-    console.log(`%c🔍 [RAG] 啟動混合搜尋 (題目: ${studentTopic})...`, "color: yellow");
-
+// RAG 搜尋核心函數 (升級版：顯示內容預覽)
+  async function searchSimilarEssays(studentText, targetType) {
+    console.log(`%c🔍 [RAG] 啟動搜尋 (類型: ${targetType})...`, "color: yellow");
+    
     try {
         if (typeof supabaseClient === 'undefined') {
             console.error("❌ [RAG] Supabase Client 未定義。");
             return "";
         }
 
-        let finalResults = [];
-        const requiredCount = 3; 
+        // 確保模型已初始化
+        await initEmbeddingModel();
 
-        // ==========================================
-        // 🔹 階段一：精確標題搜尋 (處理「重遊舊地」vs「重遊舊地有感」)
-        // ==========================================
-        if (studentTopic && studentTopic.trim() !== "") {
-            const { data: titleMatches, error: titleError } = await supabaseClient
-                .from('documents')
-                .select('*')
-                .ilike('metadata->>title', `%${studentTopic}%`) 
-                .eq('metadata->>type', targetType) 
-                .limit(requiredCount);
-
-            if (!titleError && titleMatches && titleMatches.length > 0) {
-                console.log(`%c🎯 [RAG] 標題精確命中 ${titleMatches.length} 篇!`, "color: #fff; background: #28a745; font-weight: bold;");
-                titleMatches.forEach(doc => {
-                    doc._source = "標題命中";
-                    doc._score = "100% (精確)"; 
-                    finalResults.push(doc);
-                });
-            }
+        if (!embeddingExtractor) {
+            throw new Error("模型未能成功載入");
         }
 
-        // ==========================================
-        // 🔹 階段二：向量語意搜尋 (處理「選擇」vs「抉擇」)
-        // ==========================================
-        if (finalResults.length < requiredCount) {
-            await initEmbeddingModel();
+        // 1. 計算向量
+        const output = await embeddingExtractor(studentText.substring(0, 500), { pooling: 'mean', normalize: true });
+        const vector = Array.from(output.data);
 
-            if (embeddingExtractor) {
-                const safeTopic = studentTopic || "無題目";
-                
-                // ★★★ 關鍵修改：極端加權策略 ★★★
-                // 1. 重複 5 次題目，使用不同前綴強調語意
-                // 2. 內容只截取 150 字，避免離題內容干擾向量
-                const weightedInput = `作文題目：${safeTopic}。核心主題：${safeTopic}。探討議題：${safeTopic}。標題：${safeTopic}。題目：${safeTopic}。內容概略：${studentText.substring(0, 150)}`;
-                
-                console.log("生成向量輸入:", weightedInput); // Debug用，可在Console查看
+        // 2. 呼叫 Supabase
+        const { data, error } = await supabaseClient.rpc('match_documents', {
+            query_embedding: vector,
+            match_threshold: 0.3,
+            match_count: 3,
+            filter_type: targetType
+        });
 
-                const output = await embeddingExtractor(weightedInput, { pooling: 'mean', normalize: true });
-                const vector = Array.from(output.data);
-
-                const remainingSlots = requiredCount - finalResults.length;
-
-                const { data: vectorMatches, error: vectorError } = await supabaseClient.rpc('match_documents', {
-                    query_embedding: vector,
-                    match_threshold: 0.25, // 稍微降低門檻，讓語意相似(非精確)的文章更容易進來
-                    match_count: remainingSlots + 2, 
-                    filter_type: targetType
-                });
-
-                if (!vectorError && vectorMatches) {
-                    vectorMatches.forEach(doc => {
-                        const isDuplicate = finalResults.some(existing => existing.id === doc.id);
-                        if (!isDuplicate && finalResults.length < requiredCount) {
-                            doc._source = "向量相似(語意)";
-                            doc._score = (doc.similarity * 100).toFixed(1) + '%';
-                            finalResults.push(doc);
-                        }
-                    });
-                }
-            }
+        if (error) {
+            console.error("❌ [RAG] Supabase 搜尋錯誤:", error);
+            return "";
         }
 
-        // ==========================================
-        // 🔹 階段三：輸出結果
-        // ==========================================
-        if (finalResults.length > 0) {
-            console.group(`📂 [RAG] 最終選定參考範文 (${finalResults.length}篇)`);
+        if (data && data.length > 0) {
+            console.group(`🎯 [RAG] 命中 ${data.length} 篇範文`);
             
-            let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 ⚡ ===\n";
-            ragContent += "(注意：以下內容僅供評分標準參考，並非學生所寫)\n\n";
-
-            finalResults.forEach((match, idx) => {
+            data.forEach((match, idx) => {
                 const title = match.metadata ? match.metadata.title : '無標題';
-                const source = match._source || "未知";
-                const score = match._score || "";
+                const score = (match.similarity * 100).toFixed(1) + '%';
                 
-                console.log(`[${idx + 1}] ${title} | 來源: ${source} | 相似度: ${score}`);
-                ragContent += `【參考範文 ${idx + 1}】：${title}\n${match.content}\n-------------------\n`;
+                // ★★★ 這裡就是你要的修改：顯示內容預覽 ★★★
+                // 為了不讓 Console 太亂，這裡只顯示前 60 個字
+                const preview = match.content ? match.content.substring(0, 60).replace(/\n/g, ' ') + '...' : '(無內容)';
+
+                console.log(`%c[${idx + 1}] ${title} (相似度: ${score})`, "font-weight:bold; color: #4caf50;");
+                console.log(`    📄 內容: ${preview}`); // 這一行會讓你看見正文！
             });
             
             console.groupEnd();
+            
+            // 構建要給 AI 的參考資料
+            let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 ⚡ ===\n";
+            ragContent += "(注意：以下內容僅供評分標準參考，並非學生所寫)\n\n";
+            data.forEach((match, index) => {
+                ragContent += `【參考範文 ${index + 1}】：${match.metadata.title || '無題'}\n${match.content}\n-------------------\n`;
+            });
+            
             return ragContent;
-
         } else {
-            console.warn(`🤷‍♂️ [RAG] 無法找到任何相關文章`);
+            console.warn(`🤷‍♂️ [RAG] 找不到相似文章`);
             return "";
         }
 
     } catch (err) {
-        console.error("❌ [RAG] 執行嚴重錯誤:", err);
-        return "";
+        console.error("❌ [RAG] 執行錯誤:", err);
+        return ""; 
     }
 }
 	</script>
@@ -12897,7 +12860,7 @@ async function submitArgumentWriting() {
         showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
 
         // ★★★ RAG 邏輯 (已更新) ★★★
-       const ragReference = await searchSimilarEssays(topic, content, 'argument');
+        const ragReference = await searchSimilarEssays(content, 'argument');
 
         // ★★★ 修正處：已移除 argumentReviewerPreferences 的讀取 ★★★
         // 因為此變數已移至後端 Code.gs
@@ -14140,7 +14103,7 @@ async function submitWriting() {
             showLoading(`${currentReviewerName} 正在點評...`);
 
             // RAG 邏輯
-          const ragReference = await searchSimilarEssays(topic, content, 'narrative');
+            const ragReference = await searchSimilarEssays(content, 'narrative');
             
             // ★★★ 修正處：移除了前端獲取 narrativeReviewerPreferences 的邏輯 ★★★
             // 因為這些資料現在位於後端，我們只需要傳送 reviewer ID 即可。
