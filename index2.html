@@ -257,9 +257,9 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
       }
   }
 
-// RAG 搜尋核心函數 (升級版：顯示內容預覽)
-  async function searchSimilarEssays(studentText, targetType) {
-    console.log(`%c🔍 [RAG] 啟動搜尋 (類型: ${targetType})...`, "color: yellow");
+// RAG 搜尋核心函數 (標題優先版)
+async function searchSimilarEssays(topicText, targetType) {
+    console.log(`%c🔍 [RAG] 啟動搜尋 (依據題目: "${topicText}", 類型: ${targetType})...`, "color: yellow");
     
     try {
         if (typeof supabaseClient === 'undefined') {
@@ -274,14 +274,15 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
             throw new Error("模型未能成功載入");
         }
 
-        // 1. 計算向量
-        const output = await embeddingExtractor(studentText.substring(0, 500), { pooling: 'mean', normalize: true });
+        // 1. 計算【題目】的向量，而不是內容
+        const output = await embeddingExtractor(topicText, { pooling: 'mean', normalize: true });
         const vector = Array.from(output.data);
 
-        // 2. 呼叫 Supabase
-        const { data, error } = await supabaseClient.rpc('match_documents', {
+        // 2. 呼叫 Supabase 新的 RPC 函式 (match_documents_by_title)
+        // 注意：這裡將 match_threshold 稍微調低到 0.25，因為題目通常較短，需要更寬容的匹配
+        const { data, error } = await supabaseClient.rpc('match_documents_by_title', {
             query_embedding: vector,
-            match_threshold: 0.3,
+            match_threshold: 0.25, 
             match_count: 3,
             filter_type: targetType
         });
@@ -292,24 +293,21 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
         }
 
         if (data && data.length > 0) {
-            console.group(`🎯 [RAG] 命中 ${data.length} 篇範文`);
+            console.group(`🎯 [RAG] 命中 ${data.length} 篇範文 (依據題目相似度)`);
             
             data.forEach((match, idx) => {
                 const title = match.metadata ? match.metadata.title : '無標題';
                 const score = (match.similarity * 100).toFixed(1) + '%';
-                
-                // ★★★ 這裡就是你要的修改：顯示內容預覽 ★★★
-                // 為了不讓 Console 太亂，這裡只顯示前 60 個字
                 const preview = match.content ? match.content.substring(0, 60).replace(/\n/g, ' ') + '...' : '(無內容)';
 
                 console.log(`%c[${idx + 1}] ${title} (相似度: ${score})`, "font-weight:bold; color: #4caf50;");
-                console.log(`    📄 內容: ${preview}`); // 這一行會讓你看見正文！
+                console.log(`    📄 內容摘要: ${preview}`);
             });
             
             console.groupEnd();
             
             // 構建要給 AI 的參考資料
-            let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 ⚡ ===\n";
+            let ragContent = "=== ⚡ 系統檢索：5** 高分範文庫參考資料 (基於相似題目) ⚡ ===\n";
             ragContent += "(注意：以下內容僅供評分標準參考，並非學生所寫)\n\n";
             data.forEach((match, index) => {
                 ragContent += `【參考範文 ${index + 1}】：${match.metadata.title || '無題'}\n${match.content}\n-------------------\n`;
@@ -317,7 +315,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
             
             return ragContent;
         } else {
-            console.warn(`🤷‍♂️ [RAG] 找不到相似文章`);
+            console.warn(`🤷‍♂️ [RAG] 找不到題目相似的文章`);
             return "";
         }
 
@@ -12860,7 +12858,7 @@ async function submitArgumentWriting() {
         showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
 
         // ★★★ RAG 邏輯 (已更新) ★★★
-        const ragReference = await searchSimilarEssays(content, 'argument');
+        const ragReference = await searchSimilarEssays(topic, 'argument');
 
         // ★★★ 修正處：已移除 argumentReviewerPreferences 的讀取 ★★★
         // 因為此變數已移至後端 Code.gs
@@ -14103,7 +14101,7 @@ async function submitWriting() {
             showLoading(`${currentReviewerName} 正在點評...`);
 
             // RAG 邏輯
-            const ragReference = await searchSimilarEssays(content, 'narrative');
+          const ragReference = await searchSimilarEssays(topic, 'narrative');
             
             // ★★★ 修正處：移除了前端獲取 narrativeReviewerPreferences 的邏輯 ★★★
             // 因為這些資料現在位於後端，我們只需要傳送 reviewer ID 即可。
