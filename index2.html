@@ -199,56 +199,59 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
   let embeddingExtractor = null;
  // 初始化向量模型
 // ==========================================
-  // === RAG 核心邏輯 (含 BGE 模型驗證版) ===
+  // === RAG 核心邏輯 (修復版：安全載入 BGE) ===
   // ==========================================
 
   // 初始化向量模型 (BGE-Small-ZH-v1.5)
   async function initEmbeddingModel() {
-      // 確保 Transformers 庫已載入
-      if (!window.pipeline) {
-          console.log("⏳ 等待 Transformers 庫載入...");
-          // 動態載入嘗試
-          try {
-              const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
-              window.pipeline = pipeline;
-              window.pipeline.env = env;
-          } catch (e) {
-              await new Promise(r => setTimeout(r, 500));
-          }
-      }
+      // 定義模型名稱
+      const MODEL_NAME = 'Xenova/bge-small-zh-v1.5';
 
-      if (!embeddingExtractor) {
-          const MODEL_NAME = 'Xenova/bge-small-zh-v1.5';
-          console.log(`%c📥 [RAG] 正在啟動模型下載: ${MODEL_NAME}`, "color: #00ffff; font-weight: bold; font-size: 12px;");
-          
-          // 強制設定快取
-          window.pipeline.env.allowLocalModels = false;
-          window.pipeline.env.useBrowserCache = true;
+      try {
+          // ★★★ 核心修正：強制重新匯入，確保同時取得 pipeline 和 env ★★★
+          // 這樣做可以 100% 避免 "undefined" 錯誤
+          const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
 
-          // 載入模型
-          embeddingExtractor = await window.pipeline('feature-extraction', MODEL_NAME, {
-              progress_callback: (data) => {
-                  if (data.status === 'initiate') {
-                      console.log(`⬇️ 下載中: ${data.file}`);
-                  } else if (data.status === 'progress') {
-                      const percent = Math.round(data.progress);
-                      if (percent % 20 === 0) console.log(`📦 下載進度... ${percent}%`);
+          // 設定環境變數 (現在 env 一定存在，不會報錯)
+          env.allowLocalModels = false;
+          env.useBrowserCache = true;
+
+          // 掛載到全域變數 (保險起見)
+          window.pipeline = pipeline;
+
+          // 檢查是否已載入過模型，若無則開始載入
+          if (!embeddingExtractor) {
+              console.log(`%c📥 [RAG] 正在啟動模型下載: ${MODEL_NAME}`, "color: #00ffff; font-weight: bold; font-size: 12px;");
+
+              // 建立特徵提取器
+              embeddingExtractor = await pipeline('feature-extraction', MODEL_NAME, {
+                  progress_callback: (data) => {
+                      if (data.status === 'initiate') {
+                          console.log(`⬇️ 下載中: ${data.file}`);
+                      } else if (data.status === 'progress') {
+                          // 減少 log 頻率，每 10% 顯示一次
+                          const percent = Math.round(data.progress);
+                          if (percent % 10 === 0) console.log(`📦 下載進度... ${percent}%`);
+                      }
                   }
+              });
+
+              // === 🟢 核心驗證：檢查維度 (證明是否更換成功) ===
+              console.log("🔍 正在進行模型維度自我檢測...");
+              const testOutput = await embeddingExtractor("測試", { pooling: 'mean', normalize: true });
+              const testDim = testOutput.data.length;
+
+              if (testDim === 512) {
+                  console.log(`%c✅ 驗證成功！當前模型是 BGE-Small-ZH (512維)`, "color: #fff; background: #28a745; font-size: 16px; padding: 5px; border-radius: 5px;");
+              } else if (testDim === 384) {
+                  console.log(`%c❌ 警告！當前模型仍是舊版 (384維)`, "color: #fff; background: #dc3545; font-size: 16px; padding: 5px; border-radius: 5px;");
+              } else {
+                  console.log(`❓ 未知維度: ${testDim}`);
               }
-          });
-
-          // === 🟢 核心驗證：檢查維度 ===
-          console.log("🔍 正在進行模型維度自我檢測...");
-          const testOutput = await embeddingExtractor("測試", { pooling: 'mean', normalize: true });
-          const testDim = testOutput.data.length;
-
-          if (testDim === 512) {
-              console.log(`%c✅ 驗證成功！當前模型是 BGE-Small-ZH (512維)`, "color: #fff; background: #28a745; font-size: 16px; padding: 5px; border-radius: 5px;");
-          } else if (testDim === 384) {
-              console.log(`%c❌ 警告！當前模型仍是舊版 (384維)`, "color: #fff; background: #dc3545; font-size: 16px; padding: 5px; border-radius: 5px;");
-          } else {
-              console.log(`❓ 未知維度: ${testDim}`);
           }
+      } catch (e) {
+          console.error("❌ 模型初始化嚴重錯誤:", e);
+          alert("AI 模型載入失敗，請檢查網絡連線或重新整理頁面。");
       }
   }
 
@@ -265,7 +268,11 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
         // 確保模型已初始化
         await initEmbeddingModel();
 
-        // 1. 計算向量 (取前 500 字)
+        if (!embeddingExtractor) {
+            throw new Error("模型未能成功載入");
+        }
+
+        // 1. 計算向量 (取前 500 字，避免 BGE 超出長度)
         const output = await embeddingExtractor(studentText.substring(0, 500), { pooling: 'mean', normalize: true });
         const vector = Array.from(output.data);
 
@@ -285,9 +292,9 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
         if (error) {
             console.error("❌ [RAG] Supabase 搜尋錯誤:", error);
-            // 通常是維度不匹配才會報錯，這裡會抓到
+            // 通常是維度不匹配才會報錯
             if (error.message.includes("dimension")) {
-                alert("⚠️ 系統升級中：請重新整理頁面以載入新模型。");
+                alert("⚠️ 系統偵測到模型版本不符，請強制重新整理頁面 (Ctrl+F5)。");
             }
             return "";
         }
