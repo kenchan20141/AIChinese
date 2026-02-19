@@ -2627,12 +2627,17 @@ function changeStudentArgSegments(delta) {
 // 替換原有的 renderNarrativeTable
 // 3. 敘事大綱表格渲染 (修復版：確保綁定自動儲存)
 // 3. 敘事大綱表格渲染 (DOM 元素版 + 自動儲存綁定)
+// 3. 敘事大綱表格渲染 (DOM 元素版 + 自動儲存綁定 + 修正清理邏輯)
 function renderNarrativeTable() {
-  console.log("[System] 正在渲染敘事表格並綁定儲存...");
+  console.log("[System] 正在渲染敘事表格...");
   
   const container = document.getElementById('studentInputContainer');
+  
+  // ★ 修正：切換模式時，務必清除舊有的表格與控制項 (例如議論模式的新增按鈕)
   const existingTable = container.querySelector('table');
+  const existingControls = container.querySelector('.arg-controls');
   if (existingTable) existingTable.remove();
+  if (existingControls) existingControls.remove();
  
   const table = document.createElement('table');
   table.className = 'outline-table';
@@ -2650,7 +2655,6 @@ function renderNarrativeTable() {
     // 建立 Textarea
     const ta1 = document.createElement('textarea');
     ta1.placeholder = "重點...";
-    // ★ 關鍵：綁定唯一 ID
     bindAutoSave(ta1, `narrative_${studentNarrativeStructure}_row${rowIndex}_focus`);
 
     const ta2 = document.createElement('textarea');
@@ -2675,12 +2679,13 @@ function renderNarrativeTable() {
   container.appendChild(table);
 }
 
-	// 4. 議論大綱表格渲染 (修復版：確保綁定自動儲存)
-// 4. 議論大綱表格渲染 (DOM 元素版 + 自動儲存綁定)
+// 4. 議論大綱表格渲染 (DOM 元素版 + 自動儲存綁定 + 修正按鈕顯示)
 function renderArgumentTable() {
-  console.log("[System] 正在渲染議論表格並綁定儲存...");
+  console.log("[System] 正在渲染議論表格...");
 
   const container = document.getElementById('studentInputContainer');
+  
+  // ★ 修正：先清除舊的內容，防止重複或殘留
   const existingTable = container.querySelector('table');
   const existingControls = container.querySelector('.arg-controls');
   if (existingTable) existingTable.remove();
@@ -2702,7 +2707,6 @@ function renderArgumentTable() {
       
       const ta1 = document.createElement('textarea');
       ta1.placeholder = "請輸入論點...";
-      // ★ 關鍵：使用 label 當作 Key，確保新增/刪除行後內容不會錯位
       bindAutoSave(ta1, `argument_${label}_point`);
 
       const ta2 = document.createElement('textarea');
@@ -2717,28 +2721,36 @@ function renderArgumentTable() {
       return tr;
   };
 
-  // 預設結構
-  tbody.appendChild(createRow('起'));
-  tbody.appendChild(createRow('結構段一'));
-  tbody.appendChild(createRow('結構段二'));
-  tbody.appendChild(createRow('結構段三'));
-  tbody.appendChild(createRow('合')); 
+  // 預設結構：起、結構段一、二、三、合
+  const defaultStructure = ['起', '結構段一', '結構段二', '結構段三', '合'];
+  defaultStructure.forEach(label => {
+      tbody.appendChild(createRow(label));
+  });
  
   table.appendChild(tbody);
   container.appendChild(table);
 
-  // 新增結構段按鈕
+  // ★ 新增結構段按鈕 (確保這個區塊被正確建立並加入)
   const controlsDiv = document.createElement('div');
-  controlsDiv.className = 'arg-controls mt-2 text-right';
+  controlsDiv.className = 'arg-controls mt-3 text-right pb-4'; // 增加一點底部間距確保不被遮擋
+  
   const addBtn = document.createElement('button');
-  addBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
+  addBtn.className = 'wabi-sabi-button secondary py-2 px-4 text-sm font-bold'; // 稍微加大按鈕
   addBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> 新增結構段';
+  addBtn.type = 'button'; // 明確指定類型
   
   addBtn.onclick = () => {
       const tbody = table.querySelector('tbody');
       const rows = tbody.querySelectorAll('tr');
-      const lastRowIndex = rows.length - 1; 
       
+      // 邏輯：插在「合」之前，如果沒有「合」則插在最後
+      let insertIndex = rows.length;
+      const lastRow = rows[rows.length - 1];
+      if (lastRow && lastRow.cells[0].innerText.includes('合')) {
+          insertIndex = rows.length - 1;
+      }
+      
+      // 計算目前有多少結構段，以決定新段落的編號
       let count = 0;
       rows.forEach(r => {
           if (r.cells[0].innerText.includes('結構段')) count++;
@@ -2746,7 +2758,12 @@ function renderArgumentTable() {
       
       const newLabel = `結構段${numberToChinese(count + 1)}`;
       const newRow = createRow(newLabel); // 這裡會自動呼叫 bindAutoSave
-      tbody.insertBefore(newRow, rows[lastRowIndex]);
+      
+      if (insertIndex < rows.length) {
+          tbody.insertBefore(newRow, rows[insertIndex]);
+      } else {
+          tbody.appendChild(newRow);
+      }
   };
   
   controlsDiv.appendChild(addBtn);
