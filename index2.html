@@ -16907,28 +16907,30 @@ function smartUpdateInput(elementId, newValue) {
 	
 // ▼▼▼▼▼ 貼上這段新代碼 ▼▼▼▼▼
 
-// === OCR 智能分配接收器 (表格專用版) ===
+// === OCR 訊息接收與處理 (修復版：確保視窗自動關閉) ===
 function handleOCRMessage(event) {
     // 1. 安全檢查
     if (!event.data) return;
 
-    // --- 情況 A: 舊版純文字 OCR (fallback) ---
+    let shouldClose = false; // 標記是否成功處理，需要關閉視窗
+
+    // --- 情況 A: 純文字模式 (ocrResult) ---
     if (event.data.type === 'ocrResult') {
         const newText = event.data.text;
-        // ... (保留您原本處理純文字插入游標處的代碼，或直接使用下方的通用插入邏輯) ...
         insertTextToActiveElement(newText);
-        return;
+        shouldClose = true;
     }
 
-    // --- 情況 B: 新版結構化 JSON OCR ---
-    if (event.data.type === 'ocrJSONResult') {
-        const rows = event.data.data; // 這是 [{part, col1, col2}, ...] 陣列
+    // --- 情況 B: 表格模式 (ocrJSONResult) ---
+    else if (event.data.type === 'ocrJSONResult') {
+        const rows = event.data.data; 
         console.log("收到結構化大綱數據:", rows);
 
         // 判斷當前是在「敘事」還是「議論」模式
         const writingContainer = document.getElementById('writingContainer');
         const argumentContainer = document.getElementById('argumentContainer');
         
+        // 檢查容器是否顯示中
         let isNarrative = writingContainer && writingContainer.style.display !== 'none';
         let isArgument = argumentContainer && argumentContainer.style.display !== 'none';
 
@@ -16937,13 +16939,17 @@ function handleOCRMessage(event) {
         } else if (isArgument) {
             fillArgumentOutline(rows);
         } else {
-            // 如果不在大綱介面，則將所有內容合併成文字插入當前游標
+            // 如果不在大綱介面，則將所有內容合併成文字插入
             const rawText = rows.map(r => `${r.part}：${r.col1}\n${r.col2}`).join('\n\n');
             insertTextToActiveElement(rawText);
         }
+        shouldClose = true;
+    }
 
-        // 關閉 OCR 視窗
+    // --- 執行關閉動作 ---
+    if (shouldClose) {
         if (typeof ocrWindow !== 'undefined' && ocrWindow && !ocrWindow.closed) {
+            console.log("OCR 完成，自動關閉視窗。");
             ocrWindow.close();
         }
     }
