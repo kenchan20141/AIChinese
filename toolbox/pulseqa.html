@@ -1,16 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<!-- ... 其他 meta 標籤 ... -->
-
-<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-database-compat.js"></script>
-
-<!-- ★★★ 請補上這一行，這是解決 LOG 報錯的根源 ★★★ -->
-<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-auth-compat.js"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
-<!-- ... css 樣式 ... -->
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-database-compat.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 <style>
 :root {
@@ -2415,6 +2406,32 @@ function toggleMode() {
 }
 // Student Configuration Logic
 // 替換原有的 renderStudentOutlineUI 函式
+// ==========================================
+// === 修訂版：學生介面渲染 (含 Session Storage 自動儲存) ===
+// ==========================================
+
+// 輔助函數：生成唯一的 Session Key
+function getSessionKey(subKey) {
+    // 使用房間號碼確保不會跨房間污染數據
+    const room = currentRoom || 'temp';
+    return `pulseqa_autosave_${room}_${subKey}`;
+}
+
+// 輔助函數：綁定自動儲存事件
+function bindAutoSave(element, uniqueKey) {
+    // 1. 嘗試從 Session Storage 恢復數據
+    const savedValue = sessionStorage.getItem(getSessionKey(uniqueKey));
+    if (savedValue !== null && element.value === '') {
+        element.value = savedValue;
+    }
+
+    // 2. 綁定輸入事件，即時寫入 Session Storage
+    element.addEventListener('input', function() {
+        sessionStorage.setItem(getSessionKey(uniqueKey), this.value);
+    });
+}
+
+// 替換原有的 renderStudentOutlineUI 函式
 function renderStudentOutlineUI(mode) {
   const container = document.getElementById('studentInputContainer');
   const existingWordCount = document.getElementById('wordCountDisplay');
@@ -2446,6 +2463,7 @@ function renderStudentOutlineUI(mode) {
       
       select.onchange = (e) => {
         studentNarrativeStructure = e.target.value;
+        // 切換結構時，重新渲染並嘗試恢復該結構的數據
         if (studentNarrativeStructure === 'argument') {
             renderArgumentTable();
         } else {
@@ -2475,15 +2493,18 @@ function renderStudentOutlineUI(mode) {
       return;
   }
   
-  // ... (保留 extended 和 qa 模式的舊有邏輯) ...
+  // --- 處理 Extended (拓展) 與 QA (問答) 模式 ---
   if (mode === 'extended') {
-    // ... (保持原有的拓展模式代碼)
     const textarea = document.createElement('textarea');
     textarea.id = 'studentAnswer';
     textarea.className = 'input-field w-full px-5 py-4 rounded-xl min-h-[160px] text-lg no-modal-editor';
     textarea.placeholder = '請在此輸入您的回答 (最多180字)...';
     textarea.maxLength = 180;
-    textarea.disabled = true;
+    textarea.disabled = true; // 預設禁用，等待計時開始
+
+    // ★★★ 加入 Session Storage 綁定 ★★★
+    bindAutoSave(textarea, 'extended_answer');
+
     container.appendChild(textarea);
     
     const wordCountDiv = document.createElement('div');
@@ -2492,13 +2513,17 @@ function renderStudentOutlineUI(mode) {
     wordCountDiv.innerHTML = '剩餘字數: <span id="remainingWords">180</span>';
     container.appendChild(wordCountDiv);
     return;
+
   } else if (mode === 'qa') {
-    // ... (保持原有的 QA 模式代碼)
     const textarea = document.createElement('textarea');
     textarea.id = 'studentAnswer';
     textarea.className = 'input-field w-full px-5 py-4 rounded-xl min-h-[160px] text-lg no-modal-editor';
     textarea.placeholder = '請在此輸入您的回答...';
     textarea.disabled = true;
+
+    // ★★★ 加入 Session Storage 綁定 ★★★
+    bindAutoSave(textarea, 'qa_answer');
+
     container.appendChild(textarea);
     
     // QA 模式也加一個 OCR 按鈕在下方
@@ -2512,6 +2537,137 @@ function renderStudentOutlineUI(mode) {
     container.appendChild(ocrDiv);
     return;
   }
+}
+
+// 替換原有的 renderNarrativeTable (敘事表格渲染)
+function renderNarrativeTable() {
+  const container = document.getElementById('studentInputContainer');
+  // 移除舊表格但保留 Toolbar
+  const existingTable = container.querySelector('table');
+  if (existingTable) existingTable.remove();
+ 
+  const table = document.createElement('table');
+  table.className = 'outline-table';
+ 
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th style="width:10%">部份</th><th style="width:25%">結構段重點</th><th style="width:40%">情節大要</th><th style="width:25%">物象</th></tr>';
+  table.appendChild(thead);
+ 
+  const tbody = document.createElement('tbody');
+  const rows = studentNarrativeStructure === 'fourPart' ? ['起', '承', '轉', '合'] : ['起', '一線', '二線', '三線', '合'];
+ 
+  rows.forEach((r, rowIndex) => {
+    const tr = document.createElement('tr');
+    
+    // 建立 Textarea
+    const ta1 = document.createElement('textarea');
+    ta1.placeholder = "重點...";
+    // ★★★ 綁定 Session Storage (Key: narrative_結構_行號_欄位) ★★★
+    bindAutoSave(ta1, `narrative_${studentNarrativeStructure}_row${rowIndex}_col1`);
+
+    const ta2 = document.createElement('textarea');
+    ta2.placeholder = "情節...";
+    bindAutoSave(ta2, `narrative_${studentNarrativeStructure}_row${rowIndex}_col2`);
+
+    const ta3 = document.createElement('textarea');
+    ta3.placeholder = "物象...";
+    bindAutoSave(ta3, `narrative_${studentNarrativeStructure}_row${rowIndex}_col3`);
+
+    // 建立 Cells
+    const tdLabel = document.createElement('td');
+    tdLabel.innerText = r;
+
+    const td1 = document.createElement('td'); td1.appendChild(ta1);
+    const td2 = document.createElement('td'); td2.appendChild(ta2);
+    const td3 = document.createElement('td'); td3.appendChild(ta3);
+
+    tr.appendChild(tdLabel);
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tr.appendChild(td3);
+    tbody.appendChild(tr);
+  });
+ 
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+// 替換原有的 renderArgumentTable (議論表格渲染)
+function renderArgumentTable() {
+  const container = document.getElementById('studentInputContainer');
+  const existingTable = container.querySelector('table');
+  const existingControls = container.querySelector('.arg-controls');
+  if (existingTable) existingTable.remove();
+  if (existingControls) existingControls.remove();
+ 
+  const table = document.createElement('table');
+  table.className = 'outline-table';
+  table.id = 'argumentTable';
+ 
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th style="width:15%">部份</th><th style="width:30%">論點</th><th style="width:55%">論據及論證</th></tr>';
+  table.appendChild(thead);
+ 
+  const tbody = document.createElement('tbody');
+  
+  // 內部函數：建立一行並綁定儲存
+  const createRow = (label, rowIndex) => {
+      const tr = document.createElement('tr');
+      
+      const ta1 = document.createElement('textarea');
+      ta1.placeholder = "...";
+      // ★★★ 綁定 Session Storage (Key: argument_行標籤_欄位) ★★★
+      // 注意：這裡使用 label 作為 key 的一部分，以便新增刪除時能對應
+      bindAutoSave(ta1, `argument_${label}_point`);
+
+      const ta2 = document.createElement('textarea');
+      ta2.placeholder = "...";
+      bindAutoSave(ta2, `argument_${label}_evidence`);
+
+      const tdLabel = document.createElement('td'); tdLabel.innerText = label;
+      const td1 = document.createElement('td'); td1.appendChild(ta1);
+      const td2 = document.createElement('td'); td2.appendChild(ta2);
+
+      tr.appendChild(tdLabel);
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      return tr;
+  };
+
+  tbody.appendChild(createRow('起', 0));
+  tbody.appendChild(createRow('結構段一', 1));
+  tbody.appendChild(createRow('結構段二', 2));
+  tbody.appendChild(createRow('結構段三', 3));
+  tbody.appendChild(createRow('合', 99)); // 合放在最後
+ 
+  table.appendChild(tbody);
+  container.appendChild(table);
+
+  // 加入「新增結構段」按鈕
+  const controlsDiv = document.createElement('div');
+  controlsDiv.className = 'arg-controls mt-2 text-right';
+  
+  const addBtn = document.createElement('button');
+  addBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
+  addBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> 新增結構段';
+  addBtn.onclick = () => {
+      const tbody = table.querySelector('tbody');
+      const rows = tbody.querySelectorAll('tr');
+      const lastRowIndex = rows.length - 1; 
+      
+      let count = 0;
+      rows.forEach(r => {
+          if (r.cells[0].innerText.includes('結構段')) count++;
+      });
+      
+      // 動態新增的行也必須綁定 Autosave
+      const newLabel = `結構段${numberToChinese(count + 1)}`;
+      const newRow = createRow(newLabel, count + 1);
+      tbody.insertBefore(newRow, rows[lastRowIndex]);
+  };
+
+  controlsDiv.appendChild(addBtn);
+  container.appendChild(controlsDiv);
 }
 
 function countWords() {
