@@ -20174,30 +20174,26 @@ async function finishLoginUI() {
     await smartSyncHistory();
     startAutoSyncListener();
 }
-// === 新增：學生登出處理函式 ===
+// === 新增：學生登出處理函式 (已修復按鈕重置問題) ===
 async function handleStudentLogout() {
-    if (!confirm("確定要登出帳號嗎？")) {
+    if (!confirm("確定要登出學生帳號嗎？\n(登出後下次需要重新輸入姓名驗證)")) {
         return;
     }
 
-	 // ★★★ [新增] OneSignal 標籤移除 ★★★
+    // ★★★ [新增] OneSignal 標籤移除 ★★★
     if (window.OneSignalDeferred) {
         window.OneSignalDeferred.push(function(OneSignal) {
-            // 移除年級和班別標籤，停止接收該班通知
             OneSignal.User.removeTags(["grade", "class"]);
         });
     }
-    // ★★★ [新增結束] ★★★
 
-
-	 // ★★★ 新增：移除紅點監聽 ★★★
+    // ★★★ 新增：移除紅點監聽 ★★★
     if (pendingMonitorRef) {
         pendingMonitorRef.off();
         pendingMonitorRef = null;
     }
     const badge = document.getElementById('notifBadge');
     if(badge) badge.style.display = 'none';
-    // ★★★ 新增結束 ★★★
 
     try {
         // 1. Firebase 登出
@@ -20208,23 +20204,30 @@ async function handleStudentLogout() {
 
     // 2. 清除本地學生資料
     localStorage.removeItem('studentProfile');
-    
-    // 3. 清除相關的課業緩存 (這裡使用萬用字元清除該使用者的緩存較難，暫時清除當前頁面狀態即可)
-    // 若您有特定的緩存命名規則，可在這裡一併移除
 
-    // 4. UI 界面重置
+    // 3. UI 界面重置
     document.getElementById('studentCloudPanel').style.display = 'none';
     document.getElementById('studentIdentityForm').style.display = 'block';
     
-    // 重置按鈕狀態
-    const loginBtn = document.querySelector('#studentIdentityForm button');
-    if (loginBtn) {
-        loginBtn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入';
-        loginBtn.disabled = false;
+    // 4. ★★★ 核心修復：精確重置「登入」與「註冊」按鈕狀態 ★★★
+    
+    // 重置登入按鈕
+    const loginActionBtn = document.querySelector('#loginModeContainer .btn-action');
+    if (loginActionBtn) {
+        loginActionBtn.innerHTML = '<i class="fab fa-google"></i> 學校帳號登入';
+        loginActionBtn.disabled = false;
     }
 
-    // 重置輸入框 (選擇性)
-    document.getElementById('studentNameInput').value = '';
+    // 重置註冊按鈕 (以防萬一)
+    const registerActionBtn = document.querySelector('#registerModeContainer .btn-action');
+    if (registerActionBtn) {
+        registerActionBtn.innerHTML = '<i class="fab fa-google"></i> 學校帳號註冊';
+        registerActionBtn.disabled = false;
+    }
+
+    // 重置輸入框
+    const nameInput = document.getElementById('studentNameInput');
+    if (nameInput) nameInput.value = '';
     
     // 5. 提示訊息
     alert("已成功登出！");
