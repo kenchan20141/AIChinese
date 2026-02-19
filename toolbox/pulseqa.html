@@ -5179,7 +5179,6 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
 </div>
 
 
-<!-- === 2. Firebase 初始化 (SansiData - 安全修復版) === -->
 <script>
     // 定義全域變數，確保其他函式存取得到
     var sansiApp, sansiDatabase, sansiAuth;
@@ -5199,7 +5198,6 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
     function initSansiSafe() {
         try {
             // 防止重複初始化
-            // 檢查是否已經有名為 "sansi" 的 app
             const existingApp = firebase.apps.find(app => app.name === "sansi");
             if (!existingApp) {
                 sansiApp = firebase.initializeApp(sansiConfig, "sansi");
@@ -5210,24 +5208,55 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
             sansiDatabase = sansiApp.database();
             sansiAuth = sansiApp.auth();
 
-            // ★ 核心修復：先匿名登入，獲取權限後再啟動監聽 ★
-            // 這解決了 permission_denied 和 currentUser undefined 的問題
+            // ★★★ 參考「字斟句酌」的核心修訂 ★★★
+            // 邏輯：設定持久化 -> 監聽狀態 -> 判斷是「Google登入」還是「需要匿名」
             sansiAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
                 .then(() => {
-                    return sansiAuth.signInAnonymously();
-                })
-                .then(() => {
-                    console.log("[Sansi] 安全連線已建立 (匿名登入成功)");
-                    isSansiReady = true;
-                    // 登入成功後，才啟動需要在線狀態的監聽器
-                    startSansiListeners();
+                    // 這裡不再直接 signInAnonymously，而是先監聽
+                    return sansiAuth.onAuthStateChanged(async (user) => {
+                        if (user) {
+                            // 情況 A：用戶已登入 (可能是 Google 登入，也可能是之前的匿名)
+                            if (user.email) {
+                                // 如果有電郵，顯示跟「字斟句酌」一樣的綠色提示
+                                console.log(`[Sansi] 🟢 偵測到有效登入: ${user.email}`);
+                                
+                                // (選用) 同步身份資料 (參考字斟句酌的邏輯)
+                                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                                if (!s) {
+                                    try {
+                                        const emailKey = btoa(user.email);
+                                        const snapshot = await sansiDatabase.ref('email_mapping/' + emailKey).once('value');
+                                        const profile = snapshot.val();
+                                        if (profile) {
+                                            localStorage.setItem('studentProfile', JSON.stringify(profile));
+                                            console.log("[Sansi] 已自動同步學生身份資料");
+                                        }
+                                    } catch (e) { /* 靜默失敗 */ }
+                                }
+                            } else {
+                                // 如果是匿名登入
+                                console.log("[Sansi] 🟡 安全連線已建立 (匿名模式)");
+                            }
+                            
+                            isSansiReady = true;
+                            // 登入狀態確認後，啟動功能
+                            startSansiListeners();
+
+                        } else {
+                            // 情況 B：完全未登入 -> 執行匿名登入 (這是脈問堂必須的 Fallback)
+                            console.log("[Sansi] ⚪ 未偵測到登入，正在建立匿名連線...");
+                            sansiAuth.signInAnonymously().catch((error) => {
+                                console.warn("[Sansi] 匿名登入失敗:", error);
+                            });
+                        }
+                    });
                 })
                 .catch((error) => {
-                    console.warn("[Sansi] 連線初始化受阻 (可能是網絡或權限問題)，已略過統計功能:", error);
+                    console.warn("[Sansi] 初始化受阻:", error);
                 });
 
         } catch (e) {
-            console.warn("[Sansi] 初始化異常，系統將以精簡模式運行:", e);
+            console.warn("[Sansi] 初始化異常:", e);
         }
     }
 
@@ -5235,24 +5264,7 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
     function startSansiListeners() {
         if (!sansiAuth || !sansiDatabase) return;
 
-        // 1. 監聽 Auth 狀態 (同步學生資料)
-        sansiAuth.onAuthStateChanged(async (user) => {
-            if (user) {
-                const s = JSON.parse(localStorage.getItem('studentProfile'));
-                if (!s) {
-                    try {
-                        const emailKey = btoa(user.email || "guest");
-                        const snapshot = await sansiDatabase.ref('email_mapping/' + emailKey).once('value');
-                        const profile = snapshot.val();
-                        if (profile) {
-                            localStorage.setItem('studentProfile', JSON.stringify(profile));
-                        }
-                    } catch (e) { /* 靜默失敗 */ }
-                }
-            }
-        });
-
-        // 2. 啟動在線狀態 (Presence)
+        // 1. 啟動在線狀態 (Presence)
         const connectedRef = sansiDatabase.ref('.info/connected');
         connectedRef.on('value', (snap) => {
             if (snap.val() === true && sansiAuth.currentUser) {
@@ -5261,9 +5273,9 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
             }
         });
         
-        // 3. 啟動統計 (Stats)
-        // 延遲一點執行，避免剛載入時卡頓
+        // 2. 啟動統計 (Stats)
         setTimeout(() => {
+            // 這些是下方的統計腳本函式，確保它們存在才呼叫
             if (typeof window.logVisitOnce === 'function') window.logVisitOnce();
             if (typeof window.startTimer === 'function') window.startTimer();
         }, 2000);
@@ -5274,7 +5286,7 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
         if (!sansiAuth.currentUser) return;
         
         const s = JSON.parse(localStorage.getItem('studentProfile'));
-        let myUid = sansiAuth.currentUser.uid; // 使用 Firebase UID 最安全
+        let myUid = sansiAuth.currentUser.uid; 
         let userData = {};
 
         if (s && s.name) {
@@ -5300,7 +5312,7 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
         });
     }
 
-    // Token Injector (安全版)
+    // Token Injector (安全版 - 用於 API 呼叫)
     (function() {
         const originalFetch = window.fetch;
         const TARGET_URL_PART = "script.google.com";
@@ -5319,7 +5331,7 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
                         bodyData.token = token;
                         options.body = JSON.stringify(bodyData);
                     } catch (e) {
-                        console.warn("[TokenInjector] 無法注入 Token (非致命錯誤):", e);
+                        console.warn("[TokenInjector] 無法注入 Token:", e);
                     }
                 }
             }
