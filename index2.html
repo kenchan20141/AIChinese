@@ -16859,60 +16859,230 @@ if (ocrBtn) {
 
 // ▼▼▼▼▼ 貼上這段新代碼 ▼▼▼▼▼
 
-// === OCR 訊息接收監聽器 (防重複版) ===
-// 定義一個處理函式，而不是匿名函式，這樣比較好管理
-// === OCR 訊息接收監聽器 (修訂版：優先更新懸浮視窗) ===
-function handleOCRMessage(event) {
-    // 1. 安全檢查
-    if (!event.data || event.data.type !== 'ocrResult') return;
+// === 智能更新函式：同時更新表格與懸浮視窗 ===
+function smartUpdateInput(elementId, newValue) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
 
-    console.log("收到 OCR 文字:", event.data.text);
-    const newText = event.data.text;
+    // 1. 更新背後的表格內容
+    el.value = newValue;
+    el.dispatchEvent(new Event('input', { bubbles: true })); // 觸發自動存檔
 
-    // 2. 定義目標輸入框
-    let targetEl = null;
-
-    // --- 關鍵修正開始 ---
-    // 判斷懸浮視窗 (Modal) 是否正在顯示
-    const modal = document.getElementById('outline-editor-modal');
-    const modalTextarea = document.getElementById('modal-textarea');
-    
-    // 如果懸浮視窗存在且正在顯示 (display !== 'none')
-    if (modal && modal.style.display !== 'none' && modalTextarea) {
-        // ★ 強制鎖定：目標就是眼前這個懸浮框
-        targetEl = modalTextarea;
-    } else {
-        // 如果懸浮視窗沒開，才去讀取上一次點擊的 ID
-        const savedId = sessionStorage.getItem('sansi_current_editing_id');
-        if (savedId) {
-            targetEl = document.getElementById(savedId);
-        }
-    }
-    // --- 關鍵修正結束 ---
-
-    if (targetEl) {
-        // 3. 插入文字 (自動補換行)
-        const currentVal = targetEl.value;
-        const prefix = (currentVal && !currentVal.endsWith('\n')) ? '\n' : '';
+    // 2. ★★★ 關鍵修復：檢查是否正好是懸浮視窗正在編輯的那一格 ★★★
+    // 如果是，就同步更新懸浮視窗，防止視窗關閉時用舊資料覆蓋
+    if (typeof currentEditingElement !== 'undefined' && 
+        currentEditingElement && 
+        currentEditingElement.id === elementId) {
         
-        targetEl.value += prefix + newText;
-
-        // 4. ★ 重要：觸發 input 事件
-        // 這會讓瀏覽器知道內容變了，也會觸發 sessionStorage 的自動存檔
-        targetEl.dispatchEvent(new Event('input', { bubbles: true }));
-
-        // 5. 視覺回饋：聚焦並捲動到底部
-        targetEl.focus();
-        targetEl.scrollTop = targetEl.scrollHeight;
-    }
-
-    // 6. 關閉 OCR 彈出視窗 (確保變數 ocrWindow 存在)
-    if (typeof ocrWindow !== 'undefined' && ocrWindow && !ocrWindow.closed) {
-        ocrWindow.close();
+        const modalTextarea = document.getElementById('modal-textarea');
+        const modal = document.getElementById('outline-editor-modal');
+        
+        if (modal && modal.style.display !== 'none' && modalTextarea) {
+            console.log(`[同步更新] 偵測到懸浮視窗正在編輯 ${elementId}，同步更新視窗內容。`);
+            modalTextarea.value = newValue;
+        }
     }
 }
 
-// 重新綁定監聽器 (確保不會重複)
+
+
+	
+// ▼▼▼▼▼ 貼上這段新代碼 ▼▼▼▼▼
+
+// === OCR 智能分配接收器 (表格專用版) ===
+function handleOCRMessage(event) {
+    // 1. 安全檢查
+    if (!event.data) return;
+
+    // --- 情況 A: 舊版純文字 OCR (fallback) ---
+    if (event.data.type === 'ocrResult') {
+        const newText = event.data.text;
+        // ... (保留您原本處理純文字插入游標處的代碼，或直接使用下方的通用插入邏輯) ...
+        insertTextToActiveElement(newText);
+        return;
+    }
+
+    // --- 情況 B: 新版結構化 JSON OCR ---
+    if (event.data.type === 'ocrJSONResult') {
+        const rows = event.data.data; // 這是 [{part, col1, col2}, ...] 陣列
+        console.log("收到結構化大綱數據:", rows);
+
+        // 判斷當前是在「敘事」還是「議論」模式
+        const writingContainer = document.getElementById('writingContainer');
+        const argumentContainer = document.getElementById('argumentContainer');
+        
+        let isNarrative = writingContainer && writingContainer.style.display !== 'none';
+        let isArgument = argumentContainer && argumentContainer.style.display !== 'none';
+
+        if (isNarrative) {
+            fillNarrativeOutline(rows);
+        } else if (isArgument) {
+            fillArgumentOutline(rows);
+        } else {
+            // 如果不在大綱介面，則將所有內容合併成文字插入當前游標
+            const rawText = rows.map(r => `${r.part}：${r.col1}\n${r.col2}`).join('\n\n');
+            insertTextToActiveElement(rawText);
+        }
+
+        // 關閉 OCR 視窗
+        if (typeof ocrWindow !== 'undefined' && ocrWindow && !ocrWindow.closed) {
+            ocrWindow.close();
+        }
+    }
+}
+
+// 輔助：插入文字到當前鎖定的輸入框 (相容舊功能)
+function insertTextToActiveElement(text) {
+    let targetEl = null;
+    const modal = document.getElementById('outline-editor-modal');
+    const modalTextarea = document.getElementById('modal-textarea');
+    
+    if (modal && modal.style.display !== 'none' && modalTextarea) {
+        targetEl = modalTextarea;
+    } else {
+        const savedId = sessionStorage.getItem('sansi_current_editing_id');
+        if (savedId) targetEl = document.getElementById(savedId);
+    }
+
+    if (targetEl) {
+        const currentVal = targetEl.value;
+        const prefix = (currentVal && !currentVal.endsWith('\n')) ? '\n' : '';
+        targetEl.value += prefix + text;
+        targetEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
+
+// === 核心邏輯 1: 填入敘事大綱 (V2 終極修復版) ===
+function fillNarrativeOutline(ocrRows) {
+    const structure = document.getElementById("structure").value;
+    
+    let mapping = [];
+    if (structure === "fourPart") {
+        mapping = [
+            { key: "起", idIndex: 1 },
+            { key: "承", idIndex: 2 },
+            { key: "轉", idIndex: 3 },
+            { key: "合", idIndex: 4 }
+        ];
+    } else {
+        mapping = [
+            { key: "起", idIndex: 1 },
+            { key: "一線", idIndex: 2 },
+            { key: "二線", idIndex: 3 },
+            { key: "三線", idIndex: 4 },
+            { key: "合", idIndex: 5 }
+        ];
+    }
+
+    ocrRows.forEach(row => {
+        let rawPartName = row.part ? row.part.replace(/\n/g, " ").trim() : "";
+        
+        const match = mapping.find(m => rawPartName.includes(m.key));
+        
+        if (match) {
+            const focusId = `${structure}Focus${match.idIndex}`;
+            const plotId = `${structure}Plot${match.idIndex}`;
+            
+            let finalCol1 = row.col1;
+            const finalCol2 = row.col2;
+
+            // --- ★★★ 內容救援邏輯 (針對「起 TEST」被合併的情況) ★★★ ---
+            // 如果中間欄(col1)是空的，但標題(part)比關鍵字長很多，代表內容被吃到標題裡了
+            if ((!finalCol1 || finalCol1.trim() === "") && rawPartName.length > match.key.length) {
+                // 移除關鍵字 (例如 "起") 和常見標點，剩下的就是內容
+                // 例如 "起 TEST" -> 移除 "起" -> " TEST" -> trim -> "TEST"
+                let rescuedContent = rawPartName.replace(match.key, "").replace(/[:：]/g, "").trim();
+                
+                if (rescuedContent.length > 0) {
+                    console.log(`[OCR修復] 從標題 "${rawPartName}" 中救回內容: "${rescuedContent}"`);
+                    finalCol1 = rescuedContent;
+                }
+            }
+            // -------------------------------------------------------
+
+            // 使用智能更新函式 (解決點擊該格失效的問題)
+            smartUpdateInput(focusId, finalCol1 || "");
+            smartUpdateInput(plotId, finalCol2 || "");
+        }
+    });
+    alert("敘事大綱已填入！");
+}
+
+// === 核心邏輯 2: 填入議論大綱 (V2 終極修復版) ===
+function fillArgumentOutline(ocrRows) {
+    const table = document.getElementById("argumentOutlineTable");
+    if (!table) return;
+
+    const startRow = ocrRows.find(r => r.part.includes("起"));
+    const endRow = ocrRows.find(r => r.part.includes("合"));
+    
+    const bodyRows = ocrRows.filter(r => 
+        !r.part.includes("起") && 
+        !r.part.includes("合") && 
+        (r.part.includes("段") || r.part.includes("一") || r.part.includes("二") || r.part.includes("三") || r.part.includes("四") || r.part.includes("論點"))
+    );
+
+    // --- 填寫「起」---
+    if (startRow) {
+        smartUpdateInput("argumentPoint0", startRow.col1);
+        smartUpdateInput("argumentEvidence0", startRow.col2);
+    }
+
+    // --- 動態新增結構段 ---
+    const neededBodyCount = bodyRows.length;
+    let currentRows = table.rows.length;
+    let currentBodyCount = currentRows - 3; 
+    if (currentBodyCount < 0) currentBodyCount = 0;
+
+    if (neededBodyCount > currentBodyCount) {
+        const addBtn = document.querySelector('button[onclick="addArgumentStructureSegment()"]');
+        if (addBtn) {
+            for (let i = 0; i < (neededBodyCount - currentBodyCount); i++) {
+                addArgumentStructureSegment();
+            }
+        }
+    }
+
+    // --- 填寫「結構段」---
+    bodyRows.forEach((row, i) => {
+        const targetIndex = i + 1; 
+        
+        // 嘗試救援邏輯 (避免議論大綱也發生吃字)
+        let finalCol1 = row.col1;
+        if ((!finalCol1 || finalCol1.trim() === "") && row.part.length > 5) { // 假設標題大於5字可能有鬼
+             // 簡單過濾：移除 "結構段"、"一" 等字眼
+             let rescued = row.part.replace(/結構段|論點|[一二三四五六七八九十]/g, "").replace(/[:：]/g, "").trim();
+             if (rescued.length > 0) finalCol1 = rescued;
+        }
+
+        smartUpdateInput(`argumentPoint${targetIndex}`, finalCol1 || "");
+        smartUpdateInput(`argumentEvidence${targetIndex}`, row.col2 || "");
+    });
+
+    // --- 填寫「合」---
+    if (endRow) {
+        // 重新獲取最新的表格狀態
+        const updatedTable = document.getElementById("argumentOutlineTable");
+        const lastRow = updatedTable.rows[updatedTable.rows.length - 1];
+        const inputs = lastRow.querySelectorAll('textarea');
+        
+        if (inputs.length >= 2) {
+            // 直接操作 DOM (因為合的 ID 比較難算)，但也嘗試同步 Modal
+            inputs[0].value = endRow.col1;
+            inputs[1].value = endRow.col2;
+            inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+            inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // 如果剛好點擊的是合的格子，手動檢查同步
+            if (currentEditingElement === inputs[0]) document.getElementById('modal-textarea').value = endRow.col1;
+            if (currentEditingElement === inputs[1]) document.getElementById('modal-textarea').value = endRow.col2;
+        }
+    }
+    
+    alert(`議論大綱已填入！(自動新增了 ${Math.max(0, neededBodyCount - currentBodyCount)} 個結構段)`);
+}
+
+	// 重新綁定監聽器 (確保不會重複)
 window.removeEventListener('message', handleOCRMessage);
 window.addEventListener('message', handleOCRMessage);
 
