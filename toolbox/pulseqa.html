@@ -2112,13 +2112,29 @@ async function joinAsStudent() {
 
         const roomData = roomSnapshot.val();
         
-        // 檢查是否名稱被佔用 (如果是重整頁面後的自動重連，則允許同名進入)
-        const isReconnect = sessionStorage.getItem('pulseqa_session');
+        // 檢查重連
+        const savedSession = JSON.parse(sessionStorage.getItem('pulseqa_session') || '{}');
+        const isReconnect = (savedSession.room === roomCode && savedSession.user === studentName);
+
         if (!isReconnect && roomData.participants && roomData.participants[studentName]) {
             alert('此名稱已被使用,請選擇其他名稱');
             return;
         }
 
+        // ★★★ 核心修復：在做任何事之前，先強制寫入 Session Storage ★★★
+        // 這樣後續的 renderNarrativeTable 即使全域變數還沒好，也能讀到這裡的值
+        sessionStorage.setItem('pulseqa_session', JSON.stringify({
+            room: roomCode,
+            user: studentName
+        }));
+        console.log(`[System] 身份已鎖定到緩存: ${studentName} @ ${roomCode}`);
+
+        // 設定全域變數
+        currentRoom = roomCode;
+        currentUser = studentName;
+        isHost = false;
+
+        // 寫入 Firebase
         await database.ref('class_rooms/' + roomCode + '/participants/' + studentName).set({
             name: studentName,
             joined: firebase.database.ServerValue.TIMESTAMP,
@@ -2127,18 +2143,8 @@ async function joinAsStudent() {
             lastQuestionId: roomData.session.questionId || null
         });
 
-        currentRoom = roomCode;
-        currentUser = studentName;
-        isHost = false;
-
         document.getElementById('studentRoomCode').textContent = roomCode;
         document.getElementById('studentDisplayName').textContent = studentName;
-
-        // ★★★ 新增：將狀態存入 SessionStorage (防重整丟失) ★★★
-        sessionStorage.setItem('pulseqa_session', JSON.stringify({
-            room: roomCode,
-            user: studentName
-        }));
 
         setupRoomListener();
         showStudentSection();
@@ -2410,59 +2416,70 @@ function toggleMode() {
 // === 修訂版：學生介面渲染 (含 Session Storage 自動儲存) ===
 // ==========================================
 
-// 1. 修復版 Key 生成器：優先讀取緩存的身份，防止重整時 Key 跑掉
-// 1. Key 生成器：優先讀取緩存的身份
+// 1. Key 生成器：優先確保使用一致的身份
 function getSessionKey(subKey) {
     let room = currentRoom;
     let user = currentUser;
 
-    // 如果全域變數還沒準備好 (剛重整網頁)，嘗試從 SessionStorage 找回身份
+    // A. 如果全域變數是空的，嘗試從 sessionStorage 強制讀取
     if (!room || !user) {
         try {
-            const savedSession = JSON.parse(sessionStorage.getItem('pulseqa_session') || '{}');
-            if (savedSession.room) room = savedSession.room;
-            if (savedSession.user) user = savedSession.user;
+            const sessionRaw = sessionStorage.getItem('pulseqa_session');
+            if (sessionRaw) {
+                const savedSession = JSON.parse(sessionRaw);
+                if (savedSession.room) room = savedSession.room;
+                if (savedSession.user) user = savedSession.user;
+                // console.log(`[Key修復] 從緩存找回身份: ${room} / ${user}`);
+            }
         } catch (e) {
-            console.warn("[AutoSave] 無法讀取 session 備份", e);
+            console.warn("[AutoSave] 讀取 session 失敗", e);
         }
     }
 
-    room = room || 'temp_room';
-    user = user || 'temp_user';
+    // B. 如果真的找不到，標記為 temp (這就是資料遺失的原因，我們要在 LOG 中抓出這個情況)
+    if (!room) room = 'temp_room';
+    if (!user) user = 'temp_user';
 
     return `pulseqa_autosave_${room}_${user}_${subKey}`;
 }
 
-// 2. 綁定自動儲存：綁定事件並立即嘗試恢復
+// 2. 綁定自動儲存：加入詳細狀態顯示
 function bindAutoSave(element, uniqueKey) {
     if (!element) return;
     
+    // 取得完整 Key
     const key = getSessionKey(uniqueKey);
 
-    // A. 嘗試恢復：只有當格子是空的時候才恢復
+    // --- 嘗試恢復資料 ---
     const savedValue = sessionStorage.getItem(key);
     
-    // LOG: 檢查是否找到舊資料
-    // console.log(`[AutoSave 檢查] Key: ${uniqueKey}, 找到值: ${savedValue ? '有' : '無'}`);
-
-    if (savedValue !== null && element.value === '') {
-        element.value = savedValue;
-        console.log(`%c[AutoSave 恢復] 成功還原欄位: ${uniqueKey}`, "color: green; font-weight: bold;");
+    // 除錯 LOG (請在 Console 查看)
+    // 如果 savedValue 有值，顯示綠色；如果是 null，顯示黃色警告
+    if (savedValue !== null) {
+        console.log(`%c[AutoSave 命中] 成功還原: ${uniqueKey} (長度:${savedValue.length})`, "color: green; font-weight: bold;");
+        if (element.value === '') {
+            element.value = savedValue;
+        }
+    } else {
+        console.log(`%c[AutoSave 未命中] 找不到資料: ${uniqueKey} (Key: ${key})`, "color: orange;");
     }
 
-    // B. 定義儲存動作
+    // --- 定義儲存動作 ---
     const saveAction = function() {
-        sessionStorage.setItem(key, element.value);
-        // LOG: 顯示正在儲存
-        console.log(`%c[AutoSave 儲存] ${uniqueKey}: ${element.value.substring(0, 10)}...`, "color: #bada55");
+        // 每次打字都重新計算 Key (確保身份變更時不會存錯)
+        const currentKey = getSessionKey(uniqueKey);
+        sessionStorage.setItem(currentKey, element.value);
+        
+        // 簡單 LOG 確認正在寫入
+        // console.log(`[儲存中] ${uniqueKey} -> ${element.value.substring(0, 5)}...`);
     };
 
-    // C. 綁定多種事件
+    // --- 綁定事件 (防止重複綁定) ---
     element.removeEventListener('input', saveAction);
-    element.addEventListener('input', saveAction);  // 打字時
+    element.addEventListener('input', saveAction);
     
     element.removeEventListener('change', saveAction);
-    element.addEventListener('change', saveAction); // 失去焦點或 OCR 填入時
+    element.addEventListener('change', saveAction);
 }
 
 
