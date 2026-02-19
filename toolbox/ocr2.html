@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>手寫中文字OCR工具</title>
+
+    <!-- 引入字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+
+    <!-- 引入核心功能庫 (移除了不再需要的 jsrsasign) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        /* 保持原有樣式完全不變 */
+        :root {
+            --bg-color: #F5F3EF;
+            --text-color: #3D3B37;
+            --accent-color: #A39B8B;
+            --border-color: #DCD6C8;
+            --danger-color: #D9534F;
+            --font-main: 'Noto Serif TC', serif;
+            --font-display: 'Noto Sans TC', sans-serif;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+            box-sizing: border-box;
+        }
+
+        #container {
+            width: 100%;
+            max-width: 800px;
+            background: rgba(255, 255, 255, 0.3);
+            padding: 2rem;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            text-align: center;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            margin-top: 1rem;
+        }
+        
+        h1 { margin: 0 0 0.5rem 0.2em; font-size: 2rem; letter-spacing: 0.2em; }
+        #subtitle { font-size: 0.9rem; color: var(--accent-color); margin-bottom: 2rem; }
+
+        #image-input-area {
+            position: relative;
+            width: 100%;
+            min-height: 200px;
+            border: 2px dashed var(--border-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            background-color: rgba(255,255,255,0.1);
+            padding: 10px;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        #image-input-area.has-content { border: 1px solid var(--border-color); background: none; padding: 1rem; cursor: default; }
+
+        #preview-container { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; width: 100%; }
+        .preview-item { position: relative; width: 150px; height: 150px; background: #fff; border: 1px solid var(--border-color); overflow: hidden; }
+        .preview-image { width: 100%; height: 100%; object-fit: cover; }
+        .preview-number { position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.6); color: #fff; padding: 2px 8px; font-size: 0.8rem; z-index: 10; font-family: var(--font-display); }
+
+        .control-btn { 
+            position: absolute; 
+            width: 34px; 
+            height: 34px; 
+            background: #fff; 
+            border-radius: 50%; 
+            border: 1px solid rgba(0,0,0,0.1); 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: pointer; 
+            z-index: 50; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+        }
+        .control-btn svg { width: 18px; height: 18px; stroke-width: 2; stroke: currentColor; fill: none; }
+
+        .delete-btn { top: 5px; right: 5px; color: var(--danger-color); }
+        .delete-btn:hover { background-color: var(--danger-color); color: #fff; transform: scale(1.1); }
+
+        .crop-btn { bottom: 5px; right: 5px; color: var(--text-color); }
+        .crop-btn:hover { background-color: var(--text-color); color: #fff; transform: scale(1.1); }
+        
+        #upload-prompt.hidden { display: none; }
+        .upload-icon { width: 32px; height: 32px; color: var(--accent-color); margin-bottom: 0.5rem; }
+
+        #action-buttons { display: flex; justify-content: center; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap; }
+        .action-btn { background: none; border: 1px solid var(--border-color); color: var(--accent-color); padding: 10px 20px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.3s ease; font-family: var(--font-main); }
+        .action-btn:hover:not(:disabled) { background-color: var(--bg-color); border-color: var(--accent-color); color: var(--text-color); }
+        .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        #result-container { margin-top: 2rem; width: 100%; padding: 1.5rem; border-top: 1px solid var(--border-color); text-align: left; display: none; position: relative; background: rgba(255,255,255,0.4); }
+        #result-container.visible { display: block; animation: fadeIn 0.5s ease; }
+        
+        #ocr-result { 
+            font-family: var(--font-display); 
+            font-size: 1.1rem; 
+            line-height: 1.8; 
+            color: var(--text-color); 
+            margin: 0; 
+            padding-right: 2rem; 
+        }
+        #ocr-result p { margin: 0 0 1em 0; }
+        #ocr-result table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.95em; }
+        #ocr-result th, #ocr-result td { border: 1px solid var(--border-color); padding: 8px; }
+        #ocr-result h1, #ocr-result h2 { font-size: 1.2rem; margin: 1em 0 0.5em 0; color: var(--text-color); font-family: var(--font-main); }
+        #ocr-result pre { white-space: pre-wrap; word-break: break-all; }
+
+        #copy-btn { position: absolute; top: 1rem; right: 1rem; background: none; border: none; cursor: pointer; color: var(--accent-color); }
+        
+        #loading-indicator { display: none; margin: 1rem 0; color: var(--accent-color); }
+        #loading-indicator.visible { display: block; }
+        
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); flex-direction: column; justify-content: center; align-items: center; }
+        .modal-content-container { max-width: 90%; max-height: 70vh; background: #fff; overflow: hidden; }
+        #image-to-crop { display: block; max-width: 100%; }
+        .modal-buttons { margin-top: 20px; display: flex; gap: 15px; }
+        .modal-btn { padding: 10px 25px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-confirm { background: var(--accent-color); color: #fff; }
+        .btn-cancel { background: #ddd; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        #file-input, #camera-input { display: none; }
+
+        .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: #f1f1f1; }
+        .copyright-footer p { margin: 0; font-size: 14px; }
+        @media (max-width: 600px) { .copyright-footer p { font-size: 12px; } }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <h1>手寫中文字辨識</h1>
+        <p id="subtitle">上傳圖片或 PDF，AI 將為您辨識內容。</p>
+
+        <div id="image-input-area">
+            <div id="preview-container"></div>
+            <div id="upload-prompt">
+                <svg class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
+                <p>點擊選擇檔案 (或拖曳)</p>
+            </div>
+        </div>
+        
+        <input type="file" id="file-input" accept="image/*,application/pdf" multiple>
+        <input type="file" id="camera-input" accept="image/*" capture="environment">
+
+        <div id="action-buttons">
+            <button id="upload-btn" class="action-btn">上傳圖片</button>
+            <button id="camera-btn" class="action-btn">拍照</button>
+            <button id="recognize-btn" class="action-btn" disabled>開始辨識</button>
+        </div>
+        
+        <div id="loading-indicator">處理中，請稍候...</div>
+
+        <div id="result-container">
+            <button id="copy-btn" title="複製"><svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3z"/></svg></button>
+            <div id="ocr-result"></div>
+        </div>
+    </div>
+
+    <!-- 裁切 Modal -->
+    <div id="crop-modal" class="modal">
+        <div class="modal-content-container"><img id="image-to-crop"></div>
+        <div class="modal-buttons">
+            <button class="modal-btn btn-cancel" id="crop-cancel">取消</button>
+            <button class="modal-btn btn-confirm" id="crop-confirm">確認</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+
+    <script>
+        // PDF Worker Setup
+        if (typeof pdfjsLib !== 'undefined') pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        // --- 設定與環境變數 ---
+        // 請將下方字串替換為您在 Google Apps Script 部署後取得的 Web App URL
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxvMQsOI9Bd4kBiNJ7N82YIAbXf391URSRNs_GBewO5-khTW8tn947oNLGdC2rArwiLkA/exec";
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const dom = {
+                inputArea: document.getElementById('image-input-area'),
+                fileInput: document.getElementById('file-input'),
+                cameraInput: document.getElementById('camera-input'),
+                previewBox: document.getElementById('preview-container'),
+                prompt: document.getElementById('upload-prompt'),
+                resultBox: document.getElementById('result-container'),
+                resultText: document.getElementById('ocr-result'),
+                loader: document.getElementById('loading-indicator'),
+                btns: {
+                    upload: document.getElementById('upload-btn'),
+                    camera: document.getElementById('camera-btn'),
+                    recognize: document.getElementById('recognize-btn'),
+                    copy: document.getElementById('copy-btn'),
+                    cropConfirm: document.getElementById('crop-confirm'),
+                    cropCancel: document.getElementById('crop-cancel')
+                },
+                modal: {
+                    self: document.getElementById('crop-modal'),
+                    img: document.getElementById('image-to-crop')
+                }
+            };
+
+            let cropper = null;
+            let currentCropEl = null;
+            let fullTextContent = "";
+
+            // Sortable
+            new Sortable(dom.previewBox, { animation: 150, filter: '.control-btn', onEnd: updateOrder });
+
+            // Events
+            dom.inputArea.onclick = (e) => { if(!e.target.closest('.control-btn')) dom.fileInput.click(); };
+            dom.btns.upload.onclick = () => dom.fileInput.click();
+            dom.btns.camera.onclick = () => dom.cameraInput.click();
+            dom.fileInput.onchange = handleFiles;
+            dom.cameraInput.onchange = handleFiles;
+            dom.btns.recognize.onclick = startOCR;
+            dom.btns.copy.onclick = copyText;
+            
+            // Crop Events
+            dom.btns.cropCancel.onclick = () => { dom.modal.self.style.display = 'none'; if(cropper) cropper.destroy(); };
+            dom.btns.cropConfirm.onclick = async () => {
+                if(cropper && currentCropEl) {
+                    const rawBase64 = cropper.getCroppedCanvas().toDataURL('image/jpeg', 0.95);
+                    const compressedBase64 = await resizeAndCompressImage(rawBase64);
+                    currentCropEl.src = compressedBase64;
+                    dom.modal.self.style.display = 'none';
+                    cropper.destroy();
+                }
+            };
+
+            async function handleFiles(e) {
+                const files = Array.from(e.target.files);
+                if(!files.length) return;
+                
+                dom.loader.classList.add('visible');
+                dom.loader.textContent = "最佳化圖片中 (限制 2MB)...";
+                
+                for(let file of files) {
+                    try {
+                        if(file.type === 'application/pdf') {
+                            const pages = await processPdf(file);
+                            pages.forEach(addPreview);
+                        } else {
+                            const base64 = await readFile(file);
+                            const compressed = await resizeAndCompressImage(base64);
+                            addPreview(compressed);
+                        }
+                    } catch(err) {
+                        console.error("檔案處理失敗", err);
+                        alert(`檔案 ${file.name} 處理失敗: ` + err.message);
+                    }
+                }
+                
+                dom.loader.classList.remove('visible');
+                updateUI();
+                e.target.value = '';
+            }
+
+            function addPreview(src) {
+                const div = document.createElement('div');
+                div.className = 'preview-item';
+                div.innerHTML = `
+                    <span class="preview-number"></span>
+                    <img class="preview-image" src="${src}">
+                    <button class="control-btn delete-btn" title="刪除">
+                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                    <button class="control-btn crop-btn" title="裁切">
+                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>
+                            <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>
+                        </svg>
+                    </button>
+                `;
+                
+                div.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); div.remove(); updateUI(); };
+                div.querySelector('.crop-btn').onclick = (e) => { 
+                    e.stopPropagation(); 
+                    currentCropEl = div.querySelector('img');
+                    dom.modal.img.src = currentCropEl.src;
+                    dom.modal.self.style.display = 'flex';
+                    if(cropper) cropper.destroy();
+                    cropper = new Cropper(dom.modal.img, { viewMode: 1 });
+                };
+                
+                dom.previewBox.appendChild(div);
+                updateUI();
+            }
+
+            function updateUI() {
+                const count = dom.previewBox.children.length;
+                dom.prompt.classList.toggle('hidden', count > 0);
+                dom.inputArea.classList.toggle('has-content', count > 0);
+                dom.btns.recognize.disabled = count === 0;
+                updateOrder();
+            }
+
+            function updateOrder() {
+                Array.from(dom.previewBox.children).forEach((el, i) => {
+                    el.querySelector('.preview-number').textContent = i + 1;
+                });
+            }
+
+            async function resizeAndCompressImage(base64Str, maxBytes = 1.9 * 1024 * 1024) {
+                let sizeInBytes = (base64Str.length * 3) / 4; 
+                if (sizeInBytes <= maxBytes) return base64Str;
+
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.src = base64Str;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        let quality = 0.9;
+                        let newDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        
+                        while ((newDataUrl.length * 3 / 4) > maxBytes) {
+                            if (quality > 0.5) quality -= 0.1;
+                            else {
+                                width *= 0.9;
+                                height *= 0.9;
+                                canvas.width = width;
+                                canvas.height = height;
+                                ctx.drawImage(img, 0, 0, width, height);
+                            }
+                            newDataUrl = canvas.toDataURL('image/jpeg', quality);
+                        }
+                        resolve(newDataUrl);
+                    };
+                });
+            }
+
+            async function processPdf(file) {
+                const data = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(data).promise;
+                const pages = [];
+                for(let i=1; i<=pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({scale: 2.5}); 
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    await page.render({canvasContext: canvas.getContext('2d'), viewport}).promise;
+                    const rawBase64 = canvas.toDataURL('image/jpeg', 0.95);
+                    const optimizedBase64 = await resizeAndCompressImage(rawBase64);
+                    pages.push(optimizedBase64);
+                }
+                return pages;
+            }
+
+            // --- 核心邏輯 (Google Apps Script Proxy) ---
+
+            // 簡易的後處理字典，用於雙重確保特定簡體字被轉換
+            function forceTraditional(text) {
+                const map = {
+                    '围': '圍', '国': '國', '体': '體', '会': '會', '爱': '愛',
+                    '书': '書', '画': '畫', '点': '點', '电': '電', '机': '機',
+                    '关': '關', '开': '開', '发': '發', '么': '麼', '没': '沒',
+                    '变': '變', '万': '萬', '两': '兩', '医': '醫', '声': '聲',
+                    '边': '邊', '对': '對', '实': '實', '现': '現', '业': '業',
+                    '义': '義', '总': '總', '头': '頭', '乐': '樂', '长': '長'
+                };
+                return text.replace(/[围国体会爱书画点电机关开发么没变万两医声边对实现业义总头乐长]/g, m => map[m] || m);
+            }
+
+            async function runOCR(base64Image) {
+                if (GAS_API_URL.includes("請在此處")) {
+                    throw new Error("請先設定 Google Apps Script URL");
+                }
+
+                // 指令：極度嚴格的繁體中文要求
+                const promptText = 
+                    "請識別圖片中的文字內容。嚴格指令：\n" +
+                    "1. 輸出結果必須是 100% 正體中文 (Traditional Chinese, Taiwan)。\n" +
+                    "2. 如果圖片中出現簡體字（例如：'围'、'体'、'国'），你必須自動翻譯並輸出為繁體字（'圍'、'體'、'國'）。\n" +
+                    "3. 絕對禁止輸出簡體字。\n" +
+                    "4. 保持 Markdown 格式。\n" +
+                    "5. 直接輸出結果，不要包含任何解釋或開頭結尾的閒聊。";
+
+                const payload = {
+                    image: base64Image,
+                    prompt: promptText
+                };
+                
+                // 使用 fetch 呼叫 Google Apps Script
+                // Google Apps Script Web App 預設會處理 CORS，無需額外 Proxy
+                const response = await fetch(GAS_API_URL, {
+                    method: "POST",
+                    body: JSON.stringify(payload) // 這裡不需 header，GAS 使用 text/plain 處理以避開複雜 CORS
+                });
+
+                if (!response.ok) {
+                    throw new Error(`伺服器錯誤 (${response.status})`);
+                }
+
+                const data = await response.json();
+                
+                // 檢查是否為後端回傳的錯誤
+                if (data.error) {
+                    throw new Error(data.error.message || data.error);
+                }
+
+                if (!data.choices || !data.choices.length) {
+                    // 有時候 GAS 回傳格式可能被包裝，這裡做個防呆
+                    throw new Error("無回傳內容或 API 格式錯誤");
+                }
+
+                return data.choices[0].message.content;
+            }
+
+            async function startOCR() {
+                const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
+                if(!imgs.length) return;
+
+                dom.btns.recognize.disabled = true;
+                dom.resultBox.classList.remove('visible');
+                dom.loader.classList.add('visible');
+                
+                let rawResults = [];
+                fullTextContent = "";
+                
+                for(let i=0; i<imgs.length; i++) {
+                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
+                    try {
+                        let content = await runOCR(imgs[i].src);
+                        // 雙重保險：強制替換常見漏網之魚
+                        content = forceTraditional(content);
+                        rawResults.push(content);
+                    } catch(err) {
+                        rawResults.push(`> [第 ${i+1} 頁錯誤: ${err.message}]`);
+                    }
+                }
+                
+                // 組合結果
+                const combinedMarkdown = rawResults.join('\n\n---\n\n');
+                fullTextContent = combinedMarkdown; 
+
+                // 渲染 HTML
+                dom.resultText.innerHTML = marked.parse(combinedMarkdown);
+                
+                dom.resultBox.classList.add('visible');
+                dom.loader.classList.remove('visible');
+                dom.btns.recognize.disabled = false;
+                dom.btns.recognize.textContent = "重新辨識";
+
+                const messageData = { type: 'ocrResult', text: combinedMarkdown };
+                let targetWindow = null;
+                if (window.opener && window.opener !== window) targetWindow = window.opener;
+                else if (window.top && window.top.opener && window.top.opener !== window.top) targetWindow = window.top.opener;
+                else if (window.parent && window.parent !== window) targetWindow = window.parent;
+                if (targetWindow) {
+                    targetWindow.postMessage(messageData, '*');
+                }
+            }
+
+            function readFile(file) {
+                return new Promise(r => {
+                    const reader = new FileReader();
+                    reader.onload = e => r(e.target.result);
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            function copyText() {
+                navigator.clipboard.writeText(fullTextContent)
+                    .then(() => alert('已複製內容'))
+                    .catch(() => alert('複製失敗'));
+            }
+        });
+    </script>
+
+    <footer class="copyright-footer">
+        <p>Copyright © 2025 陳冠健. All rights reserved.</p>
+    </footer>
+</body>
+</html>
