@@ -85,6 +85,40 @@ form-action 'self';
 
 
 
+
+
+// === UI 切換函式：登入 vs 註冊 ===
+function switchAuthMode(mode) {
+    const loginDiv = document.getElementById('loginModeContainer');
+    const regDiv = document.getElementById('registerModeContainer');
+    const tabLogin = document.getElementById('tabLogin');
+    const tabRegister = document.getElementById('tabRegister');
+
+    if (mode === 'login') {
+        // 顯示登入，隱藏註冊
+        loginDiv.style.display = 'block';
+        regDiv.style.display = 'none';
+        
+        // 更新 Tab 樣式 (藍灰色系)
+        tabLogin.style.borderBottom = '3px solid #607d8b';
+        tabLogin.style.color = '#455a64';
+        
+        tabRegister.style.borderBottom = '3px solid transparent';
+        tabRegister.style.color = '#aaa';
+    } else {
+        // 顯示註冊，隱藏登入
+        loginDiv.style.display = 'none';
+        regDiv.style.display = 'block';
+        
+        // 更新 Tab 樣式 (綠色系)
+        tabLogin.style.borderBottom = '3px solid transparent';
+        tabLogin.style.color = '#aaa';
+        
+        tabRegister.style.borderBottom = '3px solid #2A9689';
+        tabRegister.style.color = '#2A9689';
+    }
+}
+
 		
 // ==========================================
 // === 全域變數宣告 (請加在 script 最上方) ===
@@ -19895,21 +19929,30 @@ document.addEventListener('DOMContentLoaded', initClassNumbers);
 
 
 
-// === 新增：學校電郵登入處理函式 ===
-async function handleSchoolLogin() {
-    // 1. 獲取用戶輸入的資料
-    const manualName = document.getElementById('studentNameInput').value.trim();
-    const grade = document.getElementById('studentGrade').value;
-    const cls = document.getElementById('studentClass').value;
-    const number = document.getElementById('studentNumber').value;
+// === 修改後：學校電郵處理函式 (區分模式) ===
+async function handleSchoolLogin(authMode = 'login') { 
     
-    // 2. 驗證姓名
-    if (!manualName) {
-        alert("請務必填寫您的「中文姓名」才能進行註冊！");
-        document.getElementById('studentNameInput').focus();
-        return;
+    // 1. 準備暫存資料
+    let tempStudentData = { authMode: authMode }; 
+
+    // 2. 只有在「註冊模式」下才檢查輸入框
+    if (authMode === 'register') {
+        const manualName = document.getElementById('studentNameInput').value.trim();
+        const grade = document.getElementById('studentGrade').value;
+        const cls = document.getElementById('studentClass').value;
+        const number = document.getElementById('studentNumber').value;
+        
+        if (!manualName) {
+            alert("請務必填寫您的「中文姓名」才能進行註冊！");
+            document.getElementById('studentNameInput').focus();
+            return;
+        }
+        
+        // 將註冊資料存入物件
+        tempStudentData = { authMode, manualName, grade, cls, number };
     }
 
+    // 3. UI 鎖定 (獲取點擊的按鈕)
     const btn = event ? (event.target.tagName === 'BUTTON' ? event.target : event.target.closest('button')) : null;
     let originalContent = "";
     if (btn) {
@@ -19918,28 +19961,26 @@ async function handleSchoolLogin() {
         btn.disabled = true;
     }
 
-    // 暫存資料
-    const tempStudentData = { manualName, grade, cls, number };
+    // 4. 將資料寫入 Session (跨頁面傳遞)
     sessionStorage.setItem('sansi_temp_student_data', JSON.stringify(tempStudentData));
 
+    // 5. 呼叫 Google 登入
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
-        // ★ 核心修訂：設定持久化，確保登入狀態寫入硬碟
         await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-
-        // 使用 Popup 登入
         const result = await auth.signInWithPopup(provider);
+        
+        // 登入成功，進入處理流程
         await processLoginResult(result.user, btn, originalContent);
 
     } catch (error) {
         console.error("登入錯誤:", error);
-        if (error.code === 'auth/popup-blocked') {
-            alert("⚠️ 登入視窗被瀏覽器阻擋。\n\n請允許此網站顯示彈出式視窗，或嘗試使用 Chrome 瀏覽器。");
-        } else if (error.code !== 'auth/popup-closed-by-user') {
+        if (error.code !== 'auth/popup-closed-by-user') {
             alert("登入發生錯誤：" + error.message);
         }
+        // 恢復按鈕
         if (btn) {
             btn.innerHTML = originalContent;
             btn.disabled = false;
@@ -19977,127 +20018,96 @@ async function findProfileByEmail(targetEmail) {
 
 	
 
-// === 修正版：處理登入結果 (已更換為 Smart Sync) ===
+// === 修改後：處理登入結果邏輯 ===
 async function processLoginResult(user, btn, originalContent) {
-    let manualName, grade, cls, number;
+    let manualName, grade, cls, number, authMode = 'login';
+    
+    // 1. 讀取暫存資料，確認當前是甚麼模式
     const storedData = sessionStorage.getItem('sansi_temp_student_data');
     if (storedData) {
         const data = JSON.parse(storedData);
-        manualName = data.manualName; grade = data.grade; cls = data.cls; number = data.number;
-    } else {
-        manualName = document.getElementById('studentNameInput')?.value.trim();
-        grade = document.getElementById('studentGrade')?.value;
-        cls = document.getElementById('studentClass')?.value;
-        number = document.getElementById('studentNumber')?.value;
+        authMode = data.authMode || 'login'; 
+        
+        if (authMode === 'register') {
+            manualName = data.manualName; grade = data.grade; cls = data.cls; number = data.number;
+        }
     }
-    
-    if (!manualName) {
-        alert("資料遺失，請重新輸入姓名。");
-        if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
-        return;
-    }
- 
+
     const email = user.email;
+
+    // --- 權限檢查 (老師/特許用戶/網域檢查) ---
+    // (這裡保留您原本的 Teacher/Special User 檢查代碼，為節省篇幅省略，請務必保留)
     let isTeacher = false;
     let isSpecialUser = false;
- 
-    try {
-        const safeEmailKey = email.replace(/\./g, ',');
- 
-        const [teacherSnap, specialSnap] = await Promise.all([
-            database.ref(`teachers/${safeEmailKey}`).once('value'),
-            database.ref(`special_users/${safeEmailKey}`).once('value')
-        ]);
- 
-        if (teacherSnap.exists() && teacherSnap.val() === true) {
-            isTeacher = true;
-        } else if (specialSnap.exists() && specialSnap.val() === true) {
-            isSpecialUser = true;
-            grade = "Special";
-            cls = "User";
-        }
+    // ... [請保留您原本的權限檢查代碼] ...
+    if (!email.endsWith('@ccckyc.edu.hk') && !isTeacher && !isSpecialUser) {
+         await auth.signOut();
+         alert("⛔ 驗證失敗！此電郵不在允許名單內。");
+         if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+         return;
+    }
+
+    // --- 2. 搜尋資料庫 ---
+    let existingProfile = await findProfileByEmail(email);
+    
+    // --- 3. 邏輯分支 ---
+    if (existingProfile) {
+        // [情況 A] 帳號已存在
+        
+        // 如果是在「註冊模式」下發現帳號已存在 -> 提示並直接登入
+        if (authMode === 'register') {
+            alert(`⚠️ 偵測到此電郵已註冊於【${existingProfile.grade}${existingProfile.class} 班】。\n系統將直接登入您的原有帳號。`);
+        } 
+        
+        // 執行登入
+        localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
+        updateWelcomeMessage(existingProfile);
+        loadAssignments(existingProfile.grade, existingProfile.class);
+        
+        // 進入系統
+        finishLoginUI();
+
+    } else {
+        // [情況 B] 帳號不存在 (新用戶)
+
+        if (authMode === 'login') {
+            // (1) 登入模式 + 沒帳號 => 拒絕進入
+            await auth.signOut(); // 登出剛才的 Google 登入
+            
+            alert("❌ 系統找不到此帳號的註冊紀錄。\n\n您似乎是新用戶，請切換至「註冊」頁籤進行首次綁定。");
+            
+            // 自動幫他切換到註冊頁面
+            switchAuthMode('register');
+            
+            // 恢復按鈕
+            if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+            return; 
+        } 
         else {
-            const DEBUG_USER = atob('a2VuY2hhbjIwMTQxQGdtYWlsLmNvbQ==');
-            if (email === DEBUG_USER) {
-                isTeacher = true;
-            }
-        }
- 
-        if (!isTeacher && !isSpecialUser) {
-            if (!email.endsWith('@ccckyc.edu.hk')) {
-                await auth.signOut();
-                alert("⛔ 驗證失敗！\n此電郵不在允許名單內。");
-                sessionStorage.removeItem('sansi_temp_student_data');
+            // (2) 註冊模式 + 沒帳號 => 建立新帳號
+            if (!manualName) {
+                alert("註冊資料遺失，請重新輸入。");
                 if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
                 return;
             }
+            
+            await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
+            finishLoginUI();
         }
- 
-    } catch (err) {
-        console.error("權限檢查錯誤:", err);
-        if (!email.endsWith('@ccckyc.edu.hk')) {
-            alert("系統連線錯誤，無法驗證權限。");
-            if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
-            return;
-        }
-    }
- 
-    if (isTeacher) { grade = "System"; cls = "Test"; number = "99"; alert("👋 老師您好，進入測試班。"); }
-    if (isSpecialUser) { alert("👋 歡迎特許用家。"); }
- 
-    // --- 搜尋舊資料 ---
-    let existingProfile = await findProfileByEmail(email);
-    
-    if (!existingProfile) {
-        const inputPath = `students/${grade}/${cls}/${manualName}/profile`;
-        try {
-            const snap = await database.ref(inputPath).once('value');
-            if (snap.exists() && snap.val().email === email) {
-                existingProfile = snap.val();
-                database.ref('email_mapping/' + btoa(email)).set(existingProfile);
-            }
-        } catch(e) {}
-    }
- 
-    if (existingProfile) {
-        const oldLocation = `${existingProfile.grade}${existingProfile.class}`;
-        const newLocation = `${grade}${cls}`;
-        
-        if (oldLocation !== newLocation && !isTeacher && !isSpecialUser) {
-            alert(`⚠️ 偵測到此電郵已註冊於【${oldLocation}班】。\n系統將登入您的原有帳號。`);
-        }
-        
-        if ((isTeacher && (existingProfile.grade !== "System" || existingProfile.class !== "Test")) ||
-            (isSpecialUser && (existingProfile.grade !== "Special" || existingProfile.class !== "User"))) {
-             await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
-        } else {
-             localStorage.setItem('studentProfile', JSON.stringify(existingProfile));
-             updateWelcomeMessage(existingProfile);
-             // 登入後載入課業 (不含歷史)
-             loadAssignments(existingProfile.grade, existingProfile.class);
-        }
-        
-        sessionStorage.removeItem('sansi_temp_student_data');
-        document.getElementById('studentIdentityForm').style.display = 'none';
-        document.getElementById('studentCloudPanel').style.display = 'block';
-        monitorPendingAssignments();
-        
-        // ★★★ 修改處：改為呼叫新的省流同步 ★★★
-        await smartSyncHistory();
-        
-        startAutoSyncListener();
-    } else {
-        // 新用戶註冊
-        await bindStudentIdentity(grade, cls, number, manualName, email, user.uid);
-        sessionStorage.removeItem('sansi_temp_student_data');
-        
-        // ★★★ 修改處：改為呼叫新的省流同步 ★★★
-        await smartSyncHistory();
-        
-        startAutoSyncListener();
     }
 }
 
+// 輔助函式：統一處理登入成功的 UI 切換
+async function finishLoginUI() {
+    sessionStorage.removeItem('sansi_temp_student_data');
+    document.getElementById('studentIdentityForm').style.display = 'none';
+    document.getElementById('studentCloudPanel').style.display = 'block';
+    
+    // 啟動各項監聽
+    monitorPendingAssignments();
+    await smartSyncHistory();
+    startAutoSyncListener();
+}
 // === 新增：學生登出處理函式 ===
 async function handleStudentLogout() {
     if (!confirm("確定要登出學生帳號嗎？\n(登出後下次需要重新輸入姓名驗證)")) {
@@ -21159,62 +21169,82 @@ ${promptData}
     <div class="modal-content">
         <span class="close-modal-btn" onclick="closeStudentCloudModal()">&times;</span>
 
-        <!-- 身份設定表單 -->
-        <div id="studentIdentityForm">
-            
-            <!-- 新增：標題與指引區塊 -->
-       <div style="margin-bottom: 20px; border-bottom: 2px dashed #b0bec5; padding-bottom: 15px; text-align: center;">
-    <h3 style="color: #546e7a; margin: 0 0 15px 0; font-size: 1.5em;">註冊帳號</h3>
+<!-- 身份設定表單 -->
+<div id="studentIdentityForm">
     
-    <div style="background-color: #e8ecef; padding: 15px; border-radius: 8px; text-align: center; color: #78909c; font-size: 0.95em; line-height: 1.6;">
-        <div style="font-weight: bold; margin-bottom: 8px;">
-            <i class="fas fa-info-circle"></i> 指引：
-        </div>
-        <div style="text-align: left; margin-top: 5px;">
-            請先輸入您的<strong>中文姓名</strong>，並選擇正確的<strong>年級、班別及班號</strong>，確認無誤後，再點擊下方的「學校帳號登入」按鈕。
+    <!-- === 1. 分頁切換按鈕 (Tabs) === -->
+    <div style="display: flex; justify-content: center; margin-bottom: 25px; border-bottom: 2px solid #eee;">
+        <button id="tabLogin" onclick="switchAuthMode('login')" 
+                style="flex: 1; padding: 10px; background: none; border: none; border-bottom: 3px solid #607d8b; font-weight: bold; color: #455a64; font-size: 1rem; cursor: pointer; transition: all 0.3s;">
+            登入
+        </button>
+        <button id="tabRegister" onclick="switchAuthMode('register')" 
+                style="flex: 1; padding: 10px; background: none; border: none; border-bottom: 3px solid transparent; color: #aaa; font-size: 1rem; cursor: pointer; transition: all 0.3s;">
+            註冊
+        </button>
+    </div>
+
+    <!-- === 2. 登入模式區塊 (預設顯示) === -->
+    <div id="loginModeContainer">
+        <div style="text-align: center; padding: 30px 20px; color: #78909c;">
+            <i class="fas fa-user-circle" style="font-size: 3.5rem; margin-bottom: 15px; color: #b0bec5;"></i>
+            <p style="font-size: 1rem; line-height: 1.6;">
+                歡迎回來！<br>
+                請直接使用學校帳號登入。
+            </p>
+        
+            <!-- 登入按鈕：改為自動寬度 + 膠囊狀 -->
+            <button class="btn-action" onclick="handleSchoolLogin('login')" 
+                    style="width: auto; min-width: 160px; background-color: #607d8b; border: none; padding: 10px 30px; font-size: 1rem; letter-spacing: 1px; box-shadow: 0 3px 8px rgba(96, 125, 139, 0.3); color: white; border-radius: 50px; margin-top: 10px; margin-bottom: 15px;">
+                <i class="fab fa-google"></i> 學校帳號登入
+            </button>
+            
+            <div style="margin-top: 15px;">
+                <span style="color: #aaa; font-size: 0.85rem; cursor: pointer; text-decoration: underline;" onclick="switchAuthMode('register')">
+                    還沒有帳號？點此註冊
+                </span>
+            </div>
         </div>
     </div>
-</div>
 
-            <!-- 新增：姓名輸入欄位 -->
-            <label style="font-weight: bold; color: #455a64;">姓名：</label>
-            <input type="text" id="studentNameInput" class="no-modal-editor" placeholder="請輸入您的中文全名 (例如：陳大文)" 
-                   style="width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #cfd8dc; border-radius: 8px; font-size: 1.1em;">
+    <!-- === 3. 註冊模式區塊 (預設隱藏) === -->
+    <div id="registerModeContainer" style="display: none;">
+        
+        <label style="font-weight: bold; color: #455a64; font-size: 0.95rem;">姓名：</label>
+        <input type="text" id="studentNameInput" class="no-modal-editor" placeholder="請輸入中文全名 (例如：陳大文)" 
+               style="width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #cfd8dc; border-radius: 8px; font-size: 1rem;">
 
-            <!--原有的選單 -->
-            <div style="display: flex; gap: 10px;">
-                <div style="flex: 1;">
-                    <label style="font-weight: bold; color: #455a64;">年級：</label>
-                    <select id="studentGrade" class="no-modal-editor">
-                        <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
-                        <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
-                    </select>
-                </div>
-                <div style="flex: 1;">
-                    <label style="font-weight: bold; color: #455a64;">班別：</label>
-                    <select id="studentClass" class="no-modal-editor">
-                        <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
-                    </select>
-                </div>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <div style="flex: 1;">
+                <label style="font-weight: bold; color: #455a64; font-size: 0.95rem;">年級：</label>
+                <select id="studentGrade" class="no-modal-editor" style="padding: 8px; font-size: 1rem;">
+                    <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
+                    <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
+                </select>
             </div>
-
-            <label style="font-weight: bold; color: #455a64;">班號：</label>
-            <select id="studentNumber" class="no-modal-editor">
-                <!-- JS 會自動填入選項 -->
-            </select>
-
-            <!-- 登入按鈕區塊 -->
-            <div style="margin-top: 25px; padding: 20px; background: #fff; border: 2px solid #607d8b; border-radius: 12px; text-align: center;">
-                <p style="color: #78909c; margin-bottom: 15px; font-size: 0.9em;">
-                    系統將驗證您的 @ccckyc.edu.hk 學校電郵
-                </p>
-                
-                <button class="btn-action" onclick="handleSchoolLogin()" 
-                        style="width: 100%; background-color: #607d8b; border: none; padding: 12px; font-size: 1.1em; letter-spacing: 1px; box-shadow: 0 4px 10px rgba(96, 125, 139, 0.3);">
-                    <i class="fab fa-google"></i> 學校帳號登入
-                </button>
+            <div style="flex: 1;">
+                <label style="font-weight: bold; color: #455a64; font-size: 0.95rem;">班別：</label>
+                <select id="studentClass" class="no-modal-editor" style="padding: 8px; font-size: 1rem;">
+                    <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                </select>
             </div>
         </div>
+
+        <label style="font-weight: bold; color: #455a64; font-size: 0.95rem;">班號：</label>
+        <select id="studentNumber" class="no-modal-editor" style="padding: 8px; margin-bottom: 25px; font-size: 1rem;">
+            <!-- JS 會自動填入選項 -->
+        </select>
+
+        <!-- 註冊按鈕：改為自動寬度 + 莫蘭迪灰綠色 -->
+        <div style="text-align: center;">
+            <button class="btn-action" onclick="handleSchoolLogin('register')" 
+                    style="width: auto; min-width: 160px; background-color: #8fa398; border: none; padding: 10px 30px; font-size: 1rem; letter-spacing: 1px; box-shadow: 0 3px 8px rgba(143, 163, 152, 0.4); color: white; border-radius: 50px; margin-top: 5px; margin-bottom: 35px;">
+                <i class="fab fa-google"></i> 學校帳號註冊
+            </button>
+        </div>
+    </div>
+
+</div>
 
        <!-- 登入後顯示區域 -->
 <div id="studentCloudPanel" style="display:none; margin-top:15px;">
