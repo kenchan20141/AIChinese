@@ -386,147 +386,195 @@
                 return pages;
             }
 
+
+
+               // 1. 獲取網址參數 (補回這段缺失的代碼)
+        function getMode() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('mode') || 'text'; // 預設為 text
+        }
+
             // --- 核心邏輯 (Google Apps Script Proxy) ---
 
            // --- 核心邏輯 (Google Apps Script Proxy) ---
 
-// --- 核心邏輯 (Google Apps Script Proxy - 雙模式版) ---
-
-// 1. 獲取網址參數
-function getMode() {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('mode') || 'text'; // 預設為 text
-}
-
 async function runOCR(base64Image) {
-    if (GAS_API_URL.includes("請在此處")) {
-        throw new Error("請先設定 Google Apps Script URL");
-    }
-
-    const mode = getMode();
-    let promptText = "";
-
-    // ★★★ 關鍵分支：根據模式切換指令 ★★★
-    if (mode === 'table') {
-        // --- 表格模式 (JSON) ---
-        promptText = 
-            "請分析這張圖片中的表格內容。這是一個中文寫作大綱，通常由左至右分為三欄。\n" +
-            "嚴格指令：\n" +
-            "1. 必須輸出為純 JSON 格式，不要包含 Markdown。\n" +
-            "2. JSON 結構為陣列，每個物件包含三個欄位：\n" +
-            "   - 'part': 第一欄/最左欄 (例如：起、承、轉、合、一線、結構段一)\n" +
-            "   - 'col1': 第二欄/中間欄 (重點/論點)\n" +
-            "   - 'col2': 第三欄/最右欄 (詳情/論據)\n" +
-            "3. 內容請強制轉為正體中文 (Traditional Chinese)。";
-    } else {
-        // --- 純文字模式 (Markdown) ---
-        promptText = 
-            "請識別圖片中的所有文字內容。\n" +
-            "嚴格指令：\n" +
-            "1. 輸出結果必須強制轉為正體中文 (Traditional Chinese)。\n" +
-            "2. 保持段落分明，如果是文章請保留換行。\n" +
-            "3. 不要使用 ```markdown 包裹代碼塊，直接輸出內容即可。\n" +
-            "4. 如果圖片中有標題，請適當加粗。";
-    }
-
-    const payload = {
-        image: base64Image,
-        prompt: promptText
-    };
-    
-    const response = await fetch(GAS_API_URL, {
-        method: "POST",
-        body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) throw new Error(`伺服器錯誤 (${response.status})`);
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || data.error);
-    if (!data.choices || !data.choices.length) throw new Error("無回傳內容");
-
-    return data.choices[0].message.content;
-}
-
-async function startOCR() {
-    const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
-    if(!imgs.length) return;
-
-    dom.btns.recognize.disabled = true;
-    dom.resultBox.classList.remove('visible');
-    dom.loader.classList.add('visible');
-    
-    const mode = getMode();
-    let combinedResults = []; // 用於表格模式
-    let textResults = [];     // 用於文字模式
-    fullTextContent = "";
-    
-    for(let i=0; i<imgs.length; i++) {
-        dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁 【${mode === 'table' ? '大綱模式' : '通用模式'}】...`;
-        try {
-            let content = await runOCR(imgs[i].src);
-            
-            // 清理 Markdown 標記
-            content = content.replace(/^```(json|markdown|text)?\s*/i, "").replace(/```\s*$/i, "");
-            
-            if (mode === 'table') {
-                // --- 表格模式處理 ---
-                let parsedJSON;
-                try {
-                    parsedJSON = JSON.parse(content);
-                } catch (e) {
-                    console.warn("JSON 解析失敗，降級處理");
-                    parsedJSON = [{ part: "OCR文字", col1: converter(content), col2: "" }];
-                }
-                // 簡轉繁
-                parsedJSON = parsedJSON.map(item => ({
-                    part: converter(item.part || ""),
-                    col1: converter(item.col1 || ""),
-                    col2: converter(item.col2 || "")
-                }));
-                combinedResults = combinedResults.concat(parsedJSON);
-                
-                // 預覽顯示
-                fullTextContent += `\n### 第 ${i+1} 頁 (大綱)\n| 部份 | 內容1 | 內容2 |\n|---|---|---|\n`;
-                parsedJSON.forEach(row => {
-                    fullTextContent += `| ${row.part} | ${row.col1} | ${row.col2} |\n`;
-                });
-
-            } else {
-                // --- 純文字模式處理 ---
-                content = converter(content); // 簡轉繁
-                textResults.push(content);
-                fullTextContent += content + "\n\n";
+            if (GAS_API_URL.includes("請在此處")) {
+                throw new Error("請先設定 Google Apps Script URL");
             }
 
-        } catch(err) {
-            fullTextContent += `> [第 ${i+1} 頁錯誤: ${err.message}]\n`;
-        }
-    }
-    
-    // 渲染下方預覽
-    dom.resultText.innerHTML = marked.parse(fullTextContent);
-    dom.resultBox.classList.add('visible');
-    dom.loader.classList.remove('visible');
-    dom.btns.recognize.disabled = false;
-    dom.btns.recognize.textContent = "重新辨識";
+            const mode = getMode();
+            let promptText = "";
 
-    // ★★★ 關鍵：根據模式發送不同類型的訊息 ★★★
-    let messageData;
-    if (mode === 'table') {
-        messageData = { type: 'ocrJSONResult', data: combinedResults };
-    } else {
-        // 純文字模式發送 old style message
-        messageData = { type: 'ocrResult', text: textResults.join('\n\n') };
-    }
-    
-    let targetWindow = null;
-    if (window.opener && window.opener !== window) targetWindow = window.opener;
-    else if (window.top && window.top.opener) targetWindow = window.top.opener;
-    
-    if (targetWindow) {
-        targetWindow.postMessage(messageData, '*');
-    }
-}
+            // ★★★ 關鍵分支：根據模式切換指令 ★★★
+            if (mode === 'table') {
+                // --- 通用/議論大綱模式 (3欄：部份、重點、詳情) ---
+                promptText = 
+                    "請分析這張圖片中的表格內容。這是一個中文寫作大綱，通常由左至右分為三欄。\n" +
+                    "嚴格指令：\n" +
+                    "1. 必須輸出為純 JSON 格式，不要包含 Markdown。\n" +
+                    "2. JSON 結構為陣列，每個物件包含三個欄位：\n" +
+                    "   - 'part': 第一欄/最左欄 (例如：起、承、結構段一、論點)\n" +
+                    "   - 'col1': 第二欄/中間欄 (重點/論點)\n" +
+                    "   - 'col2': 第三欄/最右欄 (詳情/論據)\n" +
+                    "3. 內容請強制轉為正體中文 (Traditional Chinese)。";
+            } else if (mode === 'pulse_narrative') {
+                // --- [新增] 脈問堂-敘事大綱模式 (4欄：部份、重點、情節、物象) ---
+                promptText = 
+                    "請分析這張圖片中的表格內容。這是一個中文敘事寫作大綱，由左至右分為四欄。\n" +
+                    "嚴格指令：\n" +
+                    "1. 必須輸出為純 JSON 格式，不要包含 Markdown。\n" +
+                    "2. JSON 結構為陣列，每個物件包含四個欄位：\n" +
+                    "   - 'part': 第一欄 (例如：起、承、轉、合、一線)\n" +
+                    "   - 'col1': 第二欄 (結構段重點)\n" +
+                    "   - 'col2': 第三欄 (情節大要)\n" +
+                    "   - 'col3': 第四欄 (物象/備註)\n" +
+                    "3. 內容請強制轉為正體中文。";
+            } else {
+                // --- 純文字模式 (Markdown) ---
+                promptText = 
+                    "請識別圖片中的所有文字內容。\n" +
+                    "嚴格指令：\n" +
+                    "1. 輸出結果必須強制轉為正體中文 (Traditional Chinese)。\n" +
+                    "2. 保持段落分明，如果是文章請保留換行。\n" +
+                    "3. 不要使用 ```markdown 包裹代碼塊，直接輸出內容即可。\n" +
+                    "4. 如果圖片中有標題，請適當加粗。";
+            }
+
+            const payload = {
+                image: base64Image,
+                prompt: promptText
+            };
+            
+            const response = await fetch(GAS_API_URL, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error(`伺服器錯誤 (${response.status})`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error.message || data.error);
+            if (!data.choices || !data.choices.length) throw new Error("無回傳內容");
+
+            return data.choices[0].message.content;
+        }
+
+async function startOCR() {
+                const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
+                if(!imgs.length) return;
+
+                // 鎖定介面
+                dom.btns.recognize.disabled = true;
+                dom.resultBox.classList.remove('visible');
+                dom.loader.classList.add('visible');
+                
+                const mode = getMode();
+                let combinedResults = []; // 用於表格模式 (累積所有頁面的 JSON)
+                let textResults = [];     // 用於文字模式 (累積所有頁面的字串)
+                fullTextContent = "";
+                
+                for(let i=0; i<imgs.length; i++) {
+                    // 更新載入提示，顯示當前模式
+                    let modeName = '通用模式';
+                    if (mode === 'table') modeName = '大綱模式(3欄)';
+                    if (mode === 'pulse_narrative') modeName = '敘事模式(4欄)';
+                    
+                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁 【${modeName}】...`;
+                    
+                    try {
+                        // 呼叫後端 API
+                        let content = await runOCR(imgs[i].src);
+                        
+                        // 清理 Markdown 代碼塊標記 (```json ... ```)
+                        content = content.replace(/^```(json|markdown|text)?\s*/i, "").replace(/```\s*$/i, "");
+                        
+                        // === 表格模式處理 (包含 table 和 pulse_narrative) ===
+                        if (mode === 'table' || mode === 'pulse_narrative') {
+                            let parsedJSON;
+                            try {
+                                parsedJSON = JSON.parse(content);
+                            } catch (e) {
+                                console.warn("JSON 解析失敗，降級為純文字顯示");
+                                // 如果解析失敗，將整段文字放入 col1，避免報錯
+                                parsedJSON = [{ part: "OCR文字", col1: converter(content), col2: "", col3: "" }];
+                            }
+
+                            // 統一進行簡繁轉換，並確保所有欄位存在
+                            parsedJSON = parsedJSON.map(item => ({
+                                part: converter(item.part || ""),
+                                col1: converter(item.col1 || ""),
+                                col2: converter(item.col2 || ""),
+                                col3: converter(item.col3 || "") // ★ 關鍵：加入 col3 (物象) 的處理
+                            }));
+
+                            // 累積數據
+                            combinedResults = combinedResults.concat(parsedJSON);
+                            
+                            // 生成預覽文字 (Markdown 表格)
+                            if (mode === 'pulse_narrative') {
+                                // 脈問堂敘事模式：顯示 4 欄
+                                fullTextContent += `\n### 第 ${i+1} 頁 (敘事四欄)\n| 部份 | 重點 | 情節 | 物象 |\n|---|---|---|---|\n`;
+                                parsedJSON.forEach(row => {
+                                    // 為了預覽整齊，將換行替換為空格
+                                    const c1 = row.col1.replace(/\n/g, ' ');
+                                    const c2 = row.col2.replace(/\n/g, ' ');
+                                    const c3 = row.col3.replace(/\n/g, ' ');
+                                    fullTextContent += `| ${row.part} | ${c1} | ${c2} | ${c3} |\n`;
+                                });
+                            } else {
+                                // 通用/議論模式：顯示 3 欄
+                                fullTextContent += `\n### 第 ${i+1} 頁 (大綱)\n| 部份 | 內容1 | 內容2 |\n|---|---|---|\n`;
+                                parsedJSON.forEach(row => {
+                                    const c1 = row.col1.replace(/\n/g, ' ');
+                                    const c2 = row.col2.replace(/\n/g, ' ');
+                                    fullTextContent += `| ${row.part} | ${c1} | ${c2} |\n`;
+                                });
+                            }
+
+                        } else {
+                            // === 純文字模式處理 ===
+                            content = converter(content); // 簡轉繁
+                            textResults.push(content);
+                            fullTextContent += content + "\n\n";
+                        }
+
+                    } catch(err) {
+                        console.error(err);
+                        fullTextContent += `> [第 ${i+1} 頁錯誤: ${err.message}]\n`;
+                    }
+                }
+                
+                // 渲染下方預覽 HTML
+                dom.resultText.innerHTML = marked.parse(fullTextContent);
+                dom.resultBox.classList.add('visible');
+                dom.loader.classList.remove('visible');
+                dom.btns.recognize.disabled = false;
+                dom.btns.recognize.textContent = "重新辨識";
+
+                // ★★★ 關鍵：根據模式發送不同類型的訊息給主視窗 ★★★
+                let messageData;
+                
+                if (mode === 'table' || mode === 'pulse_narrative') {
+                    // 表格模式：回傳 JSON 陣列
+                    messageData = { type: 'ocrJSONResult', data: combinedResults };
+                } else {
+                    // 純文字模式：回傳合併後的字串
+                    messageData = { type: 'ocrResult', text: textResults.join('\n\n') };
+                }
+                
+              // 尋找父視窗並發送訊息
+                let targetWindow = null;
+                if (window.opener && window.opener !== window) targetWindow = window.opener;
+                else if (window.top && window.top.opener) targetWindow = window.top.opener;
+                
+                if (targetWindow) {
+                    console.log("傳送 OCR 結果至父視窗:", messageData);
+                    targetWindow.postMessage(messageData, '*');
+                    
+                    // [新增] 傳送後自動關閉視窗
+                    window.close();
+                }
+            }
 
             function readFile(file) {
                 return new Promise(r => {
