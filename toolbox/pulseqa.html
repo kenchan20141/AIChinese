@@ -1932,78 +1932,146 @@ link.download = `wabi-sabi-room-${currentRoom}-qr.png`;
 link.href = canvas.toDataURL();
 link.click();
 }
-async function createRoom() {
-try {
-const roomCode = generateRoomCode();
-const hostName = "主持人";
-const roomData = {
-code: roomCode,
-host: hostName,
-created: firebase.database.ServerValue.TIMESTAMP,
-participants: {},
-session: {
-active: false,
-question: "",
-questionId: Date.now(),
-timeLimit: 600,
-startTime: null,
-endTime: null
-},
-answers: {}
-};
-await database.ref('class_rooms/' + roomCode).set(roomData);
-currentRoom = roomCode;
-currentUser = hostName;
-isHost = true;
-currentQuestionId = roomData.session.questionId;
-document.getElementById('hostRoomCode').textContent = roomCode;
-generateQRCode(roomCode);
-setupRoomListener();
-} catch (error) {
-console.error('創建房間失敗:', error);
-alert('創建房間失敗,請重試');
+async function createRoom(existingRoomCode = null) {
+    try {
+        let roomCode;
+        let isRestore = false;
+
+        // ★★★ 新增：判斷是否為恢復模式 ★★★
+        if (existingRoomCode) {
+            roomCode = existingRoomCode;
+            isRestore = true;
+        } else {
+            roomCode = generateRoomCode();
+        }
+
+        const hostName = "主持人";
+        
+        // ★★★ 新增：如果是恢復模式，先檢查房間是否存在 ★★★
+        if (isRestore) {
+            const snapshot = await database.ref('class_rooms/' + roomCode).once('value');
+            if (!snapshot.exists()) {
+                alert('之前的房間已過期或被刪除，將為您創建新房間。');
+                sessionStorage.removeItem('pulseqa_host_session');
+                // 遞歸調用，創建全新房間
+                createRoom(); 
+                return;
+            }
+            // 如果存在，不需要重新 set roomData，直接連接即可
+        } else {
+            // 全新創建才寫入初始資料
+            const roomData = {
+                code: roomCode,
+                host: hostName,
+                created: firebase.database.ServerValue.TIMESTAMP,
+                participants: {},
+                session: {
+                    active: false,
+                    question: "",
+                    questionId: Date.now(),
+                    timeLimit: 600,
+                    startTime: null,
+                    endTime: null
+                },
+                answers: {}
+            };
+            await database.ref('class_rooms/' + roomCode).set(roomData);
+        }
+
+        currentRoom = roomCode;
+        currentUser = hostName;
+        isHost = true;
+        
+        // 如果不是恢復模式，設定新的問題 ID (如果是恢復，這裡不改，依賴監聽器更新)
+        if (!isRestore) {
+            currentQuestionId = Date.now();
+        }
+
+        document.getElementById('hostRoomCode').textContent = roomCode;
+        generateQRCode(roomCode);
+        setupRoomListener();
+
+        // ★★★ 新增：儲存主持人狀態到 SessionStorage ★★★
+        sessionStorage.setItem('pulseqa_host_session', JSON.stringify({
+            roomCode: roomCode,
+            name: hostName
+        }));
+
+    } catch (error) {
+        console.error('創建房間失敗:', error);
+        alert('創建房間失敗,請重試');
+    }
 }
-}
-async function joinAsStudent() {
-const studentName = document.getElementById('studentName').value.trim();
-const roomCode = document.getElementById('joinRoomCode').value.trim();
-if (!studentName || !roomCode) {
-alert('請輸入姓名和房間代碼');
-return;
-}
-if (roomCode.length !== 6) {
-alert('房間代碼必須是6位數');
-return;
-}
-try {
-const roomSnapshot = await database.ref('class_rooms/' + roomCode).once('value');
-if (!roomSnapshot.exists()) {
-alert('房間不存在');
-return;
-}
-const roomData = roomSnapshot.val();
-if (roomData.participants && roomData.participants[studentName]) {
-alert('此名稱已被使用,請選擇其他名稱');
-return;
-}
-await database.ref('class_rooms/' + roomCode + '/participants/' + studentName).set({
-name: studentName,
-joined: firebase.database.ServerValue.TIMESTAMP,
-submitted: false,
-late: false,
-lastQuestionId: roomData.session.questionId || null
-});
-currentRoom = roomCode;
-currentUser = studentName;
-isHost = false;
-document.getElementById('studentRoomCode').textContent = roomCode;
-document.getElementById('studentDisplayName').textContent = studentName;
-setupRoomListener();
-showStudentSection();
-} catch (error) {
-console.error('加入房間失敗:', error);
-alert('加入房間失敗,請重試');
-}
+async function joinAsStudent(isRestore = false) {
+    const studentName = document.getElementById('studentName').value.trim();
+    const roomCode = document.getElementById('joinRoomCode').value.trim();
+
+    if (!studentName || !roomCode) {
+        alert('請輸入姓名和房間代碼');
+        return;
+    }
+    if (roomCode.length !== 6) {
+        alert('房間代碼必須是6位數');
+        return;
+    }
+
+    try {
+        const roomSnapshot = await database.ref('class_rooms/' + roomCode).once('value');
+        if (!roomSnapshot.exists()) {
+            alert('房間不存在');
+            // 如果是自動恢復失敗，清除 session 以免無限循環
+            if (isRestore) sessionStorage.removeItem('pulseqa_student_session');
+            return;
+        }
+
+        const roomData = roomSnapshot.val();
+        
+        // ★★★ 修改：如果是恢復模式，跳過名稱重複檢查 ★★★
+        if (!isRestore && roomData.participants && roomData.participants[studentName]) {
+            alert('此名稱已被使用,請選擇其他名稱');
+            return;
+        }
+
+        // 寫入/更新參與者資料
+        await database.ref('class_rooms/' + roomCode + '/participants/' + studentName).update({
+            name: studentName,
+            // 只有新加入才寫入 joined，恢復時不覆蓋
+            joined: (roomData.participants && roomData.participants[studentName]) ? roomData.participants[studentName].joined : firebase.database.ServerValue.TIMESTAMP,
+            lastActive: firebase.database.ServerValue.TIMESTAMP // 更新活動時間
+        });
+
+        currentRoom = roomCode;
+        currentUser = studentName;
+        isHost = false;
+
+        document.getElementById('studentRoomCode').textContent = roomCode;
+        document.getElementById('studentDisplayName').textContent = studentName;
+
+        setupRoomListener();
+        showStudentSection();
+
+        // ★★★ 新增：儲存學生狀態到 SessionStorage ★★★
+        sessionStorage.setItem('pulseqa_student_session', JSON.stringify({
+            roomCode: roomCode,
+            name: studentName
+        }));
+
+        // ★★★ 新增：嘗試恢復草稿 (如果有) ★★★
+        const savedDraft = sessionStorage.getItem(`pulseqa_draft_${roomCode}_${studentName}`);
+        if (savedDraft) {
+            // 稍等 UI 渲染完成後填入
+            setTimeout(() => {
+                const answerInput = document.getElementById('studentAnswer');
+                if (answerInput && !answerInput.disabled) {
+                    answerInput.value = savedDraft;
+                }
+            }, 500);
+        }
+
+    } catch (error) {
+        console.error('加入房間失敗:', error);
+        alert('加入房間失敗,請重試');
+    }
 }
 function setupRoomListener() {
   if (roomRef) {
@@ -2539,20 +2607,34 @@ function updateStudentUI(roomData) {
       renderStudentOutlineUI('qa');
     } else if (currentMode === 'extended') {
       renderStudentOutlineUI('extended');
-      // 關鍵修訂：確保字數計數器可見
       if (wordCountDisplay) {
         wordCountDisplay.classList.remove('hidden');
-        // 設置初始字數
         document.getElementById('remainingWords').textContent = '180';
       }
     } else if (currentMode === 'outline') {
-      const type = roomData.session?.outlineConfig?.type || 'narrative';
+      // 這裡 studentNarrativeStructure 是全域變數，可能需要重置或保持
       renderStudentOutlineUI('outline');
-      // 隱藏字數計數器
       if (wordCountDisplay) wordCountDisplay.classList.add('hidden');
     }
     // 恢復滾動位置
     container.scrollTop = scrollPos;
+
+    // ★★★ 新增：綁定自動保存草稿監聽器 ★★★
+    // 定義保存函式
+    const saveDraft = (e) => {
+        if (!currentRoom || !currentUser) return;
+        // 簡單起見，只針對 studentAnswer 進行簡單保存
+        // 如果是大綱模式，保存整個表格可能較複雜，這裡主要保護長文輸入
+        if (e.target.id === 'studentAnswer') {
+            sessionStorage.setItem(`pulseqa_draft_${currentRoom}_${currentUser}`, e.target.value);
+        }
+    };
+
+    // 尋找輸入框並綁定
+    const inputs = container.querySelectorAll('textarea, input[type="text"]');
+    inputs.forEach(el => {
+        el.addEventListener('input', saveDraft);
+    });
   }
 
   // 處理畫面同步
@@ -2568,22 +2650,15 @@ function updateStudentUI(roomData) {
     questionDisplay.classList.remove('text-wabi-secondary');
     questionDisplay.classList.add('text-charcoal');
     
-    // 處理 startTime - 轉換 Firebase 伺服器時間戳
     let serverStartTime = roomData.session.startTime;
-    // 檢查是否為 Firebase 服務器時間戳對象
     if (typeof serverStartTime === 'object' && serverStartTime.hasOwnProperty('.sv')) {
-      // 使用本地時間作為補償，但記錄警告
-      console.warn('收到 Firebase 服務器時間戳對象，使用本地時間作為起始點');
       serverStartTime = Date.now();
     }
-    // 確保 startTime 是有效的數字
     if (typeof serverStartTime !== 'number' || isNaN(serverStartTime)) {
-      console.error('無效的開始時間格式:', serverStartTime);
       serverStartTime = Date.now();
     }
-    // 確保計時器已啟動並同步
+    
     if (roomData.session.timeLimit !== undefined && roomData.session.timeLimit !== null) {
-      // 檢查是否需要重新啟動計時器
       const needsNewTimer = !timer || 
                            lastQuestionStartTime !== serverStartTime || 
                            timeLimit !== roomData.session.timeLimit;
@@ -2591,36 +2666,28 @@ function updateStudentUI(roomData) {
         startLocalTimer(serverStartTime, roomData.session.timeLimit);
       }
     }
-    // 根據剩餘時間更新 UI
+    
     if (remainingTime <= 0) {
-      // 時間已到
       disableAllInputs();
       submitBtn.classList.add('hidden');
       submitBtn.disabled = true;
     } else {
-      // 還有時間
-      enableInputsIfNotSubmitted(); // 啟用輸入 (如果未提交)
-      // 確保提交按鈕在有時間時顯示 (除非已提交)
+      enableInputsIfNotSubmitted(); 
       if (!hasSubmitted) {
         submitBtn.classList.remove('hidden');
         submitBtn.disabled = false;
       }
     }
     
-    // 如果是拓展模式，設置字數監聽
     if (currentMode === 'extended') {
       const studentAnswer = document.getElementById('studentAnswer');
       if (studentAnswer) {
-        // 先移除可能存在的重複監聽器
         studentAnswer.removeEventListener('input', countWords);
         studentAnswer.addEventListener('input', countWords);
-        // 觸發初始計數
         countWords();
         
-        // 關鍵修訂：確保字數計數器元素存在且顯示
         let wordCountElement = document.getElementById('wordCountDisplay');
         if (!wordCountElement) {
-          // 重新創建字數計數器
           wordCountElement = document.createElement('div');
           wordCountElement.id = 'wordCountDisplay';
           wordCountElement.className = 'text-right mt-2 text-wabi-secondary';
@@ -2631,29 +2698,48 @@ function updateStudentUI(roomData) {
       }
     }
   } else {
-    // 計時未開始或房間不存在
     questionDisplay.textContent = '請等待主持人開始計時';
     questionDisplay.classList.add('text-wabi-secondary');
     questionDisplay.classList.remove('text-charcoal');
     countdownDisplay.textContent = '10:00';
-    // 清除本地計時器，因為服務器端已停止
     if (timer) {
       clearInterval(timer);
       timer = null;
     }
-    // 重置剩餘時間
     remainingTime = 0;
     updateCountdownDisplay(remainingTime);
-    // 禁用所有輸入，直到計時開始
     disableAllInputs();
     submitBtn.classList.add('hidden');
     submitBtn.disabled = true;
-    
-    // 隱藏字數計數器
     if (wordCountDisplay) wordCountDisplay.classList.add('hidden');
   }
 
-  // 輔助函數：禁用所有輸入
+  // ★★★ 新增：重新整理後，嘗試從 Firebase 恢復已提交的內容 ★★★
+  // 防止學生按 F5 後看到空白，以為自己沒交
+  if (participant.submitted && !container.getAttribute('data-restored')) {
+      const currentQID = roomData.session?.questionId ? String(roomData.session.questionId) : null;
+      if (String(participant.lastQuestionId) === currentQID) {
+          database.ref('class_rooms/' + currentRoom + '/answers/' + currentUser).once('value').then(snap => {
+              const ansData = snap.val();
+              if (ansData && ansData.text) {
+                  // 標記已恢復，避免重複執行
+                  container.setAttribute('data-restored', 'true');
+                  
+                  if (ansData.text.includes('<table')) {
+                      // 大綱模式：直接填入 HTML
+                      container.innerHTML = ansData.text;
+                      // 確保所有框框是 disabled
+                      container.querySelectorAll('textarea').forEach(t => t.disabled = true);
+                  } else {
+                      // 文本模式
+                      const textArea = document.getElementById('studentAnswer');
+                      if (textArea) textArea.value = ansData.text;
+                  }
+              }
+          });
+      }
+  }
+
   function disableAllInputs() {
     const inputs = container.querySelectorAll('textarea, select, button');
     inputs.forEach(el => {
@@ -2664,42 +2750,33 @@ function updateStudentUI(roomData) {
     });
   }
 
-  // 輔助函數：如果未提交則啟用輸入
   function enableInputsIfNotSubmitted() {
-    // 檢查學生是否已針對當前問題提交
     const currentQID = roomData.session?.questionId ? String(roomData.session.questionId) : null;
     const hasSubmittedCurrentQuestion =
       participant.submitted &&
       String(participant.lastQuestionId) === currentQID;
     
     if (hasSubmittedCurrentQuestion) {
-      // 已提交當前問題
       hasSubmitted = true;
       submissionStatus.classList.remove('hidden');
-      // 顯示下載按鈕
       if (document.getElementById('downloadMyAnswerBtn')) {
         document.getElementById('downloadMyAnswerBtn').classList.remove('hidden');
       }
-      // 如果是超時提交，添加相應樣式
       if (participant.late) {
         answerInputArea.classList.add('late');
       }
-      // 禁用所有輸入
       const inputs = container.querySelectorAll('textarea, select, button');
       inputs.forEach(el => el.disabled = true);
       submitBtn.classList.add('hidden');
       submitBtn.disabled = true;
       answerInputArea.classList.add('submitted');
     } else {
-      // 未提交或提交的是舊問題
       hasSubmitted = false;
       submissionStatus.classList.add('hidden');
       answerInputArea.classList.remove('submitted', 'late');
-      // 隱藏下載按鈕
       if (document.getElementById('downloadMyAnswerBtn')) {
         document.getElementById('downloadMyAnswerBtn').classList.add('hidden');
       }
-      // 啟用輸入
       const inputs = container.querySelectorAll('textarea, select, button');
       inputs.forEach(el => {
         el.disabled = false;
@@ -2711,7 +2788,6 @@ function updateStudentUI(roomData) {
           }
         }
       });
-      // 顯示提交按鈕
       if (remainingTime > 0) {
         submitBtn.classList.remove('hidden');
         submitBtn.disabled = false;
@@ -4474,7 +4550,6 @@ function closeDrawingTools() {
 
   
 async function leaveHost() {
-  // 關閉全屏倒計時
   if (fullscreenTimer) {
     clearInterval(fullscreenTimer);
     fullscreenTimer = null;
@@ -4489,7 +4564,6 @@ async function leaveHost() {
     await database.ref('class_rooms/' + currentRoom).remove();
   }
  
-  // 清除所有計時器
   if (hostTimer) {
     clearInterval(hostTimer);
     hostTimer = null;
@@ -4501,7 +4575,6 @@ async function leaveHost() {
  
   sessionActive = false;
   
-  // ★★★ 修訂處：先檢查元素是否存在，再執行 classList 操作 ★★★
   const hostCountdownContainer = document.getElementById('hostCountdownContainer');
   if (hostCountdownContainer) {
     hostCountdownContainer.classList.add('hidden');
@@ -4510,6 +4583,44 @@ async function leaveHost() {
   currentRoom = null;
   currentUser = null;
   isHost = false;
+
+  // ★★★ 新增：清除主持人 Session ★★★
+  sessionStorage.removeItem('pulseqa_host_session');
+
+  showMainMenu();
+}
+ 
+async function leaveStudent() {
+  if (fullscreenTimer) {
+    clearInterval(fullscreenTimer);
+    fullscreenTimer = null;
+    closeFullscreenCountdown();
+  }
+ 
+  if (roomRef) {
+    roomRef.off();
+    roomRef = null;
+  }
+  
+  // 註解：保留這行，看你要不要學生離開時刪除紀錄。通常建議不刪除，除非老師要求。
+  if (currentRoom && currentUser) {
+    await database.ref('class_rooms/' + currentRoom + '/participants/' + currentUser).remove();
+  }
+  
+  clearInterval(timer);
+  timer = null;
+  sessionActive = false;
+  
+  // ★★★ 新增：清除學生 Session 和草稿 ★★★
+  if (currentRoom && currentUser) {
+      sessionStorage.removeItem(`pulseqa_draft_${currentRoom}_${currentUser}`);
+  }
+  sessionStorage.removeItem('pulseqa_student_session');
+
+  currentRoom = null;
+  currentUser = null;
+  isHost = false;
+  hasSubmitted = false;
   showMainMenu();
 }
  
@@ -4590,9 +4701,43 @@ window.addEventListener('beforeunload', () => {
   }
 });
 document.addEventListener('DOMContentLoaded', () => {
+  // 1. 初始化界面元素 (全屏按鈕等)
+  const remainingTimeDisplay = document.getElementById('remainingTimeDisplay');
+  if (remainingTimeDisplay) {
+    remainingTimeDisplay.style.cursor = 'pointer';
+    remainingTimeDisplay.title = '點擊放大顯示';
+   
+    remainingTimeDisplay.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (!sessionActive || !isHost) return;
+      openFullscreenCountdown();
+    });
+  }
+  
+  const closeFullscreenCountdownBtn = document.getElementById('closeFullscreenCountdown');
+  if (closeFullscreenCountdownBtn) {
+    closeFullscreenCountdownBtn.addEventListener('click', closeFullscreenCountdown);
+  }
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !document.getElementById('fullscreenCountdown').classList.contains('hidden')) {
+      closeFullscreenCountdown();
+    }
+  });
+ 
+  const savedFontSize = localStorage.getItem('answerFontSize');
+  if (savedFontSize) {
+    currentFontSize = parseFloat(savedFontSize);
+  }
+  initializeFontControls();
+  setTimeout(applyFontSize, 100);
+
+  // 2. 初始化繪圖工具
   timer = null;
   setupFullscreenAnswers();
   initDrawingTools();
+  
+  // 自適應高度
   const studentAnswer = document.getElementById('studentAnswer');
   if (studentAnswer) {
     studentAnswer.addEventListener('input', function() {
@@ -4602,13 +4747,55 @@ document.addEventListener('DOMContentLoaded', () => {
     studentAnswer.style.height = 'auto';
     studentAnswer.style.height = studentAnswer.scrollHeight + 'px';
   }
+
+  // ★★★ 3. 自動恢復狀態邏輯 (新增部分) ★★★
+  
+  // A. 優先檢查 URL 參數 (分享連結進入)
   const urlParams = new URLSearchParams(window.location.search);
-  const roomCode = urlParams.get('room');
-  if (roomCode && roomCode.length === 6) {
-    document.getElementById('joinRoomCode').value = roomCode;
+  const roomCodeParam = urlParams.get('room');
+
+  if (roomCodeParam && roomCodeParam.length === 6) {
+    document.getElementById('joinRoomCode').value = roomCodeParam;
     showJoinSection();
   } else {
-    showMainMenu();
+    // B. 檢查 Session Storage (重新整理恢復)
+    const hostSession = sessionStorage.getItem('pulseqa_host_session');
+    const studentSession = sessionStorage.getItem('pulseqa_student_session');
+
+    if (hostSession) {
+        try {
+            const sessionData = JSON.parse(hostSession);
+            console.log("發現主持人 Session，正在恢復...", sessionData);
+            
+            // 切換介面
+            document.getElementById('mainMenu').classList.add('hidden');
+            document.getElementById('hostSection').classList.remove('hidden');
+            
+            // 恢復房間 (傳入舊代碼)
+            createRoom(sessionData.roomCode);
+        } catch (e) {
+            console.error("恢復主持人失敗", e);
+            showMainMenu();
+        }
+    } else if (studentSession) {
+        try {
+            const sessionData = JSON.parse(studentSession);
+            console.log("發現學生 Session，正在恢復...", sessionData);
+            
+            // 填入資料
+            document.getElementById('studentName').value = sessionData.name;
+            document.getElementById('joinRoomCode').value = sessionData.roomCode;
+            
+            // 自動加入 (傳入 true 代表是恢復模式)
+            joinAsStudent(true);
+        } catch (e) {
+            console.error("恢復學生失敗", e);
+            showMainMenu();
+        }
+    } else {
+        // C. 都沒有，顯示主選單
+        showMainMenu();
+    }
   }
 });
 document.getElementById('fullscreenToggle').addEventListener('click', function() {
@@ -4915,7 +5102,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // === 記錄訪問 ===
+  // === 記錄訪問 (修訂版：解決 permission_denied 錯誤) ===
     async function logVisitOnce() {
         // 使用 sansiDatabase 判斷
         if (typeof sansiDatabase === 'undefined' || !sansiDatabase) return;
@@ -4927,10 +5114,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
         if (sessionStorage.getItem(sessionKey)) return; 
 
-        // 使用 sansiDatabase
-        const trackingRef = sansiDatabase.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
-        
+        // ★★★ 修復：加入 try-catch 區塊，攔截權限錯誤 ★★★
         try {
+            // 使用 sansiDatabase
+            const trackingRef = sansiDatabase.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
+            
             const snap = await trackingRef.once('value');
             const isFirstTimeToday = !snap.exists();
 
@@ -4944,7 +5132,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (identity.type === 'student') {
                 const classKey = `${identity.grade}${identity.class}`;
-                const studentKey = identity.name; 
+                const studentKey = identity.name; // 注意這裡要確保 getIdentity 回傳正確結構
 
                 updates[`${schoolPath}/visits`] = increment1;
                 
@@ -4973,10 +5161,11 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log("📍 [Stats] 訪問計數已分流上傳");
 
         } catch (e) {
-            console.error("Stats Error:", e);
+            // ★★★ 捕獲錯誤：如果權限被拒絕，只顯示警告，不報紅字錯誤 ★★★
+            // 這通常發生在訪客沒有寫入 stats_tracking 的權限時
+            console.warn("統計數據上傳被略過 (可能是權限不足):", e.message);
         }
     }
-
     // === 上傳時長 ===
     function uploadOneMinute() {
         // 使用 sansiDatabase 判斷
@@ -5049,29 +5238,39 @@ document.addEventListener('DOMContentLoaded', function() {
 	
 
 <script>
-    // =======================================================
-    // === [新增] 在線狀態自動報到系統 (Presence System) ===
+  // =======================================================
+    // === [修訂] 在線狀態自動報到系統 (Presence System) ===
     // =======================================================
     function initPresenceSystem() {
+        // 延遲執行，確保 Firebase 已初始化且本地存儲已讀取
         setTimeout(() => {
-            // 使用 sansiDatabase 判斷
-            if (typeof sansiDatabase === 'undefined') return;
+            // ★★★ 修復：增加對 sansiAuth 的檢查，防止 undefined 錯誤 ★★★
+            if (typeof sansiDatabase === 'undefined' || typeof sansiAuth === 'undefined') {
+                // 如果 Sansi App 沒初始化成功，直接退出，不報錯
+                return;
+            }
 
-            // 1. 監聽 sansiDatabase 的連線狀態
+            // 1. 監聽連線狀態
             const connectedRef = sansiDatabase.ref('.info/connected');
 
             connectedRef.on('value', (snap) => {
                 if (snap.val() === true) {
+                    // === 連線成功，準備資料 ===
                     
+                    // 獲取用戶資料
                     const s = JSON.parse(localStorage.getItem('studentProfile'));
                     let myUid = "";
                     let userData = {};
 
+                    // A. 判斷身分
                     if (s && s.name) {
-                        // 使用 sansiAuth 獲取用戶
+                        // --- 已登入用戶 (學生/老師/特許) ---
+                        // ★★★ 修復：使用 sansiAuth.currentUser 且加入安全檢查 ★★★
                         const user = sansiAuth.currentUser;
+                        // 如果 user 是 null，使用備用 ID
                         myUid = user ? user.uid : `stu_${s.grade}${s.class}_${s.name}`;
                         
+                        // 準備寫入的資料
                         userData = {
                             name: s.name,
                             grade: s.grade,
@@ -5080,6 +5279,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
                         };
                     } else {
+                        // --- 訪客 ---
                         let guestId = localStorage.getItem('sansi_guest_uuid');
                         if (!guestId) {
                             guestId = 'guest_' + Math.random().toString(36).substr(2, 9);
@@ -5095,15 +5295,25 @@ document.addEventListener('DOMContentLoaded', function() {
                         };
                     }
 
-                    // 寫入 sansiDatabase
+                    // B. 執行 Firebase 動作
                     const myPresenceRef = sansiDatabase.ref(`online_users/${myUid}`);
 
-                    myPresenceRef.onDisconnect().remove().then(() => {
-                        myPresenceRef.set(userData);
-                    });
+                    // 關鍵指令：當客戶端斷線時，自動刪除這筆資料
+                    // ★★★ 修復：加入 catch 防止權限不足時報錯 ★★★
+                    myPresenceRef.onDisconnect().remove()
+                        .then(() => {
+                            // 斷線指令設定成功後，寫入當前狀態
+                            myPresenceRef.set(userData).catch(err => {
+                                // 靜默失敗，不顯示紅字
+                                // console.warn("在線狀態寫入被拒 (權限不足):", err);
+                            });
+                        })
+                        .catch(err => {
+                            // console.warn("onDisconnect 設定失敗:", err);
+                        });
                 }
             });
-        }, 2000); 
+        }, 2000); // 延遲 2 秒啟動
     }
 
     document.addEventListener('DOMContentLoaded', initPresenceSystem);
