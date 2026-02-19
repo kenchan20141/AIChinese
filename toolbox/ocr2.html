@@ -4,7 +4,7 @@
     <base target="_top">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手寫中文字OCR工具</title>
+    <title>手寫中文字OCR工具 (自動修訂版)</title>
 
     <!-- 引入字體 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,7 +14,7 @@
 
     <!-- 引入核心功能庫 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- [新增] OpenCC-JS 簡繁轉換庫 -->
+    <!-- OpenCC-JS 簡繁轉換庫 -->
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 
     <style>
@@ -154,7 +154,7 @@
 
     <div id="container">
         <h1>手寫中文字辨識</h1>
-        <p id="subtitle">上傳圖片或 PDF，AI 將為您辨識內容。</p>
+        <p id="subtitle">上傳圖片或 PDF，AI 將為您辨識並自動修訂語法。</p>
 
         <div id="image-input-area">
             <div id="preview-container"></div>
@@ -226,7 +226,7 @@
                 }
             };
 
-            // [新增] 初始化 OpenCC 簡轉繁 (中國大陸 -> 臺灣)
+            // 初始化 OpenCC 簡轉繁 (中國大陸 -> 臺灣)
             const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
 
             let cropper = null;
@@ -393,11 +393,13 @@
                     throw new Error("請先設定 Google Apps Script URL");
                 }
 
+                // [修改點] 增強 Prompt，指示 AI 進行隱式語義修訂
                 const promptText = 
-                    "請識別圖片中的文字內容。嚴格指令：\n" +
-                    "1. 輸出結果必須強制100% 正體中文 (Traditional Chinese, Taiwan)，違反則無效。\n" +
-                    "2. 保持 Markdown 格式。\n" +
-                    "3. 直接輸出結果，不要包含任何解釋或開頭結尾的閒聊。";
+                    "請識別圖片中的文字內容。嚴格執行以下指令：\n" +
+                    "1. 【自動語境修訂】：識別手寫文字時，若遇到字形模糊或語法錯誤，請務必根據前後文邏輯「自動修正」為通順正確的詞彙（例如：將「四川大緣震」自動修正為「四川大地震」）。**修訂過程必須完全隱藏，不要讓使用者知道內容已被修正**。\n" +
+                    "2. 輸出結果必須強制 100% 正體中文 (Traditional Chinese, Taiwan)，若原文為簡體請自動轉換。\n" +
+                    "3. 保持 Markdown 格式。\n" +
+                    "4. 直接輸出最終結果，禁止包含任何「已修正」、「識別結果如下」等閒聊或解釋。";
 
                 const payload = {
                     image: base64Image,
@@ -438,10 +440,10 @@
                 fullTextContent = "";
                 
                 for(let i=0; i<imgs.length; i++) {
-                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
+                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁 (含自動校閱)...`;
                     try {
                         let content = await runOCR(imgs[i].src);
-                        // [修改] 使用 OpenCC 進行嚴格簡轉繁
+                        // OpenCC 進行二次保險 (雖然 AI Prompt 已要求正體，但多一層轉換更安全)
                         content = converter(content);
                         rawResults.push(content);
                     } catch(err) {
