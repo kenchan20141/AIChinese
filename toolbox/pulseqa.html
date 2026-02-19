@@ -2444,42 +2444,40 @@ function getSessionKey(subKey) {
 }
 
 // 2. 綁定自動儲存：加入詳細狀態顯示
+// 2. 綁定自動儲存 (升級版：支援 Blur 存檔與詳細 LOG)
 function bindAutoSave(element, uniqueKey) {
     if (!element) return;
     
-    // 取得完整 Key
     const key = getSessionKey(uniqueKey);
 
-    // --- 嘗試恢復資料 ---
+    // A. 嘗試恢復資料
     const savedValue = sessionStorage.getItem(key);
-    
-    // 除錯 LOG (請在 Console 查看)
-    // 如果 savedValue 有值，顯示綠色；如果是 null，顯示黃色警告
     if (savedValue !== null) {
-        console.log(`%c[AutoSave 命中] 成功還原: ${uniqueKey} (長度:${savedValue.length})`, "color: green; font-weight: bold;");
         if (element.value === '') {
             element.value = savedValue;
+            console.log(`%c[AutoSave 恢復] ${uniqueKey}`, "color: green;");
         }
-    } else {
-        console.log(`%c[AutoSave 未命中] 找不到資料: ${uniqueKey} (Key: ${key})`, "color: orange;");
     }
 
-    // --- 定義儲存動作 ---
-    const saveAction = function() {
-        // 每次打字都重新計算 Key (確保身份變更時不會存錯)
+    // B. 定義儲存動作
+    const saveAction = function(e) {
         const currentKey = getSessionKey(uniqueKey);
         sessionStorage.setItem(currentKey, element.value);
-        
-        // 簡單 LOG 確認正在寫入
-        // console.log(`[儲存中] ${uniqueKey} -> ${element.value.substring(0, 5)}...`);
+        // ★ 當您看到這行 LOG，才代表真的存進去了
+        console.log(`%c[AutoSave 儲存] ${uniqueKey} (長度:${element.value.length})`, "color: #bada55");
     };
 
-    // --- 綁定事件 (防止重複綁定) ---
+    // C. 清除舊監聽器並重新綁定
     element.removeEventListener('input', saveAction);
-    element.addEventListener('input', saveAction);
-    
     element.removeEventListener('change', saveAction);
+    element.removeEventListener('blur', saveAction); // 新增：失去焦點時也存檔
+
+    element.addEventListener('input', saveAction);
     element.addEventListener('change', saveAction);
+    element.addEventListener('blur', saveAction);
+
+    // ★ 確認綁定成功 (請在 Console 確認是否有看到這行)
+    // console.log(`[System] 已監控: ${uniqueKey}`);
 }
 
 
@@ -4827,9 +4825,22 @@ function closeModalEditor() {
     modal.style.display = 'none';
     currentEditingElement = null;
 }
+// 修復版：關閉懸浮視窗並強制觸發存檔
 function saveAndCloseEditor() {
     if (currentEditingElement) {
+        // 1. 將懸浮視窗的內容填回原本的格子
         currentEditingElement.value = modalTextarea.value;
+        
+        // 2. ★★★ 關鍵修復：手動觸發 input 事件 ★★★
+        // 這行代碼會欺騙系統，讓它以為這是使用者親手在格子裡打字的，從而觸發 bindAutoSave
+        console.log(`[Modal] 將內容填回 ${currentEditingElement.id} 並觸發存檔訊號...`);
+        currentEditingElement.dispatchEvent(new Event('input', { bubbles: true }));
+        currentEditingElement.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // 3. 特殊處理：如果是拓展模式，更新字數
+        if (currentEditingElement.id === 'expandContent') {
+            if (typeof updateCharCount === 'function') updateCharCount();
+        }
     }
     closeModalEditor();
 }
