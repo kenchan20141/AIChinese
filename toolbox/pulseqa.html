@@ -1621,6 +1621,127 @@ let sessionActive = false;
 let lastQuestionStartTime = null;
 let hasSubmitted = false;
 let currentQuestionId = null;
+
+
+// ==========================================
+// === 新增：草稿自動同步系統 (防資料遺失) ===
+// ==========================================
+
+// 1. 儲存草稿 (防抖動設計，避免每次按鍵都上傳，延遲 1 秒)
+let saveDraftTimeout = null;
+function saveDraftToCloud() {
+    // 如果不在房間、沒名字、是主持人或已經提交，就不存草稿
+    if (!currentRoom || !currentUser || isHost || hasSubmitted) return;
+
+    if (saveDraftTimeout) clearTimeout(saveDraftTimeout);
+
+    saveDraftTimeout = setTimeout(() => {
+        const container = document.getElementById('studentInputContainer');
+        if (!container) return;
+
+        let draftData = {};
+        const mode = container.getAttribute('data-mode') || 'qa';
+        
+        draftData.mode = mode;
+        draftData.timestamp = firebase.database.ServerValue.TIMESTAMP;
+
+        // 根據不同模式收集資料
+        if (mode === 'outline') {
+            // 表格模式：儲存每一格的內容
+            const table = container.querySelector('table');
+            if (table) {
+                const rows = table.querySelectorAll('tr');
+                // 略過表頭 (i=0)
+                for (let i = 1; i < rows.length; i++) {
+                    const textareas = rows[i].querySelectorAll('textarea');
+                    textareas.forEach((ta, colIndex) => {
+                        // 使用 行-列 作為 key (例如 r1c0)
+                        draftData[`r${i}c${colIndex}`] = ta.value;
+                    });
+                }
+            }
+        } else {
+            // QA 或 Extended 模式：儲存大框框文字
+            const studentAnswer = document.getElementById('studentAnswer');
+            if (studentAnswer) {
+                draftData.text = studentAnswer.value;
+            }
+        }
+
+        // 寫入到獨立的 drafts 節點，以免影響正式答案
+        database.ref(`class_rooms/${currentRoom}/drafts/${currentUser}`).set(draftData)
+            .then(() => {
+                // 選用：可以在這裡加個 console.log 測試，實際上線可移除
+                // console.log("草稿已自動同步");
+            })
+            .catch(e => console.error("草稿同步失敗", e));
+
+    }, 1000); // 延遲 1 秒儲存
+}
+
+// 2. 恢復草稿 (從雲端讀取並填回)
+async function restoreDraftFromCloud() {
+    if (!currentRoom || !currentUser) return;
+
+    try {
+        const snapshot = await database.ref(`class_rooms/${currentRoom}/drafts/${currentUser}`).once('value');
+        const draft = snapshot.val();
+
+        if (!draft) return; // 無草稿，不做事
+
+        const container = document.getElementById('studentInputContainer');
+        const currentMode = container.getAttribute('data-mode');
+
+        // 確保模式匹配 (避免模式切換後填錯資料)
+        if (draft.mode !== currentMode) return;
+
+        if (currentMode === 'outline') {
+            const table = container.querySelector('table');
+            if (table) {
+                const rows = table.querySelectorAll('tr');
+                for (let i = 1; i < rows.length; i++) {
+                    const textareas = rows[i].querySelectorAll('textarea');
+                    textareas.forEach((ta, colIndex) => {
+                        const key = `r${i}c${colIndex}`;
+                        if (draft[key] !== undefined) {
+                            ta.value = draft[key];
+                        }
+                    });
+                }
+            }
+        } else {
+            const studentAnswer = document.getElementById('studentAnswer');
+            if (studentAnswer && draft.text) {
+                studentAnswer.value = draft.text;
+                // 如果是拓展模式，觸發字數統計更新 UI
+                if (currentMode === 'extended' && typeof countWords === 'function') {
+                    countWords();
+                }
+            }
+        }
+        console.log("草稿已成功恢復");
+    } catch (e) {
+        console.error("恢復草稿失敗:", e);
+    }
+}
+
+// 3. 為輸入框綁定自動儲存事件
+function attachAutoSaveListeners() {
+    const container = document.getElementById('studentInputContainer');
+    if (!container) return;
+
+    // 監聽所有 textarea 和 input text
+    const inputs = container.querySelectorAll('textarea, input[type="text"]');
+    inputs.forEach(input => {
+        // 先移除舊的避免重複綁定
+        input.removeEventListener('input', saveDraftToCloud);
+        input.addEventListener('input', saveDraftToCloud);
+    });
+}
+
+
+
+	
   // 全局變量
 let isSharingScreen = false;
 // 切換畫面同步功能
@@ -2539,10 +2660,9 @@ function updateStudentUI(roomData) {
       renderStudentOutlineUI('qa');
     } else if (currentMode === 'extended') {
       renderStudentOutlineUI('extended');
-      // 關鍵修訂：確保字數計數器可見
+      // 確保字數計數器可見
       if (wordCountDisplay) {
         wordCountDisplay.classList.remove('hidden');
-        // 設置初始字數
         document.getElementById('remainingWords').textContent = '180';
       }
     } else if (currentMode === 'outline') {
@@ -2551,6 +2671,17 @@ function updateStudentUI(roomData) {
       // 隱藏字數計數器
       if (wordCountDisplay) wordCountDisplay.classList.add('hidden');
     }
+
+    // ★★★ 修改點 1：綁定自動存檔監聽器 ★★★
+    attachAutoSaveListeners();
+    
+    // ★★★ 修改點 2：如果是首次渲染該問題且未提交，嘗試拉取草稿 ★★★
+    // 檢查 participant.submitted 狀態
+    const isSubmittedNow = participant.submitted && String(participant.lastQuestionId) === currentQID;
+    if (!isSubmittedNow) {
+        restoreDraftFromCloud();
+    }
+
     // 恢復滾動位置
     container.scrollTop = scrollPos;
   }
@@ -2568,22 +2699,18 @@ function updateStudentUI(roomData) {
     questionDisplay.classList.remove('text-wabi-secondary');
     questionDisplay.classList.add('text-charcoal');
     
-    // 處理 startTime - 轉換 Firebase 伺服器時間戳
+    // 處理 startTime
     let serverStartTime = roomData.session.startTime;
-    // 檢查是否為 Firebase 服務器時間戳對象
     if (typeof serverStartTime === 'object' && serverStartTime.hasOwnProperty('.sv')) {
-      // 使用本地時間作為補償，但記錄警告
       console.warn('收到 Firebase 服務器時間戳對象，使用本地時間作為起始點');
       serverStartTime = Date.now();
     }
-    // 確保 startTime 是有效的數字
     if (typeof serverStartTime !== 'number' || isNaN(serverStartTime)) {
       console.error('無效的開始時間格式:', serverStartTime);
       serverStartTime = Date.now();
     }
-    // 確保計時器已啟動並同步
+    
     if (roomData.session.timeLimit !== undefined && roomData.session.timeLimit !== null) {
-      // 檢查是否需要重新啟動計時器
       const needsNewTimer = !timer || 
                            lastQuestionStartTime !== serverStartTime || 
                            timeLimit !== roomData.session.timeLimit;
@@ -2591,36 +2718,32 @@ function updateStudentUI(roomData) {
         startLocalTimer(serverStartTime, roomData.session.timeLimit);
       }
     }
-    // 根據剩餘時間更新 UI
+    
     if (remainingTime <= 0) {
-      // 時間已到
       disableAllInputs();
       submitBtn.classList.add('hidden');
       submitBtn.disabled = true;
     } else {
-      // 還有時間
-      enableInputsIfNotSubmitted(); // 啟用輸入 (如果未提交)
-      // 確保提交按鈕在有時間時顯示 (除非已提交)
+      enableInputsIfNotSubmitted(); 
       if (!hasSubmitted) {
         submitBtn.classList.remove('hidden');
         submitBtn.disabled = false;
       }
     }
     
-    // 如果是拓展模式，設置字數監聽
+    // 拓展模式字數監聽
     if (currentMode === 'extended') {
       const studentAnswer = document.getElementById('studentAnswer');
       if (studentAnswer) {
-        // 先移除可能存在的重複監聽器
         studentAnswer.removeEventListener('input', countWords);
         studentAnswer.addEventListener('input', countWords);
-        // 觸發初始計數
+        // ★ 同時綁定存檔
+        studentAnswer.addEventListener('input', saveDraftToCloud);
+        
         countWords();
         
-        // 關鍵修訂：確保字數計數器元素存在且顯示
         let wordCountElement = document.getElementById('wordCountDisplay');
         if (!wordCountElement) {
-          // 重新創建字數計數器
           wordCountElement = document.createElement('div');
           wordCountElement.id = 'wordCountDisplay';
           wordCountElement.className = 'text-right mt-2 text-wabi-secondary';
@@ -2631,29 +2754,22 @@ function updateStudentUI(roomData) {
       }
     }
   } else {
-    // 計時未開始或房間不存在
     questionDisplay.textContent = '請等待主持人開始計時';
     questionDisplay.classList.add('text-wabi-secondary');
     questionDisplay.classList.remove('text-charcoal');
     countdownDisplay.textContent = '10:00';
-    // 清除本地計時器，因為服務器端已停止
     if (timer) {
       clearInterval(timer);
       timer = null;
     }
-    // 重置剩餘時間
     remainingTime = 0;
     updateCountdownDisplay(remainingTime);
-    // 禁用所有輸入，直到計時開始
     disableAllInputs();
     submitBtn.classList.add('hidden');
     submitBtn.disabled = true;
-    
-    // 隱藏字數計數器
     if (wordCountDisplay) wordCountDisplay.classList.add('hidden');
   }
 
-  // 輔助函數：禁用所有輸入
   function disableAllInputs() {
     const inputs = container.querySelectorAll('textarea, select, button');
     inputs.forEach(el => {
@@ -2664,26 +2780,39 @@ function updateStudentUI(roomData) {
     });
   }
 
-  // 輔助函數：如果未提交則啟用輸入
   function enableInputsIfNotSubmitted() {
-    // 檢查學生是否已針對當前問題提交
     const currentQID = roomData.session?.questionId ? String(roomData.session.questionId) : null;
     const hasSubmittedCurrentQuestion =
       participant.submitted &&
       String(participant.lastQuestionId) === currentQID;
     
     if (hasSubmittedCurrentQuestion) {
-      // 已提交當前問題
       hasSubmitted = true;
       submissionStatus.classList.remove('hidden');
-      // 顯示下載按鈕
       if (document.getElementById('downloadMyAnswerBtn')) {
         document.getElementById('downloadMyAnswerBtn').classList.remove('hidden');
       }
-      // 如果是超時提交，添加相應樣式
       if (participant.late) {
         answerInputArea.classList.add('late');
       }
+      
+      // ★★★ 修改點 3：如果已提交，從 answers 節點讀取最終答案並填入 (覆蓋草稿) ★★★
+      // 防止學生在其他裝置提交，這台裝置顯示舊草稿
+      if (roomData.answers && roomData.answers[currentUser]) {
+          const finalAnswer = roomData.answers[currentUser].text;
+          
+          if (currentMode === 'outline' && finalAnswer.includes('<table')) {
+              // 表格模式提交後變成 HTML 表格，直接顯示
+              container.innerHTML = finalAnswer;
+              // 確保裡面的 textarea 是禁用的 (如果有的話)
+              container.querySelectorAll('textarea').forEach(t => t.disabled = true);
+          } else {
+              // 純文字模式
+              const ta = document.getElementById('studentAnswer');
+              if (ta) ta.value = finalAnswer;
+          }
+      }
+
       // 禁用所有輸入
       const inputs = container.querySelectorAll('textarea, select, button');
       inputs.forEach(el => el.disabled = true);
@@ -2691,11 +2820,9 @@ function updateStudentUI(roomData) {
       submitBtn.disabled = true;
       answerInputArea.classList.add('submitted');
     } else {
-      // 未提交或提交的是舊問題
       hasSubmitted = false;
       submissionStatus.classList.add('hidden');
       answerInputArea.classList.remove('submitted', 'late');
-      // 隱藏下載按鈕
       if (document.getElementById('downloadMyAnswerBtn')) {
         document.getElementById('downloadMyAnswerBtn').classList.add('hidden');
       }
@@ -2711,7 +2838,6 @@ function updateStudentUI(roomData) {
           }
         }
       });
-      // 顯示提交按鈕
       if (remainingTime > 0) {
         submitBtn.classList.remove('hidden');
         submitBtn.disabled = false;
@@ -2719,6 +2845,7 @@ function updateStudentUI(roomData) {
     }
   }
 }
+
 function startLocalTimer(startTime, totalTime) {
   // 清除現有的計時器
   if (timer) {
@@ -4590,9 +4717,42 @@ window.addEventListener('beforeunload', () => {
   }
 });
 document.addEventListener('DOMContentLoaded', () => {
+  // 設定全屏倒計時按鈕
+  const remainingTimeDisplay = document.getElementById('remainingTimeDisplay');
+  if (remainingTimeDisplay) {
+    remainingTimeDisplay.style.cursor = 'pointer';
+    remainingTimeDisplay.title = '點擊放大顯示';
+   
+    remainingTimeDisplay.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (!sessionActive || !isHost) return;
+      openFullscreenCountdown();
+    });
+  }
+  // 初始化全屏倒計時按鈕
+  const closeFullscreenCountdownBtn = document.getElementById('closeFullscreenCountdown');
+  if (closeFullscreenCountdownBtn) {
+    closeFullscreenCountdownBtn.addEventListener('click', closeFullscreenCountdown);
+  }
+  // 按ESC鍵關閉全屏
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !document.getElementById('fullscreenCountdown').classList.contains('hidden')) {
+      closeFullscreenCountdown();
+    }
+  });
+ 
+  const savedFontSize = localStorage.getItem('answerFontSize');
+  if (savedFontSize) {
+    currentFontSize = parseFloat(savedFontSize);
+  }
+  initializeFontControls();
+  setTimeout(applyFontSize, 100);
+
+  // 初始化計時器狀態
   timer = null;
   setupFullscreenAnswers();
   initDrawingTools();
+  
   const studentAnswer = document.getElementById('studentAnswer');
   if (studentAnswer) {
     studentAnswer.addEventListener('input', function() {
@@ -4602,13 +4762,38 @@ document.addEventListener('DOMContentLoaded', () => {
     studentAnswer.style.height = 'auto';
     studentAnswer.style.height = studentAnswer.scrollHeight + 'px';
   }
+  
+  // 檢查 URL 參數
   const urlParams = new URLSearchParams(window.location.search);
   const roomCode = urlParams.get('room');
+  
   if (roomCode && roomCode.length === 6) {
     document.getElementById('joinRoomCode').value = roomCode;
     showJoinSection();
   } else {
     showMainMenu();
+  }
+
+  // ★★★ 新增：自動重連邏輯 (Auto-reconnect on refresh) ★★★
+  const savedSession = JSON.parse(sessionStorage.getItem('pulseqa_session') || '{}');
+  if (savedSession.room && savedSession.user) {
+      console.log("偵測到意外斷線，正在嘗試自動重連...");
+      // 填入數值
+      document.getElementById('studentName').value = savedSession.user;
+      document.getElementById('joinRoomCode').value = savedSession.room;
+      
+      // 自動切換到加入介面
+      // 注意：這裡不呼叫 showJoinSection() 避免動畫或邏輯衝突，直接操作 DOM 可能更穩，但使用現有函式保持一致
+      document.getElementById('mainMenu').classList.add('hidden');
+      document.getElementById('hostSection').classList.add('hidden');
+      document.getElementById('joinSection').classList.remove('hidden');
+      document.getElementById('studentSection').classList.add('hidden');
+
+      // 延遲執行以確保 Firebase 初始化完成
+      setTimeout(() => {
+          console.log("執行自動加入...");
+          joinAsStudent();
+      }, 1000); // 給予 1 秒緩衝讓 Firebase 連線
   }
 });
 document.getElementById('fullscreenToggle').addEventListener('click', function() {
@@ -4789,8 +4974,13 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
 
 
 <!-- === 2. Firebase 初始化 (SansiData - 第二個 App) === -->
+<!-- === 2. Firebase 初始化 (SansiData - 安全修復版) === -->
 <script>
-    // 1. 定義第二個 Firebase 設定 (更名為 sansiConfig 以避免衝突)
+    // 定義全域變數，確保其他函式存取得到
+    var sansiApp, sansiDatabase, sansiAuth;
+    var isSansiReady = false;
+
+    // 1. 初始化第二個 App
     const sansiConfig = {
         apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
         authDomain: "sansidata.firebaseapp.com",
@@ -4801,87 +4991,139 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
         databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
     };
 
-    // 2. 初始化第二個 App (給予名稱 'sansi')
-    let sansiApp;
-    // 檢查是否已經初始化過，避免重複報錯
-    try {
-        sansiApp = firebase.app("sansi");
-    } catch (e) {
-        sansiApp = firebase.initializeApp(sansiConfig, "sansi");
-    }
-    
-    // 3. 獲取獨立的 database 和 auth 實例
-    // 注意：這裡變數名稱改為 sansiDatabase 和 sansiAuth，避免覆蓋主功能的 database
-    var sansiDatabase = sansiApp.database();
-    var sansiAuth = sansiApp.auth();
+    function initSansiSafe() {
+        try {
+            // 防止重複初始化
+            // 檢查是否已經有名為 "sansi" 的 app
+            const existingApp = firebase.apps.find(app => app.name === "sansi");
+            if (!existingApp) {
+                sansiApp = firebase.initializeApp(sansiConfig, "sansi");
+            } else {
+                sansiApp = existingApp;
+            }
 
-    // 4. 啟動監聽與同步邏輯 (持久化) - 使用 sansiAuth
-    document.addEventListener('DOMContentLoaded', function() {
-        if (sansiAuth) {
-            // 使用 persistence.LOCAL (注意 compat 版本的寫法)
+            sansiDatabase = sansiApp.database();
+            sansiAuth = sansiApp.auth();
+
+            // ★ 核心修復：先匿名登入，獲取權限後再啟動監聽 ★
+            // 這解決了 permission_denied 和 currentUser undefined 的問題
             sansiAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-            .then(() => {
-                sansiAuth.onAuthStateChanged(async (user) => {
-                    const s = JSON.parse(localStorage.getItem('studentProfile'));
-
-                    if (user) {
-                        console.log("[ZiZhen] 🟢 偵測到有效登入:", user.email);
-                        if (!s) {
-                            console.log("[ZiZhen] 正在同步雲端身份...");
-                            try {
-                                const emailKey = btoa(user.email);
-                                // 使用 sansiDatabase
-                                const snapshot = await sansiDatabase.ref('email_mapping/' + emailKey).once('value');
-                                const profile = snapshot.val();
-                                if (profile) {
-                                    localStorage.setItem('studentProfile', JSON.stringify(profile));
-                                }
-                            } catch (e) { console.error("同步失敗:", e); }
-                        }
-                    } else {
-                        console.log("[ZiZhen] ⚪ 未偵測到登入");
-                        // 移除自動清除邏輯，避免與主功能衝突，或視需求保留
-                    }
+                .then(() => {
+                    return sansiAuth.signInAnonymously();
+                })
+                .then(() => {
+                    console.log("[Sansi] 安全連線已建立 (匿名登入成功)");
+                    isSansiReady = true;
+                    // 登入成功後，才啟動需要在線狀態的監聽器
+                    startSansiListeners();
+                })
+                .catch((error) => {
+                    console.warn("[Sansi] 連線初始化受阻 (可能是網絡或權限問題)，已略過統計功能:", error);
                 });
-            })
-            .catch((error) => console.error("[ZiZhen] 持久化設定失敗:", error));
-        }
-    });
 
-    // 5. Token Injector (針對 sansiAuth)
+        } catch (e) {
+            console.warn("[Sansi] 初始化異常，系統將以精簡模式運行:", e);
+        }
+    }
+
+    // 將原本散落在外的監聽邏輯封裝起來，等 Auth 準備好才執行
+    function startSansiListeners() {
+        if (!sansiAuth || !sansiDatabase) return;
+
+        // 1. 監聽 Auth 狀態 (同步學生資料)
+        sansiAuth.onAuthStateChanged(async (user) => {
+            if (user) {
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                if (!s) {
+                    try {
+                        const emailKey = btoa(user.email || "guest");
+                        const snapshot = await sansiDatabase.ref('email_mapping/' + emailKey).once('value');
+                        const profile = snapshot.val();
+                        if (profile) {
+                            localStorage.setItem('studentProfile', JSON.stringify(profile));
+                        }
+                    } catch (e) { /* 靜默失敗 */ }
+                }
+            }
+        });
+
+        // 2. 啟動在線狀態 (Presence)
+        const connectedRef = sansiDatabase.ref('.info/connected');
+        connectedRef.on('value', (snap) => {
+            if (snap.val() === true && sansiAuth.currentUser) {
+                // 這裡安全了，因為我們確定 currentUser 存在
+                updatePresence();
+            }
+        });
+        
+        // 3. 啟動統計 (Stats)
+        // 延遲一點執行，避免剛載入時卡頓
+        setTimeout(() => {
+            if (typeof window.logVisitOnce === 'function') window.logVisitOnce();
+            if (typeof window.startTimer === 'function') window.startTimer();
+        }, 2000);
+    }
+
+    // 獨立出來的 Presence 更新函式
+    function updatePresence() {
+        if (!sansiAuth.currentUser) return;
+        
+        const s = JSON.parse(localStorage.getItem('studentProfile'));
+        let myUid = sansiAuth.currentUser.uid; // 使用 Firebase UID 最安全
+        let userData = {};
+
+        if (s && s.name) {
+            userData = {
+                name: s.name,
+                grade: s.grade,
+                class: s.class,
+                timestamp: firebase.database.ServerValue.TIMESTAMP,
+                device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+            };
+        } else {
+            userData = {
+                name: "訪客",
+                grade: "Guest",
+                class: "Visitor",
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            };
+        }
+
+        const myPresenceRef = sansiDatabase.ref(`online_users/${myUid}`);
+        myPresenceRef.onDisconnect().remove().then(() => {
+            myPresenceRef.set(userData);
+        });
+    }
+
+    // Token Injector (安全版)
     (function() {
-        const originalFetch = window.fetch; 
-        const TARGET_URL_PART = "script.google.com"; 
+        const originalFetch = window.fetch;
+        const TARGET_URL_PART = "script.google.com";
 
         window.fetch = async function(url, options) {
             if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
-                const user = await new Promise((resolve) => {
-                    if (sansiAuth.currentUser) {
-                        resolve(sansiAuth.currentUser);
-                    } else {
-                        // 使用 sansiAuth 監聽
-                        const unsubscribe = sansiAuth.onAuthStateChanged(u => {
-                            unsubscribe();
-                            resolve(u);
-                        });
-                        setTimeout(() => resolve(null), 2000);
-                    }
-                });
+                // 如果 Sansi 還沒準備好，等待一下 (最多 2 秒)
+                if (!isSansiReady) {
+                    await new Promise(r => setTimeout(r, 1000));
+                }
 
-                if (user) {
+                if (sansiAuth && sansiAuth.currentUser) {
                     try {
-                        const token = await user.getIdToken(true);
+                        const token = await sansiAuth.currentUser.getIdToken();
                         let bodyData = JSON.parse(options.body);
-                        bodyData.token = token; 
+                        bodyData.token = token;
                         options.body = JSON.stringify(bodyData);
                     } catch (e) {
-                        console.error("[TokenInjector] Token 獲取失敗:", e);
+                        console.warn("[TokenInjector] 無法注入 Token (非致命錯誤):", e);
                     }
                 }
             }
             return originalFetch(url, options);
         };
     })();
+
+    // 啟動初始化
+    document.addEventListener('DOMContentLoaded', initSansiSafe);
 </script>
 
 <script>
