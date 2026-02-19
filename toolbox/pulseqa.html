@@ -2086,45 +2086,62 @@ alert('創建房間失敗,請重試');
 }
 }
 async function joinAsStudent() {
-const studentName = document.getElementById('studentName').value.trim();
-const roomCode = document.getElementById('joinRoomCode').value.trim();
-if (!studentName || !roomCode) {
-alert('請輸入姓名和房間代碼');
-return;
-}
-if (roomCode.length !== 6) {
-alert('房間代碼必須是6位數');
-return;
-}
-try {
-const roomSnapshot = await database.ref('class_rooms/' + roomCode).once('value');
-if (!roomSnapshot.exists()) {
-alert('房間不存在');
-return;
-}
-const roomData = roomSnapshot.val();
-if (roomData.participants && roomData.participants[studentName]) {
-alert('此名稱已被使用,請選擇其他名稱');
-return;
-}
-await database.ref('class_rooms/' + roomCode + '/participants/' + studentName).set({
-name: studentName,
-joined: firebase.database.ServerValue.TIMESTAMP,
-submitted: false,
-late: false,
-lastQuestionId: roomData.session.questionId || null
-});
-currentRoom = roomCode;
-currentUser = studentName;
-isHost = false;
-document.getElementById('studentRoomCode').textContent = roomCode;
-document.getElementById('studentDisplayName').textContent = studentName;
-setupRoomListener();
-showStudentSection();
-} catch (error) {
-console.error('加入房間失敗:', error);
-alert('加入房間失敗,請重試');
-}
+    const studentName = document.getElementById('studentName').value.trim();
+    const roomCode = document.getElementById('joinRoomCode').value.trim();
+
+    if (!studentName || !roomCode) {
+        alert('請輸入姓名和房間代碼');
+        return;
+    }
+    if (roomCode.length !== 6) {
+        alert('房間代碼必須是6位數');
+        return;
+    }
+
+    try {
+        const roomSnapshot = await database.ref('class_rooms/' + roomCode).once('value');
+        if (!roomSnapshot.exists()) {
+            alert('房間不存在');
+            return;
+        }
+
+        const roomData = roomSnapshot.val();
+        
+        // 檢查是否名稱被佔用 (如果是重整頁面後的自動重連，則允許同名進入)
+        const isReconnect = sessionStorage.getItem('pulseqa_session');
+        if (!isReconnect && roomData.participants && roomData.participants[studentName]) {
+            alert('此名稱已被使用,請選擇其他名稱');
+            return;
+        }
+
+        await database.ref('class_rooms/' + roomCode + '/participants/' + studentName).set({
+            name: studentName,
+            joined: firebase.database.ServerValue.TIMESTAMP,
+            submitted: false,
+            late: false,
+            lastQuestionId: roomData.session.questionId || null
+        });
+
+        currentRoom = roomCode;
+        currentUser = studentName;
+        isHost = false;
+
+        document.getElementById('studentRoomCode').textContent = roomCode;
+        document.getElementById('studentDisplayName').textContent = studentName;
+
+        // ★★★ 新增：將狀態存入 SessionStorage (防重整丟失) ★★★
+        sessionStorage.setItem('pulseqa_session', JSON.stringify({
+            room: roomCode,
+            user: studentName
+        }));
+
+        setupRoomListener();
+        showStudentSection();
+        
+    } catch (error) {
+        console.error('加入房間失敗:', error);
+        alert('加入房間失敗,請重試');
+    }
 }
 function setupRoomListener() {
   if (roomRef) {
@@ -4641,28 +4658,32 @@ async function leaveHost() {
 }
  
 async function leaveStudent() {
- // 關閉全屏倒計時
-  if (fullscreenTimer) {
-    clearInterval(fullscreenTimer);
-    fullscreenTimer = null;
-    closeFullscreenCountdown();
-  }
- 
-if (roomRef) {
-roomRef.off();
-roomRef = null;
-}
-if (currentRoom && currentUser) {
-await database.ref('class_rooms/' + currentRoom + '/participants/' + currentUser).remove();
-}
-clearInterval(timer);
-timer = null;
-sessionActive = false;
-currentRoom = null;
-currentUser = null;
-isHost = false;
-hasSubmitted = false;
-showMainMenu();
+    // 關閉全屏倒計時
+    if (fullscreenTimer) {
+        clearInterval(fullscreenTimer);
+        fullscreenTimer = null;
+        closeFullscreenCountdown();
+    }
+
+    if (roomRef) {
+        roomRef.off();
+        roomRef = null;
+    }
+    if (currentRoom && currentUser) {
+        await database.ref('class_rooms/' + currentRoom + '/participants/' + currentUser).remove();
+    }
+    clearInterval(timer);
+    timer = null;
+    sessionActive = false;
+    currentRoom = null;
+    currentUser = null;
+    isHost = false;
+    hasSubmitted = false;
+
+    // ★★★ 新增：清除 SessionStorage ★★★
+    sessionStorage.removeItem('pulseqa_session');
+
+    showMainMenu();
 }
 // Modal Logic
 let currentEditingElement = null;
@@ -4717,84 +4738,84 @@ window.addEventListener('beforeunload', () => {
   }
 });
 document.addEventListener('DOMContentLoaded', () => {
-  // 設定全屏倒計時按鈕
-  const remainingTimeDisplay = document.getElementById('remainingTimeDisplay');
-  if (remainingTimeDisplay) {
-    remainingTimeDisplay.style.cursor = 'pointer';
-    remainingTimeDisplay.title = '點擊放大顯示';
-   
-    remainingTimeDisplay.addEventListener('click', function(e) {
-      e.stopPropagation();
-      if (!sessionActive || !isHost) return;
-      openFullscreenCountdown();
-    });
-  }
-  // 初始化全屏倒計時按鈕
-  const closeFullscreenCountdownBtn = document.getElementById('closeFullscreenCountdown');
-  if (closeFullscreenCountdownBtn) {
-    closeFullscreenCountdownBtn.addEventListener('click', closeFullscreenCountdown);
-  }
-  // 按ESC鍵關閉全屏
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && !document.getElementById('fullscreenCountdown').classList.contains('hidden')) {
-      closeFullscreenCountdown();
+    // 設定全屏倒計時按鈕
+    const remainingTimeDisplay = document.getElementById('remainingTimeDisplay');
+    if (remainingTimeDisplay) {
+        remainingTimeDisplay.style.cursor = 'pointer';
+        remainingTimeDisplay.title = '點擊放大顯示';
+
+        remainingTimeDisplay.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (!sessionActive || !isHost) return;
+            openFullscreenCountdown();
+        });
     }
-  });
- 
-  const savedFontSize = localStorage.getItem('answerFontSize');
-  if (savedFontSize) {
-    currentFontSize = parseFloat(savedFontSize);
-  }
-  initializeFontControls();
-  setTimeout(applyFontSize, 100);
-
-  // 初始化計時器狀態
-  timer = null;
-  setupFullscreenAnswers();
-  initDrawingTools();
-  
-  const studentAnswer = document.getElementById('studentAnswer');
-  if (studentAnswer) {
-    studentAnswer.addEventListener('input', function() {
-      this.style.height = 'auto';
-      this.style.height = this.scrollHeight + 'px';
+    // 初始化全屏倒計時按鈕
+    const closeFullscreenCountdownBtn = document.getElementById('closeFullscreenCountdown');
+    if (closeFullscreenCountdownBtn) {
+        closeFullscreenCountdownBtn.addEventListener('click', closeFullscreenCountdown);
+    }
+    // 按ESC鍵關閉全屏
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !document.getElementById('fullscreenCountdown').classList.contains('hidden')) {
+            closeFullscreenCountdown();
+        }
     });
-    studentAnswer.style.height = 'auto';
-    studentAnswer.style.height = studentAnswer.scrollHeight + 'px';
-  }
-  
-  // 檢查 URL 參數
-  const urlParams = new URLSearchParams(window.location.search);
-  const roomCode = urlParams.get('room');
-  
-  if (roomCode && roomCode.length === 6) {
-    document.getElementById('joinRoomCode').value = roomCode;
-    showJoinSection();
-  } else {
-    showMainMenu();
-  }
 
-  // ★★★ 新增：自動重連邏輯 (Auto-reconnect on refresh) ★★★
-  const savedSession = JSON.parse(sessionStorage.getItem('pulseqa_session') || '{}');
-  if (savedSession.room && savedSession.user) {
-      console.log("偵測到意外斷線，正在嘗試自動重連...");
-      // 填入數值
-      document.getElementById('studentName').value = savedSession.user;
-      document.getElementById('joinRoomCode').value = savedSession.room;
-      
-      // 自動切換到加入介面
-      // 注意：這裡不呼叫 showJoinSection() 避免動畫或邏輯衝突，直接操作 DOM 可能更穩，但使用現有函式保持一致
-      document.getElementById('mainMenu').classList.add('hidden');
-      document.getElementById('hostSection').classList.add('hidden');
-      document.getElementById('joinSection').classList.remove('hidden');
-      document.getElementById('studentSection').classList.add('hidden');
+    const savedFontSize = localStorage.getItem('answerFontSize');
+    if (savedFontSize) {
+        currentFontSize = parseFloat(savedFontSize);
+    }
+    initializeFontControls();
+    setTimeout(applyFontSize, 100);
 
-      // 延遲執行以確保 Firebase 初始化完成
-      setTimeout(() => {
-          console.log("執行自動加入...");
-          joinAsStudent();
-      }, 1000); // 給予 1 秒緩衝讓 Firebase 連線
-  }
+    // 初始化計時器狀態
+    timer = null;
+    setupFullscreenAnswers();
+    initDrawingTools();
+
+    const studentAnswer = document.getElementById('studentAnswer');
+    if (studentAnswer) {
+        studentAnswer.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = this.scrollHeight + 'px';
+        });
+        studentAnswer.style.height = 'auto';
+        studentAnswer.style.height = studentAnswer.scrollHeight + 'px';
+    }
+
+    // 檢查 URL 參數
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomCode = urlParams.get('room');
+
+    if (roomCode && roomCode.length === 6) {
+        document.getElementById('joinRoomCode').value = roomCode;
+        showJoinSection();
+    } else {
+        showMainMenu();
+    }
+
+    // ★★★ 新增：自動重連邏輯 (Auto-reconnect on refresh) ★★★
+    const savedSession = JSON.parse(sessionStorage.getItem('pulseqa_session') || '{}');
+    if (savedSession.room && savedSession.user) {
+        console.log("偵測到意外斷線，正在嘗試自動重連...");
+        // 填入數值
+        document.getElementById('studentName').value = savedSession.user;
+        document.getElementById('joinRoomCode').value = savedSession.room;
+        
+        // 自動切換到加入介面
+        // 注意：這裡不呼叫 showJoinSection() 避免動畫或邏輯衝突，直接操作 DOM 可能更穩，但使用現有函式保持一致
+        document.getElementById('mainMenu').classList.add('hidden');
+        document.getElementById('hostSection').classList.add('hidden');
+        document.getElementById('joinSection').classList.remove('hidden');
+        document.getElementById('studentSection').classList.add('hidden');
+
+        // 延遲執行以確保 Firebase 初始化完成
+        setTimeout(() => {
+            console.log("執行自動加入...");
+            joinAsStudent();
+        }, 1000); // 給予 1 秒緩衝讓 Firebase 連線
+    }
 });
 document.getElementById('fullscreenToggle').addEventListener('click', function() {
   if (!currentRoom) return;
@@ -4973,7 +4994,6 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
 </div>
 
 
-<!-- === 2. Firebase 初始化 (SansiData - 第二個 App) === -->
 <!-- === 2. Firebase 初始化 (SansiData - 安全修復版) === -->
 <script>
     // 定義全域變數，確保其他函式存取得到
@@ -5124,6 +5144,168 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
 
     // 啟動初始化
     document.addEventListener('DOMContentLoaded', initSansiSafe);
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let totalSeconds = 0;
+    let timerInterval = null;
+
+    function getDateParts() {
+        const now = new Date();
+        const y = String(now.getFullYear());
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return { y, m, d };
+    }
+
+    function getIdentity() {
+        const rawProfile = localStorage.getItem('studentProfile');
+        let s = null;
+        try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
+
+        if (s && s.grade && s.class) {
+            const safeName = s.name.replace(/[.#$/[\]]/g, '_'); 
+            return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class, name: s.name };
+        } else {
+            let guestID = localStorage.getItem('sansi_guest_uuid');
+            if (!guestID) {
+                guestID = 'guest_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('sansi_guest_uuid', guestID);
+            }
+            return { type: 'guest', id: guestID, grade: 'Guest', class: 'Visitor', name: 'Guest' };
+        }
+    }
+
+    // === 記錄訪問 ===
+    async function logVisitOnce() {
+        // 使用 sansiDatabase 判斷
+        if (typeof sansiDatabase === 'undefined' || !sansiDatabase) return;
+        
+        const { y, m, d } = getDateParts();
+        const identity = getIdentity();
+        const uid = identity.id;
+
+        const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
+        if (sessionStorage.getItem(sessionKey)) return; 
+
+        // 使用 sansiDatabase
+        const trackingRef = sansiDatabase.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
+        
+        try {
+            const snap = await trackingRef.once('value');
+            const isFirstTimeToday = !snap.exists();
+
+            const updates = {};
+            const increment1 = firebase.database.ServerValue.increment(1);
+            
+            const globalPath = `stats_global/${y}/${m}/${d}`;
+            updates[`${globalPath}/visits`] = increment1;
+
+            const schoolPath = `stats_school/${y}/${m}/${d}`;
+
+            if (identity.type === 'student') {
+                const classKey = `${identity.grade}${identity.class}`;
+                const studentKey = identity.name; 
+
+                updates[`${schoolPath}/visits`] = increment1;
+                
+                const classPath = `stats_classes/${classKey}/${y}/${m}/${d}`;
+                updates[`${classPath}/visits`] = increment1;
+
+                const studentPath = `stats_students/${classKey}/${studentKey}/${y}/${m}/${d}`;
+                updates[`${studentPath}/visits`] = increment1;
+
+                if (isFirstTimeToday) {
+                    updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
+                    updates[`${globalPath}/unique`] = increment1;
+                    updates[`${schoolPath}/unique`] = increment1;
+                    updates[`${classPath}/unique`] = increment1;
+                }
+            } else {
+                if (isFirstTimeToday) {
+                    updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
+                    updates[`${globalPath}/unique`] = increment1;
+                }
+            }
+
+            // 使用 sansiDatabase 進行更新
+            await sansiDatabase.ref().update(updates);
+            sessionStorage.setItem(sessionKey, 'true');
+            console.log("📍 [Stats] 訪問計數已分流上傳");
+
+        } catch (e) {
+            console.error("Stats Error:", e);
+        }
+    }
+
+    // === 上傳時長 ===
+    function uploadOneMinute() {
+        // 使用 sansiDatabase 判斷
+        if (typeof sansiDatabase === 'undefined' || !sansiDatabase) return;
+        
+        logVisitOnce(); 
+
+        const { y, m, d } = getDateParts();
+        const identity = getIdentity();
+        
+        const studentKey = identity.name;
+        
+        const updates = {};
+        const increment60 = firebase.database.ServerValue.increment(60);
+
+        updates[`stats_global/${y}/${m}/${d}/duration`] = increment60;
+
+        if (identity.type === 'student') {
+            const classKey = `${identity.grade}${identity.class}`;
+            const pathSchool = `stats_school/${y}/${m}/${d}/duration`;
+            updates[pathSchool] = increment60;
+
+            const pathClass = `stats_classes/${classKey}/${y}/${m}/${d}/duration`;
+            updates[pathClass] = increment60;
+            
+            const pathStudent = `stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/duration`;
+            updates[pathStudent] = increment60;
+        }
+
+        // 使用 sansiDatabase 進行更新
+        sansiDatabase.ref().update(updates)
+            .then(() => console.log("✅ [Stats] 時長上傳成功"))
+            .catch(e => console.error("❌ [Stats] 上傳失敗:", e));
+    }
+
+    function startTimer() {
+        if (timerInterval) return;
+        console.log("▶️ [Stats] 計時器啟動");
+        
+        timerInterval = setInterval(() => {
+            totalSeconds++;
+            if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
+                uploadOneMinute();
+            }
+        }, 1000);
+    }
+
+    function pauseTimer() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            console.log("⏸️ [Stats] 暫停計時");
+        }
+    }
+
+    setTimeout(() => {
+        logVisitOnce();
+        startTimer();
+    }, 3000);
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') pauseTimer();
+        else startTimer();
+    });
+    
+    window.forceLogVisit = logVisitOnce;
+});
 </script>
 
 <script>
