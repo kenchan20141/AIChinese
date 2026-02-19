@@ -16839,12 +16839,10 @@ modalSaveBtn.addEventListener('click', saveAndCloseEditor);
 modalCloseBtn.addEventListener('click', closeModalEditor);
 
 
-// --- OCR 整合邏輯 ---
+// --- OCR 整合邏輯 (修復版：自動判斷模式) ---
 const ocrBtn = document.getElementById('modal-ocr-btn');
 let ocrWindow = null;
-// 原本的 VERCEL_OCR_URL 替換為本地路徑
-// const VERCEL_OCR_URL = 'https://gemini-ocr-proxy.vercel.app/'; // 舊的
-const OCR_TOOL_PATH = 'toolbox/ocr2.html'; // 新的路徑
+const OCR_TOOL_PATH = 'toolbox/ocr2.html'; 
 
 if (ocrBtn) {
     ocrBtn.addEventListener('click', function() {
@@ -16852,11 +16850,31 @@ if (ocrBtn) {
             ocrWindow.focus();
             return;
         }
-        // 開啟本地的 ocr.html
-        ocrWindow = window.open(OCR_TOOL_PATH, 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+
+        // 1. 判斷當前編輯的元素 ID
+        let mode = 'text'; // 預設為純文字模式
+        
+        // 從 sessionStorage 取回當前編輯的 ID (因為點擊 OCR 按鈕時焦點已變)
+        const currentId = sessionStorage.getItem('sansi_current_editing_id');
+        
+        if (currentId) {
+            // 檢查 ID 是否屬於大綱表格的特徵
+            // 敘事特徵: Focus, Plot
+            // 議論特徵: argumentPoint, argumentEvidence
+            if (currentId.includes('Focus') || 
+                currentId.includes('Plot') || 
+                currentId.includes('argumentPoint') || 
+                currentId.includes('argumentEvidence')) {
+                mode = 'table';
+            }
+        }
+
+        console.log(`啟動 OCR，模式：${mode} (來源ID: ${currentId})`);
+
+        // 2. 開啟 OCR 視窗，並透過網址參數傳遞模式
+        ocrWindow = window.open(`${OCR_TOOL_PATH}?mode=${mode}`, 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
     });
 }
-
 // ▼▼▼▼▼ 貼上這段新代碼 ▼▼▼▼▼
 
 // === 智能更新函式：同時更新表格與懸浮視窗 ===
