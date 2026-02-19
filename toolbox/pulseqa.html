@@ -1407,14 +1407,8 @@ input[type=range]::-webkit-slider-thumb {
   <label><input type="radio" name="questionMode" value="outline" onclick="toggleMode()"> 大綱模式</label>
   <label><input type="radio" name="questionMode" value="extended" onclick="toggleMode()"> 拓展模式</label>
 </div>
-<!-- 大綱選項 (隱藏/顯示) -->
-<div id="outlineConfig" class="outline-options hidden p-4 bg-earth-beige rounded-lg border border-gray-200">
-  <div class="mb-3">
-    <span class="font-bold text-gray-700 mr-3">大綱類型:</span>
-    <label><input type="radio" name="outlineType" value="narrative" checked> 敘事抒情</label>
-    <label><input type="radio" name="outlineType" value="argument"> 議論</label>
-  </div>
-</div>
+
+	
 <div>
 <label class="block text-base font-medium text-wabi-secondary mb-2.5">問題內容</label>
 <textarea id="questionInput" class="input-field w-full px-4.5 py-3.5 rounded-xl min-h-[110px] resize-y" placeholder="請在此輸入問題..."></textarea>
@@ -2242,27 +2236,19 @@ function closeFullscreenCountdown() {
 // Host UI Toggle Logic
 function toggleMode() {
   const mode = document.querySelector('input[name="questionMode"]:checked').value;
-  const outlineConfig = document.getElementById('outlineConfig');
+  // const outlineConfig = document.getElementById('outlineConfig'); // 移除此行
   const wordCountDisplay = document.getElementById('wordCountDisplay');
   const studentAnswer = document.getElementById('studentAnswer');
   
-  if (mode === 'outline') {
-    outlineConfig.classList.remove('hidden');
-    if (wordCountDisplay) wordCountDisplay.classList.add('hidden');
-  } else {
-    outlineConfig.classList.add('hidden');
-  }
+  // 移除關於 outlineConfig 的顯示/隱藏邏輯
   
   // 拓展模式特殊處理
   if (mode === 'extended') {
-    // 關鍵修訂：確保字數計數器可見
     if (wordCountDisplay) {
       wordCountDisplay.classList.remove('hidden');
-      // 重置字數顯示
       const remainingWordsElement = document.getElementById('remainingWords');
       if (remainingWordsElement) remainingWordsElement.textContent = '180';
     }
-    // 設置輸入框屬性
     if (studentAnswer) {
       studentAnswer.maxLength = 180;
       studentAnswer.placeholder = '請在此輸入您的回答 (最多180字)...';
@@ -2276,6 +2262,7 @@ function toggleMode() {
   }
 }
 // Student Configuration Logic
+// 替換原有的 renderStudentOutlineUI 函式
 function renderStudentOutlineUI(mode) {
   const container = document.getElementById('studentInputContainer');
   const existingWordCount = document.getElementById('wordCountDisplay');
@@ -2283,83 +2270,97 @@ function renderStudentOutlineUI(mode) {
   
   container.innerHTML = '';
   
+  // 加入 OCR 按鈕容器 (在表格上方)
+  if (mode === 'outline') {
+      const toolBar = document.createElement('div');
+      toolBar.className = 'flex justify-between items-center mb-2';
+      
+      const configDiv = document.createElement('div');
+      configDiv.className = 'student-config-area flex items-center gap-2';
+      configDiv.style.marginBottom = '0'; // 覆蓋原有樣式
+      
+      const label = document.createElement('span');
+      label.innerText = '大綱結構: ';
+      label.className = 'font-bold text-charcoal';
+      
+      const select = document.createElement('select');
+      select.className = 'config-select';
+      // 融合敘事與議論選項
+      select.innerHTML = `
+        <option value="fourPart" ${studentNarrativeStructure === 'fourPart' ? 'selected' : ''}>敘事 - 起承轉合</option>
+        <option value="threeLine" ${studentNarrativeStructure === 'threeLine' ? 'selected' : ''}>敘事 - 三線</option>
+        <option value="argument" ${studentNarrativeStructure === 'argument' ? 'selected' : ''}>議論</option>
+      `;
+      
+      select.onchange = (e) => {
+        studentNarrativeStructure = e.target.value;
+        if (studentNarrativeStructure === 'argument') {
+            renderArgumentTable();
+        } else {
+            renderNarrativeTable();
+        }
+      };
+      
+      configDiv.appendChild(label);
+      configDiv.appendChild(select);
+      toolBar.appendChild(configDiv);
+
+      // OCR 按鈕
+      const ocrBtn = document.createElement('button');
+      ocrBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
+      ocrBtn.innerHTML = '<i class="fas fa-camera mr-1"></i> 識別大綱 (OCR)';
+      ocrBtn.onclick = () => openPulseOCR(); // 呼叫 OCR
+      toolBar.appendChild(ocrBtn);
+
+      container.appendChild(toolBar);
+      
+      // 根據當前選擇渲染表格
+      if (studentNarrativeStructure === 'argument') {
+          renderArgumentTable();
+      } else {
+          renderNarrativeTable();
+      }
+      return;
+  }
+  
+  // ... (保留 extended 和 qa 模式的舊有邏輯) ...
   if (mode === 'extended') {
-    // 拓展模式 - 文本輸入框 + 字數限制
+    // ... (保持原有的拓展模式代碼)
     const textarea = document.createElement('textarea');
     textarea.id = 'studentAnswer';
     textarea.className = 'input-field w-full px-5 py-4 rounded-xl min-h-[160px] text-lg no-modal-editor';
     textarea.placeholder = '請在此輸入您的回答 (最多180字)...';
     textarea.maxLength = 180;
-    textarea.disabled = true; // 初始禁用，等待計時開始
+    textarea.disabled = true;
     container.appendChild(textarea);
     
-    // 添加字數顯示 - 關鍵修訂：移除 hidden 類別
     const wordCountDiv = document.createElement('div');
     wordCountDiv.id = 'wordCountDisplay';
-    wordCountDiv.className = 'text-right mt-2 text-wabi-secondary'; // 移除 hidden 類別
+    wordCountDiv.className = 'text-right mt-2 text-wabi-secondary';
     wordCountDiv.innerHTML = '剩餘字數: <span id="remainingWords">180</span>';
     container.appendChild(wordCountDiv);
-    
     return;
   } else if (mode === 'qa') {
-    // 普通問答模式
+    // ... (保持原有的 QA 模式代碼)
     const textarea = document.createElement('textarea');
     textarea.id = 'studentAnswer';
     textarea.className = 'input-field w-full px-5 py-4 rounded-xl min-h-[160px] text-lg no-modal-editor';
     textarea.placeholder = '請在此輸入您的回答...';
     textarea.disabled = true;
     container.appendChild(textarea);
+    
+    // QA 模式也加一個 OCR 按鈕在下方
+    const ocrDiv = document.createElement('div');
+    ocrDiv.className = 'text-right mt-2';
+    const ocrBtn = document.createElement('button');
+    ocrBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
+    ocrBtn.innerHTML = '<i class="fas fa-camera mr-1"></i> 文字識別';
+    ocrBtn.onclick = () => openPulseOCR('text');
+    ocrDiv.appendChild(ocrBtn);
+    container.appendChild(ocrDiv);
     return;
   }
-  
-  // 原有的大綱模式代碼
-  const configDiv = document.createElement('div');
-  configDiv.className = 'student-config-area';
-  const type = mode === 'outline' ? (document.querySelector('input[name="outlineType"]:checked').value || 'narrative') : 'narrative';
-  
-  if (type === 'narrative') {
-    const label = document.createElement('span');
-    label.innerText = '選擇結構: ';
-    label.className = 'font-bold text-charcoal';
-    const select = document.createElement('select');
-    select.className = 'config-select';
-    select.innerHTML = `
-      <option value="fourPart" ${studentNarrativeStructure === 'fourPart' ? 'selected' : ''}>起承轉合</option>
-      <option value="threeLine" ${studentNarrativeStructure === 'threeLine' ? 'selected' : ''}>三線</option>
-    `;
-    select.onchange = (e) => {
-      studentNarrativeStructure = e.target.value;
-      renderNarrativeTable();
-    };
-    configDiv.appendChild(label);
-    configDiv.appendChild(select);
-    container.appendChild(configDiv);
-    renderNarrativeTable();
-  } else { // argument
-    const label = document.createElement('span');
-    label.innerText = '結構段數量: ';
-    label.className = 'font-bold text-charcoal';
-    const minusBtn = document.createElement('button');
-    minusBtn.className = 'outline-control-btn';
-    minusBtn.innerHTML = '<i class="fas fa-minus"></i>';
-    minusBtn.onclick = () => { changeStudentArgSegments(-1); };
-    const countSpan = document.createElement('span');
-    countSpan.id = 'studentArgCount';
-    countSpan.className = 'font-bold text-lg w-6 text-center';
-    countSpan.innerText = studentArgSegments;
-    const plusBtn = document.createElement('button');
-    plusBtn.className = 'outline-control-btn';
-    plusBtn.innerHTML = '<i class="fas fa-plus"></i>';
-    plusBtn.onclick = () => { changeStudentArgSegments(1); };
-    configDiv.appendChild(label);
-    configDiv.appendChild(minusBtn);
-    configDiv.appendChild(countSpan);
-    configDiv.appendChild(plusBtn);
-    container.appendChild(configDiv);
-    renderArgumentTable();
-  }
 }
-
 
 function countWords() {
   const studentAnswer = document.getElementById('studentAnswer');
@@ -2393,9 +2394,9 @@ function changeStudentArgSegments(delta) {
   document.getElementById('studentArgCount').innerText = studentArgSegments;
   renderArgumentTable();
 }
+// 替換原有的 renderNarrativeTable
 function renderNarrativeTable() {
   const container = document.getElementById('studentInputContainer');
-  // Remove existing table if any
   const existingTable = container.querySelector('table');
   if (existingTable) existingTable.remove();
  
@@ -2403,7 +2404,8 @@ function renderNarrativeTable() {
   table.className = 'outline-table';
  
   const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>部份</th><th>結構段重點</th><th>情節大要</th><th>物象</th></tr>';
+  // [修改] 增加「物象」欄位
+  thead.innerHTML = '<tr><th style="width:10%">部份</th><th style="width:25%">結構段重點</th><th style="width:40%">情節大要</th><th style="width:25%">物象</th></tr>';
   table.appendChild(thead);
  
   const tbody = document.createElement('tbody');
@@ -2411,38 +2413,88 @@ function renderNarrativeTable() {
  
   rows.forEach(r => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r}</td><td><textarea placeholder="..."></textarea></td><td><textarea placeholder="..."></textarea></td><td><textarea placeholder="..."></textarea></td>`;
+    // [修改] 增加第四個 textarea
+    tr.innerHTML = `
+        <td>${r}</td>
+        <td><textarea placeholder="重點..."></textarea></td>
+        <td><textarea placeholder="情節..."></textarea></td>
+        <td><textarea placeholder="物象..."></textarea></td>
+    `;
     tbody.appendChild(tr);
   });
  
   table.appendChild(tbody);
   container.appendChild(table);
 }
+// 替換原有的 renderArgumentTable
 function renderArgumentTable() {
   const container = document.getElementById('studentInputContainer');
   const existingTable = container.querySelector('table');
+  const existingControls = container.querySelector('.arg-controls');
   if (existingTable) existingTable.remove();
+  if (existingControls) existingControls.remove();
  
   const table = document.createElement('table');
   table.className = 'outline-table';
+  table.id = 'argumentTable'; // 給個 ID 方便操作
  
   const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>部份</th><th>論點</th><th>論據及論證</th></tr>';
+  // [修改] 上方標題為「論點」、「論據及論證」
+  thead.innerHTML = '<tr><th style="width:15%">部份</th><th style="width:30%">論點</th><th style="width:55%">論據及論證</th></tr>';
   table.appendChild(thead);
  
   const tbody = document.createElement('tbody');
-  const rows = ['起'];
-  for(let i=1; i<=studentArgSegments; i++) rows.push(`結構段${i}`);
-  rows.push('合');
- 
-  rows.forEach(r => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r}</td><td><textarea placeholder="..."></textarea></td><td><textarea placeholder="..."></textarea></td>`;
-    tbody.appendChild(tr);
-  });
+  
+  // [修改] 預設結構：起 + 3個結構段 + 合
+  // 注意：這裡不依賴 studentArgSegments 變數來生成初始表格，而是直接生成標準結構
+  // 如果需要動態變數，請確保 studentArgSegments 初始化為 3
+  
+  const createRow = (label) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${label}</td><td><textarea placeholder="..."></textarea></td><td><textarea placeholder="..."></textarea></td>`;
+      return tr;
+  };
+
+  tbody.appendChild(createRow('起'));
+  tbody.appendChild(createRow('結構段一'));
+  tbody.appendChild(createRow('結構段二'));
+  tbody.appendChild(createRow('結構段三'));
+  tbody.appendChild(createRow('合')); // 合 放在最後
  
   table.appendChild(tbody);
   container.appendChild(table);
+
+  // [修改] 加入「新增結構段」按鈕
+  const controlsDiv = document.createElement('div');
+  controlsDiv.className = 'arg-controls mt-2 text-right';
+  
+  const addBtn = document.createElement('button');
+  addBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
+  addBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> 新增結構段';
+  addBtn.onclick = () => {
+      const tbody = table.querySelector('tbody');
+      const rows = tbody.querySelectorAll('tr');
+      // 插入在「合」(最後一行) 之前
+      const lastRowIndex = rows.length - 1; 
+      
+      // 計算目前有多少個結構段
+      let count = 0;
+      rows.forEach(r => {
+          if (r.cells[0].innerText.includes('結構段')) count++;
+      });
+      
+      const newRow = createRow(`結構段${numberToChinese(count + 1)}`);
+      tbody.insertBefore(newRow, rows[lastRowIndex]);
+  };
+
+  controlsDiv.appendChild(addBtn);
+  container.appendChild(controlsDiv);
+}
+
+// 輔助函式：數字轉中文
+function numberToChinese(num) {
+    const map = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+    return map[num] || num;
 }
 function updateStudentUI(roomData) {
   const questionDisplay = document.getElementById('questionDisplay');
@@ -3251,10 +3303,10 @@ async function startSession() {
     const newQuestionId = Date.now();
     currentQuestionId = newQuestionId;
     const mode = document.querySelector('input[name="questionMode"]:checked').value;
-    let outlineConfig = null;
+     let outlineConfig = null;
     if (mode === 'outline') {
-      const outlineType = document.querySelector('input[name="outlineType"]:checked').value;
-      outlineConfig = { type: outlineType };
+      // 預設為一般大綱，具體結構交由學生端自行選擇
+      outlineConfig = { type: 'general' }; 
     }
     try {
       // 先更新 session
@@ -5057,6 +5109,293 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('DOMContentLoaded', initPresenceSystem);
 </script>
 
+
+
+<script>
+
+
+// --- OCR 相關功能 ---
+let ocrWindow = null;
+
+function openPulseOCR(forceMode = null) {
+    let mode = 'text';
+    // 根據當前表格類型決定 OCR 模式
+    if (forceMode) {
+        mode = forceMode;
+    } else if (studentNarrativeStructure === 'argument') {
+        mode = 'table'; // 議論用通用3欄表格模式
+    } else {
+        mode = 'pulse_narrative'; // 敘事用特製4欄表格模式
+    }
+    
+    // [修改] 移除 toolbox/ 前綴，因為這兩個檔案在同一個資料夾內
+    const url = `ocr2.html?mode=${mode}`; 
+    
+    const w = 900;
+    const h = 800;
+    const left = (screen.width/2)-(w/2);
+    const top = (screen.height/2)-(h/2);
+    
+    if (ocrWindow && !ocrWindow.closed) {
+        ocrWindow.focus();
+        ocrWindow.location.href = url;
+    } else {
+        ocrWindow = window.open(url, 'OCRWindow', `width=${w},height=${h},top=${top},left=${left},scrollbars=yes`);
+    }
+}
+
+// 監聽 OCR 回傳的資料
+window.addEventListener('message', function(event) {
+    if (!event.data) return;
+
+    // A. 處理 JSON 表格資料
+    if (event.data.type === 'ocrJSONResult') {
+        const rows = event.data.data;
+        const container = document.getElementById('studentInputContainer');
+        const table = container.querySelector('table');
+        
+        if (!table) return;
+        
+        if (studentNarrativeStructure === 'argument') {
+            // --- 填入議論表格 (3欄) ---
+            fillArgumentFromOCR(rows, table);
+        } else {
+            // --- 填入敘事表格 (4欄) ---
+            fillNarrativeFromOCR(rows, table);
+        }
+        
+        // 如果 OCR 視窗還開著，可以選擇關閉它
+        // if (ocrWindow) ocrWindow.close();
+    } 
+    // B. 處理純文字資料 (QA模式)
+    else if (event.data.type === 'ocrResult') {
+        const text = event.data.text;
+        const textarea = document.getElementById('studentAnswer');
+        if (textarea) {
+            // 附加或覆蓋，這裡選擇附加並換行
+            textarea.value += (textarea.value ? '\n\n' : '') + text;
+            textarea.disabled = false; // 解鎖以便編輯
+            textarea.focus();
+        }
+    }
+});
+
+// --- OCR 資料接收與處理核心 ---
+
+// 1. 輔助函式：更新輸入框並觸發事件 (確保資料被保存/UI更新)
+function updateTextarea(element, value) {
+    if (!element || !value) return;
+    element.value = value;
+    // 觸發 input 事件，讓 auto-save 或 auto-resize 生效
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    // 視覺回饋：閃爍一下背景
+    element.style.transition = 'background-color 0.3s';
+    element.style.backgroundColor = '#e6fffa';
+    setTimeout(() => {
+        element.style.backgroundColor = '';
+    }, 500);
+}
+
+// 2. 監聽 OCR 回傳訊息
+window.addEventListener('message', function(event) {
+    // 安全檢查
+    if (!event.data) return;
+
+    // A. 處理表格數據 (ocrJSONResult)
+    if (event.data.type === 'ocrJSONResult') {
+        const rows = event.data.data;
+        const container = document.getElementById('studentInputContainer');
+        const table = container.querySelector('table');
+        
+        if (!table) {
+            console.warn("找不到目標表格");
+            return;
+        }
+        
+        console.log("收到 OCR 表格數據:", rows);
+
+        if (studentNarrativeStructure === 'argument') {
+            fillArgumentFromOCR(rows, table);
+        } else {
+            fillNarrativeFromOCR(rows, table);
+        }
+    } 
+    // B. 處理純文字數據 (ocrResult - 用於 QA 模式)
+    else if (event.data.type === 'ocrResult') {
+        const text = event.data.text;
+        const textarea = document.getElementById('studentAnswer');
+        if (textarea) {
+            const originalVal = textarea.value;
+            const newVal = originalVal ? (originalVal + '\n\n' + text) : text;
+            updateTextarea(textarea, newVal);
+            textarea.disabled = false; // 確保解鎖
+            textarea.focus();
+        }
+    }
+});
+
+// 3. 填入敘事大綱 (4欄模式：部份 | 重點 | 情節 | 物象)
+function fillNarrativeFromOCR(data, table) {
+    const tbody = table.querySelector('tbody');
+    const trs = tbody.querySelectorAll('tr');
+    
+    let matchCount = 0;
+
+    data.forEach(item => {
+        // 清理 OCR 回傳的標題，移除換行符
+        const ocrPart = item.part ? item.part.replace(/\s+/g, '') : "";
+        
+        for (let tr of trs) {
+            // 獲取表格該列的標題 (第一格)
+            const rowLabel = tr.cells[0].innerText.replace(/\s+/g, '');
+            
+            // 模糊匹配邏輯：
+            // 1. 完全包含 (例如 OCR="起段" vs Table="起")
+            // 2. 特殊處理 "一線/二線/三線"
+            let isMatch = ocrPart.includes(rowLabel);
+            
+            // 針對三線結構的特殊處理
+            if (!isMatch && rowLabel.includes('線') && ocrPart.includes(rowLabel[0])) { 
+                // e.g. rowLabel="一線", ocrPart="一" -> 匹配
+                isMatch = true;
+            }
+
+            if (isMatch) {
+                const inputs = tr.querySelectorAll('textarea');
+                // PulseQA 敘事表格結構：
+                // inputs[0] = 結構段重點 (col1)
+                // inputs[1] = 情節大要 (col2)
+                // inputs[2] = 物象 (col3)
+                
+                if (inputs[0]) updateTextarea(inputs[0], item.col1);
+                if (inputs[1]) updateTextarea(inputs[1], item.col2);
+                if (inputs[2]) updateTextarea(inputs[2], item.col3); // 這裡填入物象
+                
+                matchCount++;
+                break; // 找到對應行後，跳出內層迴圈，處理下一筆 OCR 資料
+            }
+        }
+    });
+    
+    if (matchCount > 0) {
+        // alert(`成功識別並填入 ${matchCount} 個段落`);
+    }
+}
+
+// 4. 填入議論大綱 (3欄模式：部份 | 論點 | 論據) - [修正版：精準控制段落數量]
+function fillArgumentFromOCR(data, table) {
+    const tbody = table.querySelector('tbody');
+    
+    // --- 第一步：計算 OCR 資料中「結構段」的最大編號 ---
+    let maxSegmentIndex = 0;
+    const chineseNums = {'一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10};
+
+    data.forEach(item => {
+        const p = item.part ? item.part.replace(/\s+/g, '') : "";
+        
+        // 忽略 起/合
+        if(p.includes("起") || p.includes("合")) return;
+
+        // 嘗試找出數字
+        let num = 0;
+        
+        // 1. 檢查中文數字 (例如：結構段四 -> 4)
+        for (let k in chineseNums) {
+            if (p.includes(k)) {
+                num = chineseNums[k];
+                break;
+            }
+        }
+        
+        // 2. 如果沒中文，檢查阿拉伯數字 (例如：結構段4 -> 4)
+        if (num === 0) {
+            const match = p.match(/\d+/);
+            if (match) num = parseInt(match[0]);
+        }
+
+        // 更新最大值
+        if (num > maxSegmentIndex) {
+            maxSegmentIndex = num;
+        }
+    });
+
+    // --- 第二步：計算當前表格有多少結構段，並補足差額 ---
+    // 目前表格結構：[起, 結構段一, 結構段二, 結構段三, ..., 合]
+    // 結構段數量 = 總列數 - 2 (扣掉 起 和 合)
+    const currentRows = tbody.querySelectorAll('tr');
+    let currentSegmentCount = 0;
+    
+    // 嚴謹計算：遍歷現有表格，計算含有 "結構段" 的列數
+    currentRows.forEach(tr => {
+        if (tr.cells[0].innerText.includes("結構段")) {
+            currentSegmentCount++;
+        }
+    });
+
+    // 如果預設只有 3 段，但 OCR 發現有 4 段 -> 新增 (4-3) = 1 段
+    // 如果 OCR 只有 2 段 -> 不動作 (不刪減，保留預設 3 段)
+    if (maxSegmentIndex > currentSegmentCount) {
+        const controlDiv = document.querySelector('.arg-controls');
+        const addBtn = controlDiv ? controlDiv.querySelector('button') : null;
+        
+        if (addBtn) {
+            const rowsToAdd = maxSegmentIndex - currentSegmentCount;
+            console.log(`[OCR] 偵測到 ${maxSegmentIndex} 個結構段，當前 ${currentSegmentCount} 個，正在新增 ${rowsToAdd} 行...`);
+            
+            for(let i=0; i < rowsToAdd; i++) {
+                addBtn.click();
+            }
+        }
+    }
+
+    // --- 第三步：重新獲取表格列，並填入資料 ---
+    const updatedTrs = tbody.querySelectorAll('tr');
+
+    data.forEach(item => {
+        const ocrPart = item.part ? item.part.replace(/\s+/g, '') : "";
+        
+        for (let tr of updatedTrs) {
+            const rowLabel = tr.cells[0].innerText.replace(/\s+/g, '');
+            let isMatch = false;
+            
+            if (rowLabel === '起' || rowLabel === '合') {
+                isMatch = ocrPart.includes(rowLabel);
+            } else if (rowLabel.includes('結構段')) {
+                // 比對邏輯：
+                // 1. 完整包含 (OCR="結構段四" vs Table="結構段四")
+                // 2. 數字包含 (OCR="四" vs Table="結構段四")
+                
+                // 取出表格該列的中文數字 (例如 "四")
+                const tableNumChar = rowLabel.replace('結構段', '');
+                
+                // 檢查 OCR 是否包含該數字
+                if (ocrPart.includes(tableNumChar) || ocrPart.includes(rowLabel)) {
+                    isMatch = true;
+                }
+                
+                // 額外檢查：防止 "結構段一" 誤匹配到 "結構段十一" (雖然大綱很少寫到十一)
+                // 但為了保險，如果 OCR 很短 (例如只寫 "一")，則上述邏輯已足夠
+            }
+
+            if (isMatch) {
+                const inputs = tr.querySelectorAll('textarea');
+                // PulseQA 議論表格結構：
+                // inputs[0] = 論點 (col1)
+                // inputs[1] = 論據及論證 (col2)
+                
+                if (inputs[0]) updateTextarea(inputs[0], item.col1);
+                if (inputs[1]) updateTextarea(inputs[1], item.col2);
+                
+                // 找到後跳出內層迴圈，避免同一筆資料填入多行
+                break; 
+            }
+        }
+    });
+}
+  
+</script>
+
+  
    
 </body>
   </html>
