@@ -199,6 +199,7 @@
         if (typeof pdfjsLib !== 'undefined') pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
         // --- 設定與環境變數 ---
+        // 請將下方字串替換為您在 Google Apps Script 部署後取得的 Web App URL
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycby6VqaFGIOSxq_87GZFIhzM-7Lmhb3HYyEHuK5fyFFzoFQ86LiAfpyL4f9QFxA4XD35gg/exec";
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -225,7 +226,7 @@
                 }
             };
 
-            // 初始化 OpenCC 簡轉繁
+            // [新增] 初始化 OpenCC 簡轉繁 (中國大陸 -> 臺灣)
             const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
 
             let cropper = null;
@@ -387,96 +388,124 @@
 
             // --- 核心邏輯 (Google Apps Script Proxy) ---
 
-            async function runOCR(base64Image) {
-                if (GAS_API_URL.includes("請在此處")) {
-                    throw new Error("請先設定 Google Apps Script URL");
-                }
+           // --- 核心邏輯 (Google Apps Script Proxy) ---
 
-                // 稍微修改 Prompt 建議不加程式碼區塊，但最保險的還是在後端 JavaScript 清理
-                const promptText = 
-                    "請識別圖片中的文字內容。嚴格指令：\n" +
-                    "1. 輸出結果必須強制100% 正體中文 (Traditional Chinese, Taiwan)。\n" +
-                    "2. 保持 Markdown 格式（如標題、列表、表格），但「絕對不要」使用 ```markdown 包裹代碼塊。\n" +
-                    "3. 直接輸出內容即可。";
+async function runOCR(base64Image) {
+    if (GAS_API_URL.includes("請在此處")) {
+        throw new Error("請先設定 Google Apps Script URL");
+    }
 
-                const payload = {
-                    image: base64Image,
-                    prompt: promptText
-                };
-                
-                const response = await fetch(GAS_API_URL, {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                });
+    const promptText = 
+        "請分析這張圖片中的表格內容。這是一個中文寫作大綱，通常由左至右分為三欄。\n" +
+        "嚴格指令：\n" +
+        "1. 必須輸出為純 JSON 格式，不要包含 Markdown。\n" +
+        "2. JSON 結構為陣列，每個物件包含三個欄位：\n" +
+        "   - 'part': 第一欄/最左欄 (例如：起、承、轉、合、一線、結構段一)\n" +
+        "   - 'col1': 第二欄/中間欄 (重點/論點，例如：TEST, 內容摘要)\n" +
+        "   - 'col2': 第三欄/最右欄 (詳情/論據，例如：TEST2, 詳細情節)\n" +
+        "3. 【重要】如果表格線條不清楚，請根據文字的左右位置判斷。通常「起/承/轉/合」是標題，旁邊緊接著的文字屬於 'col1'，最右邊大段文字屬於 'col2'。\n" +
+        "4. 內容請強制轉為正體中文 (Traditional Chinese)。";
 
-                if (!response.ok) {
-                    throw new Error(`伺服器錯誤 (${response.status})`);
-                }
+    const payload = {
+        image: base64Image,
+        prompt: promptText
+    };
+    
+    const response = await fetch(GAS_API_URL, {
+        method: "POST",
+        body: JSON.stringify(payload)
+    });
 
-                const data = await response.json();
-                
-                if (data.error) {
-                    throw new Error(data.error.message || data.error);
-                }
+    if (!response.ok) {
+        throw new Error(`伺服器錯誤 (${response.status})`);
+    }
 
-                if (!data.choices || !data.choices.length) {
-                    throw new Error("無回傳內容或 API 格式錯誤");
-                }
+    const data = await response.json();
+    
+    if (data.error) {
+        throw new Error(data.error.message || data.error);
+    }
 
-                return data.choices[0].message.content;
+    if (!data.choices || !data.choices.length) {
+        throw new Error("無回傳內容或 API 格式錯誤");
+    }
+
+    return data.choices[0].message.content;
+}
+
+async function startOCR() {
+    const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
+    if(!imgs.length) return;
+
+    dom.btns.recognize.disabled = true;
+    dom.resultBox.classList.remove('visible');
+    dom.loader.classList.add('visible');
+    
+    let combinedResults = []; // 儲存所有頁面的 JSON 陣列
+    fullTextContent = ""; // 用於顯示在下方的純文字預覽
+    
+    for(let i=0; i<imgs.length; i++) {
+        dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
+        try {
+            let content = await runOCR(imgs[i].src);
+            
+            // 清理 AI 可能輸出的 Markdown 標記
+            content = content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "");
+            
+            // 嘗試解析 JSON
+            let parsedJSON;
+            try {
+                parsedJSON = JSON.parse(content);
+            } catch (e) {
+                console.warn("JSON 解析失敗，嘗試修復或降級為純文字", content);
+                // 如果 AI 沒給 JSON，就當作純文字處理，模擬一個通用結構
+                parsedJSON = [{ part: "OCR文字", col1: converter(content), col2: "" }];
             }
 
-            async function startOCR() {
-                const imgs = Array.from(dom.previewBox.querySelectorAll('img'));
-                if(!imgs.length) return;
+            // 簡轉繁處理 (針對 JSON 內的數值)
+            parsedJSON = parsedJSON.map(item => ({
+                part: converter(item.part || ""),
+                col1: converter(item.col1 || ""),
+                col2: converter(item.col2 || "")
+            }));
 
-                dom.btns.recognize.disabled = true;
-                dom.resultBox.classList.remove('visible');
-                dom.loader.classList.add('visible');
-                
-                let rawResults = [];
-                fullTextContent = "";
-                
-                for(let i=0; i<imgs.length; i++) {
-                    dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
-                    try {
-                        let content = await runOCR(imgs[i].src);
-                        
-                        // [修正邏輯] 強制移除開頭和結尾的 Markdown 代碼塊標記
-                        // 移除開頭的 ```markdown 或 ``` 
-                        content = content.replace(/^```(markdown|text)?\s*\n?/i, "");
-                        // 移除結尾的 ```
-                        content = content.replace(/```\s*$/i, "");
-                        
-                        // 使用 OpenCC 進行簡轉繁
-                        content = converter(content);
-                        rawResults.push(content);
-                    } catch(err) {
-                        rawResults.push(`> [第 ${i+1} 頁錯誤: ${err.message}]`);
-                    }
-                }
-                
-                // 組合結果
-                const combinedMarkdown = rawResults.join('\n\n---\n\n');
-                fullTextContent = combinedMarkdown; 
+            combinedResults = combinedResults.concat(parsedJSON);
 
-                // 渲染 HTML
-                dom.resultText.innerHTML = marked.parse(combinedMarkdown);
-                
-                dom.resultBox.classList.add('visible');
-                dom.loader.classList.remove('visible');
-                dom.btns.recognize.disabled = false;
-                dom.btns.recognize.textContent = "重新辨識";
+            // 生成預覽文字 (Markdown 表格格式)
+            fullTextContent += `\n### 第 ${i+1} 頁\n| 部份 | 重點/論點 | 詳情/論據 |\n|---|---|---|\n`;
+            parsedJSON.forEach(row => {
+                fullTextContent += `| ${row.part} | ${row.col1} | ${row.col2} |\n`;
+            });
 
-                const messageData = { type: 'ocrResult', text: combinedMarkdown };
-                let targetWindow = null;
-                if (window.opener && window.opener !== window) targetWindow = window.opener;
-                else if (window.top && window.top.opener && window.top.opener !== window.top) targetWindow = window.top.opener;
-                else if (window.parent && window.parent !== window) targetWindow = window.parent;
-                if (targetWindow) {
-                    targetWindow.postMessage(messageData, '*');
-                }
-            }
+        } catch(err) {
+            fullTextContent += `> [第 ${i+1} 頁錯誤: ${err.message}]\n`;
+        }
+    }
+    
+    // 渲染 HTML 預覽
+    dom.resultText.innerHTML = marked.parse(fullTextContent);
+    
+    dom.resultBox.classList.add('visible');
+    dom.loader.classList.remove('visible');
+    dom.btns.recognize.disabled = false;
+    dom.btns.recognize.textContent = "重新辨識";
+
+    // ★★★ 關鍵修改：發送結構化數據 (JSON) 回主視窗 ★★★
+    const messageData = { 
+        type: 'ocrJSONResult', // 修改類型名稱以區分舊版
+        data: combinedResults 
+    };
+    
+    let targetWindow = null;
+    if (window.opener && window.opener !== window) targetWindow = window.opener;
+    else if (window.top && window.top.opener && window.top.opener !== window.top) targetWindow = window.top.opener;
+    
+    if (targetWindow) {
+        targetWindow.postMessage(messageData, '*');
+        // 為了相容性，也可以顯示一個提示
+        // alert("辨識完成！已自動填入神思大綱表格。");
+    }
+}
 
             function readFile(file) {
                 return new Promise(r => {
