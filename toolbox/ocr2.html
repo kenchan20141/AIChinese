@@ -4,7 +4,7 @@
     <base target="_top">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>手寫中文字OCR工具 (原稿紙優化版)</title>
+    <title>手寫中文字OCR工具</title>
 
     <!-- 引入字體 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,7 +14,7 @@
 
     <!-- 引入核心功能庫 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- OpenCC-JS 簡繁轉換庫 -->
+    <!-- [新增] OpenCC-JS 簡繁轉換庫 -->
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 
     <style>
@@ -154,7 +154,7 @@
 
     <div id="container">
         <h1>手寫中文字辨識</h1>
-        <p id="subtitle">上傳原稿紙圖片，AI 將自動過濾背景雜訊。</p>
+        <p id="subtitle">上傳圖片或 PDF，AI 將為您辨識內容。</p>
 
         <div id="image-input-area">
             <div id="preview-container"></div>
@@ -226,7 +226,7 @@
                 }
             };
 
-            // 初始化 OpenCC 簡轉繁
+            // [新增] 初始化 OpenCC 簡轉繁 (中國大陸 -> 臺灣)
             const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
 
             let cropper = null;
@@ -297,7 +297,7 @@
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                         </svg>
                     </button>
-                    <button class="control-btn crop-btn" title="裁切 (建議使用)">
+                    <button class="control-btn crop-btn" title="裁切">
                         <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>
                             <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>
@@ -393,16 +393,11 @@
                     throw new Error("請先設定 Google Apps Script URL");
                 }
 
-                // [修改] 強化 Prompt：針對原稿紙特性進行過濾
                 const promptText = 
-                    "你是一位專業的手寫稿件錄入員。圖片是一張「原稿紙」或手寫筆記。\n" +
-                    "請嚴格執行以下指令：\n" +
-                    "1. 【核心任務】只識別「手寫字跡」內容。忽略原稿紙邊框外的所有文字。\n" +
-                    "2. 【排除干擾】絕對不要輸出原稿紙本身的印刷文字（如：頁碼、'20x20'、稿紙品牌名、格線外邊緣的印刷標題）。\n" +
-                    "3. 【排除背景】若圖片包含桌子、背景雜物、或是上一頁透過去的字，請全部忽略。\n" +
-                    "4. 【格式要求】保持 Markdown 格式。\n" +
-                    "5. 【繁體強制】所有簡體字必須轉為台灣正體中文。\n" +
-                    "6. 直接輸出內容，不含任何開場白。";
+                    "請識別圖片中的文字內容。嚴格指令：\n" +
+                    "1. 輸出結果必須強制100% 正體中文 (Traditional Chinese, Taiwan)，違反則無效。\n" +
+                    "2. 保持 Markdown 格式。\n" +
+                    "3. 直接輸出結果，不要包含任何解釋或開頭結尾的閒聊。";
 
                 const payload = {
                     image: base64Image,
@@ -446,7 +441,7 @@
                     dom.loader.textContent = `正在辨識第 ${i+1} / ${imgs.length} 頁...`;
                     try {
                         let content = await runOCR(imgs[i].src);
-                        // 使用 OpenCC 確保繁體
+                        // [修改] 使用 OpenCC 進行嚴格簡轉繁
                         content = converter(content);
                         rawResults.push(content);
                     } catch(err) {
