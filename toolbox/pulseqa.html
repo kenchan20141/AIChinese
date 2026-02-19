@@ -2410,26 +2410,26 @@ function toggleMode() {
 // === 修訂版：學生介面渲染 (含 Session Storage 自動儲存) ===
 // ==========================================
 
-// 輔助函數：生成唯一的 Session Key
+// 1. 確保這兩個輔助函數存在 (如果已存在可保留，但建議覆蓋以防萬一)
 function getSessionKey(subKey) {
-    // 使用房間號碼確保不會跨房間污染數據
-    const room = currentRoom || 'temp';
-    return `pulseqa_autosave_${room}_${subKey}`;
+    // 使用房間號碼 + 用戶名 (若有) 確保唯一性，防止不同房間數據打架
+    const room = currentRoom || 'temp_room';
+    const user = currentUser || 'temp_user'; 
+    return `pulseqa_autosave_${room}_${user}_${subKey}`;
 }
 
-// 輔助函數：綁定自動儲存事件
 function bindAutoSave(element, uniqueKey) {
-    // 1. 嘗試從 Session Storage 恢復數據
+    // A. 嘗試恢復
     const savedValue = sessionStorage.getItem(getSessionKey(uniqueKey));
     if (savedValue !== null && element.value === '') {
         element.value = savedValue;
     }
-
-    // 2. 綁定輸入事件，即時寫入 Session Storage
+    // B. 監聽輸入
     element.addEventListener('input', function() {
         sessionStorage.setItem(getSessionKey(uniqueKey), this.value);
     });
 }
+
 
 // 替換原有的 renderStudentOutlineUI 函式
 function renderStudentOutlineUI(mode) {
@@ -2539,10 +2539,11 @@ function renderStudentOutlineUI(mode) {
   }
 }
 
-// 替換原有的 renderNarrativeTable (敘事表格渲染)
+// 2. 修訂：敘事大綱表格渲染 (加入 bindAutoSave)
 function renderNarrativeTable() {
   const container = document.getElementById('studentInputContainer');
-  // 移除舊表格但保留 Toolbar
+  
+  // 清除舊表格但保留上方的工具列
   const existingTable = container.querySelector('table');
   if (existingTable) existingTable.remove();
  
@@ -2559,21 +2560,23 @@ function renderNarrativeTable() {
   rows.forEach((r, rowIndex) => {
     const tr = document.createElement('tr');
     
-    // 建立 Textarea
+    // --- 建立輸入框並綁定儲存 ---
     const ta1 = document.createElement('textarea');
     ta1.placeholder = "重點...";
-    // ★★★ 綁定 Session Storage (Key: narrative_結構_行號_欄位) ★★★
-    bindAutoSave(ta1, `narrative_${studentNarrativeStructure}_row${rowIndex}_col1`);
+    // 綁定Key: 結構類型_行號_欄位1
+    bindAutoSave(ta1, `narrative_${studentNarrativeStructure}_row${rowIndex}_focus`);
 
     const ta2 = document.createElement('textarea');
     ta2.placeholder = "情節...";
-    bindAutoSave(ta2, `narrative_${studentNarrativeStructure}_row${rowIndex}_col2`);
+    // 綁定Key: 結構類型_行號_欄位2
+    bindAutoSave(ta2, `narrative_${studentNarrativeStructure}_row${rowIndex}_plot`);
 
     const ta3 = document.createElement('textarea');
     ta3.placeholder = "物象...";
-    bindAutoSave(ta3, `narrative_${studentNarrativeStructure}_row${rowIndex}_col3`);
+    // 綁定Key: 結構類型_行號_欄位3
+    bindAutoSave(ta3, `narrative_${studentNarrativeStructure}_row${rowIndex}_obj`);
 
-    // 建立 Cells
+    // 組合表格
     const tdLabel = document.createElement('td');
     tdLabel.innerText = r;
 
@@ -2592,7 +2595,7 @@ function renderNarrativeTable() {
   container.appendChild(table);
 }
 
-// 替換原有的 renderArgumentTable (議論表格渲染)
+// 3. 修訂：議論大綱表格渲染 (加入 bindAutoSave)
 function renderArgumentTable() {
   const container = document.getElementById('studentInputContainer');
   const existingTable = container.querySelector('table');
@@ -2610,14 +2613,15 @@ function renderArgumentTable() {
  
   const tbody = document.createElement('tbody');
   
-  // 內部函數：建立一行並綁定儲存
-  const createRow = (label, rowIndex) => {
+  // 內部函數：建立一行
+  const createRow = (label) => {
       const tr = document.createElement('tr');
       
+      // --- 建立輸入框並綁定儲存 ---
       const ta1 = document.createElement('textarea');
       ta1.placeholder = "...";
-      // ★★★ 綁定 Session Storage (Key: argument_行標籤_欄位) ★★★
-      // 注意：這裡使用 label 作為 key 的一部分，以便新增刪除時能對應
+      // 使用 label 作為 Key 的一部分 (例如: argument_起_point)
+      // 這樣即使重新整理，只要 Label 沒變，內容就會回來
       bindAutoSave(ta1, `argument_${label}_point`);
 
       const ta2 = document.createElement('textarea');
@@ -2634,11 +2638,11 @@ function renderArgumentTable() {
       return tr;
   };
 
-  tbody.appendChild(createRow('起', 0));
-  tbody.appendChild(createRow('結構段一', 1));
-  tbody.appendChild(createRow('結構段二', 2));
-  tbody.appendChild(createRow('結構段三', 3));
-  tbody.appendChild(createRow('合', 99)); // 合放在最後
+  tbody.appendChild(createRow('起'));
+  tbody.appendChild(createRow('結構段一'));
+  tbody.appendChild(createRow('結構段二'));
+  tbody.appendChild(createRow('結構段三'));
+  tbody.appendChild(createRow('合')); 
  
   table.appendChild(tbody);
   container.appendChild(table);
@@ -2660,15 +2664,15 @@ function renderArgumentTable() {
           if (r.cells[0].innerText.includes('結構段')) count++;
       });
       
-      // 動態新增的行也必須綁定 Autosave
       const newLabel = `結構段${numberToChinese(count + 1)}`;
-      const newRow = createRow(newLabel, count + 1);
+      const newRow = createRow(newLabel); // 這裡會自動綁定新的 Key
       tbody.insertBefore(newRow, rows[lastRowIndex]);
   };
 
   controlsDiv.appendChild(addBtn);
   container.appendChild(controlsDiv);
 }
+	
 
 function countWords() {
   const studentAnswer = document.getElementById('studentAnswer');
@@ -2799,7 +2803,7 @@ function renderArgumentTable() {
   container.appendChild(controlsDiv);
 }
 
-// 輔助函式：數字轉中文
+// 4. 確保數字轉中文函數存在
 function numberToChinese(num) {
     const map = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
     return map[num] || num;
