@@ -2567,122 +2567,7 @@ function renderStudentOutlineUI(mode) {
   }
 }
 
-// 3. 敘事大綱表格渲染 (保持結構，確保 ID 唯一)
-function renderNarrativeTable() {
-  const container = document.getElementById('studentInputContainer');
-  const existingTable = container.querySelector('table');
-  if (existingTable) existingTable.remove();
- 
-  const table = document.createElement('table');
-  table.className = 'outline-table';
- 
-  const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th style="width:10%">部份</th><th style="width:25%">結構段重點</th><th style="width:40%">情節大要</th><th style="width:25%">物象</th></tr>';
-  table.appendChild(thead);
- 
-  const tbody = document.createElement('tbody');
-  const rows = studentNarrativeStructure === 'fourPart' ? ['起', '承', '轉', '合'] : ['起', '一線', '二線', '三線', '合'];
- 
-  rows.forEach((r, rowIndex) => {
-    const tr = document.createElement('tr');
-    
-    const ta1 = document.createElement('textarea');
-    ta1.placeholder = "重點...";
-    // ID 格式：narrative_結構名_行號_欄位
-    bindAutoSave(ta1, `narrative_${studentNarrativeStructure}_row${rowIndex}_focus`);
 
-    const ta2 = document.createElement('textarea');
-    ta2.placeholder = "情節...";
-    bindAutoSave(ta2, `narrative_${studentNarrativeStructure}_row${rowIndex}_plot`);
-
-    const ta3 = document.createElement('textarea');
-    ta3.placeholder = "物象...";
-    bindAutoSave(ta3, `narrative_${studentNarrativeStructure}_row${rowIndex}_obj`);
-
-    const tdLabel = document.createElement('td'); tdLabel.innerText = r;
-    const td1 = document.createElement('td'); td1.appendChild(ta1);
-    const td2 = document.createElement('td'); td2.appendChild(ta2);
-    const td3 = document.createElement('td'); td3.appendChild(ta3);
-
-    tr.appendChild(tdLabel); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
-    tbody.appendChild(tr);
-  });
- 
-  table.appendChild(tbody);
-  container.appendChild(table);
-}
-
-// 4. 議論大綱表格渲染
-function renderArgumentTable() {
-  const container = document.getElementById('studentInputContainer');
-  const existingTable = container.querySelector('table');
-  const existingControls = container.querySelector('.arg-controls');
-  if (existingTable) existingTable.remove();
-  if (existingControls) existingControls.remove();
- 
-  const table = document.createElement('table');
-  table.className = 'outline-table';
-  table.id = 'argumentTable';
- 
-  const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th style="width:15%">部份</th><th style="width:30%">論點</th><th style="width:55%">論據及論證</th></tr>';
-  table.appendChild(thead);
- 
-  const tbody = document.createElement('tbody');
-  
-  // 內部函數：建立一行
-  const createRow = (label) => {
-      const tr = document.createElement('tr');
-      
-      const ta1 = document.createElement('textarea');
-      ta1.placeholder = "...";
-      // 使用 label (例如"結構段一") 作為 Key，確保新增/刪除行後內容不會錯位
-      bindAutoSave(ta1, `argument_${label}_point`);
-
-      const ta2 = document.createElement('textarea');
-      ta2.placeholder = "...";
-      bindAutoSave(ta2, `argument_${label}_evidence`);
-
-      const tdLabel = document.createElement('td'); tdLabel.innerText = label;
-      const td1 = document.createElement('td'); td1.appendChild(ta1);
-      const td2 = document.createElement('td'); td2.appendChild(ta2);
-
-      tr.appendChild(tdLabel); tr.appendChild(td1); tr.appendChild(td2);
-      return tr;
-  };
-
-  tbody.appendChild(createRow('起'));
-  tbody.appendChild(createRow('結構段一'));
-  tbody.appendChild(createRow('結構段二'));
-  tbody.appendChild(createRow('結構段三'));
-  tbody.appendChild(createRow('合')); 
- 
-  table.appendChild(tbody);
-  container.appendChild(table);
-
-  // 新增結構段按鈕
-  const controlsDiv = document.createElement('div');
-  controlsDiv.className = 'arg-controls mt-2 text-right';
-  const addBtn = document.createElement('button');
-  addBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
-  addBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> 新增結構段';
-  addBtn.onclick = () => {
-      const tbody = table.querySelector('tbody');
-      const rows = tbody.querySelectorAll('tr');
-      const lastRowIndex = rows.length - 1; 
-      
-      let count = 0;
-      rows.forEach(r => {
-          if (r.cells[0].innerText.includes('結構段')) count++;
-      });
-      
-      const newLabel = `結構段${numberToChinese(count + 1)}`;
-      const newRow = createRow(newLabel); // 這裡會自動綁定新的 Key
-      tbody.insertBefore(newRow, rows[lastRowIndex]);
-  };
-  controlsDiv.appendChild(addBtn);
-  container.appendChild(controlsDiv);
-}
 	
 
 function countWords() {
@@ -2718,6 +2603,7 @@ function changeStudentArgSegments(delta) {
   renderArgumentTable();
 }
 // 替換原有的 renderNarrativeTable
+// 3. 敘事大綱表格渲染 (修復版：確保綁定自動儲存)
 function renderNarrativeTable() {
   const container = document.getElementById('studentInputContainer');
   const existingTable = container.querySelector('table');
@@ -2727,29 +2613,46 @@ function renderNarrativeTable() {
   table.className = 'outline-table';
  
   const thead = document.createElement('thead');
-  // [修改] 增加「物象」欄位
   thead.innerHTML = '<tr><th style="width:10%">部份</th><th style="width:25%">結構段重點</th><th style="width:40%">情節大要</th><th style="width:25%">物象</th></tr>';
   table.appendChild(thead);
  
   const tbody = document.createElement('tbody');
+  // 根據選擇的結構決定行數
   const rows = studentNarrativeStructure === 'fourPart' ? ['起', '承', '轉', '合'] : ['起', '一線', '二線', '三線', '合'];
  
-  rows.forEach(r => {
+  rows.forEach((r, rowIndex) => {
     const tr = document.createElement('tr');
-    // [修改] 增加第四個 textarea
-    tr.innerHTML = `
-        <td>${r}</td>
-        <td><textarea placeholder="重點..."></textarea></td>
-        <td><textarea placeholder="情節..."></textarea></td>
-        <td><textarea placeholder="物象..."></textarea></td>
-    `;
+    
+    // 建立 textarea 並手動綁定 AutoSave
+    const ta1 = document.createElement('textarea');
+    ta1.placeholder = "重點...";
+    // ID 格式：narrative_結構名_行號_欄位
+    bindAutoSave(ta1, `narrative_${studentNarrativeStructure}_row${rowIndex}_focus`);
+
+    const ta2 = document.createElement('textarea');
+    ta2.placeholder = "情節...";
+    bindAutoSave(ta2, `narrative_${studentNarrativeStructure}_row${rowIndex}_plot`);
+
+    const ta3 = document.createElement('textarea');
+    ta3.placeholder = "物象...";
+    bindAutoSave(ta3, `narrative_${studentNarrativeStructure}_row${rowIndex}_obj`);
+
+    // 建立單元格
+    const tdLabel = document.createElement('td'); tdLabel.innerText = r;
+    const td1 = document.createElement('td'); td1.appendChild(ta1);
+    const td2 = document.createElement('td'); td2.appendChild(ta2);
+    const td3 = document.createElement('td'); td3.appendChild(ta3);
+
+    tr.appendChild(tdLabel); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
     tbody.appendChild(tr);
   });
  
   table.appendChild(tbody);
   container.appendChild(table);
+  console.log("敘事大綱表格已渲染 (自動儲存已啟用)");
 }
-// 替換原有的 renderArgumentTable
+
+	// 4. 議論大綱表格渲染 (修復版：確保綁定自動儲存)
 function renderArgumentTable() {
   const container = document.getElementById('studentInputContainer');
   const existingTable = container.querySelector('table');
@@ -2759,59 +2662,69 @@ function renderArgumentTable() {
  
   const table = document.createElement('table');
   table.className = 'outline-table';
-  table.id = 'argumentTable'; // 給個 ID 方便操作
+  table.id = 'argumentTable';
  
   const thead = document.createElement('thead');
-  // [修改] 上方標題為「論點」、「論據及論證」
   thead.innerHTML = '<tr><th style="width:15%">部份</th><th style="width:30%">論點</th><th style="width:55%">論據及論證</th></tr>';
   table.appendChild(thead);
  
   const tbody = document.createElement('tbody');
   
-  // [修改] 預設結構：起 + 3個結構段 + 合
-  // 注意：這裡不依賴 studentArgSegments 變數來生成初始表格，而是直接生成標準結構
-  // 如果需要動態變數，請確保 studentArgSegments 初始化為 3
-  
+  // 內部函數：建立一行並綁定儲存
   const createRow = (label) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${label}</td><td><textarea placeholder="..."></textarea></td><td><textarea placeholder="..."></textarea></td>`;
+      
+      const ta1 = document.createElement('textarea');
+      ta1.placeholder = "請輸入論點...";
+      // 使用 label 作為 Key，確保重整後能找回
+      bindAutoSave(ta1, `argument_${label}_point`);
+
+      const ta2 = document.createElement('textarea');
+      ta2.placeholder = "請輸入論據及論證...";
+      bindAutoSave(ta2, `argument_${label}_evidence`);
+
+      const tdLabel = document.createElement('td'); tdLabel.innerText = label;
+      const td1 = document.createElement('td'); td1.appendChild(ta1);
+      const td2 = document.createElement('td'); td2.appendChild(ta2);
+
+      tr.appendChild(tdLabel); tr.appendChild(td1); tr.appendChild(td2);
       return tr;
   };
 
+  // 預設行
   tbody.appendChild(createRow('起'));
   tbody.appendChild(createRow('結構段一'));
   tbody.appendChild(createRow('結構段二'));
   tbody.appendChild(createRow('結構段三'));
-  tbody.appendChild(createRow('合')); // 合 放在最後
+  tbody.appendChild(createRow('合')); 
  
   table.appendChild(tbody);
   container.appendChild(table);
 
-  // [修改] 加入「新增結構段」按鈕
+  // 新增結構段按鈕
   const controlsDiv = document.createElement('div');
   controlsDiv.className = 'arg-controls mt-2 text-right';
-  
   const addBtn = document.createElement('button');
   addBtn.className = 'wabi-sabi-button secondary py-1 px-3 text-sm';
   addBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> 新增結構段';
   addBtn.onclick = () => {
       const tbody = table.querySelector('tbody');
       const rows = tbody.querySelectorAll('tr');
-      // 插入在「合」(最後一行) 之前
       const lastRowIndex = rows.length - 1; 
       
-      // 計算目前有多少個結構段
       let count = 0;
       rows.forEach(r => {
           if (r.cells[0].innerText.includes('結構段')) count++;
       });
       
-      const newRow = createRow(`結構段${numberToChinese(count + 1)}`);
+      const newLabel = `結構段${numberToChinese(count + 1)}`;
+      const newRow = createRow(newLabel); // 這裡會自動綁定新的 Key
       tbody.insertBefore(newRow, rows[lastRowIndex]);
   };
-
   controlsDiv.appendChild(addBtn);
   container.appendChild(controlsDiv);
+  
+  console.log("議論大綱表格已渲染 (自動儲存已啟用)");
 }
 
 // 4. 確保數字轉中文函數存在
@@ -5231,74 +5144,85 @@ document.getElementById('brushSize')?.addEventListener('click', function(e) {
         }
     }
 
-    // 將原本散落在外的監聽邏輯封裝起來，等 Auth 準備好才執行
-    function startSansiListeners() {
-        if (!sansiAuth || !sansiDatabase) return;
+  // === 修復：Sansi 數據監聽與身份同步 ===
+function startSansiListeners() {
+    if (!sansiAuth || !sansiDatabase) return;
 
-        // 1. 監聽 Auth 狀態 (同步學生資料)
-        sansiAuth.onAuthStateChanged(async (user) => {
-            if (user) {
-                const s = JSON.parse(localStorage.getItem('studentProfile'));
-                if (!s) {
-                    try {
-                        const emailKey = btoa(user.email || "guest");
-                        const snapshot = await sansiDatabase.ref('email_mapping/' + emailKey).once('value');
-                        const profile = snapshot.val();
-                        if (profile) {
-                            localStorage.setItem('studentProfile', JSON.stringify(profile));
-                        }
-                    } catch (e) { /* 靜默失敗 */ }
+    // 1. 監聽 Auth 狀態 (同步學生資料)
+    sansiAuth.onAuthStateChanged(async (user) => {
+        // ★★★ 核心修復：優先檢查 LocalStorage 的學生身份 ★★★
+        const localProfile = JSON.parse(localStorage.getItem('studentProfile'));
+
+        if (localProfile && localProfile.name) {
+            console.log(`[Sansi] 🟢 偵測到本地身份：${localProfile.name} (${localProfile.grade}${localProfile.class})`);
+            // 強制更新在線狀態，使用本地身份
+            updatePresence(localProfile);
+        } else if (user) {
+            // 如果本地沒資料但 Firebase 有登入 (罕見)，嘗試從雲端拉取
+            try {
+                const emailKey = btoa(user.email || "guest");
+                const snapshot = await sansiDatabase.ref('email_mapping/' + emailKey).once('value');
+                const profile = snapshot.val();
+                if (profile) {
+                    localStorage.setItem('studentProfile', JSON.stringify(profile));
+                    console.log("[Sansi] 已從雲端恢復身份");
+                    updatePresence(profile);
                 }
-            }
-        });
-
-        // 2. 啟動在線狀態 (Presence)
-        const connectedRef = sansiDatabase.ref('.info/connected');
-        connectedRef.on('value', (snap) => {
-            if (snap.val() === true && sansiAuth.currentUser) {
-                // 這裡安全了，因為我們確定 currentUser 存在
-                updatePresence();
-            }
-        });
-        
-        // 3. 啟動統計 (Stats)
-        // 延遲一點執行，避免剛載入時卡頓
-        setTimeout(() => {
-            if (typeof window.logVisitOnce === 'function') window.logVisitOnce();
-            if (typeof window.startTimer === 'function') window.startTimer();
-        }, 2000);
-    }
-
-    // 獨立出來的 Presence 更新函式
-    function updatePresence() {
-        if (!sansiAuth.currentUser) return;
-        
-        const s = JSON.parse(localStorage.getItem('studentProfile'));
-        let myUid = sansiAuth.currentUser.uid; // 使用 Firebase UID 最安全
-        let userData = {};
-
-        if (s && s.name) {
-            userData = {
-                name: s.name,
-                grade: s.grade,
-                class: s.class,
-                timestamp: firebase.database.ServerValue.TIMESTAMP,
-                device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
-            };
+            } catch (e) { /* 靜默失敗 */ }
         } else {
-            userData = {
-                name: "訪客",
-                grade: "Guest",
-                class: "Visitor",
-                timestamp: firebase.database.ServerValue.TIMESTAMP
-            };
+            console.log("[Sansi] ⚪ 未偵測到登入 (訪客模式)");
         }
+    });
 
-        const myPresenceRef = sansiDatabase.ref(`online_users/${myUid}`);
-        myPresenceRef.onDisconnect().remove().then(() => {
-            myPresenceRef.set(userData);
-        });
+    // 2. 啟動在線狀態 (Presence)
+    const connectedRef = sansiDatabase.ref('.info/connected');
+    connectedRef.on('value', (snap) => {
+        if (snap.val() === true) {
+            const localProfile = JSON.parse(localStorage.getItem('studentProfile'));
+            updatePresence(localProfile); // 傳入 profile
+        }
+    });
+    
+    // 3. 啟動統計 (Stats)
+    setTimeout(() => {
+        if (typeof window.logVisitOnce === 'function') window.logVisitOnce();
+        if (typeof window.startTimer === 'function') window.startTimer();
+    }, 2000);
+}
+
+// 獨立出來的 Presence 更新函式 (修復版)
+function updatePresence(profile) {
+    // 如果沒有傳入 profile，再嘗試讀一次
+    const s = profile || JSON.parse(localStorage.getItem('studentProfile'));
+    
+    // 獲取一個 ID (優先使用 Firebase UID，沒有則用名字生成)
+    let myUid = sansiAuth.currentUser ? sansiAuth.currentUser.uid : 
+                (s ? `stu_${s.grade}${s.class}_${s.name}` : `guest_${Math.random()}`);
+
+    let userData = {};
+
+    if (s && s.name) {
+        userData = {
+            name: s.name,
+            grade: s.grade,
+            class: s.class,
+            timestamp: firebase.database.ServerValue.TIMESTAMP,
+            device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+        };
+    } else {
+        userData = {
+            name: "訪客",
+            grade: "Guest",
+            class: "Visitor",
+            timestamp: firebase.database.ServerValue.TIMESTAMP
+        };
     }
+
+    const myPresenceRef = sansiDatabase.ref(`online_users/${myUid}`);
+    myPresenceRef.onDisconnect().remove().then(() => {
+        myPresenceRef.set(userData);
+    });
+}
 
     // Token Injector (安全版)
     (function() {
