@@ -3537,127 +3537,140 @@ function setupGradingInteraction(group, onDone, count = 1) {
 
 // === 優化版：行政互動 (逼真的紙疊、飛紙動畫與鍵盤音效) ===
 function setupAdminInteraction(group, onDone) {
+    // 1. 莫蘭迪桌面 (灰綠色)
     const table = new THREE.Mesh(new THREE.BoxGeometry(14, 0.5, 9), new THREE.MeshStandardMaterial({color: 0x8F9E8B}));
     table.position.y = -0.5;
     group.add(table);
-
+ 
+    // 2. 螢幕組件 (深灰色調)
     const monitorGroup = new THREE.Group();
     group.add(monitorGroup);
-
     const monitorBase = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 2), new THREE.MeshStandardMaterial({color: 0x333333}));
     monitorBase.position.set(0, 0, -2);
     const monitorStand = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.5), new THREE.MeshStandardMaterial({color: 0x555555}));
     monitorStand.position.set(0, 0.8, -2);
-    
     const monitorScreen = new THREE.Mesh(new THREE.BoxGeometry(7, 4, 0.4), new THREE.MeshStandardMaterial({color: 0x222222}));
     monitorScreen.position.set(0, 2.8, -1.5);
-    
     const screenFace = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 3.6), new THREE.MeshBasicMaterial({color: 0x0a192f}));
     screenFace.position.set(0, 2.8, -1.29);
-    
     monitorGroup.add(monitorBase, monitorStand, monitorScreen, screenFace);
-
-    const keyboard = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.3, 1.8), new THREE.MeshStandardMaterial({color: 0xD3D4D0}));
-    keyboard.position.set(0, 0, 1.5); 
-    keyboard.rotation.x = 0.1;
-    keyboard.userData = { isKeyboard: true }; 
-    
-    const keyDetail = new THREE.Mesh(new THREE.PlaneGeometry(4, 1.2), new THREE.MeshBasicMaterial({color: 0x999999}));
-    keyDetail.position.set(0, 0.16, 0);
-    keyDetail.rotation.x = -Math.PI/2;
-    keyboard.add(keyDetail);
-    
-    group.add(keyboard);
-
-    // ========== 逼真的文件紙疊 ==========
+ 
+    // 3. 【雙色立體鍵盤】
+    // 底盤使用較深的莫蘭迪棕灰色 (與遊戲文字主色一致)
+    const keyboardBaseColor = 0x5E5A54;
+    // 按鍵使用較淺的沙灰色
+    const keyColor = 0xD3D4D0;
+ 
+    const keyboardBase = new THREE.Mesh(
+        new THREE.BoxGeometry(4.8, 0.35, 2.2),
+        new THREE.MeshStandardMaterial({color: keyboardBaseColor, roughness: 0.8})
+    );
+    keyboardBase.position.set(0, 0, 1.5);
+    keyboardBase.rotation.x = 0.12; // 稍微傾斜符合人體工學
+    keyboardBase.userData = { isKeyboard: true };
+    group.add(keyboardBase);
+ 
+    // 自動生成 4x10 的立體按鍵
+    const keyGeo = new THREE.BoxGeometry(0.36, 0.18, 0.36);
+    const keyMat = new THREE.MeshStandardMaterial({color: keyColor, roughness: 0.5});
+    const rows = 4;
+    const cols = 10;
+    const spacingX = 0.44;
+    const spacingZ = 0.46;
+ 
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            // 特殊處理：空白鍵或特殊色按鍵可以增加真實感，這裡統一用雙色
+            const key = new THREE.Mesh(keyGeo, keyMat);
+            
+            // 置中排列按鍵
+            key.position.set(
+                (c - (cols - 1) / 2) * spacingX,
+                0.22, // 讓按鍵凸出底盤表面
+                (r - (rows - 1) / 2) * spacingZ
+            );
+            
+            // 隨機微調按鍵高度，增加「舊式機械感」
+            key.position.y += Math.random() * 0.02;
+            
+            keyboardBase.add(key);
+        }
+    }
+ 
+    // 4. 逼真的文件紙疊
     const paperStack = new THREE.Group();
-    const sheetGeo = new THREE.BoxGeometry(2, 0.02, 2.8); // 極薄的紙張幾何
+    const sheetGeo = new THREE.BoxGeometry(2, 0.02, 2.8);
     const sheetMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.9 });
-    
-    const numSheets = 25; // 總共疊 25 張紙
+    const numSheets = 25;
     for(let i = 0; i < numSheets; i++) {
         const sheet = new THREE.Mesh(sheetGeo, sheetMat);
-        sheet.position.y = i * 0.04; // 逐層往上疊
-        
-        // 加上隨機偏移與旋轉，製造凌亂感
-        sheet.position.x = (Math.random() - 0.5) * 0.15; 
-        sheet.position.z = (Math.random() - 0.5) * 0.15; 
-        sheet.rotation.y = (Math.random() - 0.5) * 0.15; 
-        
-        // 在最上面幾張紙加上代表「文字/表格」的深灰色小方塊
+        sheet.position.y = i * 0.04;
+        sheet.position.x = (Math.random() - 0.5) * 0.15;
+        sheet.position.z = (Math.random() - 0.5) * 0.15;
+        sheet.rotation.y = (Math.random() - 0.5) * 0.15;
         if(i > numSheets - 6) {
             const lineMat = new THREE.MeshBasicMaterial({color: 0xcccccc});
             for(let l = 0; l < 4; l++) {
                 const line = new THREE.Mesh(new THREE.PlaneGeometry(1.2 + Math.random() * 0.4, 0.05), lineMat);
                 line.rotation.x = -Math.PI/2;
-                line.position.set(-0.1, 0.011, -0.8 + l * 0.3); // 排列文字行
+                line.position.set(-0.1, 0.011, -0.8 + l * 0.3);
                 sheet.add(line);
             }
         }
         paperStack.add(sheet);
     }
-    
-    // 桌子表面高度是 -0.25，讓紙疊完美放在桌上
-    paperStack.position.set(-4.5, -0.25, 0); 
+    paperStack.position.set(-4.5, -0.25, 0);
     paperStack.rotation.y = 0.2;
     group.add(paperStack);
-    // ====================================
-
-    const labelPos = new THREE.Vector3(0, 506, -5); 
+ 
+    // 5. 互動邏輯
+    const labelPos = new THREE.Vector3(0, 506, -5);
     const instruction = create2DLabel("點擊鍵盤處理行政", labelPos);
-
+ 
     let clicks = 0;
     let isTyping = false;
     const requiredClicks = 5;
-
+ 
     return (obj) => {
         let target = obj;
+        // 向上尋找直到找到標記為鍵盤的基座
         while(target.parent && !target.userData.isKeyboard && target.parent !== group) {
             target = target.parent;
         }
-
+ 
         if (target.userData.isKeyboard) {
             if (isTyping) return;
             isTyping = true;
             clicks++;
-
-            // ★★★ 觸發鍵盤音效 ★★★
+ 
             playKeyboardSound();
-
-            // 鍵盤敲擊動畫
-            gsap.to(keyboard.position, {
-                y: -0.2, duration: 0.05, yoyo: true, repeat: 1, 
+ 
+            // 敲擊時整個鍵盤震動
+            gsap.to(keyboardBase.position, {
+                y: -0.12, duration: 0.05, yoyo: true, repeat: 1,
                 onComplete: () => isTyping = false
             });
-
-            // 螢幕跳出代碼/處理條
+ 
+            // 螢幕跳出行政進度條
             const line = new THREE.Mesh(new THREE.PlaneGeometry(5, 0.15), new THREE.MeshBasicMaterial({color: 0x64ffda}));
-            line.position.set(0, 4.2 - (clicks * 0.5), -1.28); 
+            line.position.set(0, 4.2 - (clicks * 0.5), -1.28);
             group.add(line);
             
-            create2DFeedback("收手啦...", new THREE.Vector3(0, 503, 1.5), "#7B9ACC");
-
-            // ========== 動態特效：每打字一次，最上方的一張紙就會飛走 ==========
+            create2DFeedback("生命誠可貴...", new THREE.Vector3(0, 503, 1.5), "#D5C4A1");
+ 
+            // 紙張飛出
             if (paperStack.children.length > 0) {
                 const topSheet = paperStack.children[paperStack.children.length - 1];
-                // 往螢幕方向飛起，並在空中縮小消失
                 gsap.to(topSheet.position, { x: -2, y: topSheet.position.y + 1.5, z: -2, duration: 0.4, ease: "power1.out" });
                 gsap.to(topSheet.rotation, { y: Math.random() * 2, x: Math.random() * 1, duration: 0.4 });
                 gsap.to(topSheet.scale, { x: 0, y: 0, z: 0, duration: 0.4, onComplete: () => {
                     paperStack.remove(topSheet);
                 }});
             }
-
-            // 處理完成的結算
+ 
             if (clicks >= requiredClicks) {
                 instruction.innerText = "徒勞無功，毫無收穫。";
-                instruction.classList.add('label-error'); 
-
-                setTimeout(() => {
-                    screenFace.material.color.setHex(0x000000);
-                    group.remove(...group.children.filter(c => c.geometry && c.geometry.type === 'PlaneGeometry' && c.position.z === -1.28));
-                }, 400);
-
+                instruction.classList.add('label-error');
                 setTimeout(onDone, 2500);
             }
         }
