@@ -3090,7 +3090,7 @@ function startInteractiveSession(type, onComplete, param = null) {
     savedCameraState.target.copy(controls.target);
 
     // ★★★ 關鍵修復：暫時關閉場景霧氣，防止旅行場景被白霧洗白變成空白 ★★★
-    scene.fog = null;
+   if (scene.fog) { scene.fog.near = 9999; scene.fog.far = 10000; }
 
     const wasOffWork = document.getElementById('offwork-overlay').style.display === 'flex';
 
@@ -3150,7 +3150,7 @@ function startInteractiveSession(type, onComplete, param = null) {
             entGroup = null;
             
             // ★★★ 關鍵修復：互動結束，恢復原本的場景霧氣 ★★★
-            scene.fog = new THREE.Fog(CONFIG.colors.bg, 20, 90);
+           if (scene.fog) { scene.fog.near = 20; scene.fog.far = 90; }
 
             if (!wasOffWork) { 
                 document.getElementById('top-dashboard').style.display = 'flex';
@@ -3227,36 +3227,35 @@ function startTravel(country) {
     }, country);
 }
 
-   function setupTravelInteraction(group, onDone, country) {
+  function setupTravelInteraction(group, onDone, country) {
     const isMobile = window.innerWidth < 800;
-    if (isMobile) group.scale.set(0.75, 0.75, 0.75);
+    if (isMobile && country !== 'korea') group.scale.set(0.75, 0.75, 0.75);
 
     const validCountry = country || 'japan';
 
     // --- 1. 基本環境 (天空與地板) ---
     const skyColors = {
-        japan: 0xFFB7C5,   // 櫻花粉色晨曦
-        uk: 0x7F8C8D,      // 倫敦陰天
-        korea: 0xF39C12,   // 秋日黃昏
-        china: 0x87CEEB,   // 晴空藍天
-        finland: 0x0A192F  // 極地黑夜
+        japan: 0xFFB7C5,
+        uk: 0x7F8C8D,
+        korea: 0xF39C12,
+        china: 0x87CEEB,
+        finland: 0x0A192F
     };
-    // 取消材質的霧氣影響，確保天空清晰
     const skybox = new THREE.Mesh(
-        new THREE.SphereGeometry(45, 32, 32), 
+        new THREE.SphereGeometry(validCountry === 'china' ? 150 : 45, 32, 32), 
         new THREE.MeshBasicMaterial({ color: skyColors[validCountry], side: THREE.BackSide, fog: false })
     );
     group.add(skybox);
 
     const floorColors = {
-        japan: 0x7C9473,   // 春草綠
-        uk: 0x95A5A6,      // 石板灰
-        korea: 0xD35400,   // 秋葉橘紅
-        china: 0x4E6C50,   // 深山綠
-        finland: 0xFFFAFA  // 白雪
+        japan: 0x7C9473,
+        uk: 0x95A5A6,
+        korea: 0xD35400, // 韓國的地板會在下方被獨立山丘覆蓋
+        china: 0x4E6C50,
+        finland: 0x8DA5B8
     };
     const floor = new THREE.Mesh(
-        new THREE.CylinderGeometry(35, 35, 2, 64), 
+        new THREE.CylinderGeometry(validCountry === 'china' ? 60 : 35, validCountry === 'china' ? 60 : 35, 2, 64), 
         new THREE.MeshStandardMaterial({ color: floorColors[validCountry], roughness: 0.9 })
     );
     floor.position.y = -1;
@@ -3284,15 +3283,20 @@ function startTravel(country) {
     group.add(scenery);
 
     if (validCountry === 'japan') {
+        const japanContent = new THREE.Group();
+        japanContent.scale.set(0.55, 0.55, 0.55); 
+        scenery.add(japanContent);
+
         const fuji = new THREE.Mesh(new THREE.CylinderGeometry(2, 18, 15, 64), new THREE.MeshStandardMaterial({color: 0x2C3E50}));
         fuji.position.set(0, 7.5, -20);
         const snow = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 6, 5, 64), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
         snow.position.set(0, 12.5, -20);
-        scenery.add(fuji, snow);
+        japanContent.add(fuji, snow); 
 
-        const water = new THREE.Mesh(new THREE.PlaneGeometry(30, 15), new THREE.MeshStandardMaterial({color: 0x3498DB, transparent:true, opacity:0.8}));
-        water.rotation.x = -Math.PI/2; water.position.set(0, 0.1, -5);
-        scenery.add(water);
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(60, 25), new THREE.MeshStandardMaterial({color: 0x3498DB, transparent:true, opacity:0.8}));
+        water.rotation.x = -Math.PI/2; 
+        water.position.set(0, 0.1, -8);
+        japanContent.add(water);
 
         const torii = new THREE.Group();
         const tMat = new THREE.MeshStandardMaterial({color: 0xC0392B}); 
@@ -3305,7 +3309,7 @@ function startTravel(country) {
         const centerPlaque = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 0.5), tBlack); centerPlaque.position.set(0, 6.5, 0);
         torii.add(p1, p2, bar1, bar2, roof1, centerPlaque);
         torii.position.set(0, 0, -3);
-        scenery.add(torii);
+        japanContent.add(torii);
 
         const createSakura = (x, z, scale) => {
             const tree = new THREE.Group();
@@ -3318,312 +3322,578 @@ function startTravel(country) {
             tree.add(trunk, l1, l2, l3);
             tree.position.set(x, 0, z);
             tree.scale.set(scale, scale, scale);
-            scenery.add(tree);
+            japanContent.add(tree);
         };
         createSakura(-12, -2, 1.5); createSakura(12, -4, 1.2);
         createSakura(-8, -8, 1.0); createSakura(10, 2, 1.4);
-    } 
+    }
     else if (validCountry === 'uk') {
-        const river = new THREE.Mesh(new THREE.PlaneGeometry(60, 10), new THREE.MeshStandardMaterial({color: 0x2C3E50, roughness: 0.1}));
-        river.rotation.x = -Math.PI/2; river.position.set(0, 0.1, -2);
-        scenery.add(river);
+        const ukContent = new THREE.Group();
+        ukContent.scale.set(0.55, 0.55, 0.55);
+        scenery.add(ukContent);
+
+        const river = new THREE.Mesh(new THREE.PlaneGeometry(100, 30), new THREE.MeshStandardMaterial({color: 0x2C3E50, roughness: 0.1}));
+        river.rotation.x = -Math.PI/2; 
+        river.position.set(0, 0.1, -10);
+        ukContent.add(river);
+
+        const cloudMat = new THREE.MeshBasicMaterial({color: 0xBDC3C7, transparent: true, opacity: 0.6, depthWrite: false});
+        for(let i = 0; i < 8; i++){
+            const cloud = new THREE.Mesh(new THREE.SphereGeometry(10, 16, 16), cloudMat);
+            cloud.scale.set(2, 0.2, 1);
+            cloud.position.set((Math.random()-0.5)*80, 20 + Math.random()*5, -15 - Math.random()*20);
+            ukContent.add(cloud);
+        }
+
+        const road = new THREE.Mesh(new THREE.BoxGeometry(100, 0.2, 14), new THREE.MeshStandardMaterial({color: 0x333333, roughness: 0.9}));
+        road.position.set(0, 0.15, 6);
+        ukContent.add(road);
+
+        const pavement = new THREE.Mesh(new THREE.BoxGeometry(100, 0.4, 8), new THREE.MeshStandardMaterial({color: 0x7F8C8D}));
+        pavement.position.set(0, 0.2, 15);
+        ukContent.add(pavement);
+
+        const bridge = new THREE.Group();
+        const bridgeRoad = new THREE.Mesh(new THREE.BoxGeometry(14, 1, 30), new THREE.MeshStandardMaterial({color: 0x555555}));
+        bridgeRoad.position.set(16, 2, -10);
+        bridge.add(bridgeRoad);
+        for(let i = -10; i <= 10; i += 10) {
+            const arch = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 14, 32, 1, false, 0, Math.PI), new THREE.MeshStandardMaterial({color: 0x777777}));
+            arch.rotation.z = Math.PI/2;
+            arch.position.set(16, -1, -10 + i);
+            bridge.add(arch);
+        }
+        ukContent.add(bridge);
 
         const bigBen = new THREE.Group();
         const stoneMat = new THREE.MeshStandardMaterial({color: 0xD4C4A8, roughness: 1}); 
         const goldMat = new THREE.MeshStandardMaterial({color: 0xD4A017, metalness: 0.8});
         const darkRoofMat = new THREE.MeshStandardMaterial({color: 0x2C3E50});
         
-        const towerBody = new THREE.Mesh(new THREE.BoxGeometry(4, 18, 4), stoneMat); towerBody.position.y = 9;
-        const clockSection = new THREE.Mesh(new THREE.BoxGeometry(4.2, 4.2, 4.2), stoneMat); clockSection.position.y = 20;
+        const towerBody = new THREE.Mesh(new THREE.BoxGeometry(5, 22, 5), stoneMat); towerBody.position.y = 11;
+        const clockSection = new THREE.Mesh(new THREE.BoxGeometry(5.2, 5.2, 5.2), stoneMat); clockSection.position.y = 24.6;
         
-        for(let i=0; i<4; i++){
-            const clockFace = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.2, 16), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
+        for(let i = 0; i < 4; i++){
+            const clockFace = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.2, 16), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
             clockFace.rotation.x = Math.PI/2;
-            clockFace.position.set(0, 20, 2.15);
+            clockFace.position.set(0, 24.6, 2.65);
             const pivot = new THREE.Group();
             pivot.rotation.y = i * (Math.PI/2);
             pivot.add(clockFace);
             bigBen.add(pivot);
         }
         
-        const roofBase = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1, 4.5), darkRoofMat); roofBase.position.y = 22.5;
-        const spire = new THREE.Mesh(new THREE.ConeGeometry(2, 6, 4), darkRoofMat); spire.position.y = 26; spire.rotation.y = Math.PI/4;
-        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.3), goldMat); tip.position.y = 29;
+        const roofBase = new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.5, 5.5), darkRoofMat); roofBase.position.y = 27.8;
+        const spire = new THREE.Mesh(new THREE.ConeGeometry(2.5, 8, 4), darkRoofMat); spire.position.y = 32.5; spire.rotation.y = Math.PI/4;
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.4), goldMat); tip.position.y = 36.5;
         
         bigBen.add(towerBody, clockSection, roofBase, spire, tip);
-        bigBen.position.set(8, 0, -12);
-        scenery.add(bigBen);
+        bigBen.position.set(20, 0, -22);
+        ukContent.add(bigBen);
 
         const londonEye = new THREE.Group();
         const wheelMat = new THREE.MeshStandardMaterial({color: 0xBDC3C7, wireframe: true}); 
-        const wheel = new THREE.Mesh(new THREE.TorusGeometry(8, 0.5, 16, 32), wheelMat);
-        wheel.position.y = 10;
+        const wheel = new THREE.Mesh(new THREE.TorusGeometry(12, 0.6, 16, 48), wheelMat);
+        wheel.position.y = 15;
         
-        const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 14), new THREE.MeshStandardMaterial({color: 0xEEEEEE}));
-        leg1.position.set(-3, 5, 3); leg1.rotation.x = -0.4; leg1.rotation.z = -0.2;
-        const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 14), new THREE.MeshStandardMaterial({color: 0xEEEEEE}));
-        leg2.position.set(3, 5, 3); leg2.rotation.x = -0.4; leg2.rotation.z = 0.2;
+        const legMat = new THREE.MeshStandardMaterial({color: 0xEEEEEE});
+        const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 20), legMat);
+        leg1.position.set(-4, 7.5, 5); leg1.rotation.x = -0.4; leg1.rotation.z = -0.2;
+        const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 20), legMat);
+        leg2.position.set(4, 7.5, 5); leg2.rotation.x = -0.4; leg2.rotation.z = 0.2;
         
         londonEye.add(wheel, leg1, leg2);
-        londonEye.position.set(-10, 0, -15);
-        londonEye.rotation.y = 0.5;
-        scenery.add(londonEye);
-        gsap.to(wheel.rotation, { z: Math.PI * 2, duration: 40, repeat: -1, ease: "none" });
+        londonEye.position.set(-20, 0, -25);
+        londonEye.rotation.y = 0.3;
+        ukContent.add(londonEye);
+        gsap.to(wheel.rotation, { z: Math.PI * 2, duration: 60, repeat: -1, ease: "none" });
+
+        const createPhoneBox = (x, z) => {
+            const box = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2, 4.5, 2), new THREE.MeshStandardMaterial({color: 0xC0392B, roughness: 0.7}));
+            body.position.y = 2.25;
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 2.2), new THREE.MeshStandardMaterial({color: 0xC0392B}));
+            roof.position.y = 4.75;
+            const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), new THREE.MeshStandardMaterial({color: 0xC0392B}));
+            dome.position.y = 5; dome.scale.y = 0.5;
+            
+            const glass = new THREE.Mesh(new THREE.BoxGeometry(1.8, 3, 2.1), new THREE.MeshStandardMaterial({color: 0x111111}));
+            glass.position.y = 2.5;
+            const glass2 = new THREE.Mesh(new THREE.BoxGeometry(2.1, 3, 1.8), new THREE.MeshStandardMaterial({color: 0x111111}));
+            glass2.position.y = 2.5;
+            
+            box.add(body, glass, glass2, roof, dome);
+            box.position.set(x, 0.4, z);
+            ukContent.add(box);
+        };
+        createPhoneBox(-12, 13);
+        createPhoneBox(6, 13);
 
         const bus = new THREE.Group();
-        const busMat = new THREE.MeshStandardMaterial({color: 0xC0392B});
-        const busBody = new THREE.Mesh(new THREE.BoxGeometry(3.5, 4.5, 8), busMat); busBody.position.y = 2.8;
-        const windows = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 7.8), new THREE.MeshStandardMaterial({color: 0x222222}));
-        windows.position.y = 3.5;
-        const windowsUpper = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 7.8), new THREE.MeshStandardMaterial({color: 0x222222}));
-        windowsUpper.position.y = 1.2;
+        const busMat = new THREE.MeshStandardMaterial({color: 0xC0392B, roughness: 0.5});
+        const busBody = new THREE.Mesh(new THREE.BoxGeometry(4, 5.5, 11), busMat); busBody.position.y = 3.5;
+        const windows = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.2, 10.4), new THREE.MeshStandardMaterial({color: 0x222222}));
+        windows.position.y = 2.5;
+        const windowsUpper = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.2, 10.4), new THREE.MeshStandardMaterial({color: 0x222222}));
+        windowsUpper.position.y = 5.0;
         bus.add(busBody, windows, windowsUpper);
         
         const tireMat = new THREE.MeshStandardMaterial({color: 0x111111});
-        const t1 = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 4, 16), tireMat); t1.rotation.z=Math.PI/2; t1.position.set(0, 0.8, 2.5);
-        const t2 = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 4, 16), tireMat); t2.rotation.z=Math.PI/2; t2.position.set(0, 0.8, -2.5);
+        const t1 = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 4.4, 16), tireMat); t1.rotation.z=Math.PI/2; t1.position.set(0, 0.9, 3.5);
+        const t2 = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 4.4, 16), tireMat); t2.rotation.z=Math.PI/2; t2.position.set(0, 0.9, -3.5);
         bus.add(t1, t2);
         
-        bus.position.set(-15, 0, 5);
+        bus.position.set(-45, 0.2, 6);
         bus.rotation.y = Math.PI/2;
-        scenery.add(bus);
-        gsap.to(bus.position, { x: 25, duration: 8, repeat: -1, ease: "none" });
+        ukContent.add(bus);
+        
+        gsap.to(bus.position, { x: 45, duration: 15, repeat: -1, ease: "none" });
     }
     else if (validCountry === 'korea') {
-        const hill = new THREE.Mesh(new THREE.SphereGeometry(15, 32, 16), new THREE.MeshStandardMaterial({color: 0x8B5A2B}));
-        hill.position.set(0, -5, -18);
-        hill.scale.y = 0.5;
-        scenery.add(hill);
+        // ★ 韓國：100% 完美微縮星球全景
+        const koreaContent = new THREE.Group();
+        const kScale = 0.13; 
+        koreaContent.scale.set(kScale, kScale, kScale);
+        koreaContent.position.set(0, 1, isMobile ? -5 : -10);
+        scenery.add(koreaContent);
 
-        const seoulTower = new THREE.Group();
-        const tBase = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 4, 4, 16), new THREE.MeshStandardMaterial({color: 0x95A5A6})); tBase.position.y = 2;
-        const tPillar = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.5, 12, 16), new THREE.MeshStandardMaterial({color: 0xECF0F1})); tPillar.position.y = 10;
-        const tDeck1 = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 1.5, 16), new THREE.MeshStandardMaterial({color: 0x2980B9})); tDeck1.position.y = 16.5;
-        const tDeck2 = new THREE.Mesh(new THREE.CylinderGeometry(3, 1.5, 1.5, 16), new THREE.MeshStandardMaterial({color: 0x2C3E50})); tDeck2.position.y = 18;
-        const tAntenna = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, 8, 8), new THREE.MeshStandardMaterial({color: 0xE74C3C})); tAntenna.position.y = 23;
-        seoulTower.add(tBase, tPillar, tDeck1, tDeck2, tAntenna);
-        seoulTower.position.set(0, 2.5, -18);
-        scenery.add(seoulTower);
+        const namsan = new THREE.Mesh(
+            new THREE.SphereGeometry(38, 32, 16),
+            new THREE.MeshStandardMaterial({color: 0x5C4033, roughness: 1}) 
+        );
+        namsan.scale.y = 0.6; 
+        koreaContent.add(namsan);
 
-        const gate = new THREE.Group();
-        const stoneBase = new THREE.Mesh(new THREE.BoxGeometry(16, 3, 4), new THREE.MeshStandardMaterial({color: 0xBDC3C7})); stoneBase.position.y = 1.5;
-        const arch = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 4.2, 16), new THREE.MeshStandardMaterial({color: 0x222222})); 
-        arch.rotation.x = Math.PI/2; arch.position.set(0, 1.5, 0);
-        
-        const pillarMat = new THREE.MeshStandardMaterial({color: 0x8B0000}); 
-        const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p1.position.set(-5, 4.5, 0);
-        const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p2.position.set(5, 4.5, 0);
-        const p3 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p3.position.set(-1.5, 4.5, 0);
-        const p4 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p4.position.set(1.5, 4.5, 0);
-        
-        const roofMat = new THREE.MeshStandardMaterial({color: 0x2C3E50}); 
-        const roof1 = new THREE.Mesh(new THREE.ConeGeometry(9, 3, 4), roofMat);
-        roof1.rotation.y = Math.PI/4; roof1.position.y = 7.5; roof1.scale.set(1, 1, 0.6);
-        
-        gate.add(stoneBase, arch, p1, p2, p3, p4, roof1);
-        gate.position.set(0, 0, -2);
-        scenery.add(gate);
+        const treeColors =[0xE74C3C, 0xD35400, 0xF1C40F, 0xFF7F50]; 
+        for(let i = 0; i < 70; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const r = 12 + Math.random() * 24; 
+            const tx = Math.cos(angle) * r;
+            const tz = Math.sin(angle) * r;
+            
+            if (tz > 0 && Math.abs(tx) < 14) continue;
+            
+            const surfaceY = Math.sqrt(Math.max(0, 38*38 - r*r)) * 0.6;
+            
+            const tree = new THREE.Mesh(
+                new THREE.DodecahedronGeometry(1.8 + Math.random() * 2.5),
+                new THREE.MeshStandardMaterial({
+                    color: treeColors[Math.floor(Math.random() * treeColors.length)],
+                    flatShading: true
+                })
+            );
+            tree.position.set(tx, surfaceY + Math.random() * 1.5, tz);
+            tree.rotation.set(Math.random(), Math.random(), Math.random());
+            koreaContent.add(tree);
+        }
 
-        const createAutumnTree = (x, z, color, scale) => {
-            const tree = new THREE.Group();
-            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 4), new THREE.MeshStandardMaterial({color: 0x3E2723})); trunk.position.y = 2;
-            const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(2.5), new THREE.MeshStandardMaterial({color: color, flatShading: true})); crown.position.y = 4.5;
-            tree.add(trunk, crown);
-            tree.position.set(x, 0, z);
-            tree.scale.set(scale, scale, scale);
-            scenery.add(tree);
-        };
-        createAutumnTree(-10, 2, 0xE74C3C, 1.2); 
-        createAutumnTree(10, 0, 0xF1C40F, 1.5);  
-        createAutumnTree(-12, -8, 0xD35400, 1.0); 
-        createAutumnTree(14, -6, 0xE67E22, 1.3);  
+        const tower = new THREE.Group();
+        
+        const basePlaza = new THREE.Mesh(new THREE.CylinderGeometry(8, 10, 3, 32), new THREE.MeshStandardMaterial({color: 0xECF0F1}));
+        basePlaza.position.y = 1.5;
+        const lowerBldg = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 8), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
+        lowerBldg.position.y = 6;
+        
+        const stripeDark = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.8, 8.2), new THREE.MeshStandardMaterial({color: 0x2C3E50}));
+        stripeDark.position.y = 5;
+        const stripeRed = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.5, 8.2), new THREE.MeshStandardMaterial({color: 0xE74C3C}));
+        stripeRed.position.y = 4;
+        tower.add(basePlaza, lowerBldg, stripeDark, stripeRed);
+
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 3.5, 30, 32), new THREE.MeshStandardMaterial({color: 0xFFFFFF, roughness: 0.5}));
+        shaft.position.y = 21;
+
+        const deckBase = new THREE.Mesh(new THREE.ConeGeometry(5.5, 4, 32), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
+        deckBase.rotation.x = Math.PI; 
+        deckBase.position.y = 36;
+
+        const deckGlass = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 5, 32), new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.5, roughness: 0.2}));
+        deckGlass.position.y = 40.5;
+        
+        const ringLight = new THREE.Mesh(new THREE.TorusGeometry(5.6, 0.2, 8, 32), new THREE.MeshBasicMaterial({color: 0x3498DB}));
+        ringLight.rotation.x = Math.PI/2;
+        ringLight.position.y = 39.5;
+
+        const deckTop = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 5.5, 2.5, 32), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
+        deckTop.position.y = 44.25;
+
+        const antenna1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 12, 8), new THREE.MeshStandardMaterial({color: 0xE74C3C}));
+        antenna1.position.y = 51;
+        const antenna2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 10, 8), new THREE.MeshStandardMaterial({color: 0xECF0F1}));
+        antenna2.position.y = 62;
+
+        tower.add(shaft, deckBase, deckGlass, ringLight, deckTop, antenna1, antenna2);
+        tower.position.set(0, 22.5, 0); 
+        koreaContent.add(tower);
+
+        const cableGroup = new THREE.Group();
+        const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 120), new THREE.MeshBasicMaterial({color: 0x333333}));
+        wire.rotation.z = 1.0;
+        wire.position.set(-30, 10, 5); 
+        cableGroup.add(wire);
+
+        const cabin = new THREE.Group();
+        const cBody = new THREE.Mesh(new THREE.BoxGeometry(3, 2.2, 3), new THREE.MeshStandardMaterial({color: 0xE74C3C}));
+        const cGlass = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.2, 3.2), new THREE.MeshStandardMaterial({color: 0x111111}));
+        cGlass.position.y = 0.2;
+        const cArm = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 3.5), new THREE.MeshStandardMaterial({color: 0x222222}));
+        cArm.position.y = 2.4;
+        cabin.add(cBody, cGlass, cArm);
+        cableGroup.add(cabin);
+        koreaContent.add(cableGroup);
+        
+        gsap.fromTo(cabin.position, 
+            { x: -65, y: -43, z: 5 },
+            { x: 5, y: 63, z: 5, duration: 18, repeat: -1, yoyo: true, ease: "sine.inOut" }
+        );
     }
     else if (validCountry === 'china') {
-        const mountMat = new THREE.MeshStandardMaterial({color: 0x34495E, roughness: 1, flatShading: true});
-        const createMountain = (x, z, h, r) => {
-            const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6), mountMat);
-            m.position.set(x, h/2 - 2, z);
-            scenery.add(m);
-        };
-        createMountain(-15, -20, 25, 8);
-        createMountain(10, -25, 30, 10);
-        createMountain(25, -15, 20, 7);
-        createMountain(-25, -15, 18, 6);
+        const goldenSky = new THREE.Mesh(
+            new THREE.SphereGeometry(150, 32, 32), 
+            new THREE.MeshBasicMaterial({ color: 0xFAD6A5, side: THREE.BackSide, fog: false }) 
+        );
+        const brightFloor = new THREE.Mesh(
+            new THREE.CylinderGeometry(60, 60, 2, 64), 
+            new THREE.MeshStandardMaterial({ color: 0x8A9A75, roughness: 0.9 }) 
+        );
+        brightFloor.position.y = -1;
+        scenery.add(goldenSky, brightFloor);
 
-        const wallMat = new THREE.MeshStandardMaterial({color: 0x95A5A6, roughness: 0.9}); 
-        const wallGroup = new THREE.Group();
+        const chinaContent = new THREE.Group();
+        chinaContent.scale.set(0.55, 0.55, 0.55); 
+        scenery.add(chinaContent);
+
+        const mountMatDark = new THREE.MeshStandardMaterial({color: 0x557A66, roughness: 1, flatShading: true});
+        const mountMatLight = new THREE.MeshStandardMaterial({color: 0x739E82, roughness: 1, flatShading: true});
         
-        for(let i = -25; i <= 25; i += 2) {
-            const zPos = Math.sin(i * 0.3) * 5 - 10;
-            const yPos = Math.cos(i * 0.2) * 2 + 3;
+        const createMountain = (x, z, h, r, isDark) => {
+            const mGroup = new THREE.Group();
+            const mainPeak = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), isDark ? mountMatDark : mountMatLight);
+            mainPeak.position.y = h/2 - 2;
+            const subPeak = new THREE.Mesh(new THREE.ConeGeometry(r*0.7, h*0.6, 8), isDark ? mountMatDark : mountMatLight);
+            subPeak.position.set(r*0.5, h*0.3 - 2, r*0.3);
+            mGroup.add(mainPeak, subPeak);
+            mGroup.position.set(x, 0, z);
+            chinaContent.add(mGroup); 
+        };
+        createMountain(-20, -22, 28, 10, true);
+        createMountain(15, -28, 35, 14, false);
+        createMountain(28, -15, 20, 8, true);
+        createMountain(-28, -12, 18, 7, false);
+        createMountain(0, -35, 40, 18, true); 
+
+        const cloudMat = new THREE.MeshBasicMaterial({color: 0xFFFAFA, transparent: true, opacity: 0.7, depthWrite: false});
+        for(let i=0; i<8; i++){
+            const cloud = new THREE.Mesh(new THREE.SphereGeometry(15, 16, 16), cloudMat);
+            cloud.scale.set(1, 0.2, 0.6);
+            cloud.position.set((Math.random()-0.5)*50, 4 + Math.random()*5, -15 - Math.random()*15);
+            chinaContent.add(cloud); 
+        }
+
+        const wallGroup = new THREE.Group();
+        const brickMat = new THREE.MeshStandardMaterial({color: 0xCBBDAA, roughness: 0.9}); 
+        const pathMat = new THREE.MeshStandardMaterial({color: 0xA39586, roughness: 1.0});  
+        const roofMat = new THREE.MeshStandardMaterial({color: 0x4A5054, roughness: 0.8});  
+        
+        for(let i = -28; i <= 28; i += 2) {
+            const zPos = Math.sin(i * 0.25) * 6 - 8;
+            const yPos = Math.cos(i * 0.2) * 2.5 + 4; 
             
-            const wallSegment = new THREE.Mesh(new THREE.BoxGeometry(2.1, yPos * 2, 3), wallMat);
+            const wallSegment = new THREE.Mesh(new THREE.BoxGeometry(2.1, yPos * 2, 3), brickMat);
             wallSegment.position.set(i, 0, zPos);
             wallGroup.add(wallSegment);
             
-            const battlement = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 3.2), wallMat);
-            battlement.position.set(i, yPos + 0.5, zPos);
-            wallGroup.add(battlement);
+            const path = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.2, 1.8), pathMat);
+            path.position.set(i, yPos + 0.1, zPos);
+            wallGroup.add(path);
             
-            if (i % 10 === 0) {
-                const tower = new THREE.Mesh(new THREE.BoxGeometry(5, yPos * 2 + 5, 5), wallMat);
-                tower.position.set(i, 2.5, zPos);
-                const towerTop = new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.5, 5.5), wallMat);
-                towerTop.position.set(i, yPos + 5.75, zPos);
-                const window = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({color: 0x222222}));
-                window.position.set(i, yPos + 2, zPos + 2.51);
-                wallGroup.add(tower, towerTop, window);
+            const crenelFront = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 0.4), brickMat);
+            crenelFront.position.set(i, yPos + 0.6, zPos + 1.3);
+            const crenelBack = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 0.4), brickMat);
+            crenelBack.position.set(i, yPos + 0.6, zPos - 1.3);
+            wallGroup.add(crenelFront, crenelBack);
+            
+            if (i % 12 === 0) {
+                const tower = new THREE.Group();
+                tower.position.set(i, yPos, zPos);
+                
+                const tBase = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6, 4.5), brickMat);
+                tBase.position.y = 1;
+                const arch = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 4.6, 16), new THREE.MeshBasicMaterial({color: 0x554B41})); 
+                arch.rotation.x = Math.PI/2;
+                arch.position.set(0, -0.5, 0);
+                const archBase = new THREE.Mesh(new THREE.BoxGeometry(2, 1.5, 4.6), new THREE.MeshBasicMaterial({color: 0x554B41}));
+                archBase.position.set(0, -1.25, 0);
+                
+                const tTop = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2, 3.5), brickMat);
+                tTop.position.y = 5;
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(3.8, 2.5, 4), roofMat);
+                roof.rotation.y = Math.PI/4;
+                roof.position.y = 7;
+                
+                tower.add(tBase, arch, archBase, tTop, roof);
+                wallGroup.add(tower);
             }
         }
-        scenery.add(wallGroup);
+        chinaContent.add(wallGroup); 
 
-        const lanternMat = new THREE.MeshBasicMaterial({color: 0xE74C3C});
-        const glowMat = new THREE.MeshBasicMaterial({color: 0xF1C40F});
-        for(let i = 0; i < 8; i++) {
+        const lanternGeo = new THREE.CylinderGeometry(0.9, 0.6, 1.6, 16); 
+        const lanternMat = new THREE.MeshStandardMaterial({
+            color: 0xE74C3C, emissive: 0x992211, transparent: true, opacity: 0.95, roughness: 0.3
+        });
+        const frameMat = new THREE.MeshStandardMaterial({color: 0x3E2723}); 
+        const glowMat = new THREE.MeshBasicMaterial({color: 0xFFEAA7});     
+
+        for(let i = 0; i < 15; i++) {
             const lantern = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.6, 1.5, 8), lanternMat);
-            const fire = new THREE.Mesh(new THREE.SphereGeometry(0.3), glowMat);
-            fire.position.y = -0.6;
-            lantern.add(body, fire);
             
-            const startX = (Math.random()-0.5) * 40;
+            const body = new THREE.Mesh(lanternGeo, lanternMat);
+            const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.05, 8, 16), frameMat);
+            baseRing.rotation.x = Math.PI/2;
+            baseRing.position.y = -0.8;
+            
+            const fire = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), glowMat);
+            fire.position.y = -0.5;
+            
+            const halo = new THREE.Mesh(
+                new THREE.SphereGeometry(1.5, 16, 16), 
+                new THREE.MeshBasicMaterial({color: 0xF39C12, transparent: true, opacity: 0.3, depthWrite: false})
+            );
+            
+            lantern.add(body, baseRing, fire, halo);
+            
+            const startX = (Math.random()-0.5) * 45;
             const startZ = (Math.random()-0.5) * 20 - 5;
-            lantern.position.set(startX, Math.random() * 10, startZ);
-            scenery.add(lantern);
+            const startY = Math.random() * 15;
+            lantern.position.set(startX, startY, startZ);
+            
+            lantern.rotation.z = (Math.random()-0.5)*0.2;
+            lantern.rotation.x = (Math.random()-0.5)*0.2;
+            
+            chinaContent.add(lantern); 
             
             gsap.to(lantern.position, {
-                y: lantern.position.y + 15 + Math.random()*10,
-                x: lantern.position.x + (Math.random()-0.5)*5,
-                duration: 10 + Math.random()*5,
+                y: lantern.position.y + 15 + Math.random()*15,
+                x: lantern.position.x + (Math.random()-0.5)*8,
+                duration: 12 + Math.random()*8,
                 repeat: -1,
                 ease: "none"
             });
         }
     }
     else if (validCountry === 'finland') {
-        const snowHill1 = new THREE.Mesh(new THREE.SphereGeometry(15, 32, 16), new THREE.MeshStandardMaterial({color: 0xFFFAFA}));
+        const nightSnowMat = new THREE.MeshStandardMaterial({color: 0x8DA5B8, roughness: 0.9}); 
+        
+        const snowHill1 = new THREE.Mesh(new THREE.SphereGeometry(15, 32, 16), nightSnowMat);
         snowHill1.position.set(-15, -10, -10); snowHill1.scale.y = 0.5;
-        const snowHill2 = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), new THREE.MeshStandardMaterial({color: 0xFFFAFA}));
+        const snowHill2 = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), nightSnowMat);
         snowHill2.position.set(15, -12, -15); snowHill2.scale.y = 0.6;
         scenery.add(snowHill1, snowHill2);
 
-        const auroraGroup = new THREE.Group();
-        const createAuroraBand = (colorHex, yPos, zPos) => {
-            const mat = new THREE.MeshBasicMaterial({
-                color: colorHex, 
-                transparent: true, 
-                opacity: 0.4, 
-                side: THREE.DoubleSide,
-                blending: THREE.AdditiveBlending
-            });
-            const band = new THREE.Mesh(new THREE.CylinderGeometry(30, 30, 8, 32, 1, true, 0, Math.PI), mat);
-            band.position.set(0, yPos, zPos);
-            band.rotation.x = 0.2;
-            gsap.to(band.scale, { y: 1.5, x: 1.1, duration: 3 + Math.random()*2, yoyo: true, repeat: -1, ease: "sine.inOut" });
-            gsap.to(band.rotation, { z: 0.1, duration: 4, yoyo: true, repeat: -1, ease: "sine.inOut" });
-            return band;
-        };
-        auroraGroup.add(createAuroraBand(0x2ECC71, 15, -15)); 
-        auroraGroup.add(createAuroraBand(0x1ABC9C, 18, -20)); 
-        auroraGroup.add(createAuroraBand(0x9B59B6, 22, -25)); 
-        scenery.add(auroraGroup);
-
         const cabin = new THREE.Group();
-        const woodMat = new THREE.MeshStandardMaterial({color: 0x5C4033});
-        const snowMat = new THREE.MeshStandardMaterial({color: 0xFFFFFF});
+        const woodMat = new THREE.MeshStandardMaterial({color: 0x4A2E1B, roughness: 0.9}); 
         
         const cBody = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 6), woodMat); cBody.position.y = 2.5;
-        const cRoof = new THREE.Mesh(new THREE.ConeGeometry(6, 4, 4), snowMat); 
-        cRoof.rotation.y = Math.PI/4; cRoof.position.y = 7;
-        const windowMat = new THREE.MeshBasicMaterial({color: 0xF1C40F});
+        const cRoof = new THREE.Mesh(new THREE.ConeGeometry(6.5, 4.5, 4), nightSnowMat); 
+        cRoof.rotation.y = Math.PI/4; cRoof.position.y = 7.25;
+        
+        const windowMat = new THREE.MeshBasicMaterial({color: 0xFFD700}); 
         const w1 = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), windowMat); w1.position.set(-2, 2.5, 3.01);
         const w2 = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), windowMat); w2.position.set(2, 2.5, 3.01);
-        const chimney = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 1), new THREE.MeshStandardMaterial({color: 0x333333}));
+        
+        const chimney = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 1), new THREE.MeshStandardMaterial({color: 0x222222}));
         chimney.position.set(-2, 7, -1);
-        const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.8), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.6}));
+        
+        const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.8), new THREE.MeshBasicMaterial({color:0xdddddd, transparent:true, opacity:0.5, depthWrite: false}));
         smoke.position.set(-2, 9, -1);
-        gsap.to(smoke.position, {y: 12, x: 0, duration: 2, repeat: -1});
-        gsap.to(smoke.material, {opacity: 0, duration: 2, repeat: -1});
+        gsap.to(smoke.position, {y: 13, x: 1, duration: 2.5, repeat: -1});
+        gsap.to(smoke.material, {opacity: 0, duration: 2.5, repeat: -1});
 
-        cabin.add(cBody, cRoof, w1, w2, chimney, smoke);
+        const cabinLight = new THREE.PointLight(0xFFA500, 1.5, 15);
+        cabinLight.position.set(0, 3, 4);
+
+        cabin.add(cBody, cRoof, w1, w2, chimney, smoke, cabinLight);
         cabin.position.set(0, 0, -5);
         scenery.add(cabin);
 
         const createPine = (x, z, scale) => {
             const tree = new THREE.Group();
             const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2), woodMat); trunk.position.y = 1;
-            const needleMat = new THREE.MeshStandardMaterial({color: 0x27AE60, flatShading: true});
+            const needleMat = new THREE.MeshStandardMaterial({color: 0x1E4D2B, flatShading: true}); 
             const t1 = new THREE.Mesh(new THREE.ConeGeometry(2.5, 3, 8), needleMat); t1.position.y = 3;
             const t2 = new THREE.Mesh(new THREE.ConeGeometry(2.0, 3, 8), needleMat); t2.position.y = 4.5;
-            const t3 = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3, 8), snowMat);   t3.position.y = 6; 
+            const t3 = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3, 8), nightSnowMat); t3.position.y = 6; 
             tree.add(trunk, t1, t2, t3);
             tree.position.set(x, 0, z);
             tree.scale.set(scale, scale, scale);
             scenery.add(tree);
         };
-        createPine(-10, 2, 1.2); createPine(12, -2, 1.5);
-        createPine(-15, -8, 1.8); createPine(18, -10, 1.3);
-        createPine(8, 4, 1.0);
+        
+        createPine(-10, 2, 1.2); 
+        createPine(12, -2, 1.5);
+        createPine(-15, -8, 1.8); 
+        createPine(18, -10, 1.3);
+        createPine(8, 4, 1.0);     
+        createPine(-6, 6, 0.9);    
+        createPine(6, -6, 1.1);    
+        createPine(0, -12, 1.6);   
+        createPine(-9, -14, 1.5);  
+        createPine(8, -15, 1.4);   
     }
 
-    // --- 4. 互動邏輯 (拍照打卡) ---
-    const hitBox = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial({visible: false}));
+    // ★★★ 核心修改：拍照系統 - 移除文字提示，加入真實渲染相片與拍立得顯影動畫 ★★★
+
+    // 加上透明接收層，確保點擊到任何地方都能拍照
+    const hitBox = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshBasicMaterial({visible: false}));
     hitBox.position.set(0, 5, 0);
     group.add(hitBox);
 
-    const labelPos = new THREE.Vector3(0, 506, 5);
-    const instruction = create2DLabel("點擊畫面拍下美好回憶 (3張)", labelPos);
+    // 用來區分使用者是「點擊拍照」還是「拖曳視角」
+    let isDragging = false;
+    let downX = 0, downY = 0;
     
-    // 根據背景亮度決定文字顏色
-    const textColors = {
-        japan: "#333333",
-        uk: "#333333",
-        korea: "#FFFFFF",
-        china: "#FFFFFF",
-        finland: "#FFFFFF"
+    const onDown = (e) => { 
+        downX = e.clientX; 
+        downY = e.clientY; 
+        isDragging = false; 
     };
-    instruction.style.color = textColors[validCountry];
-
-    // ★★★ 關鍵修復：改用 HTML 元素實現白光閃爍，保證100%可見且不會遮擋 3D 模型 ★★★
-    const flashDiv = document.createElement('div');
-    flashDiv.style.position = 'fixed';
-    flashDiv.style.top = '0'; flashDiv.style.left = '0';
-    flashDiv.style.width = '100vw'; flashDiv.style.height = '100vh';
-    flashDiv.style.backgroundColor = 'white';
-    flashDiv.style.opacity = '0';
-    flashDiv.style.zIndex = '9999';
-    flashDiv.style.pointerEvents = 'none';
-    document.body.appendChild(flashDiv);
-
-    let photos = 0;
-    let canSnap = true;
-
-    return (obj) => {
-        if (!canSnap) return;
-        canSnap = false;
-        photos++;
-
-        // 觸發純 HTML 閃光特效
-        gsap.killTweensOf(flashDiv);
-        flashDiv.style.opacity = '0.8';
-        gsap.to(flashDiv, {opacity: 0, duration: 0.3});
-        
-        create2DFeedback("咔嚓！", new THREE.Vector3((Math.random()-0.5)*15, 502 + Math.random()*5, 0), "#FFF");
-
-        if (photos >= 3) {
-            instruction.innerText = "回憶滿載，身心大滿足！";
-            instruction.style.color = "#E67E22";
-            
-            setTimeout(() => {
-                flashDiv.remove(); // 互動結束前清除 HTML 特效
-                onDone();
-            }, 1500);
+    const onUp = (e) => { 
+        if(Math.abs(e.clientX - downX) > 5 || Math.abs(e.clientY - downY) > 5) {
+            isDragging = true; 
         } else {
-            setTimeout(() => { canSnap = true; }, 400); 
+            isDragging = false;
         }
     };
-}
+    
+    window.addEventListener('pointerdown', onDown);
+    // 使用 capture 階段確保在觸發 interactionLogic 前執行
+    window.addEventListener('pointerup', onUp, true); 
 
+    let photosTaken = 0;
+    const maxPhotos = 3; // 拍 3 張後結束旅行
+    let isDeveloping = false; // 防止連續點擊
+
+    const countryNames = {
+        japan: "🇯🇵 Memories in Japan",
+        uk: "🇬🇧 Memories in UK",
+        korea: "🇰🇷 Memories in Korea",
+        china: "🇨🇳 Memories in China",
+        finland: "🇫🇮 Memories in Finland"
+    };
+
+    return (obj) => {
+        // 如果正在拖曳畫面、或者照片正在沖洗中，就忽略點擊
+        if (isDragging || isDeveloping) return;
+        
+        isDeveloping = true;
+        photosTaken++;
+
+        // 1. 閃光燈特效 (單純畫面閃白)
+        const flash = document.createElement('div');
+        flash.style.position = 'fixed';
+        flash.style.top = '0'; flash.style.left = '0';
+        flash.style.width = '100vw'; flash.style.height = '100vh';
+        flash.style.backgroundColor = 'white';
+        flash.style.zIndex = '9999';
+        flash.style.pointerEvents = 'none';
+        document.body.appendChild(flash);
+        gsap.to(flash, {opacity: 0, duration: 0.5, onComplete: () => flash.remove()});
+
+        // 2. ★ 擷取真實畫面：先強制渲染一幀，再轉成 Base64 圖片
+        renderer.render(scene, camera);
+        const imgData = renderer.domElement.toDataURL('image/png');
+
+        // 3. 建立拍立得 (Polaroid) UI 框架
+        const polaroid = document.createElement('div');
+        polaroid.style.position = 'fixed';
+        polaroid.style.bottom = '-60%'; // 藏在畫面下方
+        polaroid.style.left = '50%';
+        const rot = (Math.random() - 0.5) * 8; // 隨機微傾斜
+        polaroid.style.transform = `translateX(-50%) rotate(${rot}deg)`;
+        polaroid.style.width = '260px';
+        polaroid.style.padding = '15px 15px 60px 15px';
+        polaroid.style.backgroundColor = '#FAFAFA';
+        polaroid.style.boxShadow = '0 15px 35px rgba(0,0,0,0.4)';
+        polaroid.style.zIndex = '9998';
+        polaroid.style.borderRadius = '3px';
+
+        // 相片黑底區域
+        const photoContainer = document.createElement('div');
+        photoContainer.style.width = '100%';
+        photoContainer.style.height = '230px';
+        photoContainer.style.backgroundColor = '#111'; 
+        photoContainer.style.overflow = 'hidden';
+
+        // 真正的圖片
+        const photoImg = document.createElement('img');
+        photoImg.src = imgData;
+        photoImg.style.width = '100%';
+        photoImg.style.height = '100%';
+        photoImg.style.objectFit = 'cover';
+        photoImg.style.opacity = '0'; // 初始為透明
+        // 初始濾鏡：全灰階、低對比、高亮度 (模擬底片過曝感)
+        photoImg.style.filter = 'grayscale(100%) contrast(0.5) brightness(2)';
+        
+        photoContainer.appendChild(photoImg);
+        polaroid.appendChild(photoContainer);
+
+        // 拍立得下方的手寫字
+        const caption = document.createElement('div');
+        caption.innerText = countryNames[validCountry];
+        caption.style.fontFamily = "'Caveat', 'Comic Sans MS', cursive";
+        caption.style.fontSize = '18px';
+        caption.style.color = '#333';
+        caption.style.position = 'absolute';
+        caption.style.bottom = '18px';
+        caption.style.width = '100%';
+        caption.style.textAlign = 'center';
+        caption.style.left = '0';
+        polaroid.appendChild(caption);
+
+        document.body.appendChild(polaroid);
+
+        // 4. GSAP 沖洗動畫序列
+        const tl = gsap.timeline();
+        
+        // 拍立得從下方滑入畫面中央
+        tl.to(polaroid, { bottom: '15%', duration: 0.8, ease: 'back.out(1.1)' });
+        
+        // 圖片漸漸浮現
+        tl.to(photoImg, { opacity: 1, duration: 1.0 }, "+=0.2");
+        
+        // ★ 底片顯影效果 (利用自訂物件 proxy 控制濾鏡)
+        const filterObj = { progress: 0 };
+        tl.to(filterObj, {
+            progress: 100,
+            duration: 2.2,
+            onUpdate: () => {
+                const p = filterObj.progress / 100;
+                const gray = 100 - (p * 100);       // 灰階 -> 彩色
+                const cont = 0.5 + (p * 0.6);       // 對比增強
+                const bright = 2.0 - (p * 1.0);     // 亮度恢復正常
+                photoImg.style.filter = `grayscale(${gray}%) contrast(${cont}) brightness(${bright})`;
+            }
+        }, "<"); // 與透明度同時進行
+
+        // 展示一會兒後，向下滑出畫面
+        tl.to(polaroid, { bottom: '-60%', opacity: 0, duration: 0.8, ease: 'power2.in', delay: 1.2 });
+        
+        // 動畫結束清理
+        tl.call(() => {
+            polaroid.remove();
+            
+            if (photosTaken >= maxPhotos) {
+                // 結束旅行
+                window.removeEventListener('pointerdown', onDown);
+                window.removeEventListener('pointerup', onUp, true);
+                onDone();
+            } else {
+                // 允許拍下一張
+                isDeveloping = false;
+            }
+        });
+    };
+}
         
 // --------------------------------------------------------
 // 4. 各互動場景實作
@@ -5631,7 +5901,7 @@ function createNewYearReport(studentChanges) {
             <p style="font-size:12px; color:#666;">一趟美好的旅行將大幅提升你的心力上限與幸福感！</p>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px;">
                 <button onclick="startTravel('japan')" style="padding:15px; border:1px solid #ddd; background:#f9f9f9; border-radius:10px; font-weight:bold; cursor:pointer;">🇯🇵 日本</button>
-                <button onclick="startTravel('uk')" style="padding:15px; border:1px solid #ddd; background:#f9f9f9; border-radius:10px; font-weight:bold; cursor:pointer;">🇬🇧 英國</button>
+                <button onclick="startTravel('uk')" style="padding:15px; border:1px solid #ddd; background:#f9f9f9; border-radius:10px; font-weight:bold; cursor:pointer;">UK 英國</button>
                 <button onclick="startTravel('korea')" style="padding:15px; border:1px solid #ddd; background:#f9f9f9; border-radius:10px; font-weight:bold; cursor:pointer;">🇰🇷 韓國</button>
                 <button onclick="startTravel('china')" style="padding:15px; border:1px solid #ddd; background:#f9f9f9; border-radius:10px; font-weight:bold; cursor:pointer;">🇨🇳 中國</button>
                 <button onclick="startTravel('finland')" style="padding:15px; border:1px solid #ddd; background:#f9f9f9; border-radius:10px; font-weight:bold; cursor:pointer; grid-column: span 2;">🇫🇮 芬蘭 (極光之旅)</button>
