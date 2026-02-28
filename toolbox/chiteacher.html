@@ -3188,186 +3188,325 @@ function startInteractiveSession(type, onComplete, param = null) {
 
 // 1. 閱讀 (Constraint 5: 抽象文字頁面 + 明顯翻頁)
 function setupReadingInteraction(group, onDone) {
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.5, 32), new THREE.MeshStandardMaterial({color: 0xD3D4D0}));
-    table.position.y = -0.5;
-    group.add(table);
+    const isMobile = window.innerWidth < 800;
+    
+    // 手機版不僅縮小，還把整個房間向左移，讓右側的書桌進入畫面中央
+    if (isMobile) {
+        group.scale.set(0.85, 0.85, 0.85);
+        group.position.x = -2.5; 
+    }
 
+    // --- 1. 臥室空間基礎 ---
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({color: 0xB5A89D, roughness: 1}));
+    floor.rotation.x = -Math.PI / 2; floor.position.y = -0.5;
+    group.add(floor);
+
+    const wallMat = new THREE.MeshStandardMaterial({color: 0xA89B9D, roughness: 0.9});
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(40, 20, 1), wallMat);
+    backWall.position.set(0, 9.5, -12);
+    group.add(backWall);
+    const sideWall = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 40), wallMat);
+    sideWall.position.set(-15, 9.5, 0);
+    group.add(sideWall);
+
+    // 掛畫
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(6, 4, 0.2), new THREE.MeshStandardMaterial({color: 0xD5C4A1}));
+    const canvasMesh = new THREE.Mesh(new THREE.PlaneGeometry(5, 3), new THREE.MeshStandardMaterial({color: 0xFFFAFA}));
+    frame.position.set(-6, 8, -11.4);
+    canvasMesh.position.set(-6, 8, -11.29);
+    group.add(frame, canvasMesh);
+
+    // --- 2. 左側床鋪區 ---
+    const bedGroup = new THREE.Group();
+    bedGroup.position.set(-6.5, 0, -4);
+    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(8, 2, 12), new THREE.MeshStandardMaterial({color: 0x6E7C7C}));
+    bedFrame.position.y = 0.5;
+    const mattress = new THREE.Mesh(new THREE.BoxGeometry(7.6, 1.2, 11.6), new THREE.MeshStandardMaterial({color: 0xC89F9C, roughness: 1}));
+    mattress.position.y = 2.1;
+    const pillow = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 2.5), new THREE.MeshStandardMaterial({color: 0xFFFAFA}));
+    pillow.position.set(0, 2.9, -4);
+    pillow.rotation.x = 0.2;
+    bedGroup.add(bedFrame, mattress, pillow);
+    group.add(bedGroup);
+
+    // --- 3. 右側書桌區 ---
+    const deskGroup = new THREE.Group();
+    deskGroup.position.set(3.5, 0, -5); 
+    group.add(deskGroup);
+
+    // 書桌本體
+    const deskTop = new THREE.Mesh(new THREE.BoxGeometry(9, 0.4, 6), new THREE.MeshStandardMaterial({color: 0x8F775B}));
+    deskTop.position.y = 4; // 桌面高度 4.2
+    const deskLeg1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4, 5), new THREE.MeshStandardMaterial({color: 0x333333}));
+    deskLeg1.position.set(-4, 2, 0);
+    const deskLeg2 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4, 5), new THREE.MeshStandardMaterial({color: 0x333333}));
+    deskLeg2.position.set(4, 2, 0);
+    
+    // 書桌椅
+    const chairGroup = new THREE.Group();
+    chairGroup.position.set(0, 0, 4);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(3, 0.3, 3), new THREE.MeshStandardMaterial({color: 0x6E7C7C}));
+    seat.position.y = 2.2;
+    const chairLegs = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.2, 2.5), new THREE.MeshStandardMaterial({color: 0x333333, wireframe:true}));
+    chairLegs.position.y = 1.1;
+    const backrest = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 0.3), new THREE.MeshStandardMaterial({color: 0x6E7C7C}));
+    backrest.position.set(0, 3.3, 1.3);
+    chairGroup.add(seat, chairLegs, backrest);
+
+    // ★ 重新設計的檯燈 (復古莫蘭迪綠 + 霧面黃銅)
+   const lampGroup = new THREE.Group();
+    lampGroup.position.set(3, 4.2, -1.5); 
+    
+    // 材質設定
+    const matteBlackMat = new THREE.MeshStandardMaterial({color: 0x2C2C2C, roughness: 0.8}); // 啞黑金屬
+    const creamShadeMat = new THREE.MeshStandardMaterial({color: 0xF5E6D3, side: THREE.DoubleSide, roughness: 0.9}); // 霧面米白
+    
+    // 1. 底座 (輕薄扁平圓盤)
+    const lampBase = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.1, 32), matteBlackMat);
+    
+    // 2. 支架 (帶有現代感的前傾斜角)
+    const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.2, 16), matteBlackMat);
+    lampPole.position.set(-0.3, 1.1, 0);
+    lampPole.rotation.z = -0.25; // 往前傾斜
+    
+    // 3. 燈罩 (半圓頂罩子，Bauhaus 包浩斯風格)
+    // SphereGeometry 參數設置為半圓
+    const lampShade = new THREE.Mesh(new THREE.SphereGeometry(1.1, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), creamShadeMat);
+    lampShade.position.set(-0.55, 2.1, 0); // 配合支架傾斜的位置
+    lampShade.rotation.z = 0.2; // 讓燈罩微微回正，光線照向桌面
+    
+    // 4. 燈泡光暈 (溫暖的燈泡色)
+    const lampGlow = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), new THREE.MeshBasicMaterial({color: 0xFFE4B5, transparent: true, opacity: 0.8}));
+    lampGlow.position.set(-0.55, 1.8, 0);
+    
+    lampGroup.add(lampBase, lampPole, lampShade, lampGlow);
+
+    deskGroup.add(deskTop, deskLeg1, deskLeg2, chairGroup, lampGroup);
+
+    // --- 4. 書本 ---
     const bookGroup = new THREE.Group();
-    group.add(bookGroup);
+    bookGroup.position.set(0, 4.2, 0); 
+    bookGroup.scale.set(0.55, 0.55, 0.55); 
+    deskGroup.add(bookGroup);
 
-    // 書皮
-    const coverMat = new THREE.MeshStandardMaterial({ color: 0x6E7C7C, roughness: 0.8 });
-    const coverGeo = new THREE.BoxGeometry(6.2, 0.2, 4.2);
-    const cover = new THREE.Mesh(coverGeo, coverMat);
-    cover.position.y = 0.1;
+    const coverMat = new THREE.MeshStandardMaterial({ color: 0x4A6B6B, roughness: 0.8 });
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.2, 4.2), coverMat);
     bookGroup.add(cover);
 
-    // --- 製作抽象文字貼圖 ---
-    const createPageTexture = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 256; canvas.height = 256;
-        const ctx = canvas.getContext('2d');
-        
-        // 背景微黃
-        ctx.fillStyle = '#FFFAFA'; 
-        ctx.fillRect(0, 0, 256, 256);
-        
-        // 繪製抽象線條 (模擬文字)
+    const createPageTex = () => {
+        const cvs = document.createElement('canvas'); cvs.width=256; cvs.height=256;
+        const ctx = cvs.getContext('2d');
+        ctx.fillStyle = '#FFF8EB'; ctx.fillRect(0,0,256,256); 
         ctx.fillStyle = '#333';
-        const lineHeight = 12;
-        for(let y = 20; y < 240; y += lineHeight * 1.5) {
-            let x = 20;
-            while(x < 230) {
-                const wordWidth = Math.random() * 30 + 5;
-                if (x + wordWidth > 236) break;
-                // 畫一條灰線代表文字
-                ctx.fillRect(x, y, wordWidth, 4);
-                x += wordWidth + 8;
+        for(let y=20; y<240; y+=18) {
+            let x=20;
+            while(x<230) {
+                let w = Math.random()*30+5; if(x+w>236) break;
+                ctx.fillRect(x, y, w, 4); x+=w+8;
             }
         }
-        
-        // 加上頁碼
-        ctx.font = '10px Arial';
-        ctx.fillText('-', 120, 250);
-        
-        return new THREE.CanvasTexture(canvas);
+        return new THREE.CanvasTexture(cvs);
     };
-    const pageTex = createPageTexture();
-
-    // 頁面材質 (使用貼圖)
-    const pageMat = new THREE.MeshStandardMaterial({ 
-        map: pageTex,
-        roughness: 0.5,
-        side: THREE.DoubleSide // 確保雙面可見
-    });
-    // 側面材質 (純白，模擬紙張厚度)
+    const pageMat = new THREE.MeshStandardMaterial({ map: createPageTex(), side: THREE.DoubleSide });
     const sideMat = new THREE.MeshStandardMaterial({ color: 0xEEEEEE });
-    const bookMaterials = [sideMat, sideMat, pageMat, sideMat, sideMat, sideMat]; // 只有 Top 面有字
+    const bookMaterials = [sideMat, sideMat, pageMat, sideMat, sideMat, sideMat];
 
-    // 左側堆疊
     const leftStack = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.3, 3.8), bookMaterials);
-    leftStack.position.set(-1.5, 0.35, 0);
-    bookGroup.add(leftStack);
-
-    // 右側堆疊
+    leftStack.position.set(-1.5, 0.25, 0); bookGroup.add(leftStack);
     const rightStack = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.3, 3.8), bookMaterials);
-    rightStack.position.set(1.5, 0.35, 0);
-    bookGroup.add(rightStack);
+    rightStack.position.set(1.5, 0.25, 0); bookGroup.add(rightStack);
 
-    // 翻動的頁面 (Pivot Group)
     const pagePivot = new THREE.Group();
-    pagePivot.position.set(0, 0.35, 0); 
+    pagePivot.position.set(0, 0.25, 0); 
     bookGroup.add(pagePivot);
-    
-    // 翻動頁本體 (雙面都有字)
-    const flyPageGeo = new THREE.BoxGeometry(2.9, 0.02, 3.8); // 很薄
-    const flyPage = new THREE.Mesh(flyPageGeo, [sideMat, sideMat, pageMat, pageMat, sideMat, sideMat]); // Top & Bottom 都有字
+    const flyPage = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.02, 3.8), [sideMat, sideMat, pageMat, pageMat, sideMat, sideMat]);
     flyPage.position.set(1.45, 0, 0); 
     pagePivot.add(flyPage);
 
-    // 2D 文字
-    const labelPos = new THREE.Vector3(0, 502, -2);
-    const instruction = create2DLabel("點擊翻書 (3次)", labelPos, "#6E7C7C");
+    // 點擊框防護
+    const hitBox = new THREE.Mesh(new THREE.BoxGeometry(16, 12, 12), new THREE.MeshBasicMaterial({visible: false}));
+    hitBox.position.set(0, 2, 0);
+    hitBox.userData = { isBook: true };
+    bookGroup.add(hitBox);
+
+    // 2D 提示文字位置防溢出
+    const labelPos = new THREE.Vector3();
+    bookGroup.getWorldPosition(labelPos);
+    labelPos.y += 6; // 將 3 改成 6 (數字越大，文字位置就越高)
+    if (isMobile) {
+        labelPos.x -= 2.0; 
+    }
+    const instruction = create2DLabel("點擊書本翻頁 (3次)", labelPos, "#6E7C7C");
 
     let flips = 0;
     let isAnimating = false;
 
     return (obj) => {
         if (isAnimating) return;
-        isAnimating = true;
+        
+        let isHit = false;
+        let target = obj;
+        while(target) {
+            if(target.userData && target.userData.isBook) isHit = true;
+            if(target === bookGroup) isHit = true;
+            target = target.parent;
+        }
+        if(!isHit) return;
 
-        // 重置頁面角度到右邊
+        isAnimating = true;
         pagePivot.rotation.z = 0;
         
-        // 翻頁動畫
         gsap.to(pagePivot.rotation, { 
-            z: Math.PI - 0.1, // 翻到左邊
+            z: Math.PI - 0.1, 
             duration: 0.6, 
             ease: "power2.inOut",
             onComplete: () => {
-                // 瞬間重置回右邊 (模擬下一頁準備好)
                 pagePivot.rotation.z = 0;
                 isAnimating = false;
                 flips++;
                 
-                create2DFeedback("知識 +1", new THREE.Vector3(2, 503, 0), "#8F9E8B");
+                const textPos = new THREE.Vector3();
+                bookGroup.getWorldPosition(textPos);
+                create2DFeedback("知識 +1", new THREE.Vector3(textPos.x-1, textPos.y+2, textPos.z), "#8F9E8B");
                 
                 if (flips >= 3) {
-                    instruction.innerText = "閱畢";
+                    instruction.innerText = "閱畢合卷";
                     instruction.style.color = "#8F9E8B";
-                    setTimeout(onDone, 600);
+                    setTimeout(onDone, 800);
                 }
             }
         });
     };
 }
-
 // ==========================================
 // 3. 吃飯互動 (高擬真壽司定食)
 // ==========================================
 function setupDinnerInteraction(group, onDone) {
-    // 莫蘭迪桌面
-    const table = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 8), new THREE.MeshStandardMaterial({color: 0xD5C4A1}));
-    table.position.y = -0.5;
-    group.add(table);
+    const isMobile = window.innerWidth < 800;
+    if (isMobile) group.scale.set(0.9, 0.9, 0.9);
+
+    // --- 1. 居酒屋空間 ---
+    // 榻榻米感地板 (莫蘭迪鼠尾草綠)
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({color: 0x9FA39A, roughness: 1}));
+    floor.rotation.x = -Math.PI / 2; floor.position.y = -0.5;
+    group.add(floor);
+
+    // 木質背牆
+    const woodMat = new THREE.MeshStandardMaterial({color: 0x8B7355, roughness: 0.9});
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(40, 20, 1), woodMat);
+    backWall.position.set(0, 9.5, -12);
+    group.add(backWall);
+
+    // 障子拉門 (側牆) - 用幾何交錯製作
+    const shojiGroup = new THREE.Group();
+    shojiGroup.position.set(-15, 0, 0);
+    const shojiPaper = new THREE.Mesh(new THREE.BoxGeometry(0.5, 20, 40), new THREE.MeshStandardMaterial({color: 0xFFFAFA, transparent: true, opacity: 0.8}));
+    shojiPaper.position.y = 9.5;
+    shojiGroup.add(shojiPaper);
+    const gridMat = new THREE.MeshStandardMaterial({color: 0x5C4033});
+    for(let y=1; y<=18; y+=3) {
+        const hGrid = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 40), gridMat);
+        hGrid.position.y = y; shojiGroup.add(hGrid);
+    }
+    for(let z=-18; z<=18; z+=4) {
+        const vGrid = new THREE.Mesh(new THREE.BoxGeometry(0.8, 20, 0.2), gridMat);
+        vGrid.position.set(0, 9.5, z); shojiGroup.add(vGrid);
+    }
+    group.add(shojiGroup);
+
+    // 和風吊燈
+    const lampCord = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 6, 8), new THREE.MeshStandardMaterial({color: 0x333333}));
+    lampCord.position.set(0, 12, 0);
+    const lampShade = new THREE.Mesh(new THREE.CylinderGeometry(2, 2.5, 2, 8, 1, true), new THREE.MeshStandardMaterial({color: 0xFFFAFA, side: THREE.DoubleSide}));
+    lampShade.position.set(0, 9, 0);
+    const lampLight = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), new THREE.MeshBasicMaterial({color: 0xFFD700, transparent: true, opacity: 0.7}));
+    lampLight.position.set(0, 8.8, 0);
+    group.add(lampCord, lampShade, lampLight);
+
+    // --- 2. 傢俱與桌面佈置 ---
+    // 日式矮桌
+    const tableTop = new THREE.Mesh(new THREE.BoxGeometry(12, 0.6, 8), new THREE.MeshStandardMaterial({color: 0x6E5C47, roughness: 0.8}));
+    tableTop.position.set(0, 2.3, 0);
+    const tableLeg1 = new THREE.Mesh(new THREE.BoxGeometry(9, 2.5, 0.6), new THREE.MeshStandardMaterial({color: 0x4A3728}));
+    tableLeg1.position.set(-4, 1, 0); tableLeg1.rotation.y = Math.PI/2;
+    const tableLeg2 = new THREE.Mesh(new THREE.BoxGeometry(9, 2.5, 0.6), new THREE.MeshStandardMaterial({color: 0x4A3728}));
+    tableLeg2.position.set(4, 1, 0); tableLeg2.rotation.y = Math.PI/2;
+    group.add(tableTop, tableLeg1, tableLeg2);
+
+    // 座墊 (對面朋友的與你的)
+    const cushionMat = new THREE.MeshStandardMaterial({color: 0x8C9E9E}); // 灰綠色座墊
+    const c1 = new THREE.Mesh(new THREE.BoxGeometry(3, 0.4, 3), cushionMat); c1.position.set(0, -0.3, -6);
+    const c2 = new THREE.Mesh(new THREE.BoxGeometry(3, 0.4, 3), cushionMat); c2.position.set(0, -0.3, 6);
+    group.add(c1, c2);
+
+    // 茶杯
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.25, 0.6, 16), new THREE.MeshStandardMaterial({color: 0xD3D4D0}));
+    cup.position.set(4, 2.9, 2);
+    group.add(cup);
 
     // 壽司木板
-    const board = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 4), new THREE.MeshStandardMaterial({color: 0x8F775B}));
-    board.position.y = 0;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(7, 0.2, 4), new THREE.MeshStandardMaterial({color: 0xDEB887}));
+    board.position.set(0, 2.7, 0);
     group.add(board);
 
-    // 建立單件壽司的輔助函數
+    // 建立單件壽司
     const createSushi = (x, z, color, name) => {
         const sushiGroup = new THREE.Group();
-        sushiGroup.position.set(x, 0.1, z);
+        sushiGroup.position.set(x, 2.8, z);
 
-        // 飯糰 (白色長方微圓角)
-        const rice = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 0.6), new THREE.MeshStandardMaterial({color: 0xFFFAFA, roughness: 1.0}));
-        rice.position.y = 0.25;
-
-        // 刺身/配料 (覆蓋在飯上)
-        const topping = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.2, 0.7), new THREE.MeshStandardMaterial({color: color}));
-        topping.position.y = 0.6;
+        const rice = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.7), new THREE.MeshStandardMaterial({color: 0xFFFAFA, roughness: 1.0}));
+        rice.position.y = 0.3;
+        const topping = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.2, 0.8), new THREE.MeshStandardMaterial({color: color}));
+        topping.position.y = 0.7;
 
         sushiGroup.add(rice, topping);
-        sushiGroup.userData = { isFood: true, name: name };
+        
+        // 隱形點擊框
+        const hitBox = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3), new THREE.MeshBasicMaterial({visible: false}));
+        hitBox.position.y = 0.5;
+        hitBox.userData = { isFood: true, name: name };
+        sushiGroup.add(hitBox);
+
         return sushiGroup;
     };
 
     // 擺放三件莫蘭迪色系壽司 (鮭魚、玉子、鮪魚)
-    const s1 = createSushi(-1.8, 0, 0xE08A8A, "鮭魚壽司");
+    const s1 = createSushi(-2.2, 0, 0xE08A8A, "鮭魚壽司");
     const s2 = createSushi(0, 0, 0xD4A017, "玉子燒壽司");
-    const s3 = createSushi(1.8, 0, 0xC47B7B, "鮪魚壽司");
-    board.add(s1, s2, s3);
+    const s3 = createSushi(2.2, 0, 0xC47B7B, "鮪魚壽司");
+    group.add(s1, s2, s3);
 
-    const labelPos = new THREE.Vector3(0, 503, -3);
-    const instruction = create2DLabel("點擊壽司享用", labelPos, "#6E7C7C");
+    // --- 3. 互動邏輯 ---
+    const labelPos = new THREE.Vector3(0, 509, -2);
+    const instruction = create2DLabel("點擊壽司享用", labelPos, "#D5C4A1");
 
     let eatenCount = 0;
     return (obj) => {
-        // 尋找被點擊的壽司 Group
         let target = obj;
-        while(target.parent && !target.userData.isFood && target.parent !== group) {
+        let isHit = false;
+        while(target && target.parent && target.parent !== group) {
+            if (target.userData && target.userData.isFood) {
+                isHit = true; break;
+            }
             target = target.parent;
         }
 
-        if (target && target.userData.isFood) {
-            // 吃掉動畫
-            gsap.to(target.scale, { x: 0, y: 0, z: 0, duration: 0.3, ease: "back.in" });
+        if (isHit) {
+            const sushiGroup = target.parent;
+            // 縮小吃掉
+            gsap.to(sushiGroup.scale, { x: 0, y: 0, z: 0, duration: 0.3, ease: "back.in" });
             
-            // 獲取實際座標顯示文字
-            const worldPos = new THREE.Vector3();
-            target.getWorldPosition(worldPos);
-            // 微調 y 軸讓文字浮在原本上方
-            create2DFeedback("Yummy!", new THREE.Vector3(worldPos.x, 502, worldPos.z), "#D2691E");
+            const pos = new THREE.Vector3();
+            sushiGroup.getWorldPosition(pos);
+            create2DFeedback("Oishii!", new THREE.Vector3(pos.x, pos.y + 502, pos.z), "#E08A8A");
             
-            target.userData.isFood = false; 
+            target.userData.isFood = false; // 避免重複點擊
             eatenCount++;
             
             if (eatenCount >= 3) {
-                instruction.innerText = "多謝款待";
+                instruction.innerText = "多謝款待，聊得真開心";
                 instruction.style.color = "#8F9E8B";
-                setTimeout(onDone, 800);
+                setTimeout(onDone, 1000);
             }
         }
     };
@@ -3527,64 +3666,153 @@ function setupMovieInteraction(group, onDone) {
 // 4. 購物
 // 4. 購物 (修改為扁平紙袋設計)
 function setupShoppingInteraction(group, onDone) {
-    const labelPos = new THREE.Vector3(0, 504, -2);
-    const instruction = create2DLabel("點擊購物袋", labelPos);
+    const isMobile = window.innerWidth < 800;
+    if (isMobile) group.scale.set(0.9, 0.9, 0.9);
+
+    // --- 1. 精品店空間與裝潢 ---
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({color: 0xD3D4D0, roughness: 0.3}));
+    floor.rotation.x = -Math.PI / 2; floor.position.y = -0.5;
+    group.add(floor);
+
+    const rug = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 0.1, 32), new THREE.MeshStandardMaterial({color: 0xC89F9C, roughness: 1}));
+    rug.position.set(0, -0.4, 0);
+    rug.scale.z = 0.7; 
+    group.add(rug);
+
+    const wallMat = new THREE.MeshStandardMaterial({color: 0xE0CDCF, roughness: 0.9});
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(40, 20, 1), wallMat);
+    backWall.position.set(0, 9.5, -12);
+    group.add(backWall);
+    const sideWall = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 40), wallMat);
+    sideWall.position.set(-15, 9.5, 0);
+    group.add(sideWall);
+
+    // --- 2. 豐富的店內設施 ---
+    const goldMat = new THREE.MeshStandardMaterial({color: 0xD4A017, metalness: 0.8, roughness: 0.2});
+    const darkWoodMat = new THREE.MeshStandardMaterial({color: 0x4A3728, roughness: 0.8});
+
+    // A. 展示櫃
+    const shelfGroup = new THREE.Group();
+    shelfGroup.position.set(6, 0, -11);
+    const shelfBack = new THREE.Mesh(new THREE.BoxGeometry(10, 14, 0.5), darkWoodMat);
+    shelfBack.position.y = 7;
+    shelfGroup.add(shelfBack);
+    const itemColors = [0x8C9E9E, 0x8B7355, 0xFFFAFA, 0x333333];
+    for(let i=1; i<=3; i++) {
+        const board = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.2, 2), goldMat);
+        board.position.set(0, i * 4, 1);
+        shelfGroup.add(board);
+        
+        const item1 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshStandardMaterial({color: itemColors[i]}));
+        item1.position.set(-2.5, i*4 + 0.85, 1);
+        const item2 = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 1), new THREE.MeshStandardMaterial({color: itemColors[(i+1)%4]}));
+        item2.position.set(2.5, i*4 + 0.6, 1);
+        shelfGroup.add(item1, item2);
+    }
+    group.add(shelfGroup);
+
+    // B. 全身立鏡
+    const mirrorGroup = new THREE.Group();
+    mirrorGroup.position.set(-5, 0, -11);
+    mirrorGroup.rotation.y = Math.PI / 8; 
+    const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(4.5, 12, 0.4), goldMat);
+    mirrorFrame.position.y = 6;
+    const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(4, 11.5), new THREE.MeshStandardMaterial({color: 0x7B9ACC, metalness: 0.8, roughness: 0.1}));
+    mirrorGlass.position.set(0, 6, 0.21);
+    mirrorGroup.add(mirrorFrame, mirrorGlass);
+    group.add(mirrorGroup);
+
+    // C. 掛衣桿
+    const rackPole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 10, 16), goldMat);
+    rackPole.rotation.x = Math.PI/2; rackPole.position.set(-14, 7, -2);
+    group.add(rackPole);
+    for(let i=0; i<4; i++) {
+        const cloth = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 4, 4), new THREE.MeshStandardMaterial({color: itemColors[i]}));
+        cloth.rotation.y = Math.PI/4; cloth.scale.z = 0.2; 
+        cloth.position.set(-13.5, 4.5, -6 + i*2.5);
+        group.add(cloth);
+    }
+
+    // D. 更衣室布簾
+    const curtain = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 14, 16, 1, true, 0, Math.PI * 1.2), new THREE.MeshStandardMaterial({color: 0x8C9E9E, side: THREE.DoubleSide}));
+    curtain.position.set(-11, 7, -11);
+    group.add(curtain);
+
+    // ★ E. 重新設計的展示中島桌 (深胡桃木色桌面 + 金色金屬腳)
+    const tableTop = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 6), new THREE.MeshStandardMaterial({color: 0x3E2723, roughness: 0.6}));
+    tableTop.position.set(0, 3.3, 0); // 桌面高度 3.6
+    
+    // 金色金屬支架
+    const legGeo = new THREE.CylinderGeometry(0.15, 0.15, 3, 16);
+    const leg1 = new THREE.Mesh(legGeo, goldMat); leg1.position.set(-4.5, 1.5, -2.5);
+    const leg2 = new THREE.Mesh(legGeo, goldMat); leg2.position.set(4.5, 1.5, -2.5);
+    const leg3 = new THREE.Mesh(legGeo, goldMat); leg3.position.set(-4.5, 1.5, 2.5);
+    const leg4 = new THREE.Mesh(legGeo, goldMat); leg4.position.set(4.5, 1.5, 2.5);
+    
+    group.add(tableTop, leg1, leg2, leg3, leg4);
+
+    // --- 3. 購物紙袋掉落邏輯 ---
+    const labelPos = new THREE.Vector3(0, 510, -3);
+    const instruction = create2DLabel("點擊搶購紙袋", labelPos);
 
     let caught = 0;
     const maxBags = 4;
+    const bagColors = [0xA65E5E, 0x4E6C50, 0x667C89, 0xD4A017, 0xB5A89D];
 
     const spawnBag = () => {
         if (caught >= maxBags) return;
-
         const bagGroup = new THREE.Group();
         
-        // ========== 將包包變薄的魔法 ==========
-        const bagGeo = new THREE.CylinderGeometry(0.8, 0.6, 1.2, 4);
-        bagGeo.rotateY(Math.PI / 4); // 先旋轉幾何體，讓平面對齊視角
-        bagGeo.scale(1.1, 1.0, 0.3); // X微加寬，Z大幅壓扁 (變成只有 30% 厚度)，形成紙袋的扁平狀
+        const bagGeo = new THREE.CylinderGeometry(1.2, 1.0, 1.8, 4);
+        bagGeo.rotateY(Math.PI / 4); 
+        bagGeo.scale(1.2, 1.0, 0.3); 
         
-        const color = getMorandiColor();
-        const bagMat = new THREE.MeshStandardMaterial({ color: color, flatShading: true });
+        const colorHex = bagColors[Math.floor(Math.random() * bagColors.length)];
+        const bagMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.8, flatShading: true });
         const bag = new THREE.Mesh(bagGeo, bagMat);
         
-        // 把手稍微加寬，匹配現在的提袋寬度
-        const handle = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.03, 8, 16, Math.PI), new THREE.MeshStandardMaterial({color: 0x333333}));
-        handle.position.y = 0.6;
-        
+        const handle = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.04, 8, 16, Math.PI), new THREE.MeshStandardMaterial({color: 0x222222}));
+        handle.position.y = 0.9;
         bagGroup.add(bag, handle);
         
-        bagGroup.position.set((Math.random()-0.5)*8, 8, (Math.random()-0.5)*2);
-        bagGroup.userData = { isBag: true };
+        bagGroup.position.set((Math.random()-0.5)*7, 15, (Math.random()-0.5)*3);
+        
+        // ★ 放大紙袋的點擊判定框
+        const hitBox = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 8), new THREE.MeshBasicMaterial({visible: false}));
+        hitBox.userData = { isBag: true };
+        bagGroup.add(hitBox);
         group.add(bagGroup);
 
-        // 掉落動畫
-        gsap.to(bagGroup.position, { y: -4, duration: 2.5, ease: "power1.in", onComplete: () => {
+        // ★ 紙袋落在桌面上 (桌面y=3.6，紙袋中心約距底0.9，所以 3.6+0.9 = 4.5)
+        gsap.to(bagGroup.position, { y: 4.5, duration: 2.0, ease: "bounce.out", onComplete: () => {
             if (group.children.includes(bagGroup)) {
                 group.remove(bagGroup);
                 if (caught < maxBags) spawnBag();
             }
         }});
-        
-        // 替換原本的自轉，改為優雅地左右飄落搖擺，更符合紙袋的輕盈感
-        gsap.to(bagGroup.rotation, { 
-            y: (Math.random() - 0.5) * 1.0, 
-            z: (Math.random() - 0.5) * 0.4,
-            duration: 2.5 
-        });
+        gsap.to(bagGroup.rotation, { y: (Math.random()-0.5), z: (Math.random()-0.5)*0.4, duration: 2.0 });
     };
 
     spawnBag();
 
     return (obj) => {
         let target = obj;
-        while(target.parent && target.parent !== group) target = target.parent;
+        while(target && target.parent && target.parent !== group) {
+            if (target.userData && target.userData.isBag) break;
+            target = target.parent;
+        }
 
-        if (target.userData.isBag) {
-            create2DFeedback("Get!", target.position, "#C89F9C");
-            group.remove(target);
+        if (target && target.userData && target.userData.isBag) {
+            const bagGroup = target.parent;
+            const pos = new THREE.Vector3();
+            bagGroup.getWorldPosition(pos);
+            create2DFeedback("結帳！", new THREE.Vector3(pos.x, pos.y + 502, pos.z), "#D4A017");
+            
+            group.remove(bagGroup);
             caught++;
             if (caught >= maxBags) {
                 instruction.innerText = "滿載而歸";
+                instruction.style.color = "#D4A017";
                 setTimeout(onDone, 800);
             } else {
                 spawnBag();
