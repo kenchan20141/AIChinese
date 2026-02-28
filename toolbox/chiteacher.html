@@ -3971,45 +3971,172 @@ function setupSleepInteraction(group, onDone) {
 }
 
 // 7. 運動 (舉啞鈴)
+// 替換原有的 setupSportInteraction
 function setupSportInteraction(group, onDone) {
-    // 地板
-    const mat = new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 8), new THREE.MeshStandardMaterial({color: 0x8C9E9E}));
-    mat.position.y = -0.5;
-    group.add(mat);
-
-    // 啞鈴
-    const dumbbell = new THREE.Group();
-    // 握把
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 5, 16), new THREE.MeshStandardMaterial({color: 0x6E7C7C}));
-    bar.rotation.z = Math.PI / 2;
-    // 重片
-    const wGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.4, 32);
-    const wMat = new THREE.MeshStandardMaterial({color: 0x333333});
-    const w1 = new THREE.Mesh(wGeo, wMat); w1.rotation.z = Math.PI/2; w1.position.x = -2;
-    const w2 = new THREE.Mesh(wGeo, wMat); w2.rotation.z = Math.PI/2; w2.position.x = 2;
-    dumbbell.add(bar, w1, w2);
+    const isMobile = window.innerWidth < 800;
     
-    group.add(dumbbell);
+    // --- 0. 響應式場景微調 ---
+    if (isMobile) {
+        group.scale.set(0.9, 0.9, 0.9);
+    }
 
-    create3DText("點擊舉重 (5下)", group, 0, 4, -3, 0xD5C4A1);
+    // --- 1. 健身室空間基礎 ---
+    // 深灰橡膠地板
+    const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(40, 40), 
+        new THREE.MeshStandardMaterial({color: 0x4F5454, roughness: 0.9})
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.5;
+    group.add(floor);
+
+    // 莫蘭迪牆面 (背牆與側牆，營造角落透視感)
+    const wallMat = new THREE.MeshStandardMaterial({color: 0xD3D4D0, roughness: 0.8});
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(40, 20, 1), wallMat);
+    backWall.position.set(0, 9.5, -12);
+    group.add(backWall);
+
+    const sideWall = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 40), wallMat);
+    sideWall.position.set(-15, 9.5, 0);
+    group.add(sideWall);
+
+    // 大面半反射鏡子 (貼在背牆上，健身室必備)
+    const mirror = new THREE.Mesh(
+        new THREE.PlaneGeometry(24, 10), 
+        new THREE.MeshStandardMaterial({color: 0x7B9ACC, metalness: 0.6, roughness: 0.2})
+    );
+    mirror.position.set(0, 6, -11.4);
+    group.add(mirror);
+
+    // 鏡子黑色邊框
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(24.5, 10.5, 0.2), new THREE.MeshStandardMaterial({color: 0x333333}));
+    frame.position.set(0, 6, -11.45);
+    group.add(frame);
+
+    // --- 2. 背景裝飾物 ---
+    // 啞鈴架 (放置於左後方)
+    const rackGroup = new THREE.Group();
+    rackGroup.position.set(-8, 0, -8);
+    const rackLegMat = new THREE.MeshStandardMaterial({color: 0x222222});
+    
+    const leg1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6, 2), rackLegMat); leg1.position.set(-4, 2.5, 0);
+    const leg2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6, 2), rackLegMat); leg2.position.set(4, 2.5, 0);
+    const shelf1 = new THREE.Mesh(new THREE.BoxGeometry(8, 0.3, 1.5), rackLegMat); shelf1.position.set(0, 2, 0.2); shelf1.rotation.x = 0.2;
+    const shelf2 = new THREE.Mesh(new THREE.BoxGeometry(8, 0.3, 1.5), rackLegMat); shelf2.position.set(0, 4, 0.2); shelf2.rotation.x = 0.2;
+    rackGroup.add(leg1, leg2, shelf1, shelf2);
+    
+    // 放幾個小啞鈴在架子上
+    const smallDbMat = new THREE.MeshStandardMaterial({color: 0x111111});
+    for(let i=0; i<4; i++) {
+        const sd1 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.8, 16), smallDbMat); 
+        sd1.rotation.z = Math.PI/2; sd1.position.set(-3 + i*2, 2.3, 0.2);
+        
+        const sd2 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.8, 16), smallDbMat); 
+        sd2.rotation.z = Math.PI/2; sd2.position.set(-3 + i*2, 4.3, 0.2);
+        
+        rackGroup.add(sd1, sd2);
+    }
+    group.add(rackGroup);
+
+    // 療癒盆栽 (放置於右後方)
+    const plantPot = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.7, 2, 16), new THREE.MeshStandardMaterial({color: 0xE0CDCF}));
+    plantPot.position.set(10, 0.5, -9);
+    const plantLeaf = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5), new THREE.MeshStandardMaterial({color: 0x7C9473, flatShading: true}));
+    plantLeaf.position.set(10, 3, -9);
+    group.add(plantPot, plantLeaf);
+
+    // --- 3. 互動主體：臥推椅與大槓鈴 ---
+    // 臥推椅 (Bench)
+    const benchGroup = new THREE.Group();
+    // 莫蘭迪髒粉紅墊子
+    const benchPad = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 8), new THREE.MeshStandardMaterial({color: 0xC89F9C, roughness: 0.9})); 
+    benchPad.position.set(0, 1.5, 0);
+    const benchLeg1 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), rackLegMat); benchLeg1.position.set(0, 0.25, 2.5);
+    const benchLeg2 = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), rackLegMat); benchLeg2.position.set(0, 0.25, -2.5);
+    
+    // 臥推架柱子
+    const upright1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 5, 0.5), rackLegMat); upright1.position.set(-2, 2, -2.5);
+    const upright2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 5, 0.5), rackLegMat); upright2.position.set(2, 2, -2.5);
+    benchGroup.add(benchPad, benchLeg1, benchLeg2, upright1, upright2);
+    group.add(benchGroup);
+
+    // 槓鈴 (Barbell)
+    const barbell = new THREE.Group();
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 8, 16), new THREE.MeshStandardMaterial({color: 0xAAAAAA, metalness: 0.8}));
+    bar.rotation.z = Math.PI / 2;
+    
+    const plateMat = new THREE.MeshStandardMaterial({color: 0x333333, roughness: 0.8});
+    const wL1 = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.3, 32), plateMat); wL1.rotation.z = Math.PI/2; wL1.position.x = -2.5;
+    const wL2 = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.3, 32), plateMat); wL2.rotation.z = Math.PI/2; wL2.position.x = 2.5;
+    const wM1 = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.3, 32), plateMat); wM1.rotation.z = Math.PI/2; wM1.position.x = -2.9;
+    const wM2 = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.3, 32), plateMat); wM2.rotation.z = Math.PI/2; wM2.position.x = 2.9;
+    
+    const lockMat = new THREE.MeshStandardMaterial({color: 0xCC0000}); // 紅色安全鎖扣
+    const lock1 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.2, 16), lockMat); lock1.rotation.z = Math.PI/2; lock1.position.x = -3.2;
+    const lock2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.2, 16), lockMat); lock2.rotation.z = Math.PI/2; lock2.position.x = 3.2;
+
+    barbell.add(bar, wL1, wL2, wM1, wM2, lock1, lock2);
+    barbell.position.set(0, 4.6, -2.5); // 初始放在柱子上
+    group.add(barbell);
+
+    // 點擊判定隱形框 (避免槓鈴太細點不到)
+    const hitBox = new THREE.Mesh(new THREE.BoxGeometry(9, 4, 4), new THREE.MeshBasicMaterial({visible: false}));
+    hitBox.position.copy(barbell.position);
+    hitBox.userData = { isBarbell: true };
+    group.add(hitBox);
+
+    // --- 4. 互動邏輯與 2D 標籤 ---
+    const labelPos = new THREE.Vector3(0, 508, -2.5);
+    const instruction = create2DLabel("點擊臥推 (5下)", labelPos, "#D5C4A1");
 
     let reps = 0;
     let isLifting = false;
 
     return (obj) => {
         if (isLifting) return;
+        
+        // 檢查是否點擊到槓鈴或其透明判定框
+        let isHit = false;
+        let target = obj;
+        while(target) {
+            if(target.userData && target.userData.isBarbell) isHit = true;
+            if(target === barbell) isHit = true;
+            target = target.parent;
+        }
+
+        if (!isHit) return;
+
         isLifting = true;
         reps++;
 
-        // 舉重動作
-        gsap.to(dumbbell.position, { y: 3, duration: 0.4, ease: "power2.out", yoyo: true, repeat: 1, onComplete: () => {
-            isLifting = false;
-            createFloatingText(reps.toString(), group, 0, 3, 0);
-            if (reps >= 5) {
-                create3DText("燃燒！", group, 0, 4, 0, 0xC0392B);
-                setTimeout(onDone, 600);
+        // 第一下：先把槓鈴移出架子，對準胸口位置
+        if (reps === 1) {
+            gsap.to([barbell.position, hitBox.position], { z: 0, y: 3.8, duration: 0.3, ease: "power1.inOut" });
+        }
+
+        // 臥推動作：下降 -> 推起
+        const tl = gsap.timeline({
+            onComplete: () => {
+                isLifting = false;
+                
+                const textPos = new THREE.Vector3();
+                barbell.getWorldPosition(textPos);
+                create2DFeedback(reps.toString(), new THREE.Vector3(textPos.x, textPos.y + 502, textPos.z), "#fff");
+                
+                if (reps >= 5) {
+                    // 放回架上
+                    gsap.to([barbell.position, hitBox.position], { z: -2.5, y: 4.6, duration: 0.4, ease: "power1.inOut" });
+                    instruction.innerText = "力竭燃燒！";
+                    instruction.style.color = "#C0392B";
+                    setTimeout(onDone, 800);
+                }
             }
-        }});
+        });
+
+        // 離心下降 (慢)
+        tl.to([barbell.position, hitBox.position], { y: 2.2, duration: 0.5, ease: "power1.inOut" });
+        // 向心推起 (快)
+        tl.to([barbell.position, hitBox.position], { y: 3.8, duration: 0.3, ease: "power2.out" });
     };
 }
 
