@@ -3089,11 +3089,11 @@ function startInteractiveSession(type, onComplete, param = null) {
     savedCameraState.pos.copy(camera.position);
     savedCameraState.target.copy(controls.target);
 
-    // ★★★ 關鍵修改：記錄當前是否在下班模式 ★★★
-    // 如果 offwork-overlay 正在顯示，標記 wasOffWork 為 true
+    // ★★★ 關鍵修復：暫時關閉場景霧氣，防止旅行場景被白霧洗白變成空白 ★★★
+    scene.fog = null;
+
     const wasOffWork = document.getElementById('offwork-overlay').style.display === 'flex';
 
-    // 隱藏所有介面，進入沈浸式 3D 互動
     document.getElementById('top-dashboard').style.display = 'none';
     document.getElementById('labels-container').style.display = 'none';
     document.getElementById('offwork-overlay').style.display = 'none';
@@ -3109,11 +3109,9 @@ function startInteractiveSession(type, onComplete, param = null) {
     const camY = isMobile ? 525 : 518; 
     const camZ = isMobile ? 18 : 12;   
     
-    // 相機過場動畫
     gsap.to(camera.position, { x: 0, y: camY, z: camZ, duration: 1.0, ease: "power2.inOut" });
     gsap.to(controls.target, { x: 0, y: camTargetY, z: 0, duration: 1.0, ease: "power2.inOut" });
 
-    // 根據類型選擇互動場景
     let interactionLogic = null;
     if (type === 'read') interactionLogic = setupReadingInteraction(entGroup, finish);
     else if (type === 'sport') interactionLogic = setupSportInteraction(entGroup, finish);
@@ -3124,7 +3122,6 @@ function startInteractiveSession(type, onComplete, param = null) {
     else if (type === 'admin') interactionLogic = setupAdminInteraction(entGroup, finish);
     else if (type === 'travel') interactionLogic = setupTravelInteraction(entGroup, finish, param);
 
-    // 啟動 2D 標籤更新循環
     const updateLabelsLoop = () => {
         if (!isInteracting) return;
         activeLabels.forEach(item => update2DPosition(item.el, item.pos));
@@ -3132,7 +3129,6 @@ function startInteractiveSession(type, onComplete, param = null) {
     };
     updateLabelsLoop();
 
-    // 點擊事件監聽
     const handler = (e) => {
         if (!interactionLogic) return;
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -3145,24 +3141,23 @@ function startInteractiveSession(type, onComplete, param = null) {
     };
     window.addEventListener('pointerup', handler);
 
-    // 互動結束處理函數
     function finish() {
         window.removeEventListener('pointerup', handler);
         clear2DLabels(); 
         
-        // 縮小場景物件並移除
         gsap.to(entGroup.scale, { x: 0, y: 0, z: 0, duration: 0.5, onComplete: () => {
             scene.remove(entGroup);
             entGroup = null;
             
-            // 如果原本是「日間工作模式」，互動結束後立刻恢復儀表板
+            // ★★★ 關鍵修復：互動結束，恢復原本的場景霧氣 ★★★
+            scene.fog = new THREE.Fog(CONFIG.colors.bg, 20, 90);
+
             if (!wasOffWork) { 
                 document.getElementById('top-dashboard').style.display = 'flex';
                 document.getElementById('labels-container').style.display = 'block';
                 document.querySelector('.copyright-footer').style.display = 'block';
             }
 
-            // 相機歸位動畫
             gsap.to(camera.position, { 
                 x: savedCameraState.pos.x, 
                 y: savedCameraState.pos.y, 
@@ -3176,14 +3171,9 @@ function startInteractiveSession(type, onComplete, param = null) {
                 duration: 1.0, 
                 onComplete: () => {
                     isInteracting = false;
-                    
-                    // 執行傳入的回調函數 (扣除數值等邏輯)
                     if (onComplete) onComplete();
-
-                    // ★★★ 關鍵邏輯：如果是下班模式，這裡才重新打開介面 ★★★
                     if (wasOffWork) {
                         document.getElementById('offwork-overlay').style.display = 'flex';
-                        // 強制刷新介面，讓玩家看到心力變化
                         updateOffWorkUI();
                     }
                 }
@@ -3237,123 +3227,373 @@ function startTravel(country) {
     }, country);
 }
 
-        function setupTravelInteraction(group, onDone, country) {
+   function setupTravelInteraction(group, onDone, country) {
     const isMobile = window.innerWidth < 800;
-    if (isMobile) group.scale.set(0.8, 0.8, 0.8);
+    if (isMobile) group.scale.set(0.75, 0.75, 0.75);
+
+    const validCountry = country || 'japan';
 
     // --- 1. 基本環境 (天空與地板) ---
-    const bgMat = new THREE.MeshBasicMaterial({ color: 0x87CEEB, side: THREE.BackSide });
-    if(country === 'finland' || country === 'uk') bgMat.color.setHex(0x2C3E50); // 芬蘭和英國是黑夜/陰天
-    const skybox = new THREE.Mesh(new THREE.SphereGeometry(30, 32, 32), bgMat);
+    const skyColors = {
+        japan: 0xFFB7C5,   // 櫻花粉色晨曦
+        uk: 0x7F8C8D,      // 倫敦陰天
+        korea: 0xF39C12,   // 秋日黃昏
+        china: 0x87CEEB,   // 晴空藍天
+        finland: 0x0A192F  // 極地黑夜
+    };
+    // 取消材質的霧氣影響，確保天空清晰
+    const skybox = new THREE.Mesh(
+        new THREE.SphereGeometry(45, 32, 32), 
+        new THREE.MeshBasicMaterial({ color: skyColors[validCountry], side: THREE.BackSide, fog: false })
+    );
     group.add(skybox);
 
-    const floorColor = country === 'finland' ? 0xFFFAFA : 0x8F9E8B;
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({color: floorColor, roughness: 1}));
-    floor.rotation.x = -Math.PI / 2; floor.position.y = -2;
+    const floorColors = {
+        japan: 0x7C9473,   // 春草綠
+        uk: 0x95A5A6,      // 石板灰
+        korea: 0xD35400,   // 秋葉橘紅
+        china: 0x4E6C50,   // 深山綠
+        finland: 0xFFFAFA  // 白雪
+    };
+    const floor = new THREE.Mesh(
+        new THREE.CylinderGeometry(35, 35, 2, 64), 
+        new THREE.MeshStandardMaterial({ color: floorColors[validCountry], roughness: 0.9 })
+    );
+    floor.position.y = -1;
     group.add(floor);
 
-    // --- 2. 飛機動畫 ---
+    // --- 2. 飛機飛越動畫 ---
     const planeGroup = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 5, 16), new THREE.MeshStandardMaterial({color: 0xffffff}));
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 6, 16), new THREE.MeshStandardMaterial({color: 0xffffff}));
     body.rotation.z = Math.PI / 2;
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(2, 0.2, 6), new THREE.MeshStandardMaterial({color: 0xdddddd}));
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, 0.2), new THREE.MeshStandardMaterial({color: 0xE91E63}));
-    tail.position.set(-2, 0.8, 0);
-    planeGroup.add(body, wing, tail);
-    planeGroup.position.set(-25, 10, -5);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.2, 7), new THREE.MeshStandardMaterial({color: 0xeeeeee}));
+    const tailWing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 3), new THREE.MeshStandardMaterial({color: 0xeeeeee}));
+    tailWing.position.set(-2.5, 0, 0);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(1, 1.8, 0.2), new THREE.MeshStandardMaterial({color: 0xE91E63})); 
+    tail.position.set(-2.5, 0.9, 0);
+    planeGroup.add(body, wing, tailWing, tail);
+    planeGroup.position.set(-35, 15, -8);
+    planeGroup.rotation.x = 0.2;
+    planeGroup.rotation.z = 0.1;
     group.add(planeGroup);
 
-    // 讓飛機飛越畫面
-    gsap.to(planeGroup.position, { x: 25, duration: 5, ease: "none" });
+    gsap.to(planeGroup.position, { x: 35, y: 18, duration: 6, ease: "power1.inOut" });
 
-    // --- 3. 各國特色地景 ---
+    // --- 3. 各國專屬精緻地景 ---
     const scenery = new THREE.Group();
     group.add(scenery);
 
-    if (country === 'japan') {
-        // 富士山
-        const fuji = new THREE.Mesh(new THREE.CylinderGeometry(1, 8, 10, 32), new THREE.MeshStandardMaterial({color: 0x34495E}));
-        fuji.position.set(0, 3, -15);
-        const snow = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 3.5, 3.5, 32), new THREE.MeshStandardMaterial({color: 0xffffff}));
-        snow.position.set(0, 6.3, -15);
+    if (validCountry === 'japan') {
+        const fuji = new THREE.Mesh(new THREE.CylinderGeometry(2, 18, 15, 64), new THREE.MeshStandardMaterial({color: 0x2C3E50}));
+        fuji.position.set(0, 7.5, -20);
+        const snow = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 6, 5, 64), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
+        snow.position.set(0, 12.5, -20);
         scenery.add(fuji, snow);
-        // 櫻花樹
-        for(let i=0; i<5; i++){
-            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2), new THREE.MeshStandardMaterial({color: 0x5C4033}));
-            trunk.position.set(-10 + i*5, -1, -5 + Math.random()*2);
-            const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5), new THREE.MeshStandardMaterial({color: 0xFFB7C5, flatShading:true}));
-            leaves.position.set(-10 + i*5, 0.5, -5);
-            scenery.add(trunk, leaves);
-        }
+
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(30, 15), new THREE.MeshStandardMaterial({color: 0x3498DB, transparent:true, opacity:0.8}));
+        water.rotation.x = -Math.PI/2; water.position.set(0, 0.1, -5);
+        scenery.add(water);
+
+        const torii = new THREE.Group();
+        const tMat = new THREE.MeshStandardMaterial({color: 0xC0392B}); 
+        const tBlack = new THREE.MeshStandardMaterial({color: 0x222222});
+        const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 8, 16), tMat); p1.position.set(-4, 4, 0);
+        const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 8, 16), tMat); p2.position.set(4, 4, 0);
+        const bar1 = new THREE.Mesh(new THREE.BoxGeometry(11, 0.8, 1), tMat); bar1.position.set(0, 6.5, 0);
+        const bar2 = new THREE.Mesh(new THREE.BoxGeometry(12, 1, 1.2), tMat); bar2.position.set(0, 8, 0);
+        const roof1 = new THREE.Mesh(new THREE.BoxGeometry(12.5, 0.4, 1.4), tBlack); roof1.position.set(0, 8.7, 0);
+        const centerPlaque = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 0.5), tBlack); centerPlaque.position.set(0, 6.5, 0);
+        torii.add(p1, p2, bar1, bar2, roof1, centerPlaque);
+        torii.position.set(0, 0, -3);
+        scenery.add(torii);
+
+        const createSakura = (x, z, scale) => {
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 3), new THREE.MeshStandardMaterial({color: 0x5C4033}));
+            trunk.position.y = 1.5;
+            const leavesMat = new THREE.MeshStandardMaterial({color: 0xFFB7C5, flatShading: true});
+            const l1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8), leavesMat); l1.position.set(0, 3.5, 0);
+            const l2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5), leavesMat); l2.position.set(1, 2.8, 0.5);
+            const l3 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5), leavesMat); l3.position.set(-1, 2.8, -0.5);
+            tree.add(trunk, l1, l2, l3);
+            tree.position.set(x, 0, z);
+            tree.scale.set(scale, scale, scale);
+            scenery.add(tree);
+        };
+        createSakura(-12, -2, 1.5); createSakura(12, -4, 1.2);
+        createSakura(-8, -8, 1.0); createSakura(10, 2, 1.4);
     } 
-    else if (country === 'uk') {
-        // 大笨鐘
-        const towerMat = new THREE.MeshStandardMaterial({color: 0x8B7355});
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(3, 12, 3), towerMat);
-        tower.position.set(0, 4, -10);
-        const clock = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 3.2, 16), new THREE.MeshStandardMaterial({color: 0xF1C40F}));
-        clock.rotation.z = Math.PI / 2; clock.position.set(0, 8, -10);
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(2.5, 4, 4), new THREE.MeshStandardMaterial({color: 0x2C3E50}));
-        roof.position.set(0, 12, -10); roof.rotation.y = Math.PI/4;
-        scenery.add(tower, clock, roof);
+    else if (validCountry === 'uk') {
+        const river = new THREE.Mesh(new THREE.PlaneGeometry(60, 10), new THREE.MeshStandardMaterial({color: 0x2C3E50, roughness: 0.1}));
+        river.rotation.x = -Math.PI/2; river.position.set(0, 0.1, -2);
+        scenery.add(river);
+
+        const bigBen = new THREE.Group();
+        const stoneMat = new THREE.MeshStandardMaterial({color: 0xD4C4A8, roughness: 1}); 
+        const goldMat = new THREE.MeshStandardMaterial({color: 0xD4A017, metalness: 0.8});
+        const darkRoofMat = new THREE.MeshStandardMaterial({color: 0x2C3E50});
+        
+        const towerBody = new THREE.Mesh(new THREE.BoxGeometry(4, 18, 4), stoneMat); towerBody.position.y = 9;
+        const clockSection = new THREE.Mesh(new THREE.BoxGeometry(4.2, 4.2, 4.2), stoneMat); clockSection.position.y = 20;
+        
+        for(let i=0; i<4; i++){
+            const clockFace = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.2, 16), new THREE.MeshStandardMaterial({color: 0xFFFFFF}));
+            clockFace.rotation.x = Math.PI/2;
+            clockFace.position.set(0, 20, 2.15);
+            const pivot = new THREE.Group();
+            pivot.rotation.y = i * (Math.PI/2);
+            pivot.add(clockFace);
+            bigBen.add(pivot);
+        }
+        
+        const roofBase = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1, 4.5), darkRoofMat); roofBase.position.y = 22.5;
+        const spire = new THREE.Mesh(new THREE.ConeGeometry(2, 6, 4), darkRoofMat); spire.position.y = 26; spire.rotation.y = Math.PI/4;
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.3), goldMat); tip.position.y = 29;
+        
+        bigBen.add(towerBody, clockSection, roofBase, spire, tip);
+        bigBen.position.set(8, 0, -12);
+        scenery.add(bigBen);
+
+        const londonEye = new THREE.Group();
+        const wheelMat = new THREE.MeshStandardMaterial({color: 0xBDC3C7, wireframe: true}); 
+        const wheel = new THREE.Mesh(new THREE.TorusGeometry(8, 0.5, 16, 32), wheelMat);
+        wheel.position.y = 10;
+        
+        const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 14), new THREE.MeshStandardMaterial({color: 0xEEEEEE}));
+        leg1.position.set(-3, 5, 3); leg1.rotation.x = -0.4; leg1.rotation.z = -0.2;
+        const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 14), new THREE.MeshStandardMaterial({color: 0xEEEEEE}));
+        leg2.position.set(3, 5, 3); leg2.rotation.x = -0.4; leg2.rotation.z = 0.2;
+        
+        londonEye.add(wheel, leg1, leg2);
+        londonEye.position.set(-10, 0, -15);
+        londonEye.rotation.y = 0.5;
+        scenery.add(londonEye);
+        gsap.to(wheel.rotation, { z: Math.PI * 2, duration: 40, repeat: -1, ease: "none" });
+
+        const bus = new THREE.Group();
+        const busMat = new THREE.MeshStandardMaterial({color: 0xC0392B});
+        const busBody = new THREE.Mesh(new THREE.BoxGeometry(3.5, 4.5, 8), busMat); busBody.position.y = 2.8;
+        const windows = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 7.8), new THREE.MeshStandardMaterial({color: 0x222222}));
+        windows.position.y = 3.5;
+        const windowsUpper = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 7.8), new THREE.MeshStandardMaterial({color: 0x222222}));
+        windowsUpper.position.y = 1.2;
+        bus.add(busBody, windows, windowsUpper);
+        
+        const tireMat = new THREE.MeshStandardMaterial({color: 0x111111});
+        const t1 = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 4, 16), tireMat); t1.rotation.z=Math.PI/2; t1.position.set(0, 0.8, 2.5);
+        const t2 = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 4, 16), tireMat); t2.rotation.z=Math.PI/2; t2.position.set(0, 0.8, -2.5);
+        bus.add(t1, t2);
+        
+        bus.position.set(-15, 0, 5);
+        bus.rotation.y = Math.PI/2;
+        scenery.add(bus);
+        gsap.to(bus.position, { x: 25, duration: 8, repeat: -1, ease: "none" });
     }
-    else if (country === 'korea') {
-        // 首爾塔與秋葉
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(2, 4, 3, 16), new THREE.MeshStandardMaterial({color: 0x95A5A6}));
-        base.position.set(0, -0.5, -10);
-        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 8, 16), new THREE.MeshStandardMaterial({color: 0xECF0F1}));
-        pillar.position.set(0, 5, -10);
-        const deck = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 1.5, 16), new THREE.MeshStandardMaterial({color: 0x2980B9}));
-        deck.position.set(0, 9, -10);
-        const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 4), new THREE.MeshStandardMaterial({color: 0xE74C3C}));
-        ant.position.set(0, 11.5, -10);
-        scenery.add(base, pillar, deck, ant);
-        // 秋天紅樹
-        const leafMat = new THREE.MeshStandardMaterial({color: 0xD35400, flatShading:true});
-        const tree = new THREE.Mesh(new THREE.DodecahedronGeometry(2), leafMat); tree.position.set(-6, 0, -5);
-        const tree2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8), leafMat); tree2.position.set(6, 0, -6);
-        scenery.add(tree, tree2);
+    else if (validCountry === 'korea') {
+        const hill = new THREE.Mesh(new THREE.SphereGeometry(15, 32, 16), new THREE.MeshStandardMaterial({color: 0x8B5A2B}));
+        hill.position.set(0, -5, -18);
+        hill.scale.y = 0.5;
+        scenery.add(hill);
+
+        const seoulTower = new THREE.Group();
+        const tBase = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 4, 4, 16), new THREE.MeshStandardMaterial({color: 0x95A5A6})); tBase.position.y = 2;
+        const tPillar = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.5, 12, 16), new THREE.MeshStandardMaterial({color: 0xECF0F1})); tPillar.position.y = 10;
+        const tDeck1 = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 1.5, 16), new THREE.MeshStandardMaterial({color: 0x2980B9})); tDeck1.position.y = 16.5;
+        const tDeck2 = new THREE.Mesh(new THREE.CylinderGeometry(3, 1.5, 1.5, 16), new THREE.MeshStandardMaterial({color: 0x2C3E50})); tDeck2.position.y = 18;
+        const tAntenna = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, 8, 8), new THREE.MeshStandardMaterial({color: 0xE74C3C})); tAntenna.position.y = 23;
+        seoulTower.add(tBase, tPillar, tDeck1, tDeck2, tAntenna);
+        seoulTower.position.set(0, 2.5, -18);
+        scenery.add(seoulTower);
+
+        const gate = new THREE.Group();
+        const stoneBase = new THREE.Mesh(new THREE.BoxGeometry(16, 3, 4), new THREE.MeshStandardMaterial({color: 0xBDC3C7})); stoneBase.position.y = 1.5;
+        const arch = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 4.2, 16), new THREE.MeshStandardMaterial({color: 0x222222})); 
+        arch.rotation.x = Math.PI/2; arch.position.set(0, 1.5, 0);
+        
+        const pillarMat = new THREE.MeshStandardMaterial({color: 0x8B0000}); 
+        const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p1.position.set(-5, 4.5, 0);
+        const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p2.position.set(5, 4.5, 0);
+        const p3 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p3.position.set(-1.5, 4.5, 0);
+        const p4 = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.8), pillarMat); p4.position.set(1.5, 4.5, 0);
+        
+        const roofMat = new THREE.MeshStandardMaterial({color: 0x2C3E50}); 
+        const roof1 = new THREE.Mesh(new THREE.ConeGeometry(9, 3, 4), roofMat);
+        roof1.rotation.y = Math.PI/4; roof1.position.y = 7.5; roof1.scale.set(1, 1, 0.6);
+        
+        gate.add(stoneBase, arch, p1, p2, p3, p4, roof1);
+        gate.position.set(0, 0, -2);
+        scenery.add(gate);
+
+        const createAutumnTree = (x, z, color, scale) => {
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 4), new THREE.MeshStandardMaterial({color: 0x3E2723})); trunk.position.y = 2;
+            const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(2.5), new THREE.MeshStandardMaterial({color: color, flatShading: true})); crown.position.y = 4.5;
+            tree.add(trunk, crown);
+            tree.position.set(x, 0, z);
+            tree.scale.set(scale, scale, scale);
+            scenery.add(tree);
+        };
+        createAutumnTree(-10, 2, 0xE74C3C, 1.2); 
+        createAutumnTree(10, 0, 0xF1C40F, 1.5);  
+        createAutumnTree(-12, -8, 0xD35400, 1.0); 
+        createAutumnTree(14, -6, 0xE67E22, 1.3);  
     }
-    else if (country === 'china') {
-        // 萬里長城
-        const wallMat = new THREE.MeshStandardMaterial({color: 0xBDC3C7});
-        for(let i=-15; i<=15; i+=3) {
-            const block = new THREE.Mesh(new THREE.BoxGeometry(3.1, 3 + Math.sin(i)*1.5, 2), wallMat);
-            block.position.set(i, Math.sin(i)*0.7, -10);
-            scenery.add(block);
-            const top = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2.2), wallMat);
-            top.position.set(i, (3 + Math.sin(i)*1.5)/2 + 0.25 + Math.sin(i)*0.7, -10);
-            scenery.add(top);
+    else if (validCountry === 'china') {
+        const mountMat = new THREE.MeshStandardMaterial({color: 0x34495E, roughness: 1, flatShading: true});
+        const createMountain = (x, z, h, r) => {
+            const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6), mountMat);
+            m.position.set(x, h/2 - 2, z);
+            scenery.add(m);
+        };
+        createMountain(-15, -20, 25, 8);
+        createMountain(10, -25, 30, 10);
+        createMountain(25, -15, 20, 7);
+        createMountain(-25, -15, 18, 6);
+
+        const wallMat = new THREE.MeshStandardMaterial({color: 0x95A5A6, roughness: 0.9}); 
+        const wallGroup = new THREE.Group();
+        
+        for(let i = -25; i <= 25; i += 2) {
+            const zPos = Math.sin(i * 0.3) * 5 - 10;
+            const yPos = Math.cos(i * 0.2) * 2 + 3;
+            
+            const wallSegment = new THREE.Mesh(new THREE.BoxGeometry(2.1, yPos * 2, 3), wallMat);
+            wallSegment.position.set(i, 0, zPos);
+            wallGroup.add(wallSegment);
+            
+            const battlement = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 3.2), wallMat);
+            battlement.position.set(i, yPos + 0.5, zPos);
+            wallGroup.add(battlement);
+            
+            if (i % 10 === 0) {
+                const tower = new THREE.Mesh(new THREE.BoxGeometry(5, yPos * 2 + 5, 5), wallMat);
+                tower.position.set(i, 2.5, zPos);
+                const towerTop = new THREE.Mesh(new THREE.BoxGeometry(5.5, 1.5, 5.5), wallMat);
+                towerTop.position.set(i, yPos + 5.75, zPos);
+                const window = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({color: 0x222222}));
+                window.position.set(i, yPos + 2, zPos + 2.51);
+                wallGroup.add(tower, towerTop, window);
+            }
+        }
+        scenery.add(wallGroup);
+
+        const lanternMat = new THREE.MeshBasicMaterial({color: 0xE74C3C});
+        const glowMat = new THREE.MeshBasicMaterial({color: 0xF1C40F});
+        for(let i = 0; i < 8; i++) {
+            const lantern = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.6, 1.5, 8), lanternMat);
+            const fire = new THREE.Mesh(new THREE.SphereGeometry(0.3), glowMat);
+            fire.position.y = -0.6;
+            lantern.add(body, fire);
+            
+            const startX = (Math.random()-0.5) * 40;
+            const startZ = (Math.random()-0.5) * 20 - 5;
+            lantern.position.set(startX, Math.random() * 10, startZ);
+            scenery.add(lantern);
+            
+            gsap.to(lantern.position, {
+                y: lantern.position.y + 15 + Math.random()*10,
+                x: lantern.position.x + (Math.random()-0.5)*5,
+                duration: 10 + Math.random()*5,
+                repeat: -1,
+                ease: "none"
+            });
         }
     }
-    else if (country === 'finland') {
-        // 雪松與極光
-        for(let i=0; i<6; i++){
-            const pine = new THREE.Mesh(new THREE.ConeGeometry(2, 5, 8), new THREE.MeshStandardMaterial({color: 0x27AE60}));
-            pine.position.set(-12 + i*5, 0.5, -8 + Math.random()*3);
-            scenery.add(pine);
-        }
-        // 極光
-        const auroraMat = new THREE.MeshBasicMaterial({color: 0x2ECC71, transparent: true, opacity: 0.4, side: THREE.DoubleSide});
-        const aurora = new THREE.Mesh(new THREE.PlaneGeometry(40, 10), auroraMat);
-        aurora.position.set(0, 12, -15);
-        gsap.to(aurora.scale, {y: 1.5, duration: 2, yoyo:true, repeat:-1});
-        scenery.add(aurora);
+    else if (validCountry === 'finland') {
+        const snowHill1 = new THREE.Mesh(new THREE.SphereGeometry(15, 32, 16), new THREE.MeshStandardMaterial({color: 0xFFFAFA}));
+        snowHill1.position.set(-15, -10, -10); snowHill1.scale.y = 0.5;
+        const snowHill2 = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), new THREE.MeshStandardMaterial({color: 0xFFFAFA}));
+        snowHill2.position.set(15, -12, -15); snowHill2.scale.y = 0.6;
+        scenery.add(snowHill1, snowHill2);
+
+        const auroraGroup = new THREE.Group();
+        const createAuroraBand = (colorHex, yPos, zPos) => {
+            const mat = new THREE.MeshBasicMaterial({
+                color: colorHex, 
+                transparent: true, 
+                opacity: 0.4, 
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+            const band = new THREE.Mesh(new THREE.CylinderGeometry(30, 30, 8, 32, 1, true, 0, Math.PI), mat);
+            band.position.set(0, yPos, zPos);
+            band.rotation.x = 0.2;
+            gsap.to(band.scale, { y: 1.5, x: 1.1, duration: 3 + Math.random()*2, yoyo: true, repeat: -1, ease: "sine.inOut" });
+            gsap.to(band.rotation, { z: 0.1, duration: 4, yoyo: true, repeat: -1, ease: "sine.inOut" });
+            return band;
+        };
+        auroraGroup.add(createAuroraBand(0x2ECC71, 15, -15)); 
+        auroraGroup.add(createAuroraBand(0x1ABC9C, 18, -20)); 
+        auroraGroup.add(createAuroraBand(0x9B59B6, 22, -25)); 
+        scenery.add(auroraGroup);
+
+        const cabin = new THREE.Group();
+        const woodMat = new THREE.MeshStandardMaterial({color: 0x5C4033});
+        const snowMat = new THREE.MeshStandardMaterial({color: 0xFFFFFF});
+        
+        const cBody = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 6), woodMat); cBody.position.y = 2.5;
+        const cRoof = new THREE.Mesh(new THREE.ConeGeometry(6, 4, 4), snowMat); 
+        cRoof.rotation.y = Math.PI/4; cRoof.position.y = 7;
+        const windowMat = new THREE.MeshBasicMaterial({color: 0xF1C40F});
+        const w1 = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), windowMat); w1.position.set(-2, 2.5, 3.01);
+        const w2 = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), windowMat); w2.position.set(2, 2.5, 3.01);
+        const chimney = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 1), new THREE.MeshStandardMaterial({color: 0x333333}));
+        chimney.position.set(-2, 7, -1);
+        const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.8), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.6}));
+        smoke.position.set(-2, 9, -1);
+        gsap.to(smoke.position, {y: 12, x: 0, duration: 2, repeat: -1});
+        gsap.to(smoke.material, {opacity: 0, duration: 2, repeat: -1});
+
+        cabin.add(cBody, cRoof, w1, w2, chimney, smoke);
+        cabin.position.set(0, 0, -5);
+        scenery.add(cabin);
+
+        const createPine = (x, z, scale) => {
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2), woodMat); trunk.position.y = 1;
+            const needleMat = new THREE.MeshStandardMaterial({color: 0x27AE60, flatShading: true});
+            const t1 = new THREE.Mesh(new THREE.ConeGeometry(2.5, 3, 8), needleMat); t1.position.y = 3;
+            const t2 = new THREE.Mesh(new THREE.ConeGeometry(2.0, 3, 8), needleMat); t2.position.y = 4.5;
+            const t3 = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3, 8), snowMat);   t3.position.y = 6; 
+            tree.add(trunk, t1, t2, t3);
+            tree.position.set(x, 0, z);
+            tree.scale.set(scale, scale, scale);
+            scenery.add(tree);
+        };
+        createPine(-10, 2, 1.2); createPine(12, -2, 1.5);
+        createPine(-15, -8, 1.8); createPine(18, -10, 1.3);
+        createPine(8, 4, 1.0);
     }
 
     // --- 4. 互動邏輯 (拍照打卡) ---
-    // 建立一個巨大的隱形點擊框覆蓋全場
     const hitBox = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial({visible: false}));
     hitBox.position.set(0, 5, 0);
     group.add(hitBox);
 
     const labelPos = new THREE.Vector3(0, 506, 5);
-    const instruction = create2DLabel("點擊畫面拍下美好回憶 (3張)", labelPos, "#333");
+    const instruction = create2DLabel("點擊畫面拍下美好回憶 (3張)", labelPos);
+    
+    // 根據背景亮度決定文字顏色
+    const textColors = {
+        japan: "#333333",
+        uk: "#333333",
+        korea: "#FFFFFF",
+        china: "#FFFFFF",
+        finland: "#FFFFFF"
+    };
+    instruction.style.color = textColors[validCountry];
 
-    // 螢幕閃白特效 (拍照快門)
-    const flash = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial({color: 0xffffff, transparent: true, opacity: 0}));
-    flash.position.set(0, 5, 8);
-    group.add(flash);
+    // ★★★ 關鍵修復：改用 HTML 元素實現白光閃爍，保證100%可見且不會遮擋 3D 模型 ★★★
+    const flashDiv = document.createElement('div');
+    flashDiv.style.position = 'fixed';
+    flashDiv.style.top = '0'; flashDiv.style.left = '0';
+    flashDiv.style.width = '100vw'; flashDiv.style.height = '100vh';
+    flashDiv.style.backgroundColor = 'white';
+    flashDiv.style.opacity = '0';
+    flashDiv.style.zIndex = '9999';
+    flashDiv.style.pointerEvents = 'none';
+    document.body.appendChild(flashDiv);
 
     let photos = 0;
     let canSnap = true;
@@ -3363,18 +3603,23 @@ function startTravel(country) {
         canSnap = false;
         photos++;
 
-        // 快門閃爍
-        gsap.fromTo(flash.material, {opacity: 0.8}, {opacity: 0, duration: 0.3});
+        // 觸發純 HTML 閃光特效
+        gsap.killTweensOf(flashDiv);
+        flashDiv.style.opacity = '0.8';
+        gsap.to(flashDiv, {opacity: 0, duration: 0.3});
         
-        // 隨機位置產生 2D 提示
-        create2DFeedback("咔嚓！", new THREE.Vector3((Math.random()-0.5)*10, 502 + Math.random()*5, 0), "#FFF");
+        create2DFeedback("咔嚓！", new THREE.Vector3((Math.random()-0.5)*15, 502 + Math.random()*5, 0), "#FFF");
 
         if (photos >= 3) {
-            instruction.innerText = "回憶滿載，身心舒暢！";
+            instruction.innerText = "回憶滿載，身心大滿足！";
             instruction.style.color = "#E67E22";
-            setTimeout(onDone, 1200);
+            
+            setTimeout(() => {
+                flashDiv.remove(); // 互動結束前清除 HTML 特效
+                onDone();
+            }, 1500);
         } else {
-            setTimeout(() => { canSnap = true; }, 400); // 冷卻時間
+            setTimeout(() => { canSnap = true; }, 400); 
         }
     };
 }
@@ -5338,8 +5583,60 @@ function createNewYearReport(studentChanges) {
     };
 }
 
+
         
     </script>
+
+
+<script>
+
+
+function createDebugTravelButton() {
+    const btn = document.createElement('button');
+    btn.innerHTML = "✈️ 測試旅行場景";
+    btn.style.position = 'fixed';
+    btn.style.bottom = '20px'; // 固定在左下角
+    btn.style.left = '20px';
+    btn.style.zIndex = '9999'; // 確保在最上層
+    btn.style.padding = '12px 20px';
+    btn.style.background = '#E67E22'; // 假期橘色
+    btn.style.color = 'white';
+    btn.style.border = 'none';
+    btn.style.borderRadius = '10px';
+    btn.style.fontWeight = 'bold';
+    btn.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
+    btn.style.cursor = 'pointer';
+
+    btn.onclick = () => {
+        // 1. 強制關閉可能擋住畫面的視窗
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('modal-overlay').style.display = 'none';
+        document.getElementById('summary-overlay').style.display = 'none';
+        document.getElementById('report-overlay').style.display = 'none';
+        document.getElementById('offwork-overlay').style.display = 'none';
+        
+        // 2. 確保背景 UI 顯示正常 (防止黑屏)
+        document.getElementById('top-dashboard').style.display = 'flex';
+        document.getElementById('labels-container').style.display = 'block';
+
+        // 3. 強制賦予旅行所需的狀態與心力
+        TEACHER.offWorkEnergy = 5; 
+        TEACHER.hasEntertainedTonight = false;
+
+        // 4. 直接呼叫並顯示旅行國家選單
+        document.getElementById('travel-overlay').style.display = 'flex';
+    };
+
+    document.body.appendChild(btn);
+}
+
+// 執行生成按鈕
+createDebugTravelButton
+    
+</script>
+
+
+    
 
         <footer class="copyright-footer">
 <p>Copyright © 2025 陳冠健. All rights reserved.</p>
