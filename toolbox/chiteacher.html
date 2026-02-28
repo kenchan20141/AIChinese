@@ -1255,11 +1255,44 @@ const SVGS = {
 const dropSoundBase = new Audio('掉落.mp3');
 dropSoundBase.volume = 0.3; 
 
+// 新增一個變數紀錄上次播放時間
+let lastDropSoundTime = 0;
+
 function playLandSound() {
+    const now = Date.now();
+    // 限制每 80 毫秒最多只能發出一次掉落聲，防止手機效能崩潰
+    if (now - lastDropSoundTime < 80) return; 
+    lastDropSoundTime = now;
+
     const sound = dropSoundBase.cloneNode();
     sound.volume = 0.3;
-    sound.play().catch(e => {});
+    sound.play().catch(e => {
+        // 忽略自動播放阻擋錯誤
+    });
 }
+
+
+        // === 手機瀏覽器音效解鎖機制 ===
+function unlockAudioContext() {
+    // 讓所有音效悄悄播一次然後立刻暫停
+    const soundsToUnlock = [dropSoundBase, keyboardSoundBase, stampSoundBase];
+    
+    soundsToUnlock.forEach(audio => {
+        audio.play().then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+        }).catch(e => {});
+    });
+
+    // 解鎖成功後，移除這個監聽器，避免浪費效能
+    document.removeEventListener('touchstart', unlockAudioContext);
+    document.removeEventListener('click', unlockAudioContext);
+}
+
+// 綁定在玩家的第一次點擊或觸控上
+document.addEventListener('touchstart', unlockAudioContext, { once: true });
+document.addEventListener('click', unlockAudioContext, { once: true });
+// ==================================
 
 // === 新增：鍵盤敲擊音效 ===
 const keyboardSoundBase = new Audio('鍵盤.mp3');
@@ -4449,7 +4482,7 @@ function startNextBatch() {
                             s.landedParticles.push(p);
                             s.updateLabelText();
                             s.bump();
-                            if (!isMobile) playLandSound(); // 手機端減少音效併發
+                          playLandSound(); 
  
                             const r = Math.random() * 1.5;
                             const t = Math.random() * Math.PI * 2;
