@@ -3374,12 +3374,24 @@ function setupDinnerInteraction(group, onDone) {
 }
 
 // 3. 電影
+// 替換原有的 setupMovieInteraction
 function setupMovieInteraction(group, onDone) {
     const room = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 20), new THREE.MeshBasicMaterial({color: 0x111111, side: THREE.BackSide}));
     group.add(room);
 
+    // 1. 建立 Canvas 作為電影底片
+    const canvas = document.createElement('canvas');
+    canvas.width = 800;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    
+    // 初始黑屏
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const screenTex = new THREE.CanvasTexture(canvas);
     const screenGeo = new THREE.PlaneGeometry(10, 6);
-    const screenMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+    const screenMat = new THREE.MeshBasicMaterial({ map: screenTex });
     const screen = new THREE.Mesh(screenGeo, screenMat);
     screen.position.set(0, 2, -5);
     screen.rotation.x = 0.1;
@@ -3406,26 +3418,109 @@ function setupMovieInteraction(group, onDone) {
     group.add(beam);
 
     let isWatching = false;
+    let animFrame;
 
     return (obj) => {
         if (isWatching) return;
         isWatching = true;
-        instruction.innerText = "觀賞中...";
+        instruction.innerText = "放映中...";
 
-        const colors = [0xC89F9C, 0x8C9E9E, 0xD5C4A1, 0x111111];
-        const tl = gsap.timeline({
-            onComplete: () => {
-                screen.material.color.setHex(0x000000); 
-                beam.visible = false;
-                instruction.innerText = "劇終";
-                instruction.style.color = "#D5C4A1";
-                setTimeout(onDone, 1000);
+        const startTime = Date.now();
+        const totalDuration = 7000; // 電影總長改為 7 秒
+
+        // 2. 電影繪製循環函數
+        function drawMovie() {
+            const elapsed = Date.now() - startTime;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 階段一：經典倒數計時 (0~2秒)
+            if (elapsed < 2000) {
+                ctx.fillStyle = Math.random() > 0.5 ? '#222' : '#333';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.beginPath();
+                ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height);
+                ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2);
+                ctx.stroke();
+
+                const count = Math.ceil(3 - (elapsed / 666));
+                if (count > 0) {
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 200px Arial';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(count, canvas.width/2, canvas.height/2);
+                }
+            } 
+            // 階段二：抽象莫蘭迪風景動畫 (2~5.5秒)
+            else if (elapsed < 5500) {
+                const playTime = elapsed - 2000;
+                
+                // 天空
+                ctx.fillStyle = `hsl(${200 + playTime * 0.01}, 30%, 60%)`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 太陽
+                ctx.beginPath();
+                ctx.arc(100 + playTime * 0.1, 150 + Math.sin(playTime * 0.002) * 50, 80, 0, Math.PI * 2);
+                ctx.fillStyle = '#D5C4A1'; ctx.fill();
+
+                // 山脈
+                const offset = (playTime * 0.1) % canvas.width;
+                ctx.fillStyle = '#8C9E9E'; ctx.beginPath();
+                ctx.moveTo(-offset, canvas.height); ctx.lineTo(-offset + 300, 200);
+                ctx.lineTo(-offset + 600, canvas.height); ctx.lineTo(800 - offset + 300, 200);
+                ctx.lineTo(800 - offset + 600, canvas.height); ctx.fill();
+
+                // 刮痕
+                if (Math.random() < 0.3) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                    ctx.fillRect(Math.random() * canvas.width, 0, 2 + Math.random() * 5, canvas.height);
+                }
             }
-        });
+            // ★ 階段三：經典「劇終」畫面 (5.5~7秒)
+            else {
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // 復古閃爍字體
+                if (Math.random() > 0.05) {
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 120px "Noto Serif TC", serif'; // 使用遊戲標題同款字體
+                    ctx.textAlign = 'center'; 
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('劇 終', canvas.width/2, canvas.height/2);
+                }
 
-        colors.forEach(col => {
-            tl.to(screen.material.color, { r: new THREE.Color(col).r, g: new THREE.Color(col).g, b: new THREE.Color(col).b, duration: 1.0 });
-        });
+                // 播放到底部還是有一點點刮痕
+                if (Math.random() < 0.3) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+                    ctx.fillRect(Math.random() * canvas.width, 0, 2, canvas.height);
+                }
+            }
+
+            // 更新材質
+            screenTex.needsUpdate = true;
+
+            // 控制電影進度
+            if (elapsed < totalDuration) {
+                animFrame = requestAnimationFrame(drawMovie);
+            } else {
+                // 放映完全結束，收起光束並退場
+                cancelAnimationFrame(animFrame);
+                
+                // 螢幕關閉變黑
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                screenTex.needsUpdate = true;
+                
+                beam.visible = false;
+                instruction.innerText = "放映結束";
+                instruction.style.color = "#D5C4A1";
+                setTimeout(onDone, 800); // 延遲一下再切換回主畫面
+            }
+        }
+
+        // 開始放映
+        drawMovie();
     };
 }
 
