@@ -109,6 +109,36 @@
         .bubble-hea { border-color: var(--accent-hea); color: var(--accent-hea); }
         .bubble-hea::after { border-top-color: var(--accent-hea); }
 
+
+/* === 漫畫風：狀態進度條 (Bar) === */
+        .stat-bar-box {
+            display: flex; flex-direction: column; min-width: 110px; font-weight: 900;
+        }
+        .manga-bar-container {
+            width: 100%; height: 22px; border: 3px solid var(--manga-black);
+            background: var(--manga-white); transform: skew(-5deg); position: relative;
+            box-shadow: 3px 3px 0 var(--manga-black); overflow: hidden; margin-top: 2px;
+        }
+        .manga-bar-fill {
+            height: 100%; transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        /* 定義三種進度條顏色：藍(正常心力)、黃(幸福)、紅(透支/危險) */
+        .fill-energy { background: var(--manga-blue); }
+      /* 改用亮粉紅色代表幸福，與藍色心力完美搭配，且不會與黃色標題相撞 */
+        .fill-happy { background: #FF4081; }
+        .fill-debt { background: var(--manga-red); }
+        
+        .manga-bar-text {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            font-size: 13px; font-weight: 900; color: var(--manga-black); 
+            display: flex; justify-content: center; align-items: center;
+            /* 白色描邊讓字體在任何背景色上都清晰可見 */
+            text-shadow: 1px 1px 0 #FFF, -1px -1px 0 #FFF, 1px -1px 0 #FFF, -1px 1px 0 #FFF;
+            pointer-events: none; letter-spacing: 1px;
+        }
+
+
+       
         /* === 漫畫風：頂部儀表板 === */
         #top-dashboard {
             position: absolute; top: 0; left: 0; width: 100vw; height: 32vh;
@@ -483,18 +513,40 @@
    <!-- 功能區 (黑板儀表板) -->
     <div id="top-dashboard">
         <!-- 狀態區 (維持不變的左側) -->
-        <div class="dash-section" style="flex: 0 0 auto;">
+        <div class="dash-section" style="flex: 0 0 auto; min-width: 220px;">
             <div class="section-title">教師狀態</div>
-            <div class="stat-row">
+            
+            <!-- 第一層：純文字短數據 (維持在同一排) -->
+            <div class="stat-row" style="margin-bottom: 15px;">
                 <div class="stat-box"><span class="stat-label">年齡</span><span class="stat-value editable" id="disp-age">22</span></div>
-                <div class="stat-box"><span class="stat-label">心力</span><span class="stat-value" id="disp-energy" style="color:var(--chalk-blue)">10.0</span></div>
-                <div class="stat-box mode-partial-el"><span class="stat-label">恢復</span><span class="stat-value" id="disp-recover">3/3</span></div>
-                <div class="stat-box mode-full-el"><span class="stat-label">幸福</span><span class="stat-value" id="disp-happy" style="color:var(--chalk-yellow)">60</span></div>
                 <div class="stat-box"><span class="stat-label">年級</span><span class="stat-value" id="disp-grade">中一</span></div>
+                <div class="stat-box mode-partial-el"><span class="stat-label">恢復</span><span class="stat-value" id="disp-recover">3/3</span></div>
                 <div class="stat-box mode-full-el"><span class="stat-label">進度</span><span class="stat-value" id="disp-days">1/3</span></div>
                 <div class="stat-box mode-full-el"><span class="stat-label">待批改</span><span class="stat-value" id="disp-workload">0</span></div>
             </div>
+
+            <!-- 第二層：進度條專區 (獨立換行，上下整齊排列) -->
+            <div style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
+                
+                <div class="stat-bar-box">
+                    <span class="stat-label" style="margin-bottom: 2px;">心力 (Energy)</span>
+                    <div class="manga-bar-container">
+                        <div id="bar-fill-energy" class="manga-bar-fill fill-energy" style="width: 100%;"></div>
+                        <div id="disp-energy-text" class="manga-bar-text">10.0 / 10.0</div>
+                    </div>
+                </div>
+
+                <div class="stat-bar-box mode-full-el">
+                    <span class="stat-label" style="margin-bottom: 2px;">幸福 (Happiness)</span>
+                    <div class="manga-bar-container">
+                        <div id="bar-fill-happy" class="manga-bar-fill fill-happy" style="width: 60%;"></div>
+                        <div id="disp-happy-text" class="manga-bar-text">60 / 100</div>
+                    </div>
+                </div>
+
+            </div>
             
+            <!-- 第三層：系統設定 -->
             <div style="margin-top: 15px; display:flex; align-items:center; gap:10px;">
                 <div class="section-title" style="margin-bottom:0; font-size:13px; transform: skew(-5deg);">學生人數</div>
                 <select id="sel-student-count" style="flex:1; min-width:80px;">
@@ -1585,12 +1637,32 @@
             updateUI(); return actualCost;
         }
 
-        function updateUI() {
+       function updateUI() {
             if (!document.getElementById('disp-age').querySelector('input')) { document.getElementById('disp-age').innerText = TEACHER.age; }
-            const energyEl = document.getElementById('disp-energy');
-            if (TEACHER.energyDebt > 0) {
-                energyEl.innerHTML = `0.0 <span style="font-size:12px; color:var(--chalk-red);">(-${TEACHER.energyDebt.toFixed(1)})</span>`; 
-            } else { energyEl.innerText = TEACHER.currentEnergy.toFixed(1); energyEl.style.color = 'var(--chalk-blue)'; }
+            
+            // ==========================================
+            // 👇 1. 更新心力進度條 (Energy Bar)
+            // ==========================================
+            const maxE = TEACHER.maxEnergy;
+            const curE = TEACHER.currentEnergy;
+            const debtE = TEACHER.energyDebt;
+            const barEnergy = document.getElementById('bar-fill-energy');
+            const txtEnergy = document.getElementById('disp-energy-text');
+            
+            if (barEnergy && txtEnergy) {
+                if (debtE > 0) {
+                    // 如果有透支，血條全滿但變成紅色警示
+                    barEnergy.style.width = '100%';
+                    barEnergy.className = 'manga-bar-fill fill-debt';
+                    txtEnergy.innerText = `欠債 -${debtE.toFixed(1)}`;
+                } else {
+                    // 正常狀態，計算百分比
+                    const pctE = Math.min(100, Math.max(0, (curE / maxE) * 100));
+                    barEnergy.style.width = `${pctE}%`;
+                    barEnergy.className = 'manga-bar-fill fill-energy';
+                    txtEnergy.innerText = `${curE.toFixed(1)} / ${maxE.toFixed(1)}`;
+                }
+            }
          
             document.getElementById('disp-grade').innerText = GRADES[currentGradeIndex];
             const adminCost = parseFloat(document.getElementById('rng-admin').value);
@@ -1617,9 +1689,22 @@
             } else {
                 document.getElementById('disp-workload').innerText = TEACHER.gradingPile;
                 document.getElementById('disp-days').innerText = `${TEACHER.daysInYear}/3`;
-                const happyEl = document.getElementById('disp-happy');
-                happyEl.innerText = Math.floor(TEACHER.happiness);
-                happyEl.style.color = TEACHER.happiness < 30 ? 'var(--chalk-red)' : 'var(--chalk-yellow)';
+                
+                // ==========================================
+                // 👇 2. 更新幸福進度條 (Happiness Bar)
+                // ==========================================
+                const barHappy = document.getElementById('bar-fill-happy');
+                const txtHappy = document.getElementById('disp-happy-text');
+                const curH = Math.floor(TEACHER.happiness);
+                
+                if (barHappy && txtHappy) {
+                    const pctH = Math.min(100, Math.max(0, curH)); // maxHappiness 固定為 100
+                    barHappy.style.width = `${pctH}%`;
+                    // 幸福度低於 30 時，血條會變成紅色警示
+                    barHappy.className = curH < 30 ? 'manga-bar-fill fill-debt' : 'manga-bar-fill fill-happy';
+                    txtHappy.innerText = `${curH} / 100`;
+                }
+
                 if (TEACHER.happiness <= 0) { showGameOver("你因為壓力過大，心理崩潰而辭職了。"); return; }
                 
                 document.getElementById('btn-offwork').style.display = (TEACHER.currentEnergy < 1.0 && !isDseMode) ? 'flex' : 'none';
