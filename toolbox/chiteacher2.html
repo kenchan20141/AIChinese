@@ -319,9 +319,8 @@
 </head>
 <body>
 
-    <!-- 背景影片 -->
-    <video id="intro-video" playsinline>
-        <source src="過場動畫.mp4" type="video/mp4">
+    <!-- 背景影片 (將 source 交給 JS 載入處理以支援 IndexedDB 快取) -->
+    <video id="intro-video" playsinline preload="auto">
         您的瀏覽器不支援影片標籤。
     </video>
 
@@ -366,7 +365,70 @@
 
         let isFlipping = false; // 防止翻頁時視差效果干擾
 
-        // --- 視差互動效果 (Parallax) ---
+        // ==========================================
+        // 影片載入與 IndexedDB 快取邏輯 (無損畫質、秒讀取)
+        // ==========================================
+        const VIDEO_URL = '過場動畫.mp4';
+        const DB_NAME = 'MangaVideoDB';
+        const STORE_NAME = 'videos';
+        const VIDEO_KEY = 'intro-video-v1';
+
+        async function initVideo() {
+            try {
+                // 1. 初始化並開啟 IndexedDB
+                const db = await new Promise((resolve, reject) => {
+                    const request = indexedDB.open(DB_NAME, 1);
+                    request.onupgradeneeded = (e) => {
+                        const database = e.target.result;
+                        if (!database.objectStoreNames.contains(STORE_NAME)) {
+                            database.createObjectStore(STORE_NAME);
+                        }
+                    };
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+
+                // 2. 檢查資料庫中是否已有快取影片
+                const cachedBlob = await new Promise((resolve, reject) => {
+                    const tx = db.transaction(STORE_NAME, 'readonly');
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.get(VIDEO_KEY);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+
+                if (cachedBlob) {
+                    // [第二次造訪]：有快取，利用 ObjectURL 達成零延遲瞬間載入
+                    video.src = URL.createObjectURL(cachedBlob);
+                } else {
+                    // [首次造訪]：無快取，直接設定路徑給 video，保證本次操作不受影響 (利用瀏覽器原生的串流機制)
+                    video.src = VIDEO_URL;
+                    
+                    // 在背景無聲無息地下載並存入 IndexedDB，造福下次造訪
+                    setTimeout(() => {
+                        fetch(VIDEO_URL)
+                            .then(res => res.blob())
+                            .then(blob => {
+                                const tx = db.transaction(STORE_NAME, 'readwrite');
+                                const store = tx.objectStore(STORE_NAME);
+                                store.put(blob, VIDEO_KEY);
+                            })
+                            .catch(err => console.log('背景快取影片失敗 (不影響本次觀看):', err));
+                    }, 1000); // 稍微延遲 1 秒，確保不跟首頁圖片等資源搶頻寬
+                }
+            } catch (e) {
+                // 若使用者的瀏覽器不支援 IndexedDB 或發生例外，完美退回原本的模式
+                video.src = VIDEO_URL;
+            }
+        }
+        
+        // 執行影片初始化
+        initVideo();
+
+
+        // ==========================================
+        // 互動動畫與視差邏輯
+        // ==========================================
         const parallaxBg = document.getElementById('parallax-bg');
         const parallaxTitle = document.getElementById('parallax-title');
 
@@ -397,13 +459,19 @@
             
             // 加上 flip-open 觸發 3D 翻書效果
             introOverlay.classList.add('flip-open');
+
+            //[防呆機制] 解鎖行動裝置 (如 iOS Safari) 的影片自動播放限制
+            // 利用使用者的「點擊」動作瞬間播放再暫停，騙過瀏覽器
+            video.play().then(() => {
+                video.pause();
+            }).catch(() => { /* 忽略錯誤 */ });
             
-            // 等待翻頁動畫即將結束時 (1.2秒) 播放影片
+            // 等待翻頁動畫即將結束時 (1.2秒) 正式播放影片
             setTimeout(() => {
                 introOverlay.style.display = 'none';
                 
-                // 播放影片
-                video.play();
+                // 正式播放影片
+                video.play().catch(e => console.log("等待載入中...", e));
                 
                 // 顯示 SKIP 按鈕
                 skipBtn.style.opacity = '1';
