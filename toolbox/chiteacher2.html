@@ -257,6 +257,7 @@
             height: 100%;
             object-fit: cover;
             z-index: 0;
+            background-color: #000;
         }
 
         /* SKIP 按鈕 */
@@ -319,7 +320,7 @@
 </head>
 <body>
 
-    <!-- 背景影片 (將 source 交給 JS 載入處理以支援 IndexedDB 快取) -->
+    <!-- 背景影片 -->
     <video id="intro-video" playsinline preload="auto">
         您的瀏覽器不支援影片標籤。
     </video>
@@ -366,7 +367,7 @@
         let isFlipping = false; // 防止翻頁時視差效果干擾
 
         // ==========================================
-        // 影片載入與 IndexedDB 快取邏輯 (無損畫質、秒讀取)
+        // 影片載入邏輯修復
         // ==========================================
         const VIDEO_URL = '過場動畫.mp4';
         const DB_NAME = 'MangaVideoDB';
@@ -375,7 +376,7 @@
 
         async function initVideo() {
             try {
-                // 1. 初始化並開啟 IndexedDB
+                // 初始化並開啟 IndexedDB (保留快取讀取功能)
                 const db = await new Promise((resolve, reject) => {
                     const request = indexedDB.open(DB_NAME, 1);
                     request.onupgradeneeded = (e) => {
@@ -388,7 +389,7 @@
                     request.onerror = () => reject(request.error);
                 });
 
-                // 2. 檢查資料庫中是否已有快取影片
+                // 檢查資料庫中是否已有快取影片
                 const cachedBlob = await new Promise((resolve, reject) => {
                     const tx = db.transaction(STORE_NAME, 'readonly');
                     const store = tx.objectStore(STORE_NAME);
@@ -398,26 +399,14 @@
                 });
 
                 if (cachedBlob) {
-                    // [第二次造訪]：有快取，利用 ObjectURL 達成零延遲瞬間載入
+                    // [第二次造訪]：讀取快取
                     video.src = URL.createObjectURL(cachedBlob);
                 } else {
-                    // [首次造訪]：無快取，直接設定路徑給 video，保證本次操作不受影響 (利用瀏覽器原生的串流機制)
+                    // 【關鍵修復 1】：移除在這裡使用 fetch() 下載影片
+                    // 讓瀏覽器單純使用原生的 <video> 串流，避免與 fetch 同時搶佔頻寬導致第一次加載卡死
                     video.src = VIDEO_URL;
-                    
-                    // 在背景無聲無息地下載並存入 IndexedDB，造福下次造訪
-                    setTimeout(() => {
-                        fetch(VIDEO_URL)
-                            .then(res => res.blob())
-                            .then(blob => {
-                                const tx = db.transaction(STORE_NAME, 'readwrite');
-                                const store = tx.objectStore(STORE_NAME);
-                                store.put(blob, VIDEO_KEY);
-                            })
-                            .catch(err => console.log('背景快取影片失敗 (不影響本次觀看):', err));
-                    }, 1000); // 稍微延遲 1 秒，確保不跟首頁圖片等資源搶頻寬
                 }
             } catch (e) {
-                // 若使用者的瀏覽器不支援 IndexedDB 或發生例外，完美退回原本的模式
                 video.src = VIDEO_URL;
             }
         }
@@ -443,7 +432,7 @@
             });
         }
 
-        // --- 進入下一頁的函數 (切換分鏡黑屏過場) ---
+        // --- 進入下一頁的函數 ---
         function goToNextPage() {
             sliceTop.style.transform = 'scaleY(1)';
             sliceBottom.style.transform = 'scaleY(1)';
@@ -453,25 +442,26 @@
             }, 600);
         }
 
-        // --- 點擊 Start 觸發「漫畫翻頁」動畫 ---
+        // --- 點擊 Start 觸發「漫畫翻頁」與「安全播放」 ---
         startBtn.addEventListener('click', () => {
-            isFlipping = true; // 關閉視差
+            isFlipping = true; 
             
-            // 加上 flip-open 觸發 3D 翻書效果
+            // 觸發 3D 翻書效果
             introOverlay.classList.add('flip-open');
 
-            //[防呆機制] 解鎖行動裝置 (如 iOS Safari) 的影片自動播放限制
-            // 利用使用者的「點擊」動作瞬間播放再暫停，騙過瀏覽器
-            video.play().then(() => {
-                video.pause();
-            }).catch(() => { /* 忽略錯誤 */ });
+            // 【關鍵修復 2】：解鎖行動裝置影片播放
+            // 趁著使用者「點擊」的瞬間立刻執行 play()。
+            // 不要再執行 pause()！直接讓它在背景層播放，完美規避中斷報錯。
+            video.play().catch(e => console.log("等待緩衝中...", e));
             
-            // 等待翻頁動畫即將結束時 (1.2秒) 正式播放影片
+            // 等待翻頁動畫結束時 (1.2秒) 
             setTimeout(() => {
                 introOverlay.style.display = 'none';
                 
-                // 正式播放影片
-                video.play().catch(e => console.log("等待載入中...", e));
+                // 動畫結束後，確保影片正在播放，如果因網速暫停則再次呼叫 play()
+                if (video.paused) {
+                    video.play().catch(e => console.log("影片讀取中...", e));
+                }
                 
                 // 顯示 SKIP 按鈕
                 skipBtn.style.opacity = '1';
