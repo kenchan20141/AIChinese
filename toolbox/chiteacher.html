@@ -519,12 +519,18 @@
             <!-- 第一層：純文字短數據 (維持在同一排) -->
             <div class="stat-row" style="margin-bottom: 15px;">
                 <div class="stat-box"><span class="stat-label">年齡</span><span class="stat-value editable" id="disp-age">22</span></div>
-                <div class="stat-box"><span class="stat-label">年級</span><span class="stat-value" id="disp-grade">中一</span></div>
-                <div class="stat-box mode-partial-el"><span class="stat-label">恢復</span><span class="stat-value" id="disp-recover">3/3</span></div>
-                <div class="stat-box mode-full-el"><span class="stat-label">進度</span><span class="stat-value" id="disp-days">1/3</span></div>
+                
+                <!-- 👇 將「年級」與「進度」合併，進度變成低調的小字附加在旁邊 -->
+               <div class="stat-box">
+                    <span class="stat-label">當前學段</span>
+                    <span class="stat-value">
+                        <span id="disp-grade">中一</span> 
+                        <span class="mode-full-el" id="disp-days-sub" style="font-size: 14px; color: var(--chalk-sub); margin-left: 6px;">(1/3)</span>
+                    </span>
+                </div>
+                
                 <div class="stat-box mode-full-el"><span class="stat-label">待批改</span><span class="stat-value" id="disp-workload">0</span></div>
             </div>
-
             <!-- 第二層：進度條專區 (獨立換行，上下整齊排列) -->
             <div style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
                 
@@ -600,7 +606,7 @@
                 </div>
                 <div class="btn-grid-2row">
                     <button id="btn-admin" class="btn-admin"><span class="btn-icon"></span><span class="btn-txt">應付行政</span></button>
-                    <button id="btn-recover" class="btn-system mode-partial-el"><span class="btn-icon"></span><span class="btn-txt">休息恢復</span></button>
+                  <button id="btn-recover" class="btn-system mode-partial-el"><span class="btn-icon"></span><span class="btn-txt">休息恢復</span><span class="btn-cost" id="disp-recover-btn" style="color: var(--manga-blue);">餘 3 次</span></button>
                     <button id="btn-grade-work" class="btn-grade-work mode-full-el"><span class="btn-icon"></span><span class="btn-txt">批改課業</span><span class="btn-cost">-1 E / -2 Hap</span></button>
                     <button id="btn-offwork" class="btn-offwork mode-full-el" style="display:none;"><span class="btn-icon"></span><span class="btn-txt">打卡下班</span></button>
                     <button id="btn-next-partial" class="btn-system mode-partial-el"><span class="btn-icon"></span><span class="btn-txt">下一學年</span></button>
@@ -1637,11 +1643,11 @@
             updateUI(); return actualCost;
         }
 
-       function updateUI() {
+     function updateUI() {
             if (!document.getElementById('disp-age').querySelector('input')) { document.getElementById('disp-age').innerText = TEACHER.age; }
             
             // ==========================================
-            // 👇 1. 更新心力進度條 (Energy Bar)
+            // 1. 更新心力進度條 (Energy Bar)
             // ==========================================
             const maxE = TEACHER.maxEnergy;
             const curE = TEACHER.currentEnergy;
@@ -1651,12 +1657,10 @@
             
             if (barEnergy && txtEnergy) {
                 if (debtE > 0) {
-                    // 如果有透支，血條全滿但變成紅色警示
                     barEnergy.style.width = '100%';
                     barEnergy.className = 'manga-bar-fill fill-debt';
                     txtEnergy.innerText = `欠債 -${debtE.toFixed(1)}`;
                 } else {
-                    // 正常狀態，計算百分比
                     const pctE = Math.min(100, Math.max(0, (curE / maxE) * 100));
                     barEnergy.style.width = `${pctE}%`;
                     barEnergy.className = 'manga-bar-fill fill-energy';
@@ -1676,31 +1680,38 @@
             document.getElementById('btn-drill').disabled = !canAct;
             document.getElementById('btn-admin').disabled = hasDoneAdmin;
             
-            const isS6 = (currentGradeIndex === 5);
-            const isEnergyDepleted = (TEACHER.currentEnergy <= 0.05);
-            document.getElementById('btn-dse').style.display = (isS6 && isEnergyDepleted) ? 'block' : 'none';
-         
-            if (GAME_MODE === 'partial') {
-                document.getElementById('disp-recover').innerText = `${TEACHER.recoveriesLeft}/3`;
-                const needsRecover = (TEACHER.currentEnergy < TEACHER.maxEnergy) || (TEACHER.energyDebt > 0);
-                document.getElementById('btn-recover').disabled = TEACHER.recoveriesLeft <= 0 || !needsRecover || (isS6 && isEnergyDepleted);
-                const canNextYear = hasDoneAdmin && (TEACHER.recoveriesLeft <= 0) && (currentGradeIndex < 5) && !isDseMode;
-                document.getElementById('btn-next-partial').disabled = !canNextYear;
-            } else {
-                document.getElementById('disp-workload').innerText = TEACHER.gradingPile;
-                document.getElementById('disp-days').innerText = `${TEACHER.daysInYear}/3`;
+           const isS6 = (currentGradeIndex === 5);
+const isEnergyDepleted = (TEACHER.currentEnergy <= 0.05);
+document.getElementById('btn-dse').style.display = (isS6 && isEnergyDepleted) ? 'block' : 'none';
+
+// 👇 將更新恢復按鈕的代碼移到這裡 (任何模式都會執行)
+const recBtn = document.getElementById('disp-recover-btn');
+if (recBtn) recBtn.innerText = `餘 ${TEACHER.recoveriesLeft} 次`;
+const needsRecover = (TEACHER.currentEnergy < TEACHER.maxEnergy) || (TEACHER.energyDebt > 0);
+const btnRecover = document.getElementById('btn-recover');
+if (btnRecover) btnRecover.disabled = TEACHER.recoveriesLeft <= 0 || !needsRecover || (isS6 && isEnergyDepleted);
+
+if (GAME_MODE === 'partial') {
+    // 這裡現在只剩下「下一學年」按鈕的判斷
+    const canNextYear = hasDoneAdmin && (TEACHER.recoveriesLeft <= 0) && (currentGradeIndex < 5) && !isDseMode;
+    document.getElementById('btn-next-partial').disabled = !canNextYear;
+} else {
+    document.getElementById('disp-workload').innerText = TEACHER.gradingPile;
+                
+                // 👇 更新進度文字 (去掉了 Day)
+                const daysSub = document.getElementById('disp-days-sub');
+                if (daysSub) daysSub.innerText = `(${TEACHER.daysInYear}/3)`;
                 
                 // ==========================================
-                // 👇 2. 更新幸福進度條 (Happiness Bar)
+                // 2. 更新幸福進度條 (Happiness Bar)
                 // ==========================================
                 const barHappy = document.getElementById('bar-fill-happy');
                 const txtHappy = document.getElementById('disp-happy-text');
                 const curH = Math.floor(TEACHER.happiness);
                 
                 if (barHappy && txtHappy) {
-                    const pctH = Math.min(100, Math.max(0, curH)); // maxHappiness 固定為 100
+                    const pctH = Math.min(100, Math.max(0, curH)); 
                     barHappy.style.width = `${pctH}%`;
-                    // 幸福度低於 30 時，血條會變成紅色警示
                     barHappy.className = curH < 30 ? 'manga-bar-fill fill-debt' : 'manga-bar-fill fill-happy';
                     txtHappy.innerText = `${curH} / 100`;
                 }
