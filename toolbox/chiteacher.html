@@ -390,12 +390,34 @@
         min-width: 70px;
         max-width: 100px;
     }
-            #top-dashboard { flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; padding: 12px 12px 25px 12px; gap: 12px; height: 42vh; }
+
+
+
+/* 👇 新增：分隔線與把手的樣式 */
+        #drag-divider {
+            position: absolute; left: 0; top: 35vh; /* 預設位置對齊 35% */
+            width: 100vw; height: 30px; margin-top: -15px; /* 向上偏移一半，蓋在黑板邊緣 */
+            cursor: ns-resize; z-index: 25; display: none; /* 電腦版預設隱藏 */
+            justify-content: center; align-items: center; touch-action: none; 
+        }
+        .drag-grip {
+            width: 60px; height: 8px; background: var(--manga-yellow);
+            border: 3px solid var(--manga-black); border-radius: 10px;
+            box-shadow: 2px 2px 0 var(--manga-black);
+        }
+
+           /* 響應式佈局：保持版塊彈性 */
+        @media (max-width: 800px) {
+            /* 👇 將原本的 height: 42vh 改為 35vh */
+            #top-dashboard { flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; padding: 12px 12px 25px 12px; gap: 12px; height: 35vh; }
             .dash-section { width: 100%; border-bottom: 3px solid rgba(255,255,255,0.2); border-right: none; padding-bottom: 12px; }
             .dash-section:last-child { border-bottom: none; }
             .btn-grid-2row { display: flex; flex-direction: row; flex-wrap: nowrap !important; overflow-x: auto; width: 100%; gap: 12px; padding-bottom: 8px;}
             .btn-grid-2row button { flex: 0 0 40vw !important; min-width: 140px; }
             .copyright-footer { font-size: 10px; bottom: 10px; right: 10px; padding: 4px 10px; }
+            
+            /* 👇 新增：在手機版顯示分隔線 */
+            #drag-divider { display: flex; }
         }
     </style>
 </head>
@@ -497,6 +519,11 @@
             </div>
             <button id="btn-dse"><span class="dse-fire"></span> 學生應考 DSE <span class="dse-fire"></span></button>
         </div>
+    </div>
+
+ <!-- 👇 新增：拖曳分隔線把手 -->
+    <div id="drag-divider">
+        <div class="drag-grip"></div>
     </div>
 
     <!-- 詳細結算報告 -->
@@ -2275,7 +2302,7 @@
                     if (isTyping) return; isTyping = true; clicks++; playKeyboardSound();
                     gsap.to(keyboardBase.position, { y: 0.05, duration: 0.05, yoyo: true, repeat: 1, onComplete: () => isTyping = false });
                     const safeLocalY = 1.4 - (clicks * 0.5); if (safeLocalY > -1.7) { const line = new THREE.Mesh(new THREE.PlaneGeometry(4.8, 0.15), new THREE.MeshBasicMaterial({color: 0x64ffda, transparent: true, opacity: 0.8})); line.position.set(0, safeLocalY, 0.01); screenFace.add(line); line.scale.set(0, 1, 1); gsap.to(line.scale, { x: 1, duration: 0.25 }); }
-                    create2DFeedback("珍惜生命", new THREE.Vector3(0, 503, 1.5), "var(--manga-white)");
+                    create2DFeedback("生命誠可貴...", new THREE.Vector3(0, 503, 1.5), "var(--manga-white)");
                     if (paperStack.children.length > 0) { const topSheet = paperStack.children[paperStack.children.length - 1]; gsap.to(topSheet.position, { x: -2 + (Math.random()*2), y: topSheet.position.y + 2, z: -3, duration: 0.5, ease: "power1.out" }); gsap.to(topSheet.rotation, { x: Math.random(), y: Math.random(), duration: 0.5 }); gsap.to(topSheet.scale, { x: 0, y: 0, z: 0, duration: 0.5, onComplete: () => paperStack.remove(topSheet) }); }
                     if (clicks >= requiredClicks) { instruction.innerText = "徒勞無功，毫無收穫。"; instruction.classList.add('label-error'); setTimeout(onDone, 2500); }
                 }
@@ -2547,6 +2574,51 @@
                 }
             };
         }
+
+
+
+// === 手機版：功能區高度拖曳邏輯 ===
+        const dragDivider = document.getElementById('drag-divider');
+        const topDashboard = document.getElementById('top-dashboard');
+        const canvasBlocker = document.getElementById('canvas-container');
+        let isDraggingDivider = false;
+
+        if (dragDivider && topDashboard) {
+            // 1. 當手指按住把手時
+            dragDivider.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                isDraggingDivider = true;
+                if (canvasBlocker) canvasBlocker.style.pointerEvents = 'none'; // 拖曳時禁止誤觸背後的學生
+            });
+
+            // 2. 當手指上下滑動時
+            window.addEventListener('pointermove', (e) => {
+                if (!isDraggingDivider) return;
+                
+                // 根據手指在螢幕的 Y 座標，計算出新的 vh (高度百分比)
+                let newVh = (e.clientY / window.innerHeight) * 100;
+                
+                // 限制拖拉的範圍，最小不能小於 20%，最大不能超過 75%
+                newVh = Math.max(20, Math.min(newVh, 75));
+                
+                // 即時更新黑板的高度與把手的位置
+                topDashboard.style.height = `${newVh}vh`;
+                dragDivider.style.top = `${newVh}vh`;
+            });
+
+            // 3. 當手指放開時
+            window.addEventListener('pointerup', () => {
+                if (isDraggingDivider) {
+                    isDraggingDivider = false;
+                    if (canvasBlocker) canvasBlocker.style.pointerEvents = 'auto'; // 恢復學生區點擊功能
+                }
+            });
+        }
+
+
+
+
+
     </script>
 </body>
 </html>
