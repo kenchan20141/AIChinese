@@ -2741,23 +2741,132 @@ document.getElementById('btn-do-grade').addEventListener('click', () => {
             document.getElementById('principal-msg').innerText = "你的教書生涯到此結束。"; document.getElementById('modal-overlay').style.display = 'flex';
         }
 
-        function showSummary() {
-            if(!TEACHER.isHoliday) {
-                let base = TEACHER.maxEnergy; let bonus = TEACHER.bonusEnergyNextDay; let debt = TEACHER.energyDebt;
-                let startEnergy = base + bonus - debt; if (startEnergy < 0) startEnergy = 0;
-                
-                document.getElementById('sum-work').innerText = `行政 x${TEACHER.dailyStats.adminCount}, 批改餘 ${TEACHER.gradingPile}`; document.getElementById('sum-fun').innerText = TEACHER.dailyStats.entertained ? "有" : "無";
-                const hChange = TEACHER.dailyStats.happyChange; const hEl = document.getElementById('sum-happy');
-                hEl.innerText = (hChange > 0 ? "+" : "") + hChange.toFixed(1); hEl.className = hChange > 0 ? "summary-val val-pos" : (hChange < 0 ? "summary-val val-neg" : "summary-val val-neu");
-                document.getElementById('sum-pile').innerText = `+${TEACHER.dailyStats.workAdded} 份`; document.getElementById('sum-energy').innerText = startEnergy.toFixed(1);
-                
-                document.getElementById('offwork-overlay').style.display = 'none'; document.getElementById('summary-overlay').style.display = 'flex';
-            } else { 
-                document.getElementById('offwork-overlay').style.display = 'none'; 
+     function showSummary() {
+    if(!TEACHER.isHoliday) {
+        let base = TEACHER.maxEnergy;
+        let bonus = TEACHER.bonusEnergyNextDay;
+        let debt = TEACHER.energyDebt;
+        let startEnergy = base + bonus - debt;
+        if (startEnergy < 0) startEnergy = 0;
+        
+        let container = document.getElementById('summary-bars-container');
+        
+        // 【容錯處理】：如果你的 HTML 沒有更新，這裡會自動幫你重建正確的結構
+        if (!container) {
+            const summaryBox = document.getElementById('summary-box');
+            summaryBox.innerHTML = `
+                <h2>日結報告</h2>
+                <div id="summary-bars-container" style="text-align:left; margin:15px 0;"></div>
+                <button id="btn-confirm-summary" style="width:100%; background:var(--manga-blue); color:#fff; padding:15px; border:4px solid #111; box-shadow:6px 6px 0 #111; font-weight:900; font-size:18px; cursor:pointer; transform:skew(-2deg);">迎接新的一天</button>
+            `;
+            // 因為重新生成了按鈕，所以需要重新綁定點擊事件
+            document.getElementById('btn-confirm-summary').onclick = () => {
+                document.getElementById('summary-overlay').style.display = 'none';
                 playSleepAnimation(() => { performNextDayLogic(); });
-            }
+            };
+            container = document.getElementById('summary-bars-container');
         }
-
+ 
+        let html = '';
+ 
+        // 頂部文字摘要
+        html += `
+            <div style="display:flex; justify-content:space-between; margin-bottom: 20px; font-weight:900; font-size:15px; border-bottom: 2px dashed #ccc; padding-bottom: 10px;">
+                <span>行政處理：<span style="color:${TEACHER.dailyStats.adminCount > 0 ? 'var(--manga-green)' : 'var(--manga-red)'}">${TEACHER.dailyStats.adminCount > 0 ? '完成' : '未做'}</span></span>
+                <span>休閒娛樂：<span style="color:${TEACHER.dailyStats.entertained ? 'var(--manga-green)' : '#555'}">${TEACHER.dailyStats.entertained ? '有' : '無'}</span></span>
+            </div>
+        `;
+ 
+        // =====================================
+        // 1. 明日起始心力 BAR
+        // =====================================
+        let displayMaxE = base + Math.max(0, bonus);
+        let pctStartE = Math.min(100, (startEnergy / displayMaxE) * 100);
+        
+        // 根據心力健康度決定顏色
+        let energyColor = startEnergy >= base ? 'var(--manga-blue)' : (startEnergy < base * 0.5 ? 'var(--manga-red)' : 'var(--manga-yellow)');
+        
+        // 提示訊息
+        let energyMsg = bonus > 0 ? `(睡眠 +${bonus})` : `(睡眠 +0)`;
+        if (debt > 0) energyMsg += ` <span style="color:var(--manga-red);">扣除透支 -${debt.toFixed(1)}</span>`;
+ 
+        html += `
+            <div class="rpt-bar-wrap" style="margin-bottom: 20px;">
+                <div class="rpt-bar-label">
+                    <span>明日起始心力 <span style="font-size:11px; color:#555;">${energyMsg}</span></span>
+                    <span class="${startEnergy >= base ? 'val-pos' : 'val-neg'}">${startEnergy.toFixed(1)}</span>
+                </div>
+                <div class="rpt-bar-bg">
+                    <div class="rpt-bar-fill" style="width: ${pctStartE}%; background: ${energyColor};"></div>
+                    <div class="rpt-bar-text">${startEnergy.toFixed(1)} / ${displayMaxE.toFixed(1)}</div>
+                </div>
+            </div>
+        `;
+ 
+        // =====================================
+        // 2. 幸福感變化 BAR
+        // =====================================
+        let curH = TEACHER.happiness;
+        let hChange = TEACHER.dailyStats.happyChange;
+        let preH = curH - hChange;
+        let pctCurH = Math.min(100, Math.max(0, curH));
+        let pctPreH = Math.min(100, Math.max(0, preH));
+ 
+        let fillWidthH = pctPreH;
+        let changeLeftH = pctPreH;
+        let changeWidthH = Math.abs(pctCurH - pctPreH);
+        let changeColorH = hChange > 0 ? "var(--manga-green)" : "var(--manga-red)";
+        let signH = hChange > 0 ? "+" : "";
+ 
+        // 如果是扣除，進度條基底以扣除後的為主
+        if (hChange < 0) {
+            fillWidthH = pctCurH; changeLeftH = pctCurH;
+        }
+ 
+        html += `
+            <div class="rpt-bar-wrap" style="margin-bottom: 20px;">
+                <div class="rpt-bar-label">
+                    <span>今日幸福感變化</span>
+                    <span class="${hChange > 0 ? 'val-pos' : (hChange < 0 ? 'val-neg' : 'val-neu')}">${signH}${hChange.toFixed(1)}</span>
+                </div>
+                <div class="rpt-bar-bg">
+                    <div class="rpt-bar-fill" style="width: ${fillWidthH}%; background: #FF4081;"></div>
+                    ${hChange !== 0 ? `<div class="rpt-bar-change" style="left: ${changeLeftH}%; width: ${changeWidthH}%; background: ${changeColorH}; border-left: 2px solid #111;"></div>` : ''}
+                    <div class="rpt-bar-text">${Math.floor(curH)} / 100</div>
+                </div>
+            </div>
+        `;
+ 
+        // =====================================
+        // 3. 待批改課業積壓 BAR
+        // =====================================
+        let curPile = TEACHER.gradingPile;
+        let maxPileVis = Math.max(20, curPile + 5); // 視覺上的最大值，保持進度條有空間感
+        let pctCurPile = Math.min(100, (curPile / maxPileVis) * 100);
+        let pileColor = curPile > 0 ? 'var(--manga-red)' : 'var(--manga-green)';
+ 
+        html += `
+            <div class="rpt-bar-wrap">
+                <div class="rpt-bar-label">
+                    <span>待批改課業 (積壓)</span>
+                    <span class="${curPile > 0 ? 'val-neg' : 'val-pos'}">${curPile} 份</span>
+                </div>
+                <div class="rpt-bar-bg">
+                    <div class="rpt-bar-fill" style="width: ${pctCurPile}%; background: ${pileColor};"></div>
+                    <div class="rpt-bar-text">${curPile} 份</div>
+                </div>
+            </div>
+        `;
+ 
+        container.innerHTML = html;
+        document.getElementById('offwork-overlay').style.display = 'none';
+        document.getElementById('summary-overlay').style.display = 'flex';
+    } else {
+        // 暑假期間直接睡覺跳轉
+        document.getElementById('offwork-overlay').style.display = 'none';
+        playSleepAnimation(() => { performNextDayLogic(); });
+    }
+}
         document.getElementById('btn-end-day').onclick = () => {
             if (!TEACHER.isHoliday) {
                 if (TEACHER.daysInYear >= 3 && TEACHER.gradingPile > 0) { if (!confirm(`警告！學年即將結束，你還有 ${TEACHER.gradingPile} 份課業未批改。如果不現在批改，你將被學校解僱。確定要睡覺嗎？`)) return; }
