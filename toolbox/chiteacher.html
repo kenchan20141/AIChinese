@@ -1610,12 +1610,19 @@
         `;
     }
  
-    // 3. 構建學生元素 BAR
+  // 3. 構建學生元素 BAR
     html += `<hr style="border:0; border-top:3px dashed #111; margin: 15px 0;">`;
     html += `<div style="font-size: 14px; font-weight: 900; margin-bottom: 10px; text-align: left;">學生吸收情況 (元素 現/限)</div>`;
  
+    // 👇 新增：找出全班潛力（上限）最高的值，當作 BAR 的 100% 物理長度基準
+    const maxClassCap = Math.max(...studentChanges.map(sc => sc.student.getCurrentCapacity()));
+
     studentChanges.forEach(sc => {
         const cap = sc.student.getCurrentCapacity();
+        
+        // 👇 新增：按潛力比例計算 BAR 的真實長度 (最少保留 22% 讓文字能顯示)
+        const barWidthPct = Math.max(22, (cap / maxClassCap) * 100);
+        
         const cur = sc.student.landedParticles.length;
         const pre = cur - sc.added;
         const pctCur = Math.min(100, (cur / cap) * 100);
@@ -1633,7 +1640,7 @@
         html += `
             <div class="rpt-bar-wrap">
                 <div class="rpt-bar-label"><span style="color:${sc.student.type.color};">${sc.student.name}</span><span style="color:${sc.added > 0 ? 'var(--manga-green)' : (sc.added < 0 ? 'var(--manga-red)' : '#111')}">${signText} ${x2Html}</span></div>
-                <div class="rpt-bar-bg">
+              <div class="rpt-bar-bg" style="width: ${barWidthPct}%;">
                     <div class="rpt-bar-fill" style="width: ${fillW}%; background: #ccc;"></div>
                     ${sc.added !== 0 ? `<div class="rpt-bar-change" style="left: ${chgL}%; width: ${chgW}%; background: ${chgColor}; border-left: 2px solid #111;"></div>` : ''}
                     <div class="rpt-bar-text">${cur} / ${cap}</div>
@@ -1784,7 +1791,10 @@ iconEl.style.display = "none"; // 直接隱藏，騰出空間讓排版更緊湊
             table.innerHTML = `<thead><tr><th width="15%">排名</th><th width="25%">姓名</th><th width="20%">成績</th><th width="40%">知識吸收</th></tr></thead><tbody></tbody>`;
             const tbody = table.querySelector('tbody');
             
-            let totalScore = 0; const scoreLabels =['U', 'LV1', 'LV2', 'LV3', 'LV4', 'LV5', 'LV5*', 'LV5**'];
+          let totalScore = 0; const scoreLabels =['U', 'LV1', 'LV2', 'LV3', 'LV4', 'LV5', 'LV5*', 'LV5**'];
+            
+            // 👇 新增：找出畢業班中潛力最高的值
+            const maxDseCap = Math.max(...studentsData.map(d => d.student.getCurrentCapacity()));
 
             studentsData.forEach((d, i) => {
                 totalScore += d.score;
@@ -1793,20 +1803,23 @@ iconEl.style.display = "none"; // 直接隱藏，騰出空間讓排版更緊湊
                 const gradeLabel = scoreLabels[d.score];
                 let gradeColor = d.score <= 2 ? 'var(--manga-red)' : (d.score >= 5 ? 'var(--manga-green)' : '#111');
                 
-                // === 新增 BAR 視覺化邏輯 ===
+               // === 新增 BAR 視覺化邏輯 ===
                 const cap = d.student.getCurrentCapacity(); // 維度上限
                 const cur = d.knowledge;                    // 已吸收知識
                 const pct = Math.min(100, (cur / cap) * 100);
                 
                 // 根據吸收比例決定進度條顏色 (大於 80% 藍，低於 40% 紅，其他黃)
                 let barColor = pct >= 80 ? 'var(--manga-blue)' : (pct < 40 ? 'var(--manga-red)' : 'var(--manga-yellow)');
+                
+                // 👇 新增：計算 DSE 畫面中 BAR 的相對物理長度
+                const barWidthPct = Math.max(22, (cap / maxDseCap) * 100);
 
                 tr.innerHTML = `
                     <td class="dse-rank">${i+1}</td>
                     <td style="font-weight:900;">${d.student.name} <div style="font-size:10px; color:${d.student.type.color}; margin-top:2px;">(${d.student.type.name})</div></td>
                     <td><span class="dse-grade" style="color:${gradeColor};">${gradeLabel}</span></td>
                     <td>
-                        <div class="rpt-bar-bg" style="height: 18px; box-shadow: 2px 2px 0 #111; margin: 0; width: 100%;">
+                        <div class="rpt-bar-bg" style="height: 18px; box-shadow: 2px 2px 0 #111; margin: 0; width: ${barWidthPct}%;">
                             <div class="rpt-bar-fill" style="width: ${pct}%; background: ${barColor};"></div>
                             <div class="rpt-bar-text" style="font-size: 11px; line-height: 18px;">${cur} / ${cap}</div>
                         </div>
