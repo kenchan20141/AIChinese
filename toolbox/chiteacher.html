@@ -1034,7 +1034,7 @@
         <!-- 結算內容將由 JS 動態生成 BAR -->
         <div id="rpt-bars-container"></div>
         
-        <div style="text-align:center; margin-top:15px; font-size:14px; font-weight:900; color:#111;">(點擊背景關閉)</div>
+
     </div>
 </div>
 
@@ -1990,31 +1990,44 @@
  
     shake() { gsap.to(this.group.position, { x: this.xPos + 0.1, duration: 0.05, yoyo: true, repeat: 3 }); }
     
-    updateLabelText() {
+   updateLabelText() {
         const selectedCount = students.filter(st => st.isSelected !== false).length;
         const isSmallClass = (selectedCount > 0 && selectedCount <= students.length / 2);
         const isTarget = (this.isSelected !== false);
-        const bonusHtml = (isSmallClass && isTarget) ? '<span class="x2-indicator">x2</span>' : '';
+        const bonusHtml = (isSmallClass && isTarget) ? '<span class="x2-indicator" style="margin-left:4px;">x2</span>' : '';
         
-        let typeName = this.type.name;
         let typeColor = this.type.color;
         let soloProgressHtml = "";
  
+        // 判斷是否為「躺平」狀態
         if (this.isUltraLow) {
-            typeColor = "#666666";
-            if (this.type.id === 'high') typeName = "天資聰穎(躺平)";
-            else if (this.type.id === 'avg') typeName = "天資平庸(躺平)";
-            else typeName = "天資駑鈍(躺平)";
- 
+            typeColor = "#666666"; // 躺平時進度條與名字改為灰色
             if (this.soloActionCount > 0) {
-                soloProgressHtml = `<br><span style="color:#e67e22; font-size:10px; font-weight:bold;">關注中: ${this.soloActionCount}/3</span>`;
+                soloProgressHtml = `<div style="color:#e67e22; font-size:10px; font-weight:bold; margin-top:5px;">關注中: ${this.soloActionCount}/3</div>`;
             }
         }
     
+        // 獲取當前吸收量與上限
+        const cur = this.landedParticles.length;
+        const cap = this.getCurrentCapacity();
+        // 計算百分比，最高 100%
+        const pct = Math.min(100, (cur / cap) * 100);
+
+        // 移除文字資質，改用名字顏色與 BAR 顯示
         this.labelTextContainer.innerHTML = `
-            <span style="font-size:12px; color:#111;">${this.name}</span>${bonusHtml}
-            <br>
-            <span style="color:${typeColor}">${typeName}</span>: ${this.landedParticles.length}
+            <div style="display:flex; justify-content:center; align-items:center; margin-bottom:5px;">
+                <span style="font-size:14px; font-weight:900; color:${typeColor}; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff; letter-spacing:1px;">${this.name}</span>
+                ${this.isUltraLow ? '<span style="font-size:10px; color:#fff; background:#666; border:1px solid #111; padding:1px 3px; margin-left:4px; transform:skew(-5deg); box-shadow:1px 1px 0 #111;">躺平</span>' : ''}
+                ${bonusHtml}
+            </div>
+            
+            <!-- 漫畫風進度條 (BAR) -->
+            <div style="width: 100%; min-width: 90px; height: 16px; background: #eee; border: 2px solid #111; position: relative; box-shadow: 2px 2px 0 #111; transform: skew(-2deg);">
+                <div style="width: ${pct}%; height: 100%; background: ${typeColor}; transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);"></div>
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 11px; font-weight: 900; color: #111; display: flex; justify-content: center; align-items: center; text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff; letter-spacing: 0.5px;">
+                    ${cur} / ${cap}
+                </div>
+            </div>
             ${soloProgressHtml}
         `;
 
@@ -4901,6 +4914,49 @@ function closeStrategyGuide() {
             }
             render();
         }
+
+
+       // ==========================================
+// 體驗優化：修復結算表樣式、點擊任意位置關閉功能
+// ==========================================
+
+// 1. 恢復「本次行動結算」的原本版本，並允許點擊任意位置關閉
+const reportBox = document.getElementById('report-box');
+const reportOverlay = document.getElementById('report-overlay');
+
+if (reportBox) {
+    // 移除原有的阻止事件，讓玩家點擊結算表內部也能直接關閉
+    reportBox.onclick = null; 
+    
+    // 強制套用原本的彈出視窗 CSS，防止它變成全頁
+    reportBox.style.width = '90%';
+    reportBox.style.maxWidth = '450px';
+    reportBox.style.maxHeight = '90vh';
+    reportBox.style.margin = 'auto'; // 確保置中
+    reportBox.style.padding = '25px';
+    reportBox.style.background = '#fff';
+    reportBox.style.border = '6px solid var(--manga-black)';
+    reportBox.style.boxShadow = '15px 15px 0 var(--manga-black)';
+    reportBox.style.overflowY = 'auto';
+    reportBox.style.position = 'relative';
+}
+
+if (reportOverlay) {
+    // 確保點擊整個半透明背景層都能關閉
+    reportOverlay.onclick = function() {
+        this.style.display = 'none';
+    };
+}
+
+// 2. 隨意點擊畫面其他地方，自動關閉學生對話氣泡
+window.addEventListener('pointerdown', (e) => {
+    // 如果點擊的目標「不是」對話氣泡、「不是」學生名字、「不是」按鈕，就清除所有對話
+    if (!e.target.closest('.speech-bubble') && 
+        !e.target.closest('.student-label') && 
+        !e.target.closest('button')) {
+        clearAllBubbles();
+    }
+});
 
 
     </script>
