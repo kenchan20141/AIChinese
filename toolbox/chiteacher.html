@@ -4432,7 +4432,7 @@ document.getElementById('btn-do-grade').addEventListener('click', () => {
             },
             {
                 title: "但求無愧", type: "full",
-                desc: "無論最終 DSE 放榜是輝煌還是慘淡，結論永遠只有一個：「來年繼續增加補課」。既然系統的胃口永遠無法滿足，那就別太在意他人的眼光，只需對得起自己與學生，問心無愧即可。",
+                desc: "考試從來都是一場充滿變數的戰役。即使你傾盡心力將學生的「知識容器」徹底填滿，DSE 放榜的最終成績依然存在著殘酷的隨機性。既然我們無法完全掌控那冷冰冰的分數，又何必被系統的 KPI 綁架？無論結果是摘星還是落第，都永遠只有一句：「來年繼續增加補課」。作為教師，我們無法創造逢考必勝的神話，只問自己是否已盡心盡力教導。只要對得起自己的初心，但求無愧即可。",
                 animLogic: stratAnimResult
             }
         ];
@@ -4971,40 +4971,119 @@ function closeStrategyGuide() {
         }
 
         // 9. 無形之手
+       // 9. 但求無愧 (隨機性與系統結論)
         function stratAnimResult() {
-            const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 256;
-            const ctx = canvas.getContext('2d'); const tex = new THREE.CanvasTexture(canvas);
+            // 1. 建立一個「知識容器」已經被老師 100% 填滿的學生
+            const s = createStratStudent(0, '#0052CC', 3.0);
+            s.readFill.scale.y = 3.0; // 知識水位置頂
+            s.readFill.position.y = 1.0;
+
+            // 2. 建立上方 DSE 隨機成績顯示板 (老虎機效果)
+            const canvas = document.createElement('canvas'); 
+            canvas.width = 512; canvas.height = 256;
+            const ctx = canvas.getContext('2d'); 
+            const tex = new THREE.CanvasTexture(canvas);
             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
-            sprite.position.set(0, 2, 0); sprite.scale.set(10, 5, 1);
+            sprite.position.set(0, 4.5, 0); 
+            sprite.scale.set(8, 4, 1);
             stratScene.add(sprite); stratObjects.push(sprite);
 
-            let frame = 0; let state = 0;
+            // 3. 建立全螢幕的「增加補課」印章特效
+              const stampCanvas = document.createElement('canvas'); 
+            stampCanvas.width = 512; stampCanvas.height = 256;
+            const stampCtx = stampCanvas.getContext('2d'); 
+            const stampTex = new THREE.CanvasTexture(stampCanvas);
+            
+            // 👇 關鍵修改：加入 depthTest: false 與 renderOrder，強制印章在最上層！
+            const stampMat = new THREE.SpriteMaterial({ 
+                map: stampTex, 
+                depthTest: false,  // 關閉深度測試，無視 3D 前後遮擋
+                depthWrite: false 
+            });
+            const stampSprite = new THREE.Sprite(stampMat);
+            stampSprite.renderOrder = 999; // 確保最後渲染，絕對置頂
+            
+            // 稍微調高 Y 軸，讓它剛好砸在畫面中央
+            stampSprite.position.set(0, 3, 2); 
+            stampSprite.scale.set(10, 5, 1);
+            stratScene.add(stampSprite); stratObjects.push(stampSprite);
+
+            let frame = 0;
+            const grades =['U', '1', '2', '3', '4', '5', '5*', '5**'];
+            let currentGrade = '5**';
+            let finalGrade = '5**';
+            let isGoodResult = true;
+
             function render() {
                 frame++;
-                if (frame % 100 === 0) state = 1 - state;
+                const cycle = frame % 240; // 每個動畫循環為 240 幀
 
-                ctx.clearRect(0,0,512,256);
-                ctx.fillStyle = '#f9f9f9'; ctx.fillRect(0,0,512,256);
-                ctx.lineWidth = 10; ctx.strokeStyle = '#111'; ctx.strokeRect(0,0,512,256);
-                
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                
-                if (state === 0) {
-                    ctx.fillStyle = '#009944'; ctx.font = 'bold 40px "Noto Sans TC"';
-                    ctx.fillText('DSE 成績極佳！', 256, 70);
-                } else {
-                    ctx.fillStyle = '#E60012'; ctx.font = 'bold 40px "Noto Sans TC"';
-                    ctx.fillText('DSE 成績退步...', 256, 70);
+                ctx.clearRect(0, 0, 512, 256);
+                stampCtx.clearRect(0, 0, 512, 256);
+
+                // 階段零：重置狀態，切換這次要骰出好成績還是壞成績
+                if (cycle === 0) {
+                    isGoodResult = !isGoodResult;
+                    finalGrade = isGoodResult ? '5**' : '2';
+                    stampSprite.scale.set(20, 10, 1); // 將印章拉遠準備砸下
+                    stampSprite.material.opacity = 0;
                 }
 
-                ctx.fillStyle = '#111'; ctx.font = 'bold 50px "Noto Sans TC"';
-                // 蓋章動畫感
-                const scale = Math.max(1, 2 - (frame % 100) * 0.1);
-                ctx.save(); ctx.translate(256, 160); ctx.scale(scale, scale);
-                ctx.fillText('「結論：增加補課」', 0, 0);
-                ctx.restore();
-                
+                // 階段一：知識滿載，聽天由命 (0~100 幀)
+                if (cycle < 100) {
+                    // 隨機跳動成績 (老虎機滾動感)
+                    if (frame % 4 === 0) currentGrade = grades[Math.floor(Math.random() * grades.length)];
+                    
+                    ctx.fillStyle = '#111'; 
+                    ctx.font = 'bold 32px "Noto Sans TC"'; 
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('知識全滿... 成績聽天由命', 256, 40);
+                    
+                    ctx.fillStyle = '#0052CC'; // 滾動時為藍色
+                    ctx.font = 'bold 90px "Noto Sans TC"';
+                    ctx.fillText(currentGrade, 256, 140);
+                } 
+                // 階段二：放榜結果定格 (100~240 幀)
+                else {
+                    ctx.fillStyle = '#111'; 
+                    ctx.font = 'bold 32px "Noto Sans TC"'; 
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('DSE 最終放榜結果', 256, 40);
+                    
+                    // 根據結果變色：好成績綠色，壞成績紅色
+                    ctx.fillStyle = isGoodResult ? '#009944' : '#E60012';
+                    ctx.font = 'bold 90px "Noto Sans TC"';
+                    ctx.fillText(finalGrade, 256, 140);
+
+                    // 階段三：高層無情的印章砸下 (140~240 幀)
+                    if (cycle > 140) {
+                        const stampProgress = Math.min(1, (cycle - 140) / 10); // 10 幀內快速砸下
+                        stampSprite.material.opacity = stampProgress;
+                        
+                        // 縮放特效製造強烈的打擊感 (Scale 20 -> 10)
+                        const currentScale = 20 - (10 * stampProgress); 
+                        stampSprite.scale.set(currentScale, currentScale / 2, 1);
+
+                        // 繪製歪斜的印章圖案
+                        stampCtx.save();
+                        stampCtx.translate(256, 128);
+                        stampCtx.rotate(-0.15); // 稍微傾斜更有蓋章感
+                        
+                        stampCtx.lineWidth = 15; 
+                        stampCtx.strokeStyle = '#E60012'; 
+                        stampCtx.strokeRect(-220, -60, 440, 120);
+                        
+                        stampCtx.fillStyle = '#E60012'; 
+                        stampCtx.font = 'bold 50px "Noto Sans TC"';
+                        stampCtx.textAlign = 'center'; stampCtx.textBaseline = 'middle';
+                        stampCtx.fillText('結論：增加補課', 0, 0);
+                        stampCtx.restore();
+                    }
+                }
+
                 tex.needsUpdate = true;
+                stampTex.needsUpdate = true;
+                
                 stratRenderer.render(stratScene, stratCamera);
                 stratAnimFrame = requestAnimationFrame(render);
             }
