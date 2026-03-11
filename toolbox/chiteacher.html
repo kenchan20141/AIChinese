@@ -1475,30 +1475,85 @@
             createAvatar() {
                 const avatarGroup = new THREE.Group();
          
-                const bodyGeo = new THREE.CylinderGeometry(0.5, 0.7, 1.4, 16);
-                const bodyMat = new THREE.MeshStandardMaterial({ color: this.type.color });
-                const body = new THREE.Mesh(bodyGeo, bodyMat);
-                body.position.y = 0.7; avatarGroup.add(body);
-         
-                const legGeo = new THREE.CylinderGeometry(0.7, 0.8, 0.8, 16);
-                const legMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-                const legs = new THREE.Mesh(legGeo, legMat);
-                legs.position.y = 0.2; avatarGroup.add(legs);
-         
-                const headGeo = new THREE.SphereGeometry(0.55, 32, 32);
-                const headMat = new THREE.MeshStandardMaterial({ color: 0xffccaa });
-                const head = new THREE.Mesh(headGeo, headMat);
-                head.position.y = 1.6; avatarGroup.add(head);
+                // 定義學生特徵顏色
+                const skinColors = [0xffe0bd, 0xffcd94, 0xeac086, 0xffad60]; // 各種膚色
+                const hairColors = [0x111111, 0x4a3728, 0x2c222b, 0x5c3a21]; // 各種髮色 (黑、深棕等)
                 
+                // 根據學生的 ID 隨機分配外觀，但保持固定
+                const skinColor = skinColors[this.id % skinColors.length];
+                const hairColor = hairColors[(this.id * 3) % hairColors.length];
+                
+                // 校服設定：白恤衫，褲子與領帶根據資質變色 (藍:聰穎, 黑:平庸, 紅:駑鈍)
+                const shirtColor = 0xffffff;
+                const pantsColor = this.type.color;
+                const bagColor = 0x555555; // 書包統一為深灰色
+ 
+                // 創建材質
+                const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.7 });
+                const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.9 });
+                const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 });
+                const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.8 });
+                const bagMat = new THREE.MeshStandardMaterial({ color: bagColor, roughness: 0.9 });
+ 
+                // 1. 雙腿 (褲子)
+                const legGeo = new THREE.BoxGeometry(0.4, 0.8, 0.4);
+                const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+                leftLeg.position.set(-0.25, 0.4, 0);
+                const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+                rightLeg.position.set(0.25, 0.4, 0);
+                avatarGroup.add(leftLeg, rightLeg);
+ 
+                // 2. 身體 (白恤衫校服)
+                const torso = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 0.5), shirtMat);
+                torso.position.set(0, 1.3, 0);
+                avatarGroup.add(torso);
+ 
+                // 3. 領帶 (標誌性學生特徵)
+                const tie = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.1), pantsMat);
+                tie.position.set(0, 1.4, 0.26);
+                avatarGroup.add(tie);
+ 
+                // 4. 書包 (背在背後)
+                const bag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 0.4), bagMat);
+                bag.position.set(0, 1.3, -0.45);
+                avatarGroup.add(bag);
+ 
+                // 5. 雙手
+                const armGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+                const leftArm = new THREE.Mesh(armGeo, skinMat);
+                leftArm.position.set(-0.65, 1.3, 0);
+                const rightArm = new THREE.Mesh(armGeo, skinMat);
+                rightArm.position.set(0.65, 1.3, 0);
+                avatarGroup.add(leftArm, rightArm);
+ 
+                // 6. 頭部
+                const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), skinMat);
+                head.position.set(0, 2.25, 0);
+                avatarGroup.add(head);
+ 
+                // 7. 頭髮 (稍微比頭大一點點的方塊)
+                const hair = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.0), hairMat);
+                hair.position.set(0, 2.7, 0);
+                avatarGroup.add(hair);
+                
+                // 加入一點瀏海造型
+                const bangs = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.2), hairMat);
+                bangs.position.set(0, 2.5, 0.45);
+                avatarGroup.add(bangs);
+                
+                // 根據學生狀態調整姿勢
                 if (this.isUltraLow) {
-                    avatarGroup.rotation.z = Math.PI / 2; 
-                    avatarGroup.position.y = -1.5; 
-                    avatarGroup.position.x = 0.9;  
+                    // 躺平狀態：往後倒下
+                    avatarGroup.rotation.x = -Math.PI / 2;
+                    avatarGroup.position.y = -2.0;
+                    avatarGroup.position.z = 0.5;
                 } else {
+                    // 正常站立：隨機有一點點面向角度，看起來更自然
                     avatarGroup.position.y = -2.5;
                     avatarGroup.position.x = 0;
-                    avatarGroup.rotation.y = (Math.random() - 0.5) * 0.5;
+                    avatarGroup.rotation.y = (Math.random() - 0.5) * 0.4;
                 }
+                
                 return avatarGroup;
             }
 
