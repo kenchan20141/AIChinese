@@ -767,10 +767,43 @@
             transform: translate(-2px, -2px) skew(-2deg) scale(1.02) !important;
             box-shadow: 8px 8px 0 var(--manga-red) !important;
         }
+
+
+
+       /* === 漫畫風：實景背景處理 === */
+#classroom-bg {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background-image: url('課室.PNG');
+    background-size: cover;
+    background-position: center;
+    z-index: 0; /* 放在 3D 畫布底下 */
+    pointer-events: none; /* 防止干擾點擊 */
+    
+    /* 核心去雜亂技術：轉為灰階、提高對比、微模糊，並降低透明度 */
+    filter: grayscale(100%) contrast(1.2) blur(3px);
+    opacity: 0.15; /* 只有淡淡的輪廓 */
+}
+ 
+/* 疊加網點與四周漸暗遮罩 (Vignette)，聚焦畫面中央並增強漫畫感 */
+#classroom-bg::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    /* 第一層漸層做四周暗角，第二層做漫畫網點 */
+    background-image:
+        radial-gradient(circle at center, transparent 40%, var(--bg-color) 100%),
+        radial-gradient(circle, rgba(17,17,17,0.1) 1px, transparent 1.5px);
+    background-size: 100% 100%, 6px 6px;
+}
            
     </style>
 </head>
 <body>
+
+<div id="classroom-bg"></div>
+
+   
     <!-- 漫畫轉場切割黑屏 -->
     <div class="manga-transition-slice" id="slice-top"></div>
     <div class="manga-transition-slice" id="slice-bottom"></div>
@@ -1336,8 +1369,8 @@
         let batchTotalCost = 0;         
         let batchStartHappy = 0;        
 
-        const scene = new THREE.Scene();
-      scene.fog = new THREE.Fog(CONFIG.colors.bg, 30, 160);
+      const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(CONFIG.colors.bg, 30, 160);
         
         // 畫佈設定為全螢幕，以便正確處理視覺位置，上方的儀表板會覆蓋一部分
         const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 150);
@@ -1352,16 +1385,21 @@
         controls.enableRotate = false; controls.enableZoom = true; controls.enablePan = true;
         controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
         controls.minDistance = 20; controls.maxDistance = 150;
-
+ 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.6); dirLight.position.set(0, 30, 20); scene.add(dirLight);
-
-        const plane = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), new THREE.MeshStandardMaterial({ color: CONFIG.colors.bg, roughness: 1 }));
-        plane.rotation.x = -Math.PI / 2; plane.position.y = -2; scene.add(plane);
-
-        const matGlassRead = new THREE.MeshPhysicalMaterial({ 
-            color: CONFIG.colors.glassRead, metalness: 0, roughness: 0.1, 
-            transmission: 0.5, transparent: true, opacity: 0.8, side: THREE.DoubleSide 
+ 
+        // 👇 修訂：徹底移除白色的 3D 地板 (plane)，完全讓底下的課室圖片透出來
+        // 改為只放置一層漫畫風的透視網格線來定位學生的腳底
+        const gridHelper = new THREE.GridHelper(500, 100, 0x111111, 0x111111);
+        gridHelper.position.y = -2; // 貼齊學生的腳底位置
+        gridHelper.material.opacity = 0.08; // 稍微調深一點網格，讓空間感立體而不突兀
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+ 
+        const matGlassRead = new THREE.MeshPhysicalMaterial({
+            color: CONFIG.colors.glassRead, metalness: 0, roughness: 0.1,
+            transmission: 0.5, transparent: true, opacity: 0.8, side: THREE.DoubleSide
         });
 
         class Student {
