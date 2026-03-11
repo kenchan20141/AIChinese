@@ -2007,79 +2007,204 @@
             gsap.killTweensOf(btn);
             gsap.fromTo(btn, { x: 0 }, { x: 4, duration: 0.05, repeat: 3, yoyo: true, clearProps: "x", ease: "power1.inOut" });
         }
+
+
+
+
+// ================= 新增：全畫面教學動作特效 (動漫扁平招式 Cut-in + 鏡頭震動) =================
+        function playActionAnimation(actionId) {
+            // 1. 定義招式名稱與對應顏色
+            const actionData = {
+                read:  { text: "增加閱讀量", bgColor: "var(--accent-read)", textColor: "var(--manga-white)" },
+                fun:   { text: "趣味教學",   bgColor: "var(--accent-fun)",  textColor: "var(--manga-white)" },
+                plan:  { text: "認真授課",   bgColor: "var(--accent-plan)", textColor: "var(--manga-white)" },
+                drill: { text: "試題操練",   bgColor: "var(--manga-yellow)",textColor: "var(--manga-black)" },
+                hea:   { text: "摸魚教學",   bgColor: "var(--accent-hea)",  textColor: "var(--manga-white)" }
+            };
+            const data = actionData[actionId] || actionData.read;
+ 
+            // 2. 建立全螢幕特效容器
+            const fxContainer = document.createElement('div');
+            fxContainer.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                pointer-events: none; z-index: 9999; overflow: hidden;
+                display: flex; justify-content: center; align-items: center;
+            `;
+            
+            // 3. 漫畫集中線背景 (Speed Lines)
+            const speedLines = document.createElement('div');
+            speedLines.style.cssText = `
+                position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+                background: repeating-conic-gradient(
+                    transparent 0deg,
+                    rgba(17,17,17,0.8) 1deg,
+                    transparent 2deg,
+                    transparent 4deg
+                );
+                opacity: 0;
+            `;
+            fxContainer.appendChild(speedLines);
+ 
+            // 4. 招式名稱字體 (扁平色塊設計，絕對不分行)
+            const textContainer = document.createElement('div');
+            textContainer.style.cssText = `
+                position: relative;
+                background-color: ${data.bgColor};
+                padding: 10px 40px;
+                border: 6px solid var(--manga-black);
+                transform: skew(-10deg) scale(0.1);
+                opacity: 0;
+                box-shadow: 15px 15px 0 rgba(17,17,17,0.9); /* 單純的黑色塊狀陰影，非立體漸層 */
+            `;
+ 
+            const textSpan = document.createElement('span');
+            textSpan.innerText = data.text;
+            textSpan.style.cssText = `
+                display: block;
+                font-family: 'Noto Sans TC', sans-serif;
+                font-size: clamp(40px, 6vw, 90px);
+                font-weight: 900;
+                color: ${data.textColor};
+                white-space: nowrap; /* 確保絕不分行 */
+                letter-spacing: 8px;
+                -webkit-text-stroke: 0; /* 移除描邊 */
+                text-shadow: none;      /* 移除文字陰影，完全扁平 */
+            `;
+            
+            textContainer.appendChild(textSpan);
+            fxContainer.appendChild(textContainer);
+            document.body.appendChild(fxContainer);
+ 
+            // 5. GSAP 動畫排程
+            const tl = gsap.timeline({
+                onComplete: () => { fxContainer.remove(); }
+            });
+ 
+            // 背景集中線閃現
+            tl.to(speedLines, { opacity: 0.5, duration: 0.1, ease: "none" });
+            
+            // 色塊標籤用力砸出
+            tl.to(textContainer, { opacity: 1, scale: 1.1, duration: 0.2, ease: "back.out(2)" }, "<");
+            // 色塊微縮停頓 (動漫蓄力感)
+            tl.to(textContainer, { scale: 1.0, duration: 0.3, ease: "power1.out" });
+            
+            // 特效瞬間向兩側拉扯消散
+            tl.to(speedLines, { opacity: 0, duration: 0.15 }, "+=0.1");
+            tl.to(textContainer, { opacity: 0, scaleX: 2.0, scaleY: 0.5, duration: 0.15, ease: "power2.in" }, "<");
+ 
+            // 6. 3D 相機強烈震動 (打擊感)
+            if (camera && controls) {
+                const origX = camera.position.x;
+                const origY = camera.position.y;
+                const shakeAmount = actionId === 'hea' ? 0.3 : 1.5; // 蛇王震動小一點，其他強烈
+                
+                // 使用簡單的迴圈製造震動效果，避免依賴外部的 RoughEase 插件
+                let shakes = 0;
+                const shakeInterval = setInterval(() => {
+                    shakes++;
+                    camera.position.x = origX + (Math.random() - 0.5) * shakeAmount;
+                    camera.position.y = origY + (Math.random() - 0.5) * shakeAmount;
+                    controls.update();
+                    
+                    if (shakes >= 6) {
+                        clearInterval(shakeInterval);
+                        camera.position.x = origX;
+                        camera.position.y = origY;
+                        controls.update();
+                    }
+                }, 20); // 每 20ms 震動一次，總共震動 6 次 (約 120ms)
+            }
+        }
+ 
+       
          
       function handleAction(actionId, cost, happyCost, baseParticles, name, growReading = false) {
-    clearAllBubbles();
-    triggerButtonShake('btn-' + actionId);
-    if (actionId === lastActionType) { consecutiveActionCount++; } else { lastActionType = actionId; consecutiveActionCount = 1; }
-    const isNeed = (actionId === currentNeed);
-    let isBored = (consecutiveActionCount >= 4 && !isNeed);
-    
-    // 修訂三：當是需求時，給予的基礎數量(18)大於閱讀的基礎數量(14)
-    let effectiveBase = isNeed ? 18 : baseParticles;
-    const selectedStudents = students.filter(st => st.isSelected !== false);
-    const selectedCount = selectedStudents.length;
-    const currentMultiplier = (selectedCount > 0 && selectedCount <= students.length / 2) ? 2 : 1;
-    if (spendEnergy(cost) > 0) {
-        if (batchSnapshot === null) {
-            batchSnapshot = students.map(s => s.landedParticles.length);
-            batchStartHappy = TEACHER.happiness; batchTotalCost = 0;
-        }
-        if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
-        batchTotalCost += cost;
-        if (GAME_MODE === 'full') {
-            if (happyCost > 0) { changeHappiness(-happyCost); }
-            else if (happyCost < 0) { changeHappiness(Math.abs(happyCost)); }
-        }
-        setStatus(name + (isNeed ? " 【回應需求】" : ""));
-        
-        students.forEach(s => {
-            const isSoloTarget = (selectedCount === 1 && selectedStudents[0] === s);
-            if (isSoloTarget) {
-                if (s.isUltraLow) {
-                    if (actionId === 'read') { s.tryGrowReading(true); }
-                    s.soloActionCount++;
-                    if (s.soloActionCount >= 3) {
-                        s.soloActionCount = 0;
-                        for(let i=0; i<5; i++) { setTimeout(() => spawnDirectLandedParticle(s, true), i * 100); }
-                        s.showBubble("老師竟然特地為我準備...", "bubble-high", 0);
-                        changeHappiness(5);
-                    }
-                }
-            } else { s.soloActionCount = 0; }
-        });
-        let currentClickMaxDelay = 0; const physicsFallTime = 2500;
-        students.forEach((s, idx) => {
-            if (s.isSelected === false) return;
-            // 由於 effectiveBase 已經提高了，這裡直接使用即可
-            let particlesToSpawn = isBored ? 1 : effectiveBase;
-            particlesToSpawn *= currentMultiplier;
-            if (actionId === 'read') {
-                for(let m=0; m < currentMultiplier; m++) {
-                    s.tryGrowReading();
-                    if (!s.isUltraLow) { spawnDirectLandedParticle(s); }
-                }
-            }
-            if (particlesToSpawn > 0) {
-                const interval = growReading ? 30 : 0;
-                const spawnDuration = (particlesToSpawn - 1) * interval;
-                if (spawnDuration + physicsFallTime > currentClickMaxDelay) { currentClickMaxDelay = spawnDuration + physicsFallTime; }
-                for(let i=0; i < particlesToSpawn; i++) { setTimeout(() => spawnParticle(actionId, s), i * interval); }
-            }
-            triggerStudentDialogue(s, actionId, idx);
-        });
-        if (actionId !== 'hea') randomizeStudentNeed();
-        batchTimer = setTimeout(() => {
-            const studentChanges = students.map((s, index) => ({ student: s, added: s.landedParticles.length - batchSnapshot[index] }));
-            const totalHappyNetChange = TEACHER.happiness - batchStartHappy;
+            clearAllBubbles();
+            triggerButtonShake('btn-' + actionId);
             
-            if (document.getElementById('chk-auto-report').checked) {
-                createActionReport(batchTotalCost, totalHappyNetChange, studentChanges, TEACHER.currentEnergy, TEACHER.happiness, currentMultiplier);
+            if (actionId === lastActionType) { consecutiveActionCount++; }
+            else { lastActionType = actionId; consecutiveActionCount = 1; }
+            
+            const isNeed = (actionId === currentNeed);
+            let isBored = (consecutiveActionCount >= 4 && !isNeed);
+            
+            // 當是需求時，給予的基礎數量(18)大於一般的基礎數量(14)
+            let effectiveBase = isNeed ? 18 : baseParticles;
+            const selectedStudents = students.filter(st => st.isSelected !== false);
+            const selectedCount = selectedStudents.length;
+            const currentMultiplier = (selectedCount > 0 && selectedCount <= students.length / 2) ? 2 : 1;
+            
+            // 嘗試扣除心力，若成功則執行後續動作
+            if (spendEnergy(cost) > 0) {
+                
+                // 👇 觸發全畫面視覺特效！
+                playActionAnimation(actionId);
+ 
+                if (batchSnapshot === null) {
+                    batchSnapshot = students.map(s => s.landedParticles.length);
+                    batchStartHappy = TEACHER.happiness; batchTotalCost = 0;
+                }
+                if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+                
+                batchTotalCost += cost;
+                
+                if (GAME_MODE === 'full') {
+                    if (happyCost > 0) { changeHappiness(-happyCost); }
+                    else if (happyCost < 0) { changeHappiness(Math.abs(happyCost)); }
+                }
+                setStatus(name + (isNeed ? " 【回應需求】" : ""));
+                
+                students.forEach(s => {
+                    const isSoloTarget = (selectedCount === 1 && selectedStudents[0] === s);
+                    if (isSoloTarget) {
+                        if (s.isUltraLow) {
+                            if (actionId === 'read') { s.tryGrowReading(true); }
+                            s.soloActionCount++;
+                            if (s.soloActionCount >= 3) {
+                                s.soloActionCount = 0;
+                                for(let i=0; i<5; i++) { setTimeout(() => spawnDirectLandedParticle(s, true), i * 100); }
+                                s.showBubble("老師竟然特地為我準備...", "bubble-high", 0);
+                                changeHappiness(5);
+                            }
+                        }
+                    } else { s.soloActionCount = 0; }
+                });
+                
+                let currentClickMaxDelay = 0; const physicsFallTime = 2500;
+                
+                students.forEach((s, idx) => {
+                    if (s.isSelected === false) return;
+                    let particlesToSpawn = isBored ? 1 : effectiveBase;
+                    particlesToSpawn *= currentMultiplier;
+                    
+                    if (actionId === 'read') {
+                        for(let m=0; m < currentMultiplier; m++) {
+                            s.tryGrowReading();
+                            if (!s.isUltraLow) { spawnDirectLandedParticle(s); }
+                        }
+                    }
+                    if (particlesToSpawn > 0) {
+                        const interval = growReading ? 30 : 0;
+                        const spawnDuration = (particlesToSpawn - 1) * interval;
+                        if (spawnDuration + physicsFallTime > currentClickMaxDelay) { currentClickMaxDelay = spawnDuration + physicsFallTime; }
+                        for(let i=0; i < particlesToSpawn; i++) { setTimeout(() => spawnParticle(actionId, s), i * interval); }
+                    }
+                    triggerStudentDialogue(s, actionId, idx);
+                });
+                
+                if (actionId !== 'hea') randomizeStudentNeed();
+                
+                batchTimer = setTimeout(() => {
+                    const studentChanges = students.map((s, index) => ({ student: s, added: s.landedParticles.length - batchSnapshot[index] }));
+                    const totalHappyNetChange = TEACHER.happiness - batchStartHappy;
+                    
+                    if (document.getElementById('chk-auto-report').checked) {
+                        createActionReport(batchTotalCost, totalHappyNetChange, studentChanges, TEACHER.currentEnergy, TEACHER.happiness, currentMultiplier);
+                    }
+                    batchSnapshot = null; batchTimer = null; batchTotalCost = 0; batchStartHappy = 0;
+                }, currentClickMaxDelay);
             }
-            batchSnapshot = null; batchTimer = null; batchTotalCost = 0; batchStartHappy = 0;
-        }, currentClickMaxDelay);
-    }
-}
+        }
          
         function randomizeStudentNeed() {
             const r = Math.random();
