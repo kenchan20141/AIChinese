@@ -796,6 +796,59 @@
         radial-gradient(circle, rgba(17,17,17,0.1) 1px, transparent 1.5px);
     background-size: 100% 100%, 6px 6px;
 }
+
+
+/* === 學生專屬長故事對話框樣式 === */
+/* === 學生專屬長故事對話框樣式 === */
+.bubble-story { 
+    border-color: var(--manga-blue); 
+    color: var(--manga-black); 
+    text-align: left; 
+    max-width: 250px; 
+    z-index: 30; 
+    font-size: 14px;
+    line-height: 1.6;
+    font-weight: 700;
+    white-space: pre-wrap; /* 允許文字正常換行顯示階段提示 */
+}
+.bubble-story::after { 
+    border-top-color: var(--manga-blue); 
+}
+
+/* === 學生專屬長故事對話框樣式 (主線與日常) === */
+.bubble-story-main { 
+    border-color: var(--manga-yellow); 
+    background-color: #FFFDE7; /* 淺黃色底，提示重要進度 */
+    color: var(--manga-black); 
+    text-align: left; 
+    max-width: 250px; 
+    z-index: 35; 
+    font-size: 14px;
+    line-height: 1.6;
+    font-weight: 900;
+    white-space: pre-wrap;
+    box-shadow: 6px 6px 0 var(--manga-yellow);
+}
+.bubble-story-main::after { 
+    border-top-color: var(--manga-yellow); 
+}
+
+.bubble-story-idle { 
+    border-color: var(--manga-blue); 
+    background-color: var(--manga-white); /* 正常白底藍框 */
+    color: var(--manga-black); 
+    text-align: left; 
+    max-width: 250px; 
+    z-index: 30; 
+    font-size: 14px;
+    line-height: 1.6;
+    font-weight: 700;
+    white-space: pre-wrap; 
+}
+.bubble-story-idle::after { 
+    border-top-color: var(--manga-blue); 
+}
+       
            
     </style>
 </head>
@@ -1557,294 +1610,485 @@
             transmission: 0.5, transparent: true, opacity: 0.8, side: THREE.DoubleSide
         });
 
-                class Student {
-            constructor(id, xPos, typeOverride = null) {
-                this.id = id; this.xPos = xPos; this.isSelected = true; 
-                
-                // 👇 新增：隨機決定性別，並從專屬名單抽取名字
-                this.gender = Math.random() < 0.5 ? 'boy' : 'girl';
-                if (this.gender === 'boy') {
-                    this.name = BOY_NAMES[Math.floor(Math.random() * BOY_NAMES.length)];
-                } else {
-                    this.name = GIRL_NAMES[Math.floor(Math.random() * GIRL_NAMES.length)];
-                }
-                
-                if (typeOverride) { this.type = typeOverride; } else {
-                    const r = Math.random();
-                    if (r < 0.2) this.type = STUDENT_TYPES.HIGH;
-                    else if (r < 0.7) this.type = STUDENT_TYPES.AVG;
-                    else this.type = STUDENT_TYPES.LOW;
-                }
-         
-                const isTangping = (Math.random() < 0.3);
-                this.isOriginalUltraLow = isTangping; 
-                this.isUltraLow = isTangping;
-                this.soloActionCount = 0; 
-         
-                if (this.type.id === 'low') { this.particleCap = 15; this.maxCapLimit = Math.floor(Math.random() * 11) + 25; } 
-                else { this.particleCap = 999; this.maxCapLimit = 999; }
-                
-                this.baseHeight = 0.8 * this.type.baseScale;
-                this.readingHeight = 0;
-                this.landedParticles = [];
-                const offsets = [5.0, 10.0, 5.5, 10.5, 6.0, 11.0, 4.5, 9.5, 6.5, 11.5];
-                this.bubbleOffsetY = offsets[this.id % 10];
-         
-                this.containerOffset = 1.5;
-                this.containerBottom = this.containerOffset - 0.5;
-         
-                this.labelEl = document.createElement('div');
-                this.labelEl.className = 'student-label';
-                document.getElementById('labels-container').appendChild(this.labelEl);
-         
-                this.bubbleEl = document.createElement('div');
-                this.bubbleEl.className = 'speech-bubble';
-                document.getElementById('labels-container').appendChild(this.bubbleEl);
-         
-                this.group = new THREE.Group();
-                this.group.position.set(xPos, 0, 0);
-                scene.add(this.group);
-                
-                this.avatar = this.createAvatar();
-                this.group.add(this.avatar);
-         
-                const typeColor = new THREE.Color(this.type.color);
-                this.glassMaterial = new THREE.MeshPhysicalMaterial({
-                    color: typeColor, metalness: 0.1, roughness: 0.1, transmission: 0.6, transparent: true, opacity: 0.8, side: THREE.DoubleSide
-                });
-         
-                this.baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 1, 64, 1, true), this.glassMaterial);
-                this.group.add(this.baseMesh);
-         
-                const bottomCap = new THREE.Mesh(new THREE.CircleGeometry(2, 64), this.glassMaterial);
-                bottomCap.rotation.x = -Math.PI/2; bottomCap.position.y = this.containerBottom;
-                this.group.add(bottomCap);
-         
-                this.readGroup = new THREE.Group();
-                this.group.add(this.readGroup);
-         
-                this.readMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 1, 64, 1, true), matGlassRead);
-                this.readGroup.add(this.readMesh);
-                
-                const ring = new THREE.Mesh(new THREE.TorusGeometry(2.05, 0.05, 16, 100), new THREE.MeshStandardMaterial({color: 0x111111}));
-                ring.rotation.x = Math.PI/2;
-                this.readGroup.add(ring);
-                
-                this.updateVisuals(true);
-                this.updateLabelText();
-            }
-         
-            // 👇 新增：分性別的精細化 Voxel 人物生成邏輯
-            createAvatar() {
-                const avatarGroup = new THREE.Group();
-                
-                // 定義顏色庫
-                const skinColors = [0xffe0bd, 0xffcd94, 0xeac086, 0xffad60];
-                const hairColors = [0x111111, 0x4a3728, 0x2c222b, 0x5c3a21];
-                
-                const skinColor = skinColors[this.id % skinColors.length];
-                const hairColor = hairColors[(this.id * 3) % hairColors.length];
-                
-                const shirtColor = 0xffffff; 
-                const uniformColor = this.type.color; // 用於褲子、裙子、領帶或蝴蝶結
-                const bagColor = 0x555555; 
+        class Student {
+    constructor(id, xPos, typeOverride = null) {
+        this.id = id; this.xPos = xPos; this.isSelected = true; 
+        
+        this.gender = Math.random() < 0.5 ? 'boy' : 'girl';
+        if (this.gender === 'boy') {
+            this.name = BOY_NAMES[Math.floor(Math.random() * BOY_NAMES.length)];
+        } else {
+            this.name = GIRL_NAMES[Math.floor(Math.random() * GIRL_NAMES.length)];
+        }
+        
+        if (typeOverride) { this.type = typeOverride; } else {
+            const r = Math.random();
+            if (r < 0.2) this.type = STUDENT_TYPES.HIGH;
+            else if (r < 0.7) this.type = STUDENT_TYPES.AVG;
+            else this.type = STUDENT_TYPES.LOW;
+        }
+ 
+        const isTangping = (Math.random() < 0.3);
+        this.isOriginalUltraLow = isTangping; 
+        this.isUltraLow = isTangping;
+        this.soloActionCount = 0; 
+ 
+        if (this.type.id === 'low') { this.particleCap = 15; this.maxCapLimit = Math.floor(Math.random() * 11) + 25; } 
+        else { this.particleCap = 999; this.maxCapLimit = 999; }
+        
+        this.baseHeight = 0.8 * this.type.baseScale;
+        this.readingHeight = 0;
+        this.landedParticles = [];
+        const offsets =[5.0, 10.0, 5.5, 10.5, 6.0, 11.0, 4.5, 9.5, 6.5, 11.5];
+        this.bubbleOffsetY = offsets[this.id % 10];
+ 
+        this.containerOffset = 1.5;
+        this.containerBottom = this.containerOffset - 0.5;
 
-                const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.7 });
-                const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.9 });
-                const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 });
-                const uniformMat = new THREE.MeshStandardMaterial({ color: uniformColor, roughness: 0.8 });
-                const bagMat = new THREE.MeshStandardMaterial({ color: bagColor, roughness: 0.9 });
-                const socksMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
+        // ==========================================
+        // 深度學生成長引擎 (20個安全課外活動 + 10條主線軌跡)
+        // ==========================================
+        this.clickCount = 0;
+        
+        const ACTIVITY_DATA =[
+            { name: "兼職炒散", jargons:["企緊成日", "背緊餐牌", "執緊貨", "同啲客交涉", "計緊更表"], events:["遇到個西客俾人鬧", "經理話我手腳慢", "出糧買咗對新鞋俾自己", "連續返咗十個鐘攰到死", "有客特登留貼士俾我"] },
+            { name: "溫習小組", jargons:["整緊Mock卷", "溫緊Past Paper", "背緊公式", "教緊同學做數", "對緊答案"], events:["大家溫到好灰想放棄", "有同學發脾氣退group", "成功拆解咗條超難嘅題目", "測驗進步咗全組一齊慶祝", "發現溫錯咗範圍"] },
+            { name: "追星應援", jargons:["搶緊演唱會飛", "排緊版做應援物", "剪緊偶像精華片", "練緊應援口號", "通宵排緊隊"], events:["抽中咗最前排嘅握手會飛", "俾網民鬧我哋係盲目追星", "偶像宣佈退團好傷心", "應援物大受歡迎派晒", "搞展覽爭啲蝕錢"] },
+            { name: "電競訓練", jargons:["練緊走位", "同隊友復盤", "試緊新Meta", "打緊排位賽", "調緊滑鼠靈敏度"], events:["尋日比賽俾人反cup", "隊友發脾氣掛機", "終於上到最高段位", "打到手腕發炎", "有贊助商話想接觸我哋"] },
+            { name: "經營IG網店", jargons:["影緊貨品相", "包緊件寄貨", "覆緊客人DM", "度緊宣傳文案", "計緊今個月嘅成本利潤"], events:["有個客惡意棄單唔要貨", "入咗批好靚嘅新貨", "Followers終於過千", "忙出貨忙到唔記得食飯", "有客俾咗個超長嘅五星好評"] },
+            { name: "減肥健身", jargons:["計緊卡路里", "做緊重訓", "跑緊10K", "飲緊蛋白粉", "度緊脂肪比例"], events:["磅數停滯期好想放棄", "忍唔住暴食咗一餐好自責", "成功著得落細一個碼嘅褲", "練到肌肉酸痛落唔到床", "朋友話我成個人精神咗"] },
+            { name: "街頭Busking", jargons:["練緊掃Chord", "開緊聲", "揀緊歌單", "搬緊Amp", "同路人互動"], events:["手指彈到生晒厚枕", "尋晚氣氛好好有人跟住唱", "俾保安驅趕", "有人留低咗封鼓勵信", "大風吹走咗晒啲譜"] },
+            { name: "學界比賽特訓", jargons:["做緊體能", "練緊戰術", "拉緊筋", "睇緊對手比賽片", "做緊針對性強化"], events:["PB (Personal Best) 推前咗", "操得太勁拉傷咗肌肉", "正選位置俾師弟搶咗", "決賽前夕緊張到失眠", "贏咗塊獎牌證明自己"] },
+            { name: "動漫同人誌創作", jargons:["畫緊線稿", "上緊色", "趕緊死線", "度緊分鏡", "排緊版準備送印"], events:["畫到手腕痛要貼膠布", "印出黎發現有色差", "參展嗰日賣出咗好多本", "俾讀者留言話OOC(人設崩壞)", "諗唔到劇情卡實咗"] },
+            { name: "學生會內閣", jargons:["寫緊政綱", "籌備緊諮詢大會", "拉緊票", "傾緊福利優惠", "覆緊同學投訴"], events:["諮詢大會俾人問到口啞啞", "承諾嘅福利傾唔成", "成功幫同學爭取到新微波爐", "內閣成員意見不合嗌大交", "當選嗰刻成班攬住喊"] },
+            { name: "流浪動物義工", jargons:["餵緊流浪貓", "帶緊狗狗散步", "清緊貓砂", "籌備緊領養日", "帶緊受傷動物睇醫生"], events:["有隻怕人嘅貓貓終於俾人領養", "見到動物走失真係好心痛", "唔小心俾流浪狗咬親", "幫隻貓貓改咗個好得意嘅名", "籌款進度好順利"] },
+            { name: "個人攝影展", jargons:["執緊相", "調緊光暗對比", "諗緊主題構圖", "揀緊相紙", "度緊場地佈置"], events:["影到張好滿意嘅街拍", "唔小心洗錯咗心血作品", "儲錢買咗部二手相機", "有人偷咗我張相放上網", "展覽有陌生人留低鼓勵"] },
+            { name: "自學外語", jargons:["背緊單字", "練緊聽解", "睇緊無字幕劇集", "寫緊外語日記", "同緊網民語言交換"], events:["同外國人傾計竟然完全溝通到", "文法太難搞到好灰", "成功考到語言能力認證", "單字背完又唔記得", "發音俾人笑"] },
+            { name: "校園微電影", jargons:["寫緊劇本", "分緊鏡", "搞緊收音器材", "剪緊片", "調緊色"], events:["主角突然病咗我要頂上", "拍出黎啲聲爆晒咪", "電腦死機未Save進度", "首映嗰陣全場拍手", "導演同攝影師嗌大交"] },
+            { name: "咖啡拉花", jargons:["練緊打奶泡", "控制緊水溫", "練緊拉鬱金香", "試緊唔同咖啡豆", "調緊研磨度"], events:["今日終於拉到個完美嘅心形", "倒瀉奶俾老細鬧", "有客特登影相打卡", "拉花圖案歪晒", "報咗名參加拉花比賽"] },
+            { name: "手作市集擺檔", jargons:["趕緊起貨", "設計緊包裝", "計緊定價", "整緊擺檔層架", "覆緊客人查詢"], events:["整爛咗件最滿意嘅作品", "第一日擺檔竟然零發市", "有客話啲嘢太貴", "有同行讚我設計特別", "賺到第一桶金好感動"] },
+            { name: "舞台劇表演", jargons:["背緊台詞", "排緊走位", "練緊發聲", "整緊背景道具", "同導演對緊戲"], events:["尋日排戲笑到甩碌", "綵排嗰陣腦袋突然空白", "搵到件超靚嘅戲服", "導演話我表情太生硬", "演出完謝幕嗰陣眼濕濕"] },
+            { name: "聯校辯論", jargons:["寫緊一辯稿", "諗緊反駁論點", "同隊友夾緊主線", "睇緊時事新聞", "練緊咬字發音"], events:["尋日場友誼賽贏咗", "俾對手打到口啞啞", "抽中咗條極度冷門嘅辯題", "搵資料搵到頭暈", "教練話我語氣太惡"] },
+            { name: "寫小說", jargons:["度緊世界觀", "寫緊大綱", "諗緊角色名", "趕緊今晚更新", "修緊伏筆"], events:["有讀者瘋狂留言催更", "卡文卡到個腦一片空白", "寫死咗個配角自己都好傷心", "突然多咗好多人點擊", "收到個超級長嘅千字書評"] },
+            { name: "急救牌考試", jargons:["練緊包紮", "做緊CPR假人", "背緊理論書", "學緊AED機", "練緊情景題"], events:["包紮考試差啲唔合格", "假人人工呼吸吹唔入氣", "背理論背到頭暈", "成功考到張證書", "現實真係用得上幫到人"] }
+        ];
+        
+        this.activityObj = ACTIVITY_DATA[Math.floor(Math.random() * ACTIVITY_DATA.length)];
+        // 擴充為 10 個軌跡 (0-4 為課外活動，5-9 為校園與生活日常)
+        const arcType = Math.floor(Math.random() * 10);
+        const actName = this.activityObj.name;
+        
+        // 產生 6 個階段的主線故事
+        this.storyLines =[];
+        switch(arcType) {
+            case 0: // 軌跡一：活動逆境反擊
+                this.storyLines.push(`老師，其實我最近開始咗「${actName}」。我每日放學都會花時間去鑽研，雖然有啲攰，但每當見到有少少成果，嗰種滿足感真係好正。`);
+                this.storyLines.push(`呢排我好俾心機，以為會越做越順。但原來現實真係好殘酷，開始發覺自己力不從心...`);
+                this.storyLines.push(`早幾日遇到好大挫折，幾乎將我之前喺「${actName}」嘅努力全盤否定。我有啲懷疑自己係咪真係適合行呢條路...`);
+                this.storyLines.push(`我灰咗好耐，咩動力都無晒。覺得自己天份唔夠，點做都係白費心機。`);
+                this.storyLines.push(`多謝老師上次點醒我！我冷靜落黎分析失敗原因，重新由基本功練起。雖然過程好枯燥，但我感覺到自己真係進步緊！`);
+                this.storyLines.push(`終於成功啦！回望返之前跌跌撞撞，原來啲挫折全部都係養份。我會繼續堅持落去，多謝老師呢幾年一直願意聽我呻！`);
+                break;
+            case 1: // 軌跡二：活動時間管理
+                this.storyLines.push(`老師，我最近全心全意投入去搞「${actName}」，因為呢個係我一直以黎嘅心願，我真係好想將佢做到最好。`);
+                this.storyLines.push(`但係越做越發現要兼顧嘅嘢好多，開始覺得自己啲時間唔太夠用。`);
+                this.storyLines.push(`呢排真係好大壓力。放得太多心機落去，搞到學業成績退步咗。我開始覺得自己應付唔黎兩邊...`);
+                this.storyLines.push(`上堂成日釣魚，返到屋企又攰到死。有時真係諗，為咗「${actName}」搞到連健康同成績都無埋，值唔值得？`);
+                this.storyLines.push(`我聽咗你建議，的起心肝重組時間表。依家我限制自己每日只能花定額時間去做，其餘時間必須專心溫書。`);
+                this.storyLines.push(`成績出咗，我居然保得住個名次！同時「${actName}」嘅目標亦都順利達成。呢段日子學識咗自律，我覺得自己成熟咗好多！`);
+                break;
+            case 2: // 軌跡三：活動家人反對
+                this.storyLines.push(`老師，我偷偷地瞞住屋企人去搞「${actName}」，因為我知佢哋一定唔會明白，但呢個真係我嘅夢想。`);
+                this.storyLines.push(`我平時只能夠趁佢哋瞓咗先偷偷地做，其實每日都提心吊膽，好驚俾佢哋發現。`);
+                this.storyLines.push(`最煩嘅事終於發生... 尋晚俾屋企人發現咗。佢哋極度反對，話我浪費時間，仲大吵了一場，我真係好灰...`);
+                this.storyLines.push(`佢哋直頭想沒收我啲嘢，逼我退出。我覺得好無助，點解最親嘅人反而最唔支持我？`);
+                this.storyLines.push(`我決定唔同屋企人硬碰硬。我坐低同佢哋深情對話，寫咗份承諾書，保證絕對唔會影響大考成績。佢哋終於肯讓步俾我試下。`);
+                this.storyLines.push(`我做到啦！當我將「${actName}」嘅成果展示俾屋企人睇嗰陣，佢哋眼中有驚訝，仲有一絲驕傲！得到佢哋嘅認同，令我更加感動！`);
+                break;
+            case 3: // 軌跡四：活動團隊衝突
+                this.storyLines.push(`依家我同幾個好朋友一齊搞緊「${actName}」，本來大家都好有熱誠，諗住一齊創造美好回憶。`);
+                this.storyLines.push(`一開始合作得幾開心，但慢慢發現每個人嘅做事方式同標準都好唔同。`);
+                this.storyLines.push(`最近大家因為執著自己嘅意見，嗌大交搞到面阻阻。依家氣氛好尷尬...`);
+                this.storyLines.push(`進度完全停滯，每次傾計都好似打仗咁。我夾喺中間好辛苦，甚至諗過退群算數...`);
+                this.storyLines.push(`我決定做和事佬，約咗大家出黎坦白傾。原來大家都只係著緊件事，我地重新分配咗角色，互相妥協，依家合作順暢咗好多！`);
+                this.storyLines.push(`我地嘅成果大獲好評呀！完咗之後，成班人攬住一齊喊。經歷過爭吵同磨合，我地依家係一輩子嘅好戰友！`);
+                break;
+            case 4: // 軌跡五：活動尋找意義
+                this.storyLines.push(`老師，其實我當初搞「${actName}」都係見身邊啲朋友玩，我就跟住一齊做，算係打發下時間。`);
+                this.storyLines.push(`起初都覺得幾新鮮，但慢慢開始覺得有啲重複同沉悶。`);
+                this.storyLines.push(`最近覺得好迷惘，好似為做而做咁。我更加唔知自己為緊啲乜...`);
+                this.storyLines.push(`我有啲想放棄，覺得再做落去都只係浪費青春。究竟呢件事對我嘅人生有咩意義？`);
+                this.storyLines.push(`直到上次傾完，我嘗試加入一啲自己真正感興趣嘅元素落去。嗰一刻我終於明白，只要投入靈魂，件事就可以變得有意義。`);
+                this.storyLines.push(`老師，我決定咗！我會將「${actName}」變成我未來嘅長期發展方向。由一開始嘅迷惘，到依家搵到使命感，多謝你陪我渡過呢個探索期！`);
+                break;
+            case 5: // 軌跡六：選科與讀書壓力
+                this.storyLines.push(`老師，我最近為咗揀科同溫書好煩惱，見到啲同學個個都好似好有目標咁，得我一個仲喺度游魂...`);
+                this.storyLines.push(`我試過逼自己跟足學霸嗰套溫書方法，點知越溫越亂，測驗仲退步埋，真係好大打擊。`);
+                this.storyLines.push(`屋企人想我讀理科商科，話將來容易搵食。但我根本無興趣，對住啲數字就眼瞓，我都唔知點算好。`);
+                this.storyLines.push(`呢排壓力大到有少少失眠，一打開本書就覺得透唔到氣，好驚自己會考唔上大學令大家失望...`);
+                this.storyLines.push(`多謝老師上次同我傾偈！我決定咗唔再同人比較，揀返自己真正有興趣嘅科目。讀得開心先有動力！`);
+                this.storyLines.push(`雖然條路未必係最易行，但至少我依家每日溫書都覺得充實。我會為自己嘅未來好好奮鬥，多謝老師支持！`);
+                break;
+            case 6: // 軌跡七：青春期暗戀與成長
+                this.storyLines.push(`老師... 我最近有啲心事。我有個好鍾意嘅人，成日忍唔住偷望佢，搞到上堂都專心唔到。`);
+                this.storyLines.push(`為咗吸引佢注意，我特登去學佢鍾意嘅嘢。但發現原來真係好難，佢好似都係當我係普通同學。`);
+                this.storyLines.push(`尋日見到佢同另一個同學好傾得埋，我個心悒住悒住咁。原來暗戀一個人真係好辛苦...`);
+                this.storyLines.push(`我鼓起勇氣表白咗... 結果俾佢婉拒咗，話現階段想專心讀書。雖然有心理準備，但真係好難過。`);
+                this.storyLines.push(`多謝老師借個膊頭俾我喊，又無笑我幼稚。你講得啱，與其企喺原地傷心，不如令自己變成一個更優秀嘅人！`);
+                this.storyLines.push(`我依家已經放低咗啦！將啲時間放返落溫書同自己身上，反而覺得輕鬆咗好多。青春期嘅回憶，酸酸甜甜都幾好丫！`);
+                break;
+            case 7: // 軌跡八：分班與人際關係
+                this.storyLines.push(`老師，自從今年分班之後，我最好嘅朋友去咗另一班。依家小息都係得我自己一個，覺得好孤單。`);
+                this.storyLines.push(`我嘗試過融入新班嘅圈子，但大家傾嘅話題我都搭唔上嘴。有時真係好想轉返去舊班...`);
+                this.storyLines.push(`最慘係，我見到我個好朋友喺新班識咗好多新朋友，好似已經唔再需要我咁。我覺得我哋越行越遠啦。`);
+                this.storyLines.push(`有次分組做Project，我都係最後一個俾人揀剩。嗰刻真係覺得自己好失敗，好似無人鍾意我咁...`);
+                this.storyLines.push(`多謝老師特登安排我同幾個友善嘅同學同一組！原來只要我肯主動開口，大家其實都好樂意同我傾偈。`);
+                this.storyLines.push(`我依家喺新班已經有自己嘅朋友圈子啦！而且同舊朋友嘅感情都無變，放學仲會一齊走。我學識咗點樣去擴闊自己嘅世界！`);
+                break;
+            case 8: // 軌跡九：打機成癮與自律
+                this.storyLines.push(`老師，我最近迷上咗隻新手機game，每晚都忍唔住打到凌晨。第二朝返學眼瞓到死...`);
+                this.storyLines.push(`我知咁樣唔啱，但我控制唔到自己。每次話『打多一鋪就溫書』，結果一打就幾個鐘。`);
+                this.storyLines.push(`今次測驗成績出咗，退步得好緊要。連阿媽都發現咗我偷打機，沒收咗我部手機，依家屋企日日家嘈屋閉。`);
+                this.storyLines.push(`無得打機覺得好空虛，但望住啲唔合格嘅測驗卷，我又覺得好內疚。我都好討厭依家咁甩漏嘅自己。`);
+                this.storyLines.push(`多謝老師同我一齊定立『時間管理對賭協議』！我依家每日會交低部電話俾你保管，逼自己專心上堂同做功課。`);
+                this.storyLines.push(`我終於戒甩咗個機癮啦！依家只會喺週末放假先玩一陣當放鬆。重新掌控自己生活嘅感覺真係好正！`);
+                break;
+            case 9: // 軌跡十：尋找未來生涯方向
+                this.storyLines.push(`老師，學校成日叫我哋填生涯規劃表，但我次次都交白卷。我根本唔知自己將來想做咩...`);
+                this.storyLines.push(`睇見身邊啲同學有啲想做醫生，有啲想做律師，我就覺得自己好廢，好似一件無用嘅齒輪咁。`);
+                this.storyLines.push(`我試過去參加唔同嘅職業講座，但聽完都係無感覺。係咪我呢個人真係太平庸，注定一事無成？`);
+                this.storyLines.push(`有時真係覺得讀書好無謂，反正都唔知為乜而讀。我都想搵到一樣令我燃燒生命去奮鬥嘅目標呀...`);
+                this.storyLines.push(`多謝老師介紹我去幫手做學校嘅義工同搞活動！喺籌備嘅過程入面，我發現原來自己好鍾意同人溝通，策劃嘢都幾有天份。`);
+                this.storyLines.push(`老師，我搵到目標啦！我決定大學想讀傳理/社工系！雖然依家成績仲有段距離，但我一定會盡全力衝刺，唔會再迷惘！`);
+                break;
+        }
+        // ==========================================
+ 
+        this.labelEl = document.createElement('div');
+        this.labelEl.className = 'student-label';
+        // 確保容器可點擊
+        this.labelEl.style.pointerEvents = 'auto'; 
+        
+        this.labelTextContainer = document.createElement('div');
+        this.labelEl.appendChild(this.labelTextContainer);
+        
+        // 言簡意賅的按鈕 (隱藏文字)
+        this.talkBtn = document.createElement('button');
+        this.talkBtn.innerHTML = '💬';
+        this.talkBtn.title = '傾談 (-0.1 心力)';
+        this.talkBtn.style.cssText = 'display: inline-block; margin-top: 5px; padding: 2px 15px; font-size: 16px; background: #fff; color: #111; border: 2px solid #111; box-shadow: 2px 2px 0 #111; cursor: pointer; transform: skew(-2deg); transition: all 0.1s; pointer-events: auto;';
+        
+        this.talkBtn.onmouseover = () => { if(!this.talkBtn.disabled) { this.talkBtn.style.transform = 'skew(-2deg) translate(-1px, -1px)'; this.talkBtn.style.boxShadow = '3px 3px 0 var(--manga-blue)'; }};
+        this.talkBtn.onmouseout = () => { if(!this.talkBtn.disabled) { this.talkBtn.style.transform = 'skew(-2deg)'; this.talkBtn.style.boxShadow = '2px 2px 0 #111'; }};
+        
+        this.talkBtn.onclick = (e) => {
+            e.stopPropagation(); 
+            talkToStudent(this);
+        };
+        this.labelEl.appendChild(this.talkBtn);
 
-                // 共用部分：身體(恤衫)、雙手、頭、瀏海、書包
-                const torso = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 0.5), shirtMat);
-                torso.position.set(0, 1.3, 0);
-                
-                const bag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 0.4), bagMat);
-                bag.position.set(0, 1.3, -0.45);
-                
-                const armGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
-                const leftArm = new THREE.Mesh(armGeo, skinMat);
-                leftArm.position.set(-0.65, 1.3, 0);
-                const rightArm = new THREE.Mesh(armGeo, skinMat);
-                rightArm.position.set(0.65, 1.3, 0);
-                
-                const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), skinMat);
-                head.position.set(0, 2.25, 0);
-                
-                const hairTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.0), hairMat);
-                hairTop.position.set(0, 2.7, 0);
-                const bangs = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.2), hairMat);
-                bangs.position.set(0, 2.5, 0.45);
+        document.getElementById('labels-container').appendChild(this.labelEl);
+ 
+        this.bubbleEl = document.createElement('div');
+        this.bubbleEl.className = 'speech-bubble';
+        document.getElementById('labels-container').appendChild(this.bubbleEl);
+ 
+        this.group = new THREE.Group();
+        this.group.position.set(xPos, 0, 0);
+        scene.add(this.group);
+        
+        this.avatar = this.createAvatar();
+        this.group.add(this.avatar);
+ 
+        const typeColor = new THREE.Color(this.type.color);
+        this.glassMaterial = new THREE.MeshPhysicalMaterial({
+            color: typeColor, metalness: 0.1, roughness: 0.1, transmission: 0.6, transparent: true, opacity: 0.8, side: THREE.DoubleSide
+        });
+ 
+        this.baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 1, 64, 1, true), this.glassMaterial);
+        this.group.add(this.baseMesh);
+ 
+        const bottomCap = new THREE.Mesh(new THREE.CircleGeometry(2, 64), this.glassMaterial);
+        bottomCap.rotation.x = -Math.PI/2; bottomCap.position.y = this.containerBottom;
+        this.group.add(bottomCap);
+ 
+        this.readGroup = new THREE.Group();
+        this.group.add(this.readGroup);
+ 
+        this.readMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 1, 64, 1, true), matGlassRead);
+        this.readGroup.add(this.readMesh);
+        
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(2.05, 0.05, 16, 100), new THREE.MeshStandardMaterial({color: 0x111111}));
+        ring.rotation.x = Math.PI/2;
+        this.readGroup.add(ring);
+        
+        this.updateVisuals(true);
+        this.updateLabelText();
+    }
 
-                avatarGroup.add(torso, bag, leftArm, rightArm, head, hairTop, bangs);
+    // 智能故事推進器
+    getStoryLine() {
+        // 定義觸發 6 個主線故事的點擊里程碑 (橫跨六年，需要點擊 30 次才能完整看完)
+        const milestones =[0, 3, 8, 14, 21, 30]; 
+        const stageIndex = milestones.indexOf(this.clickCount);
+        let line = "";
+        let isStory = false;
+        
+        if (stageIndex !== -1 && stageIndex < this.storyLines.length) {
+            // 觸發主線劇情
+            line = this.storyLines[stageIndex];
+            isStory = true;
+        } else {
+            // 觸發特定活動的「專屬」日常對話 (即使是行日常軌跡的學生，平時也會聊聊課外活動或生活)
+            const act = this.activityObj;
+            const jargon = act.jargons[Math.floor(Math.random() * act.jargons.length)];
+            const event = act.events[Math.floor(Math.random() * act.events.length)];
+            
+            const idleTemplates =[
+                `老師，我最近${jargon}，真係好花時間，不過幾有滿足感。`,
+                `你知唔知呀？我搞「${act.name}」嗰陣，${event}，真係超難忘！`,
+                `唉，呢排成日要${jargon}，搞到有啲攰...`,
+                `原來「${act.name}」真係唔易做，不過我會繼續努力嘅！`,
+                `我啱啱${event}，而家心情好複雜呀...`,
+                `老師你以前有冇試過搞${act.name}？其實過程入面真係學到好多嘢。`,
+                `今日好忙呀，又要溫書又要${jargon}...`,
+                `我發現「${act.name}」最難嘅地方，就係要一直堅持落去。`
+            ];
+            line = idleTemplates[Math.floor(Math.random() * idleTemplates.length)];
+            isStory = false;
+        }
+        
+        this.clickCount++;
+        return { text: line, isStory: isStory };
+    }
+ 
+    createAvatar() {
+        const avatarGroup = new THREE.Group();
+        
+        const skinColors =[0xffe0bd, 0xffcd94, 0xeac086, 0xffad60];
+        const hairColors =[0x111111, 0x4a3728, 0x2c222b, 0x5c3a21];
+        
+        const skinColor = skinColors[this.id % skinColors.length];
+        const hairColor = hairColors[(this.id * 3) % hairColors.length];
+        
+        const shirtColor = 0xffffff; 
+        const uniformColor = this.type.color; 
+        const bagColor = 0x555555; 
 
-                // 性別差異化設計
-                if (this.gender === 'boy') {
-                    // 男生：長西裝褲 + 領帶
-                    const legGeo = new THREE.BoxGeometry(0.4, 0.8, 0.4);
-                    const leftLeg = new THREE.Mesh(legGeo, uniformMat);
-                    leftLeg.position.set(-0.25, 0.4, 0);
-                    const rightLeg = new THREE.Mesh(legGeo, uniformMat);
-                    rightLeg.position.set(0.25, 0.4, 0);
-                    
-                    const tie = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.1), uniformMat);
-                    tie.position.set(0, 1.4, 0.26);
-                    
-                    avatarGroup.add(leftLeg, rightLeg, tie);
-                } else {
-                    // 女生：校服裙 + 白襪露腿 + 蝴蝶結領結 + 長髮背影
-                    const skirt = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.4, 0.6), uniformMat);
-                    skirt.position.set(0, 0.8, 0);
-                    
-                    const legGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
-                    const leftLeg = new THREE.Mesh(legGeo, skinMat);
-                    leftLeg.position.set(-0.25, 0.4, 0);
-                    const rightLeg = new THREE.Mesh(legGeo, skinMat);
-                    rightLeg.position.set(0.25, 0.4, 0);
-                    
-                    const sockGeo = new THREE.BoxGeometry(0.32, 0.3, 0.32);
-                    const leftSock = new THREE.Mesh(sockGeo, socksMat);
-                    leftSock.position.set(-0.25, 0.15, 0);
-                    const rightSock = new THREE.Mesh(sockGeo, socksMat);
-                    rightSock.position.set(0.25, 0.15, 0);
-                    
-                    const ribbon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), uniformMat);
-                    ribbon.position.set(0, 1.6, 0.26);
-                    
-                    const longHair = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 0.25), hairMat);
-                    longHair.position.set(0, 1.8, -0.4);
-                    
-                    avatarGroup.add(skirt, leftLeg, rightLeg, leftSock, rightSock, ribbon, longHair);
-                }
-                
-                // 根據是否躺平來決定最終旋轉角度與高度
-                if (this.isUltraLow) {
-                    avatarGroup.rotation.x = -Math.PI / 2; 
-                    avatarGroup.position.y = -2.0; 
-                    avatarGroup.position.z = 0.5;
-                } else {
-                    avatarGroup.position.y = -2.5;
-                    avatarGroup.position.x = 0;
-                    avatarGroup.rotation.y = (Math.random() - 0.5) * 0.4; // 微偏角度讓畫面更自然
-                }
-                
-                return avatarGroup;
-            }
+        const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.7 });
+        const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.9 });
+        const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 });
+        const uniformMat = new THREE.MeshStandardMaterial({ color: uniformColor, roughness: 0.8 });
+        const bagMat = new THREE.MeshStandardMaterial({ color: bagColor, roughness: 0.9 });
+        const socksMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
 
-            updateAvatarPose() {
-                this.group.remove(this.avatar);
-                this.avatar = this.createAvatar();
-                this.group.add(this.avatar);
-            }
-            
-            getContainerHeight() { return this.baseHeight + this.readingHeight; }
-            getRimY() { return this.containerBottom + this.getContainerHeight(); }
-            
-            getCurrentCapacity() {
-                if (this.type.id === 'low') return this.particleCap;
-                return Math.floor(this.getContainerHeight() / 0.006);
-            }
-            
-            tryGrowReading(force = false) {
-                if (this.isUltraLow && !force) { this.shake(); return false; }
-                if (this.type.id === 'low') {
-                    if (this.particleCap < this.maxCapLimit) {
-                        this.particleCap++; this.readingHeight += this.type.readGrow;
-                        this.updateVisuals(); return true;
-                    } else { this.shake(); return false; }
-                }
-                if (!this.type.canGrow || this.getContainerHeight() >= this.type.maxHeight) { this.shake(); return false; }
-                this.readingHeight += this.type.readGrow; this.updateVisuals(); return true;
-            }
-         
-            growGrade() {
-                if (this.type.id === 'low') { if (this.particleCap < this.maxCapLimit) { this.particleCap++; this.readingHeight += 0.05; } }
-                if (this.getContainerHeight() >= this.type.maxHeight) return;
-                const min = this.type.growRate[0], max = this.type.growRate[1];
-                let growth = Math.random() * (max - min) + min;
-                if (this.getContainerHeight() + growth > this.type.maxHeight) { growth = this.type.maxHeight - this.getContainerHeight(); }
-                this.baseHeight += growth; this.updateVisuals();
-            }
-         
-            shake() { gsap.to(this.group.position, { x: this.xPos + 0.1, duration: 0.05, yoyo: true, repeat: 3 }); }
-            
-            updateLabelText() {
-                const selectedCount = students.filter(st => st.isSelected !== false).length;
-                const isSmallClass = (selectedCount > 0 && selectedCount <= students.length / 2);
-                const isTarget = (this.isSelected !== false);
-                const bonusHtml = (isSmallClass && isTarget) ? '<span class="x2-indicator">x2</span>' : '';
-                
-                let typeName = this.type.name;
-                let typeColor = this.type.color;
-                let soloProgressHtml = "";
-         
-                if (this.isUltraLow) {
-                    typeColor = "#666666";
-                    if (this.type.id === 'high') typeName = "天資聰穎(躺平)";
-                    else if (this.type.id === 'avg') typeName = "天資平庸(躺平)";
-                    else typeName = "天資駑鈍(躺平)";
-         
-                    if (this.soloActionCount > 0) {
-                        soloProgressHtml = `<br><span style="color:#e67e22; font-size:10px; font-weight:bold;">關注中: ${this.soloActionCount}/3</span>`;
-                    }
-                }
-            
-                this.labelEl.innerHTML = `
-                    <span style="font-size:12px; color:#111;">${this.name}</span>${bonusHtml}
-                    <br>
-                    <span style="color:${typeColor}">${typeName}</span>: ${this.landedParticles.length}
-                    ${soloProgressHtml}
-                `;
-            }
-            
-            hideBubble() {
-                gsap.killTweensOf(this.bubbleEl);
-                this.bubbleEl.style.display = 'none';
-                this.bubbleEl.style.opacity = 0;
-            }
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 0.5), shirtMat);
+        torso.position.set(0, 1.3, 0);
+        
+        const bag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 0.4), bagMat);
+        bag.position.set(0, 1.3, -0.45);
+        
+        const armGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+        const leftArm = new THREE.Mesh(armGeo, skinMat);
+        leftArm.position.set(-0.65, 1.3, 0);
+        const rightArm = new THREE.Mesh(armGeo, skinMat);
+        rightArm.position.set(0.65, 1.3, 0);
+        
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), skinMat);
+        head.position.set(0, 2.25, 0);
+        
+        const hairTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.0), hairMat);
+        hairTop.position.set(0, 2.7, 0);
+        const bangs = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.2), hairMat);
+        bangs.position.set(0, 2.5, 0.45);
 
-            showBubble(text, className, index) {
-                this.bubbleEl.innerText = text;
-                this.bubbleEl.className = 'speech-bubble ' + className;
-                gsap.killTweensOf(this.bubbleEl);
-                gsap.set(this.bubbleEl, { opacity: 0, scale: 0.8, display: 'block', zIndex: 20 + index });
-                const delay = index * 0.15; 
-                gsap.to(this.bubbleEl, { opacity: 1, scale: 1, duration: 0.4, delay: delay, ease: "back.out(1.7)" });
-            }
+        avatarGroup.add(torso, bag, leftArm, rightArm, head, hairTop, bangs);
+
+        if (this.gender === 'boy') {
+            const legGeo = new THREE.BoxGeometry(0.4, 0.8, 0.4);
+            const leftLeg = new THREE.Mesh(legGeo, uniformMat);
+            leftLeg.position.set(-0.25, 0.4, 0);
+            const rightLeg = new THREE.Mesh(legGeo, uniformMat);
+            rightLeg.position.set(0.25, 0.4, 0);
             
-            updateVisuals(instant = false) {
-                const dur = instant ? 0 : 0.8;
-                gsap.to(this.baseMesh.scale, { y: this.baseHeight, duration: dur });
-                gsap.to(this.baseMesh.position, { y: this.containerBottom + (this.baseHeight / 2), duration: dur });
-                
-                const readH = Math.max(0.01, this.readingHeight);
-                gsap.to(this.readGroup.position, { y: this.containerBottom + this.baseHeight, duration: dur });
-                gsap.to(this.readMesh.scale, { y: readH, duration: dur });
-                gsap.to(this.readMesh.position, { y: readH / 2, duration: dur });
-            }
-         
-            bump() {
-                gsap.killTweensOf(this.group.position, "y");
-                gsap.fromTo(this.group.position, { y: 0 }, { y: -0.15, duration: 0.05, yoyo: true, repeat: 1, ease: "power1.out" });
-            }
-         
-            dispose() {
-                if (this.labelEl) this.labelEl.remove();
-                if (this.bubbleEl) this.bubbleEl.remove();
+            const tie = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.1), uniformMat);
+            tie.position.set(0, 1.4, 0.26);
+            
+            avatarGroup.add(leftLeg, rightLeg, tie);
+        } else {
+            const skirt = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.4, 0.6), uniformMat);
+            skirt.position.set(0, 0.8, 0);
+            
+            const legGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+            const leftLeg = new THREE.Mesh(legGeo, skinMat);
+            leftLeg.position.set(-0.25, 0.4, 0);
+            const rightLeg = new THREE.Mesh(legGeo, skinMat);
+            rightLeg.position.set(0.25, 0.4, 0);
+            
+            const sockGeo = new THREE.BoxGeometry(0.32, 0.3, 0.32);
+            const leftSock = new THREE.Mesh(sockGeo, socksMat);
+            leftSock.position.set(-0.25, 0.15, 0);
+            const rightSock = new THREE.Mesh(sockGeo, socksMat);
+            rightSock.position.set(0.25, 0.15, 0);
+            
+            const ribbon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), uniformMat);
+            ribbon.position.set(0, 1.6, 0.26);
+            
+            const longHair = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 0.25), hairMat);
+            longHair.position.set(0, 1.8, -0.4);
+            
+            avatarGroup.add(skirt, leftLeg, rightLeg, leftSock, rightSock, ribbon, longHair);
+        }
+        
+        if (this.isUltraLow) {
+            avatarGroup.rotation.x = -Math.PI / 2; 
+            avatarGroup.position.y = -2.0; 
+            avatarGroup.position.z = 0.5;
+        } else {
+            avatarGroup.position.y = -2.5;
+            avatarGroup.position.x = 0;
+            avatarGroup.rotation.y = (Math.random() - 0.5) * 0.4; 
+        }
+        
+        return avatarGroup;
+    }
+
+    updateAvatarPose() {
+        this.group.remove(this.avatar);
+        this.avatar = this.createAvatar();
+        this.group.add(this.avatar);
+    }
+    
+    getContainerHeight() { return this.baseHeight + this.readingHeight; }
+    getRimY() { return this.containerBottom + this.getContainerHeight(); }
+    
+    getCurrentCapacity() {
+        if (this.type.id === 'low') return this.particleCap;
+        return Math.floor(this.getContainerHeight() / 0.006);
+    }
+    
+    tryGrowReading(force = false) {
+        if (this.isUltraLow && !force) { this.shake(); return false; }
+        if (this.type.id === 'low') {
+            if (this.particleCap < this.maxCapLimit) {
+                this.particleCap++; this.readingHeight += this.type.readGrow;
+                this.updateVisuals(); return true;
+            } else { this.shake(); return false; }
+        }
+        if (!this.type.canGrow || this.getContainerHeight() >= this.type.maxHeight) { this.shake(); return false; }
+        this.readingHeight += this.type.readGrow; this.updateVisuals(); return true;
+    }
+ 
+    growGrade() {
+        if (this.type.id === 'low') { if (this.particleCap < this.maxCapLimit) { this.particleCap++; this.readingHeight += 0.05; } }
+        if (this.getContainerHeight() >= this.type.maxHeight) return;
+        const min = this.type.growRate[0], max = this.type.growRate[1];
+        let growth = Math.random() * (max - min) + min;
+        if (this.getContainerHeight() + growth > this.type.maxHeight) { growth = this.type.maxHeight - this.getContainerHeight(); }
+        this.baseHeight += growth; this.updateVisuals();
+    }
+ 
+    shake() { gsap.to(this.group.position, { x: this.xPos + 0.1, duration: 0.05, yoyo: true, repeat: 3 }); }
+    
+    updateLabelText() {
+        const selectedCount = students.filter(st => st.isSelected !== false).length;
+        const isSmallClass = (selectedCount > 0 && selectedCount <= students.length / 2);
+        const isTarget = (this.isSelected !== false);
+        const bonusHtml = (isSmallClass && isTarget) ? '<span class="x2-indicator">x2</span>' : '';
+        
+        let typeName = this.type.name;
+        let typeColor = this.type.color;
+        let soloProgressHtml = "";
+ 
+        if (this.isUltraLow) {
+            typeColor = "#666666";
+            if (this.type.id === 'high') typeName = "天資聰穎(躺平)";
+            else if (this.type.id === 'avg') typeName = "天資平庸(躺平)";
+            else typeName = "天資駑鈍(躺平)";
+ 
+            if (this.soloActionCount > 0) {
+                soloProgressHtml = `<br><span style="color:#e67e22; font-size:10px; font-weight:bold;">關注中: ${this.soloActionCount}/3</span>`;
             }
         }
+    
+        this.labelTextContainer.innerHTML = `
+            <span style="font-size:12px; color:#111;">${this.name}</span>${bonusHtml}
+            <br>
+            <span style="color:${typeColor}">${typeName}</span>: ${this.landedParticles.length}
+            ${soloProgressHtml}
+        `;
 
+        // 只在生存篇顯示傾談按鈕，並執行防呆
+        if (GAME_MODE === 'full') {
+            this.talkBtn.style.display = 'inline-block';
+            if (TEACHER.currentEnergy < 0.1) {
+                this.talkBtn.disabled = true;
+                this.talkBtn.style.opacity = '0.5';
+                this.talkBtn.style.cursor = 'not-allowed';
+                this.talkBtn.style.background = '#eee';
+            } else {
+                this.talkBtn.disabled = false;
+                this.talkBtn.style.opacity = '1';
+                this.talkBtn.style.cursor = 'pointer';
+                this.talkBtn.style.background = '#fff';
+            }
+        } else {
+            this.talkBtn.style.display = 'none';
+        }
+    }
+    
+    hideBubble() {
+        gsap.killTweensOf(this.bubbleEl);
+        this.bubbleEl.style.display = 'none';
+        this.bubbleEl.style.opacity = 0;
+    }
+
+    showBubble(text, className, index) {
+        this.bubbleEl.innerText = text;
+        this.bubbleEl.className = 'speech-bubble ' + className;
+        gsap.killTweensOf(this.bubbleEl);
+        gsap.set(this.bubbleEl, { opacity: 0, scale: 0.8, display: 'block', zIndex: 20 + index });
+        const delay = index * 0.15; 
+        gsap.to(this.bubbleEl, { opacity: 1, scale: 1, duration: 0.4, delay: delay, ease: "back.out(1.7)" });
+    }
+    
+    updateVisuals(instant = false) {
+        const dur = instant ? 0 : 0.8;
+        gsap.to(this.baseMesh.scale, { y: this.baseHeight, duration: dur });
+        gsap.to(this.baseMesh.position, { y: this.containerBottom + (this.baseHeight / 2), duration: dur });
+        
+        const readH = Math.max(0.01, this.readingHeight);
+        gsap.to(this.readGroup.position, { y: this.containerBottom + this.baseHeight, duration: dur });
+        gsap.to(this.readMesh.scale, { y: readH, duration: dur });
+        gsap.to(this.readMesh.position, { y: readH / 2, duration: dur });
+    }
+ 
+    bump() {
+        gsap.killTweensOf(this.group.position, "y");
+        gsap.fromTo(this.group.position, { y: 0 }, { y: -0.15, duration: 0.05, yoyo: true, repeat: 1, ease: "power1.out" });
+    }
+ 
+    dispose() {
+        if (this.labelEl) this.labelEl.remove();
+        if (this.bubbleEl) this.bubbleEl.remove();
+    }
+}
+
+       
         // 全局隱藏氣泡
         function clearAllBubbles() {
             students.forEach(s => s.hideBubble());
         }
 
-        function clearPendingReports() {
-            if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
-            batchSnapshot = null; batchTotalCost = 0; batchStartHappy = 0;
-            document.getElementById('report-overlay').style.display = 'none';
-        }
+     function clearPendingReports() {
+    if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+    
+    // 【修訂】：加入清除對話延遲計時器的保護機制，防止畫面干擾
+    if (window.talkTimer) { clearTimeout(window.talkTimer); window.talkTimer = null; }
+    
+    batchSnapshot = null; batchTotalCost = 0; batchStartHappy = 0;
+    document.getElementById('report-overlay').style.display = 'none';
+}
 
         function startGame(mode) {
             GAME_MODE = mode;
@@ -1899,106 +2143,118 @@
             if(TEACHER.currentEnergy > TEACHER.maxEnergy) TEACHER.currentEnergy = TEACHER.maxEnergy;
         }
 
-       function createActionReport(energyCost, totalHappyChange, studentChanges, currentEnergy, currentHappy, multiplier) {
-    const container = document.getElementById('rpt-bars-container');
-    container.innerHTML = '';
- 
-    const tag = document.getElementById('rpt-multiplier-tag');
-    tag.style.display = (multiplier > 1) ? 'block' : 'none';
- 
-    // 1. 構建心力消耗 BAR
-    const maxE = TEACHER.maxEnergy;
-    const curE = currentEnergy;
-    const preE = currentEnergy + energyCost; // 行動前的心力
-    const pctPreE = Math.min(100, (preE / maxE) * 100);
-    const pctCurE = Math.min(100, (curE / maxE) * 100);
-    const diffE = pctPreE - pctCurE;
- 
-    let html = `
-        <div class="rpt-bar-wrap">
-            <div class="rpt-bar-label"><span>心力消耗</span><span class="val-neg">-${energyCost.toFixed(1)}</span></div>
-            <div class="rpt-bar-bg">
-                <div class="rpt-bar-fill" style="width: ${pctCurE}%; background: var(--manga-blue);"></div>
-                <div class="rpt-bar-change" style="left: ${pctCurE}%; width: ${diffE}%; background: var(--manga-red); border-left: 2px solid #111;"></div>
-                <div class="rpt-bar-text">${curE.toFixed(1)} / ${maxE.toFixed(1)}</div>
-            </div>
-        </div>
-    `;
- 
-    // 2. 構建幸福度 BAR (僅生存篇)
-    if (GAME_MODE === 'full') {
-        const curH = currentHappy;
-        const preH = currentHappy - totalHappyChange;
-        const pctCurH = Math.min(100, Math.max(0, curH));
-        const pctPreH = Math.min(100, Math.max(0, preH));
- 
-        let fillWidth = pctPreH;
-        let changeLeft = pctPreH;
-        let changeWidth = Math.abs(pctCurH - pctPreH);
-        let changeColor = totalHappyChange > 0 ? "var(--manga-green)" : "var(--manga-red)";
-        let sign = totalHappyChange > 0 ? "+" : "";
- 
-        if (totalHappyChange > 0) {
-            fillWidth = pctPreH; changeLeft = pctPreH;
-        } else {
-            fillWidth = pctCurH; changeLeft = pctCurH;
-        }
- 
-        html += `
-            <div class="rpt-bar-wrap mode-full-el">
-                <div class="rpt-bar-label"><span>幸福度變化</span><span class="${totalHappyChange > 0 ? 'val-pos' : (totalHappyChange < 0 ? 'val-neg' : 'val-neu')}">${sign}${totalHappyChange.toFixed(1)}</span></div>
-                <div class="rpt-bar-bg">
-                    <div class="rpt-bar-fill" style="width: ${fillWidth}%; background: #FF4081;"></div>
-                    ${totalHappyChange !== 0 ? `<div class="rpt-bar-change" style="left: ${changeLeft}%; width: ${changeWidth}%; background: ${changeColor}; border-left: 2px solid #111;"></div>` : ''}
-                    <div class="rpt-bar-text">${Math.floor(curH)} / 100</div>
+    function createActionReport(energyCost, totalHappyChange, studentChanges, currentEnergy, currentHappy, multiplier) {
+            const container = document.getElementById('rpt-bars-container');
+            container.innerHTML = '';
+         
+            const tag = document.getElementById('rpt-multiplier-tag');
+            tag.style.display = (multiplier > 1) ? 'block' : 'none';
+         
+            // 1. 構建心力消耗 BAR (支援心力回復的綠色顯示)
+            const maxE = TEACHER.maxEnergy;
+            const curE = currentEnergy;
+            const preE = currentEnergy + energyCost; // 行動前的心力
+            const pctPreE = Math.min(100, Math.max(0, (preE / maxE) * 100));
+            const pctCurE = Math.min(100, Math.max(0, (curE / maxE) * 100));
+            const diffE = Math.abs(pctPreE - pctCurE);
+         
+            const eSign = energyCost > 0 ? "-" : "+";
+            const eClass = energyCost > 0 ? "val-neg" : "val-pos";
+            const eDisp = Math.abs(energyCost).toFixed(1);
+            const eLabel = energyCost > 0 ? "心力消耗" : "心力回復";
+            const eChangeColor = energyCost > 0 ? "var(--manga-red)" : "var(--manga-green)";
+            
+            let fillWidth, changeLeft;
+            if (energyCost > 0) {
+                fillWidth = pctCurE;
+                changeLeft = pctCurE;
+            } else {
+                fillWidth = pctPreE;
+                changeLeft = pctPreE;
+            }
+         
+            let html = `
+                <div class="rpt-bar-wrap">
+                    <div class="rpt-bar-label"><span>${eLabel}</span><span class="${eClass}">${eSign}${eDisp}</span></div>
+                    <div class="rpt-bar-bg">
+                        <div class="rpt-bar-fill" style="width: ${fillWidth}%; background: var(--manga-blue);"></div>
+                        ${energyCost !== 0 ? `<div class="rpt-bar-change" style="left: ${changeLeft}%; width: ${diffE}%; background: ${eChangeColor}; border-left: 2px solid #111;"></div>` : ''}
+                        <div class="rpt-bar-text">${curE.toFixed(1)} / ${maxE.toFixed(1)}</div>
+                    </div>
                 </div>
-            </div>
-        `;
-    }
- 
-  // 3. 構建學生元素 BAR
-    html += `<hr style="border:0; border-top:3px dashed #111; margin: 15px 0;">`;
-    html += `<div style="font-size: 14px; font-weight: 900; margin-bottom: 10px; text-align: left;">學生吸收情況 (元素 現/限)</div>`;
- 
-    // 👇 新增：找出全班潛力（上限）最高的值，當作 BAR 的 100% 物理長度基準
-    const maxClassCap = Math.max(...studentChanges.map(sc => sc.student.getCurrentCapacity()));
+            `;
+         
+            // 2. 構建幸福度 BAR (僅生存篇)
+            if (GAME_MODE === 'full') {
+                const curH = currentHappy;
+                const preH = currentHappy - totalHappyChange;
+                const pctCurH = Math.min(100, Math.max(0, curH));
+                const pctPreH = Math.min(100, Math.max(0, preH));
+         
+                let fillWidthH = pctPreH;
+                let changeLeftH = pctPreH;
+                let changeWidthH = Math.abs(pctCurH - pctPreH);
+                let changeColorH = totalHappyChange > 0 ? "var(--manga-green)" : "var(--manga-red)";
+                let signH = totalHappyChange > 0 ? "+" : "";
+         
+                if (totalHappyChange > 0) {
+                    fillWidthH = pctPreH; changeLeftH = pctPreH;
+                } else {
+                    fillWidthH = pctCurH; changeLeftH = pctCurH;
+                }
+         
+                html += `
+                    <div class="rpt-bar-wrap mode-full-el">
+                        <div class="rpt-bar-label"><span>幸福度變化</span><span class="${totalHappyChange > 0 ? 'val-pos' : (totalHappyChange < 0 ? 'val-neg' : 'val-neu')}">${signH}${totalHappyChange.toFixed(1)}</span></div>
+                        <div class="rpt-bar-bg">
+                            <div class="rpt-bar-fill" style="width: ${fillWidthH}%; background: #FF4081;"></div>
+                            ${totalHappyChange !== 0 ? `<div class="rpt-bar-change" style="left: ${changeLeftH}%; width: ${changeWidthH}%; background: ${changeColorH}; border-left: 2px solid #111;"></div>` : ''}
+                            <div class="rpt-bar-text">${Math.floor(curH)} / 100</div>
+                        </div>
+                    </div>
+                `;
+            }
+         
+          // 3. 構建學生元素 BAR
+            if (studentChanges && studentChanges.length > 0) {
+                html += `<hr style="border:0; border-top:3px dashed #111; margin: 15px 0;">`;
+                html += `<div style="font-size: 14px; font-weight: 900; margin-bottom: 10px; text-align: left;">學生吸收情況 (元素 現/限)</div>`;
+             
+                const maxClassCap = Math.max(...studentChanges.map(sc => sc.student.getCurrentCapacity()));
 
-    studentChanges.forEach(sc => {
-        const cap = sc.student.getCurrentCapacity();
-        
-        // 👇 新增：按潛力比例計算 BAR 的真實長度 (最少保留 22% 讓文字能顯示)
-        const barWidthPct = Math.max(22, (cap / maxClassCap) * 100);
-        
-        const cur = sc.student.landedParticles.length;
-        const pre = cur - sc.added;
-        const pctCur = Math.min(100, (cur / cap) * 100);
-        const pctPre = Math.min(100, (pre / cap) * 100);
- 
-        let fillW = pctPre;
-        let chgL = pctPre;
-        let chgW = Math.abs(pctCur - pctPre);
-        let chgColor = sc.added > 0 ? "var(--manga-green)" : "var(--manga-red)";
-        let signText = sc.added > 0 ? `+${sc.added}` : `${sc.added}`;
-        let x2Html = (multiplier > 1 && sc.added > 0) ? `<i class="rpt-x2">x2</i>` : '';
- 
-        if (sc.added < 0) { fillW = pctCur; chgL = pctCur; }
- 
-        html += `
-            <div class="rpt-bar-wrap">
-                <div class="rpt-bar-label"><span style="color:${sc.student.type.color};">${sc.student.name}</span><span style="color:${sc.added > 0 ? 'var(--manga-green)' : (sc.added < 0 ? 'var(--manga-red)' : '#111')}">${signText} ${x2Html}</span></div>
-              <div class="rpt-bar-bg" style="width: ${barWidthPct}%;">
-                    <div class="rpt-bar-fill" style="width: ${fillW}%; background: #ccc;"></div>
-                    ${sc.added !== 0 ? `<div class="rpt-bar-change" style="left: ${chgL}%; width: ${chgW}%; background: ${chgColor}; border-left: 2px solid #111;"></div>` : ''}
-                    <div class="rpt-bar-text">${cur} / ${cap}</div>
-                </div>
-            </div>
-        `;
-    });
- 
-    container.innerHTML = html;
-    document.getElementById('report-overlay').style.display = 'flex';
-}
- 
+                studentChanges.forEach(sc => {
+                    const cap = sc.student.getCurrentCapacity();
+                    const barWidthPct = Math.max(22, (cap / maxClassCap) * 100);
+                    const cur = sc.student.landedParticles.length;
+                    const pre = cur - sc.added;
+                    const pctCur = Math.min(100, (cur / cap) * 100);
+                    const pctPre = Math.min(100, (pre / cap) * 100);
+             
+                    let fillW = pctPre;
+                    let chgL = pctPre;
+                    let chgW = Math.abs(pctCur - pctPre);
+                    let chgColor = sc.added > 0 ? "var(--manga-green)" : "var(--manga-red)";
+                    let signText = sc.added > 0 ? `+${sc.added}` : `${sc.added}`;
+                    let x2Html = (multiplier > 1 && sc.added > 0) ? `<i class="rpt-x2">x2</i>` : '';
+             
+                    if (sc.added < 0) { fillW = pctCur; chgL = pctCur; }
+             
+                    html += `
+                        <div class="rpt-bar-wrap">
+                            <div class="rpt-bar-label"><span style="color:${sc.student.type.color};">${sc.student.name}</span><span style="color:${sc.added > 0 ? 'var(--manga-green)' : (sc.added < 0 ? 'var(--manga-red)' : '#111')}">${signText} ${x2Html}</span></div>
+                          <div class="rpt-bar-bg" style="width: ${barWidthPct}%;">
+                                <div class="rpt-bar-fill" style="width: ${fillW}%; background: #ccc;"></div>
+                                ${sc.added !== 0 ? `<div class="rpt-bar-change" style="left: ${chgL}%; width: ${chgW}%; background: ${chgColor}; border-left: 2px solid #111;"></div>` : ''}
+                                <div class="rpt-bar-text">${cur} / ${cap}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+         
+            container.innerHTML = html;
+            document.getElementById('report-overlay').style.display = 'flex';
+        }
 
         function triggerButtonShake(btnId) {
             const btn = document.getElementById(btnId);
@@ -2431,32 +2687,66 @@ iconEl.style.display = "none"; // 直接隱藏，騰出空間讓排版更緊湊
             else { return roll < 0.2 ? 4 : (roll < 0.6 ? 5 : (roll < 0.9 ? 6 : 7)); }
         }
 
-        function showStudentSentiment(student, score) {
-            let sentiment = ""; let category = ""; const type = student.type.id; 
+      function showStudentSentiment(student, score) {
+    let sentiment = ""; let category = ""; const type = student.type.id; 
 
-            if (type === 'high') { category = "正面感言"; sentiment = SENTIMENTS.positive[Math.floor(Math.random() * SENTIMENTS.positive.length)]; } 
-            else if (type === 'avg') {
-                if (Math.random() < 0.5) { category = "負面怨言"; sentiment = SENTIMENTS.negative[Math.floor(Math.random() * SENTIMENTS.negative.length)]; } 
-                else { category = "自我反省"; sentiment = SENTIMENTS.reflection[Math.floor(Math.random() * SENTIMENTS.reflection.length)]; }
-            } 
-            else if (type === 'low') {
-                if (Math.random() < 0.8) { category = "負面怨言"; sentiment = SENTIMENTS.negative[Math.floor(Math.random() * SENTIMENTS.negative.length)]; } 
-                else { category = "自我反省"; sentiment = SENTIMENTS.reflection[Math.floor(Math.random() * SENTIMENTS.reflection.length)]; }
+    // 【修訂2】判定學生是否與老師有深厚羈絆，解決人設衝突。里程碑為[0, 3, 8, 14, 21, 30]，clickCount >= 14 代表至少完成了第4階段主線。
+    const isDeeplyBonded = student.clickCount >= 14;
+
+    if (type === 'high') { 
+        category = "正面感言"; 
+        sentiment = SENTIMENTS.positive[Math.floor(Math.random() * SENTIMENTS.positive.length)]; 
+    } 
+    else if (type === 'avg') {
+        if (isDeeplyBonded) {
+            // 與老師有羈絆的學生，高分會感激，低分只會反省，絕不埋怨老師
+            if (score >= 4) {
+                category = "正面感言"; 
+                sentiment = SENTIMENTS.positive[Math.floor(Math.random() * SENTIMENTS.positive.length)]; 
+            } else {
+                category = "自我反省"; 
+                sentiment = SENTIMENTS.reflection[Math.floor(Math.random() * SENTIMENTS.reflection.length)]; 
             }
-
-            document.getElementById('sent-header-bg').style.color = student.type.color; 
-            document.getElementById('sent-name').innerText = student.name;
-            document.getElementById('sent-type').innerText = student.type.name;
-            document.getElementById('sent-category').innerText = category;
-            
-            const catEl = document.getElementById('sent-category');
-            if(category.includes('負面')) catEl.style.color = 'var(--manga-red)';
-            else if(category.includes('正面')) catEl.style.color = 'var(--manga-green)';
-            else catEl.style.color = 'var(--manga-yellow)';
-
-            document.getElementById('sent-text').innerText = sentiment;
-            document.getElementById('sentiment-overlay').style.display = 'flex';
+        } else {
+            // 沒有羈絆的學生，考得差就會隨機抱怨
+            if (Math.random() < 0.5) { 
+                category = "負面怨言"; 
+                sentiment = SENTIMENTS.negative[Math.floor(Math.random() * SENTIMENTS.negative.length)]; 
+            } else { 
+                category = "自我反省"; 
+                sentiment = SENTIMENTS.reflection[Math.floor(Math.random() * SENTIMENTS.reflection.length)]; 
+            }
         }
+    } 
+    else if (type === 'low') {
+        if (isDeeplyBonded) {
+            // 有羈絆的底層學生，即便低分也只會自我反省，因為他們已經理解了老師的苦心
+            category = "自我反省"; 
+            sentiment = SENTIMENTS.reflection[Math.floor(Math.random() * SENTIMENTS.reflection.length)]; 
+        } else {
+            if (Math.random() < 0.8) { 
+                category = "負面怨言"; 
+                sentiment = SENTIMENTS.negative[Math.floor(Math.random() * SENTIMENTS.negative.length)]; 
+            } else { 
+                category = "自我反省"; 
+                sentiment = SENTIMENTS.reflection[Math.floor(Math.random() * SENTIMENTS.reflection.length)]; 
+            }
+        }
+    }
+
+    document.getElementById('sent-header-bg').style.color = student.type.color; 
+    document.getElementById('sent-name').innerText = student.name;
+    document.getElementById('sent-type').innerText = student.type.name;
+    document.getElementById('sent-category').innerText = category;
+    
+    const catEl = document.getElementById('sent-category');
+    if(category.includes('負面')) catEl.style.color = 'var(--manga-red)';
+    else if(category.includes('正面')) catEl.style.color = 'var(--manga-green)';
+    else catEl.style.color = 'var(--manga-yellow)';
+
+    document.getElementById('sent-text').innerText = sentiment;
+    document.getElementById('sentiment-overlay').style.display = 'flex';
+}
 
         function initStudents(count) {
             students.forEach(s => { scene.remove(s.group); s.dispose(); });
@@ -2588,6 +2878,66 @@ iconEl.style.display = "none"; // 直接隱藏，騰出空間讓排版更緊湊
             if(TEACHER.currentEnergy < 0) TEACHER.currentEnergy = 0;
             updateUI(); return actualCost;
         }
+
+
+function talkToStudent(student) {
+    if (TEACHER.currentEnergy < 0.1) {
+        setStatus("心力不足以進行傾談。", true);
+        return;
+    }
+
+    const startEnergy = TEACHER.currentEnergy;
+    const startHappy = TEACHER.happiness;
+
+    // 每次傾談固定扣除 0.1 心力
+    spendEnergy(0.1);
+    
+    // 獲取動態生成的專屬台詞與狀態 (判定是否為主線)
+    const dialogue = student.getStoryLine();
+
+    // 顯示氣泡 (透過 CSS 類別控制主線與日常的外觀差異)
+    clearAllBubbles();
+    const bubbleClass = dialogue.isStory ? "bubble-story-main" : "bubble-story-idle";
+    student.showBubble(dialogue.text, bubbleClass, 0);
+
+    // 數值獎勵計算
+    let energyBonus = 0;
+    let happyBonus = 0;
+
+    if (dialogue.isStory) {
+        energyBonus = 0.5; // 觸發主線，老師深感欣慰，回復 0.5 心力 (淨賺 0.4)
+        happyBonus = 2.0;  // 大幅增加幸福度
+        setStatus(`聆聽了 ${student.name} 的心路歷程，深感欣慰！`);
+    } else {
+        happyBonus = 0.2;  // 日常閒聊，微幅增加幸福度 (淨扣 0.1 心力)
+        setStatus(`與 ${student.name} 閒聊，稍微放鬆了心情。`);
+    }
+
+    // 應用獎勵 (心力不超過上限)
+    if (energyBonus > 0) {
+        TEACHER.currentEnergy = Math.min(TEACHER.maxEnergy, TEACHER.currentEnergy + energyBonus);
+    }
+    changeHappiness(happyBonus);
+    updateUI();
+
+    // 【修訂】：只有觸發主線進度，且用家有勾選「顯示結算」時，才顯示結算表
+    if (dialogue.isStory && document.getElementById('chk-auto-report').checked) {
+        const netEnergySpent = startEnergy - TEACHER.currentEnergy; // 結算表視正數為消耗，負數為回復
+        const netHappyChange = TEACHER.happiness - startHappy;
+        
+        // 捕捉當下狀態，避免延遲期間被其他操作改變數值
+        const currentE = TEACHER.currentEnergy;
+        const currentH = TEACHER.happiness;
+
+        // 【修訂】：延遲 3.5 秒才彈出結算表，讓用家有充足時間閱讀長對話
+        if (window.talkTimer) clearTimeout(window.talkTimer);
+        window.talkTimer = setTimeout(() => {
+            createActionReport(netEnergySpent, netHappyChange,[], currentE, currentH, 1);
+        }, 3500);
+    }
+}
+
+       
 
      function updateUI() {
             if (!document.getElementById('disp-age').querySelector('input')) { document.getElementById('disp-age').innerText = TEACHER.age; }
