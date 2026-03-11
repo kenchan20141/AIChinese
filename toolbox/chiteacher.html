@@ -4425,6 +4425,11 @@ document.getElementById('btn-do-grade').addEventListener('click', () => {
                 desc: "下班時間極度寶貴，將課業帶回家批改只會招致沉重的「心力懲罰」。想在辦公時間內清空桌面，關鍵在於從源頭調整教學策略。中文教學的成效，從來不靠盲目的操練與無盡的批改來堆砌；與其陷入批改地獄，不如引導學生認真閱讀、勤作劄記。當教學回歸語文的根本，無謂的批改壓力自然銳減，這便是兼顧教學質素與準時下班的終極密碼。",
                 animLogic: stratAnimWorkLife
             },
+         {
+                title: "育人為本", type: "full",
+                desc: "真正的教育從不是冷冰冰的 KPI 數值，而是生命影響生命的過程。在繁重的操練之餘，別忘了撥出心力與學生傾談。聆聽他們的青春煩惱與成長軌跡，不僅能大幅恢復你的心力與幸福感，更能建立深厚的羈絆。當 DSE 放榜之際，這些被你關懷過的學生，無論最終成績如何，都將對你抱持感恩之心。這，才是為人師表的真正意義。",
+                animLogic: stratAnimBond
+            },
             {
                 title: "但求無愧", type: "full",
                 desc: "無論最終 DSE 放榜是輝煌還是慘淡，結論永遠只有一個：「來年繼續增加補課」。既然系統的胃口永遠無法滿足，那就別太在意他人的眼光，只需對得起自己與學生，問心無愧即可。",
@@ -5006,6 +5011,119 @@ function closeStrategyGuide() {
             render();
         }
 
+
+// 10. 育人為本 (傾談與羈絆)
+        function stratAnimBond() {
+            // 左邊：只顧操練的學生
+            const sLeft = createStratStudent(-3, '#111', 1.5);
+            // 右邊：有被傾談關心的學生
+            const sRight = createStratStudent(3, '#111', 1.5);
+
+            // 建立上方主訊息看板
+            const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d'); const tex = new THREE.CanvasTexture(canvas);
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+            sprite.position.set(0, 5, 0); sprite.scale.set(8, 2, 1);
+            stratScene.add(sprite); stratObjects.push(sprite);
+
+            // 建立左邊學生的對話框
+            const bLeftCanvas = document.createElement('canvas'); bLeftCanvas.width = 256; bLeftCanvas.height = 128;
+            const bLeftCtx = bLeftCanvas.getContext('2d'); const bLeftTex = new THREE.CanvasTexture(bLeftCanvas);
+            const bLeftSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: bLeftTex }));
+            bLeftSprite.position.set(-3, 2.5, 0); bLeftSprite.scale.set(3, 1.5, 1);
+            stratScene.add(bLeftSprite); stratObjects.push(bLeftSprite);
+
+            // 建立右邊學生的對話框
+            const bRightCanvas = document.createElement('canvas'); bRightCanvas.width = 256; bRightCanvas.height = 128;
+            const bRightCtx = bRightCanvas.getContext('2d'); const bRightTex = new THREE.CanvasTexture(bRightCanvas);
+            const bRightSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: bRightTex }));
+            bRightSprite.position.set(3, 2.5, 0); bRightSprite.scale.set(3, 1.5, 1);
+            stratScene.add(bRightSprite); stratObjects.push(bRightSprite);
+
+            let frame = 0;
+            let activeParticles = [];
+
+            // 繪製對話框的輔助函數
+            function drawBubble(context, texture, text, color) {
+                context.clearRect(0,0,256,128);
+                if(text) {
+                    context.fillStyle = '#fff'; context.fillRect(10,10,236,108);
+                    context.lineWidth = 6; context.strokeStyle = color; context.strokeRect(10,10,236,108);
+                    context.fillStyle = color; context.font = 'bold 22px "Noto Sans TC"'; context.textAlign = 'center'; context.textBaseline = 'middle';
+                    context.fillText(text, 128, 64);
+                }
+                texture.needsUpdate = true;
+            }
+
+            function render() {
+                frame++;
+                const cycle = frame % 360;
+
+                // 階段一：日常教學與傾談
+                if (cycle === 1) {
+                    ctx.clearRect(0,0,512,128);
+                    ctx.fillStyle = '#111'; ctx.fillRect(0,0,512,128);
+                    ctx.fillStyle = '#FFD700'; ctx.font = 'bold 36px "Noto Sans TC"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('日常：撥出心力傾談', 256, 64);
+                    tex.needsUpdate = true;
+
+                    drawBubble(bLeftCtx, bLeftTex, '', '');
+                    drawBubble(bRightCtx, bRightTex, '', '');
+                }
+
+                if (cycle > 0 && cycle < 180) {
+                    // 右邊學生：老師主動傾談，冒出幸福粒子回饋給老師
+                    if (cycle % 40 === 0) {
+                        drawBubble(bRightCtx, bRightTex, '分享成長煩惱...', '#111');
+                        // 使用 fun (粉紅色) 粒子代表幸福與心力回饋
+                        const p = spawnStratParticle(3 + (Math.random()-0.5), 1.5, 'fun', 6);
+                        p.userData.vy = 0.05; // 向上飄代表老師吸收
+                        p.userData.vx = 0;
+                        activeParticles.push(p);
+                    }
+                    // 左邊學生：被忽略，只顧操練
+                    if (cycle === 30) {
+                        drawBubble(bLeftCtx, bLeftTex, '冷冰冰的操練...', '#555');
+                    }
+                }
+
+                // 階段二：DSE 落第放榜
+                if (cycle === 180) {
+                    ctx.clearRect(0,0,512,128);
+                    ctx.fillStyle = '#E60012'; ctx.fillRect(0,0,512,128);
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 36px "Noto Sans TC"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('放榜：雙雙落第 (U)', 256, 64);
+                    tex.needsUpdate = true;
+                    
+                    drawBubble(bLeftCtx, bLeftTex, '', '');
+                    drawBubble(bRightCtx, bRightTex, '', '');
+                }
+
+                // 放榜結果的態度反差
+                if (cycle === 210) {
+                    // 沒羈絆的冷言冷語
+                    drawBubble(bLeftCtx, bLeftTex, '教埋啲廢話！', '#E60012');
+                    // 有羈絆的感恩之心
+                    drawBubble(bRightCtx, bRightTex, '多謝老師無放棄我！', '#00A651'); 
+                }
+
+                // 更新粒子動畫 (幸福感往上飄並消失)
+                activeParticles.forEach((p, i) => {
+                    p.position.y += p.userData.vy;
+                    p.scale.setScalar(Math.max(0, 1 - (p.position.y - 1.5) * 0.2)); 
+                    if (p.position.y > 5) { stratScene.remove(p); activeParticles[i] = null; }
+                });
+                activeParticles = activeParticles.filter(p => p !== null);
+
+                stratRenderer.render(stratScene, stratCamera);
+                stratAnimFrame = requestAnimationFrame(render);
+            }
+            render();
+        }
+
+
+
+       
 
        // ==========================================
 // 體驗優化：修復結算表樣式、點擊任意位置關閉功能
