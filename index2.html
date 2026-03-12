@@ -420,6 +420,18 @@ function formatRagResult(data, headerText) {
         <i class="fas fa-home"></i>
         <span>返回主頁</span>
     </button>
+ 
+    <!-- ★★★ 新增：系統佈告按鈕 (內嵌精美 SVG) ★★★ -->
+    <button class="side-menu-item" id="sideMenuNoticeBtn" onclick="showAllNotices()" title="系統佈告">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto; display: block;">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+            <line x1="9" y1="14" x2="15" y2="14"></line>
+            <line x1="9" y1="18" x2="15" y2="18"></line>
+            <line x1="9" y1="10" x2="9.01" y2="10"></line>
+        </svg>
+        <span>系統佈告</span>
+    </button>
 
 <!-- 精選文章按鈕 -->
 <!-- 修改原本的文萃按鈕 -->
@@ -8155,10 +8167,13 @@ button, .btn, .anime-card, .side-menu-item {
 // ★ API 網址
 const NOTICE_API_URL = "https://script.google.com/macros/s/AKfycbyC0fIhN8juwOtGy-WLm9hqgrDN817JnyroLnMkapMvf4hzLEF7LEp06sjXDdX246_0/exec"; 
 
-// 存放所有符合條件（日期內且未讀）的通告
-let activeNotices = []; 
+// ★ 新增：存放所有從 API 抓取的原始通告
+let allFetchedNotices = [];
+ 
+// 存放準備要顯示的通告 (已過濾)
+let activeNotices = [];
 // 目前正在顯示的通告索引
-let currentNoticeIndex = 0; 
+let currentNoticeIndex = 0;
 
 /**
  * 取得本地已讀清單
@@ -8282,7 +8297,9 @@ async function fetchAndCheckNotices() {
         const response = await fetch(NOTICE_API_URL);
         if (!response.ok) throw new Error('連線失敗');
         const notices = await response.json();
-
+ 
+        allFetchedNotices = notices; // <--- ★ 新增這行：把原始資料存起來備用
+ 
         const readList = getReadNotices();
         activeNotices = []; 
 
@@ -8302,6 +8319,55 @@ async function fetchAndCheckNotices() {
 
     } catch (error) {
         console.error("無法載入佈告:", error);
+    }
+}
+
+
+
+	// =========================================
+// === 手動顯示所有通告 (包含已讀) ===
+// =========================================
+async function showAllNotices() {
+    // 1. 先收起側邊選單
+    const sideMenu = document.getElementById('sideMenu');
+    const sideMenuToggle = document.getElementById('sideMenuToggle');
+    if (sideMenu) sideMenu.classList.remove('active');
+    if (sideMenuToggle) sideMenuToggle.classList.remove('active');
+ 
+    // 2. 如果網頁剛開，通告還沒下載完，就立刻下載
+    if (!allFetchedNotices || allFetchedNotices.length === 0) {
+        try {
+            showLoading("正在載入佈告板...");
+            const response = await fetch(NOTICE_API_URL);
+            if (!response.ok) throw new Error('連線失敗');
+            allFetchedNotices = await response.json();
+            hideLoading();
+        } catch (error) {
+            console.error("無法載入佈告:", error);
+            hideLoading();
+            alert("載入佈告失敗，請檢查網路連線。");
+            return;
+        }
+    }
+ 
+    // 3. 過濾出「日期有效」的所有通告 (不排除已讀)
+    activeNotices = [];
+    for (let i = 0; i < allFetchedNotices.length; i++) {
+        const notice = allFetchedNotices[i];
+        if (!notice.ID) continue;
+        
+        // 只檢查日期，不再檢查 readList
+        if (!isNoticeActive(notice["發佈日期"], notice["下架日期"])) continue;
+        
+        activeNotices.push(notice);
+    }
+ 
+    // 4. 顯示佈告板視窗
+    if (activeNotices.length > 0) {
+        currentNoticeIndex = 0;
+        renderNoticeModal();
+    } else {
+        alert("目前系統中沒有任何有效的佈告。");
     }
 }
 
@@ -25605,7 +25671,7 @@ function forceOpenBooks() {
             <!-- 內容由 JS 動態載入 -->
         </div>
         
-        <div class="notice-footer">
+      <div class="notice-footer">
             <!-- 左側：多通告切換導航 (單篇時會自動隱藏) -->
             <div id="noticeNavGroup" class="notice-nav-group" style="display: none;">
                 <button id="noticePrevBtn" class="notice-nav-btn" onclick="prevNotice()"><i class="fas fa-chevron-left"></i></button>
@@ -25615,8 +25681,8 @@ function forceOpenBooks() {
             
             <!-- 右側：明確的選擇按鈕 -->
             <div style="display: flex; gap: 10px; margin-left: auto;">
-                <button class="btn-morandi-outline" onclick="closeNoticeTemporary()">稍後再看</button>
-                <button class="btn-morandi-solid" onclick="markCurrentNoticeRead()">不再顯示</button>
+                <!-- 已移除「稍後再看」按鈕，並將按鈕文字改為「已讀」 -->
+                <button class="btn-morandi-solid" onclick="markCurrentNoticeRead()">已讀</button>
             </div>
         </div>
     </div>
