@@ -8238,9 +8238,14 @@ function parseNoticeContent(rawText) {
                 continue;
             }
 
-            // 圖片連結
+         // 圖片連結 (轉為 Lazy Load 模式)
             if (url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i)) {
-                processedHtml += `<img src="${url}" alt="圖片預覽" style="max-width:100%; border-radius:4px; box-shadow:0 2px 10px rgba(0,0,0,0.1); margin:15px 0; display:block;">`;
+                processedHtml += `
+                <div class="notice-img-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:250px; background-color:#f4f3ef; border-radius:8px; border:1px solid #e0ddd7; margin:15px 0; position:relative; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.06);">
+                    <i class="fas fa-image" style="color:#dcd6c8; font-size:4rem; position:absolute; z-index:1;"></i>
+                    <i class="fas fa-spinner fa-spin" style="color:#8fa398; font-size:1.5rem; position:absolute; z-index:2; bottom:30px;"></i>
+                    <img data-src="${url}" class="lazy-img" alt="圖片" style="max-width:100%; opacity:0; transition:opacity 0.6s ease; position:relative; z-index:3; display:block; border-radius:8px;">
+                </div>`;
                 continue;
             }
 
@@ -8318,14 +8323,51 @@ function renderNoticeModal() {
     if (!overlay || !titleEl || !bodyEl || activeNotices.length === 0) return;
 
     // 觸發載入 Iframe 的輔助函數
-    const loadIframes = () => {
+     const loadLazyAssets = () => {
+        // 1. 載入 iframes
         const iframes = bodyEl.querySelectorAll('iframe.lazy-iframe');
         iframes.forEach(iframe => {
             if (iframe.getAttribute('data-src')) {
                 iframe.src = iframe.getAttribute('data-src');
                 iframe.removeAttribute('data-src');
-                // 載入完成後淡入顯示，蓋住背後的 Loading 圈圈
                 iframe.onload = () => { iframe.style.opacity = '1'; };
+            }
+        });
+ 
+        // 2. 載入圖片
+        const imgs = bodyEl.querySelectorAll('img.lazy-img');
+        imgs.forEach(img => {
+            if (img.getAttribute('data-src')) {
+                img.src = img.getAttribute('data-src');
+                img.removeAttribute('data-src');
+                
+                // 載入成功：顯示圖片並移除佔位容器的背景
+                img.onload = () => {
+                    img.style.opacity = '1';
+                    const container = img.parentElement;
+                    if (container) {
+                        container.style.minHeight = 'auto';
+                        container.style.backgroundColor = 'transparent';
+                        container.style.border = 'none';
+                        container.style.boxShadow = 'none';
+                        img.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)'; // 陰影轉移到圖片上
+                        
+                        // 移除佔位圖示與轉圈圈
+                        const icons = container.querySelectorAll('i');
+                        icons.forEach(i => i.remove());
+                    }
+                };
+                
+                // 載入失敗：顯示破圖提示
+                img.onerror = () => {
+                    const container = img.parentElement;
+                    if (container) {
+                        container.innerHTML = `
+                            <i class="fas fa-broken-image" style="color:#d69a92; font-size:3rem; margin-bottom:10px;"></i>
+                            <span style="color:#888; font-size:0.9rem;">圖片無法載入，請檢查連結</span>
+                        `;
+                    }
+                };
             }
         });
     };
@@ -8366,7 +8408,7 @@ function renderNoticeModal() {
             // 換完內容後，再次淡入
             bodyEl.style.opacity = '1';
             // 換頁不用等飛入動畫，直接稍微延遲載入 iframe 即可
-            setTimeout(loadIframes, 100);
+            setTimeout(loadLazyAssets, 100); // <--- 改名這裡
         }, 200);
     } else {
         // 初次開啟視窗 (防卡頓邏輯)
@@ -8394,13 +8436,13 @@ function renderNoticeModal() {
         updateContent();
         
         // 4. 使用 double requestAnimationFrame 分離渲染與動畫啟動，避免掉幀
-        requestAnimationFrame(() => {
+       requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 overlay.classList.add('show');
                 document.body.style.overflow = 'hidden';
                 
-                // 5. 確保在飛入動畫 (1.2s) 結束後，才開始載入耗資源的 iframe，保持彈出流暢
-                setTimeout(loadIframes, 1200); 
+                // 5. 確保在飛入動畫 (1.2s) 結束後，才開始載入耗資源的物件，保持彈出流暢
+                setTimeout(loadLazyAssets, 1200); // <--- 改名這裡
             });
         });
     }
