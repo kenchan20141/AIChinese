@@ -8222,22 +8222,22 @@ function isNoticeActive(startDateStr, endDateStr) {
  * 智能內容解析器 (安全穩健版：完美支援文字、YouTube、連結、圖片混排)
  */
 /**
- * 智能內容解析器 (安全穩健版：完美支援文字、YouTube、連結、圖片混排，並支援延遲加載防卡頓)
- */
+* 智能內容解析器 (安全穩健版：完美支援文字、YouTube、連結、圖片混排，並支援延遲加載防卡頓與 CSP 降級)
+*/
 function parseNoticeContent(rawText) {
     if (!rawText) return "";
     
     if (rawText.includes('<iframe') && !rawText.includes('\n')) {
         return rawText;
     }
-
+ 
     let text = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     let tokens = text.split(/([ \t]+|\n)/);
     let processedHtml = "";
-
+ 
     for (let i = 0; i < tokens.length; i++) {
         let token = tokens[i];
-
+ 
         if (token === '\n') {
             processedHtml += '<br>';
             continue;
@@ -8247,7 +8247,7 @@ function parseNoticeContent(rawText) {
             processedHtml += token;
             continue;
         }
-
+ 
         if (token.startsWith('http://') || token.startsWith('https://')) {
             let url = token;
             
@@ -8262,8 +8262,8 @@ function parseNoticeContent(rawText) {
                 </div>`;
                 continue;
             }
-
-         // 圖片連結 (轉為 Lazy Load 模式)
+ 
+            // 圖片連結 (轉為 Lazy Load 模式)
             if (url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i)) {
                 processedHtml += `
                 <div class="notice-img-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:250px; background-color:#f4f3ef; border-radius:8px; border:1px solid #e0ddd7; margin:15px 0; position:relative; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.06);">
@@ -8273,30 +8273,44 @@ function parseNoticeContent(rawText) {
                 </div>`;
                 continue;
             }
-
-            // 一般網址 (轉為 Lazy Load 模式)
+ 
+            // 一般網址 (支援 CSP 智能降級為連結卡片)
             processedHtml += `
-            <div class="notice-iframe-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:200px; position:relative;">
-                <i class="fas fa-spinner fa-spin" style="color:#8fa398; font-size:2rem; position:absolute; top:50%; transform:translateY(-50%); z-index:1;"></i>
-                <iframe data-src="${url}" class="lazy-iframe" credentialless style="opacity:0; transition:opacity 0.5s; position:relative; z-index:2; width:100%; flex-grow:1;"></iframe>
-                <div class="notice-link-fallback" style="position:relative; z-index:3; width:100%; box-sizing:border-box;">
-                    <a href="${url}" target="_blank" style="color: #8fa398; text-decoration: none; font-weight: bold; transition: color 0.3s;"><i class="fas fa-external-link-alt"></i>開啟</a>
+            <div class="notice-iframe-container general-url-container" style="display:flex; flex-direction:column; border-radius:8px; overflow:hidden; border:1px solid #e0ddd7; margin:15px 0; box-shadow:0 4px 15px rgba(0,0,0,0.06);">
+                
+                <!-- Iframe 載入區塊 (如果被 CSP 阻擋，這塊會被 JS 自動隱藏) -->
+                <div class="iframe-wrapper" style="position:relative; width:100%; min-height:250px; display:flex; align-items:center; justify-content:center; background:#f4f3ef;">
+                    <i class="fas fa-spinner fa-spin" style="color:#8fa398; font-size:2rem; position:absolute; z-index:1;"></i>
+                    <iframe data-src="${url}" class="lazy-iframe" credentialless style="opacity:0; transition:opacity 0.5s; position:absolute; top:0; left:0; width:100%; height:100%; z-index:2; border:none; background:#fff;"></iframe>
+                </div>
+ 
+                <!-- 底部常駐的精美連結卡片 -->
+                <div class="notice-link-card" style="background-color:#fff; padding:15px 20px; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #eee;">
+                    <div style="display:flex; align-items:center; gap:12px; overflow:hidden; padding-right: 15px;">
+                        <div style="background:#e8edea; color:#8fa398; width:40px; height:40px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <i class="fas fa-link" style="font-size:1.2rem;"></i>
+                        </div>
+                        <div style="display:flex; flex-direction:column; overflow:hidden;">
+                            <span style="color:#5e7067; font-weight:bold; font-size:0.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">外部連結</span>
+                            <span style="color:#999; font-size:0.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${url}</span>
+                        </div>
+                    </div>
+                    <a href="${url}" target="_blank" class="btn-action" style="margin:0; padding:8px 20px; font-size:0.9rem; flex-shrink:0; background-color:#8fa398; border-radius:50px; text-decoration:none; box-shadow:none;">
+                        前往 <i class="fas fa-external-link-alt" style="margin-left:5px; font-size:0.8rem;"></i>
+                    </a>
                 </div>
             </div>`;
             continue;
         }
-
+ 
         processedHtml += token;
     }
-
+ 
     // 清理多餘的換行
- // 清理圖片與影片區塊周圍多餘的換行，避免排版被過度拉開
     processedHtml = processedHtml.replace(/(?:<br>\s*)+<div class="notice-iframe-container">/gi, '<div class="notice-iframe-container">');
     processedHtml = processedHtml.replace(/<\/div>\s*(?:<br>\s*)+/gi, '</div>');
     processedHtml = processedHtml.replace(/(?:<br>\s*)+<div class="notice-img-container"/gi, '<div class="notice-img-container"');
-    
-    // (已移除原本會誤刪正常空行的錯誤正則表達式)
- 
+    processedHtml = processedHtml.replace(/(?:<br>\s*)+<div class="notice-iframe-container general-url-container"/gi, '<div class="notice-iframe-container general-url-container"');
     return processedHtml;
 }
 
@@ -8386,6 +8400,9 @@ async function showAllNotices() {
 /**
  * 渲染並顯示當前索引的佈告 (加入淡入淡出切換特效)
  */
+/**
+* 渲染並顯示當前索引的佈告 (加入淡入淡出切換特效)
+*/
 function renderNoticeModal() {
     const overlay = document.getElementById('morandiNoticeOverlay');
     const card = overlay.querySelector('.notice-modal-card');
@@ -8397,18 +8414,23 @@ function renderNoticeModal() {
     const prevBtn = document.getElementById('noticePrevBtn');
     const nextBtn = document.getElementById('noticeNextBtn');
     const counterEl = document.getElementById('noticeCounter');
-
+ 
     if (!overlay || !titleEl || !bodyEl || activeNotices.length === 0) return;
-
+ 
     // 觸發載入 Iframe 的輔助函數
-     const loadLazyAssets = () => {
+    const loadLazyAssets = () => {
         // 1. 載入 iframes
         const iframes = bodyEl.querySelectorAll('iframe.lazy-iframe');
         iframes.forEach(iframe => {
             if (iframe.getAttribute('data-src')) {
                 iframe.src = iframe.getAttribute('data-src');
                 iframe.removeAttribute('data-src');
-                iframe.onload = () => { iframe.style.opacity = '1'; };
+                iframe.onload = () => {
+                    iframe.style.opacity = '1';
+                    // ★ 新增：載入完成後隱藏底部的轉圈圈
+                    const spinner = iframe.parentElement.querySelector('.fa-spinner');
+                    if (spinner) spinner.style.display = 'none';
+                };
             }
         });
  
@@ -8449,7 +8471,7 @@ function renderNoticeModal() {
             }
         });
     };
-
+ 
     // 內部函式：更新內容
     const updateContent = () => {
         const notice = activeNotices[currentNoticeIndex];
@@ -8463,7 +8485,7 @@ function renderNoticeModal() {
         }
         
         bodyEl.innerHTML = parseNoticeContent(notice["內容"]);
-
+ 
         if (activeNotices.length > 1) {
             navGroup.style.display = 'flex';
             counterEl.textContent = `${currentNoticeIndex + 1} / ${activeNotices.length}`;
@@ -8474,7 +8496,7 @@ function renderNoticeModal() {
         }
         bodyEl.scrollTop = 0;
     };
-
+ 
     // 如果視窗已經開啟（代表使用者點擊了上一頁/下一頁）
     if (overlay.classList.contains('show')) {
         // 先讓文字區域淡出
@@ -8486,20 +8508,20 @@ function renderNoticeModal() {
             // 換完內容後，再次淡入
             bodyEl.style.opacity = '1';
             // 換頁不用等飛入動畫，直接稍微延遲載入 iframe 即可
-            setTimeout(loadLazyAssets, 100); // <--- 改名這裡
+            setTimeout(loadLazyAssets, 100);
         }, 200);
     } else {
         // 初次開啟視窗 (防卡頓邏輯)
         
         // 1. 先顯示外層並移除退場動畫 class
         overlay.style.display = 'flex';
-        card.classList.remove('hide-anim'); 
+        card.classList.remove('hide-anim');
         
         // 2. 隱藏貓咪
         const catCanvas = document.getElementById('live2d-canvas');
         const catBubble = document.getElementById('catSpeechBubble');
         if (catCanvas) {
-            catCanvas.style.transition = 'opacity 0.8s ease'; 
+            catCanvas.style.transition = 'opacity 0.8s ease';
             catCanvas.style.opacity = '0';
             catCanvas.style.pointerEvents = 'none';
         }
@@ -8507,8 +8529,8 @@ function renderNoticeModal() {
             catBubble.classList.remove('show');
             catBubble.style.opacity = '0';
         }
-
-        if (navigator.vibrate) navigator.vibrate([20, 40, 20]); 
+ 
+        if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
         
         // 3. 填充內容 (此時尚未開始動畫，僅是 DOM 變更)
         updateContent();
@@ -8520,7 +8542,7 @@ function renderNoticeModal() {
                 document.body.style.overflow = 'hidden';
                 
                 // 5. 確保在飛入動畫 (1.2s) 結束後，才開始載入耗資源的物件，保持彈出流暢
-                setTimeout(loadLazyAssets, 1200); // <--- 改名這裡
+                setTimeout(loadLazyAssets, 1200);
             });
         });
     }
@@ -25662,6 +25684,58 @@ function forceOpenBooks() {
     // 5. 執行頁面切換
     showContainer('booksContainer');
 }
+
+
+
+
+
+// ==========================================
+// === 智能 CSP 阻擋偵測與 UI 降級系統 ===
+// ==========================================
+document.addEventListener("securitypolicyviolation", (e) => {
+    // 確認是因為 iframe (frame-src 或 child-src 或 default-src) 引起的阻擋
+    const directives = ['frame-src', 'child-src', 'default-src'];
+    
+    if (directives.includes(e.violatedDirective) || directives.includes(e.effectiveDirective)) {
+        
+        const blockedUrl = e.blockedURI;
+        
+        // 尋找畫面上所有準備載入或正在載入的 iframe
+        const iframes = document.querySelectorAll('.lazy-iframe');
+        
+        iframes.forEach(iframe => {
+            const src = iframe.src || iframe.getAttribute('data-src') || "";
+            
+            // 如果這個 iframe 的網址與被阻擋的網址相符
+            if (src.startsWith(blockedUrl)) {
+                const container = iframe.closest('.general-url-container');
+                if (container) {
+                    const iframeWrapper = container.querySelector('.iframe-wrapper');
+                    if (iframeWrapper) {
+                        // 1. 隱藏 Iframe 與轉圈圈區塊
+                        iframeWrapper.style.display = 'none';
+                        
+                        // 2. 移除頂部框線，讓卡片看起來像是一個純粹的獨立按鈕卡片
+                        const linkCard = container.querySelector('.notice-link-card');
+                        if (linkCard) {
+                            linkCard.style.borderTop = 'none';
+                        }
+                        
+                        // 3. 讓外框稍微高亮，提示這是一個純連結
+                        container.style.border = '2px solid #e8edea';
+                        console.log(`[CSP 防護] 已攔截受限網址並切換為安全連結卡片: ${src}`);
+                    }
+                }
+            }
+        });
+    }
+});
+
+
+
+
+
+	
 	
 </script>
 
