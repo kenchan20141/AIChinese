@@ -1044,7 +1044,7 @@ ${promptInstruction}
 極重要指示：
 1. 你必須找出現實世界中，由你自己所寫的文章或小說作品節錄段落。禁止虛構內容。
 2. 你的回傳內容必須是「純粹的、單一的、有效的 JSON 物件」。
-3. 絕對禁止在 JSON 物件前後添加任何說明文字、註解、或 markdown 的 \`\`\`json 標籤。
+3. 絕對禁止在 JSON 物件前後添加任何說明文字、問候語或註解（例如「以下是為您生成的...」）。你輸出的第一個字元必須是 { ，最後一個字元必須是 } 。
 4. 所有文字都必須是繁體中文。
 5. [作品賞析] 必須針對你推薦的這篇真實作品節錄段落進行分析。
 
@@ -1116,18 +1116,33 @@ JSON 格式如下：
              throw new Error("後端回傳內容為空 (Content is empty)。");
         }
 
-        let contentString = data.choices[0].message.content;
+       let contentString = data.choices[0].message.content;
 
-        // 清理 Markdown 標籤
-        contentString = contentString
-            .replace(/^```(?:json)?\s*\n?/, '')
-            .replace(/\n?```(?:\s*json)?\s*$/, '')
-            .trim();
+        // --- 強化版 JSON 提取邏輯 ---
+        // 1. 先嘗試找尋 Markdown code block (```json ... ```) 裡的內容
+        const jsonBlockMatch = contentString.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        
+        if (jsonBlockMatch) {
+            contentString = jsonBlockMatch[1];
+        } else {
+            // 2. 如果沒有 Markdown 標籤，或者有閒聊文字，強行擷取第一個 { 到最後一個 } 之間的內容
+            const firstBrace = contentString.indexOf('{');
+            const lastBrace = contentString.lastIndexOf('}');
+            
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                contentString = contentString.substring(firstBrace, lastBrace + 1);
+            }
+        }
+
+        contentString = contentString.trim();
 
         let article;
         try {
             article = JSON.parse(contentString);
         } catch (parseError) {
+            console.error("解析 JSON 失敗，原始清理後內容:", contentString);
+            throw new Error("回傳內容格式非有效 JSON，請再試一次。");
+        }
             console.error("解析 JSON 失敗:", contentString);
             throw new Error("回傳內容格式非有效 JSON。");
         }
