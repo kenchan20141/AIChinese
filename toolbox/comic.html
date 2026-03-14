@@ -256,7 +256,6 @@
                 title: "《出師表》",
                 author: "諸葛亮",
                 folder: "《出師表》", 
-                // 這裡保留你專屬的《出師表》文件夾 ID
                 folderId: "1AxZlN3nY_NkaJD3EBfrF1N31mYiK2pnx", 
                 totalPages: 36,
                 texts:[
@@ -278,8 +277,7 @@
             "shishu": { title: "《師說》", author: "韓愈", folderId: "", folder: "《師說》", totalPages: 0, texts:[] }
         };
 
-        // 安全無報錯的 SVG 佔位圖 (Base64 編碼，絕不會出錯)
-        const placeholderImg = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E9%BB%9E%E6%93%8A%E9%96%B1%E8%AE%80%3C%2Ftext%3E%3C%2Fsvg%3E";
+        const placeholderImg = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E8%BC%89%E5%85%A5%E4%B8%AD...%3C%2Ftext%3E%3C%2Fsvg%3E";
         const errorImgSafe = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E5%9C%96%E7%89%87%E8%BC%89%E5%85%A5%E5%A4%B1%E6%95%97%3C%2Ftext%3E%3C%2Fsvg%3E";
 
         let pageFlip = null;
@@ -294,22 +292,104 @@
         const loading = document.getElementById('loading');
 
         // ==========================================
+        // 🌟 新增 A：IndexedDB 圖片快取系統 (永久緩存原圖)
+        // ==========================================
+        const DB_NAME = "DSEComicDB";
+        const STORE_NAME = "ImageCache";
+        const sessionBlobUrls = new Map(); // 防止記憶體溢出的 Session 緩存
+
+        const dbPromise = new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME, { keyPath: "url" });
+                }
+            };
+            request.onsuccess = (e) => resolve(e.target.result);
+            request.onerror = (e) => reject(e.target.error);
+        });
+
+        async function getCachedImageURL(url) {
+            if (sessionBlobUrls.has(url)) return sessionBlobUrls.get(url);
+
+            try {
+                const db = await dbPromise;
+                const tx = db.transaction(STORE_NAME, "readonly");
+                const store = tx.objectStore(STORE_NAME);
+                
+                // 1. 從 IndexedDB 尋找有無緩存的 Blob
+                const cached = await new Promise((resolve, reject) => {
+                    const req = store.get(url);
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+
+                if (cached && cached.blob) {
+                    const objUrl = URL.createObjectURL(cached.blob);
+                    sessionBlobUrls.set(url, objUrl);
+                    return objUrl;
+                }
+
+                // 2. 若無緩存，向 Google 請求圖片並轉換為 Blob 存入資料庫
+                const response = await fetch(url, { mode: 'cors' }); // 嘗試強制 CORS 以獲取 Blob
+                if (!response.ok) throw new Error("Network response not ok");
+                
+                const blob = await response.blob();
+                const txWrite = db.transaction(STORE_NAME, "readwrite");
+                txWrite.objectStore(STORE_NAME).put({ url, blob });
+                
+                const objUrl = URL.createObjectURL(blob);
+                sessionBlobUrls.set(url, objUrl);
+                return objUrl;
+
+            } catch (error) {
+                console.warn("使用原生 URL 載入:", url);
+                return url; // 如果跨域被阻擋或出錯，降級回傳原始網址，交給 img 標籤處理
+            }
+        }
+
+        // ==========================================
+        // 🌟 新增 B：目錄快取機制 (實現秒開內頁)
+        // ==========================================
+        async function getFileMap(folderId, folder) {
+            const cacheKey = `dse_comic_map_${folderId || folder}`;
+            const localData = localStorage.getItem(cacheKey);
+            let parsedData = null;
+            
+            if (localData) {
+                try { parsedData = JSON.parse(localData); } catch(e){}
+            }
+
+            // 非同步背景更新 (Stale-while-revalidate)
+            const fetchPromise = fetch(`${GAS_URL}?folderId=${encodeURIComponent(folderId || "")}&folder=${encodeURIComponent(folder || "")}`)
+                .then(res => res.json())
+                .then(fileMap => {
+                    if (!fileMap.error) localStorage.setItem(cacheKey, JSON.stringify(fileMap));
+                    return fileMap;
+                }).catch(e => { return { error: "Network error" }; });
+
+            // 若有快取則瞬間回傳，沒有就等待 Google 載入
+            return parsedData || await fetchPromise;
+        }
+
+        // ==========================================
         // 3. 生成主頁目錄 UI
         // ==========================================
         function renderCatalog() {
             catalogView.innerHTML = '';
-            
             for (const[key, data] of Object.entries(comicDatabase)) {
                 const isAvailable = data.totalPages > 0;
                 const card = document.createElement('div');
                 card.className = `comic-card ${isAvailable ? '' : 'disabled'}`;
                 
                 const badgeHtml = isAvailable ? `<div class="badge">${data.totalPages} 頁</div>` : `<div class="badge coming-soon">敬請期待</div>`;
+                const imgId = `cover-img-${key}`; 
 
                 card.innerHTML = `
                     ${badgeHtml}
                     <div class="comic-cover">
-                        <img src="${placeholderImg}" alt="${data.title} 封面">
+                        <img id="${imgId}" src="${placeholderImg}" alt="${data.title} 封面">
                     </div>
                     <div class="comic-info">
                         <h3 class="comic-title">${data.title}</h3>
@@ -319,9 +399,31 @@
 
                 if (isAvailable) {
                     card.onclick = () => loadComic(key);
+                    fetchCoverImage(data.folderId, data.folder, imgId);
                 }
                 catalogView.appendChild(card);
             }
+        }
+
+        async function fetchCoverImage(folderId, folder, imgId) {
+            try {
+                const fileMap = await getFileMap(folderId, folder);
+                if (!fileMap.error) {
+                    const coverKey = Object.keys(fileMap).find(name => {
+                        const num = parseInt(name.match(/\d+/) || [-1], 10);
+                        return num === 0;
+                    });
+                    
+                    if (coverKey) {
+                        const coverId = fileMap[coverKey];
+                        const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w600`;
+                        // 🌟 使用 IndexedDB 緩存獲取封面
+                        const localUrl = await getCachedImageURL(driveUrl);
+                        const imgEl = document.getElementById(imgId);
+                        if(imgEl) imgEl.src = localUrl;
+                    }
+                }
+            } catch (e) { console.warn("載入封面失敗:", e); }
         }
 
         function showCatalog() {
@@ -334,82 +436,58 @@
 
         btnBack.addEventListener('click', showCatalog);
 
-        // ==========================================
-        // 音效播放控制
-        // ==========================================
         function playFlipSound() {
             const flipAudio = document.getElementById('flip-sound');
             if (flipAudio) {
-                flipAudio.currentTime = 0; // 重置音效，確保連續翻頁也能觸發
+                flipAudio.currentTime = 0; 
                 const playPromise = flipAudio.play();
-                
-                // 防呆處理：部分瀏覽器會阻擋未互動時的自動播放音效
-                if (playPromise !== undefined) {
-                    playPromise.catch(error => {
-                        console.warn("無法自動播放翻頁音效：", error);
-                    });
-                }
+                if (playPromise !== undefined) playPromise.catch(() => {});
             }
         }
 
         // ==========================================
-        // 4. 動態透過 GAS 載入與智能配對圖片 (防封鎖外連版)
+        // 4. 動態生成與【懶加載】圖片
         // ==========================================
         async function loadComic(comicKey) {
             const data = comicDatabase[comicKey];
             if (!data || data.totalPages === 0) return;
 
             currentComicKey = comicKey;
-            
             catalogView.style.display = 'none';
             btnBack.style.display = 'block';
             readerView.style.display = 'flex';
-            
             loading.style.display = 'block';
             bookElement.style.display = 'none';
 
             try {
-                // 為了防呆，同時送出 folder 和 folderId (無論你用的是舊版或新版 GAS 都會通)
-                const apiUrl = `${GAS_URL}?folderId=${encodeURIComponent(data.folderId)}&folder=${encodeURIComponent(data.folder)}`;
-                const response = await fetch(apiUrl);
-                const fileMap = await response.json();
+                // 利用快取瞬間獲取目錄結構
+                const fileMap = await getFileMap(data.folderId, data.folder);
 
                 if (fileMap.error) {
-                    alert("獲取檔案失敗：" + fileMap.error + "\n請確保資料夾已設定為【知道連結的任何人皆可查看】");
+                    alert("獲取檔案失敗：" + fileMap.error);
                     showCatalog();
                     loading.style.display = 'none';
                     return;
                 }
 
-                // AI 智能排序檔案陣列 (根據檔名數字 1~36 排序)
-                let filesArray = Object.keys(fileMap).map(name => ({
-                    name: name,
-                    id: fileMap[name]
-                }));
+                let filesArray = Object.keys(fileMap)
+                    .map(name => ({ name: name, id: fileMap[name] }))
+                    .filter(file => parseInt(file.name.match(/\d+/) || [-1], 10) !== 0);
 
-                filesArray.sort((a, b) => {
-                    const numA = parseInt(a.name.match(/\d+/) || [0], 10);
-                    const numB = parseInt(b.name.match(/\d+/) || [0], 10);
-                    return numA - numB;
-                });
+                filesArray.sort((a, b) => parseInt(a.name.match(/\d+/) || [0], 10) - parseInt(b.name.match(/\d+/) || [0], 10));
 
                 let pagesHTML = '';
+                // 🌟 先用極小體積的 Placeholder 瞬間建立書本結構
                 for (let i = 1; i <= data.totalPages; i++) {
-                    const file = filesArray[i - 1]; 
-                    const fileId = file ? file.id : null;
-                    
-                    // 【重點更新】使用 Thumbnail API (sz=w1500 設定高畫質)，完美繞過 Google 阻擋直接顯示外連！
-                    const imgPath = fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w1500` : errorImgSafe;
-
+                    const imgId = `page-img-${comicKey}-${i}`;
                     const pageText = (data.texts && data.texts[i - 1]) ? data.texts[i - 1] : '';
                     const textDiv = pageText ? `<div class="page-text">${pageText}</div>` : '';
 
                     pagesHTML += `
                         <div class="page">
                             <div class="page-content">
-                                <img src="${imgPath}" alt="第${i}頁" 
+                                <img id="${imgId}" src="${placeholderImg}" alt="第${i}頁" 
                                      onerror="this.onerror=null; this.src='${errorImgSafe}'" 
-                                     loading="lazy"
                                      onclick="openLightbox(this.src)">
                                 ${textDiv}
                             </div>
@@ -419,15 +497,30 @@
                 
                 bookElement.innerHTML = pagesHTML;
 
+                // 稍微延遲讓 DOM 渲染，然後初始化翻頁效果
                 setTimeout(() => {
                     initPageFlip();
                     loading.style.display = 'none';
                     bookElement.style.display = 'block';
-                }, 800);
+
+                    // 🌟 背景非同步替換真實的高清原圖 (從 IndexedDB 或 Google 讀取)
+                    const activeKey = currentComicKey;
+                    for (let i = 1; i <= data.totalPages; i++) {
+                        const file = filesArray[i - 1]; 
+                        if (file && file.id) {
+                            const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w1500`;
+                            getCachedImageURL(driveUrl).then(localUrl => {
+                                if (activeKey !== currentComicKey) return; // 若用家中途跳走則中止替換
+                                const imgEl = document.getElementById(`page-img-${comicKey}-${i}`);
+                                if (imgEl) imgEl.src = localUrl;
+                            });
+                        }
+                    }
+                }, 300);
 
             } catch (error) {
                 console.error(error);
-                alert("無法連接到 Google Apps Script，請檢查 API 網址是否正確。");
+                alert("無法連接伺服器或網絡中斷。");
                 showCatalog();
                 loading.style.display = 'none';
             }
@@ -449,7 +542,7 @@
 
             pageFlip.on('flip', (e) => {
                 updatePageInfo(e.data);
-                playFlipSound(); // 觸發播放翻頁音效
+                playFlipSound();
             });
             updatePageInfo(0);
         }
@@ -478,9 +571,6 @@
         pageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') pageInput.blur(); });
         pageInput.addEventListener('focus', () => { pageInput.select(); });
 
-        // ==========================================
-        // 6. 鍵盤與自訂觸控滑動 (向右滑上一頁，左滑下一頁)
-        // ==========================================
         document.addEventListener('keydown', (e) => {
             if (!pageFlip || catalogView.style.display === 'grid') return;
             if (e.key === "ArrowLeft") pageFlip.flipPrev();
@@ -508,13 +598,8 @@
             const diffY = touchEndY - touchStartY;
 
             if (Math.abs(diffX) > Math.abs(diffY)) {
-                if (diffX < -50) {
-                    // 向左滑動 -> 下一頁
-                    pageFlip.flipNext();
-                } else if (diffX > 50) {
-                    // 向右滑動 -> 上一頁
-                    pageFlip.flipPrev();
-                }
+                if (diffX < -50) pageFlip.flipNext();
+                else if (diffX > 50) pageFlip.flipPrev();
             }
         }
 
@@ -522,7 +607,7 @@
         // 7. Lightbox 放大功能
         // ==========================================
         function openLightbox(imgSrc) {
-            if(imgSrc.includes('data:image/svg+xml')) return; 
+            if(imgSrc.includes('data:image/svg+xml')) return; // 防止放大佔位圖
             const lightbox = document.getElementById('lightbox');
             document.getElementById('lightbox-img').src = imgSrc;
             lightbox.style.display = 'flex';
