@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>十二篇範文漫畫閱讀器</title>
+    
+    <!-- 引入 PageFlip 翻頁庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js"></script>
+
+    <style>
+        /* =========================================
+           漫畫風 CSS 變數與全域設定
+           ========================================= */
+        :root {
+            --comic-black: #111;
+            --comic-white: #fdfdfd;
+            --comic-grey: #e0e0e0;
+            --comic-yellow: #ffcc00;
+            --comic-red: #e63946;
+            --comic-border: 4px solid var(--comic-black);
+            --comic-shadow: 6px 6px 0px var(--comic-black);
+            --comic-shadow-hover: 10px 10px 0px var(--comic-black);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: "PingFang HK", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+            background-color: var(--comic-white);
+            background-image: radial-gradient(#ccc 15%, transparent 16%), radial-gradient(#ccc 15%, transparent 16%);
+            background-size: 10px 10px;
+            background-position: 0 0, 5px 5px;
+            color: var(--comic-black);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* 頂部導航欄 */
+        header {
+            background-color: var(--comic-white);
+            border-bottom: var(--comic-border);
+            padding: 15px 20px;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            box-shadow: 0 4px 0px rgba(0,0,0,1);
+            position: relative;
+            z-index: 10;
+        }
+
+        .header-left { display: flex; justify-content: flex-start; }
+        .header-right { display: flex; justify-content: flex-end; }
+
+        .logo {
+            font-size: 26px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: var(--comic-black);
+            color: var(--comic-white);
+            padding: 8px 20px;
+            transform: skew(-5deg);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .btn {
+            background-color: var(--comic-white);
+            color: var(--comic-black);
+            border: 3px solid var(--comic-black);
+            padding: 8px 15px;
+            font-size: 16px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 4px 4px 0px var(--comic-black);
+            font-family: inherit;
+        }
+
+        .btn:hover { background-color: var(--comic-yellow); transform: translate(-2px, -2px); box-shadow: 6px 6px 0px var(--comic-black); }
+        .btn:active { transform: translate(3px, 3px); box-shadow: 0px 0px 0px var(--comic-black); }
+
+        /* 主視圖容器 */
+        main {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 20px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* --- 漫畫目錄 UI --- */
+        #catalog-view {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 40px;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .comic-card {
+            border: var(--comic-border);
+            box-shadow: var(--comic-shadow);
+            background: var(--comic-white);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .comic-card:hover:not(.disabled) { transform: translateY(-8px) scale(1.02); box-shadow: var(--comic-shadow-hover); }
+        .comic-card.disabled { cursor: not-allowed; filter: grayscale(100%); opacity: 0.8; }
+
+        .comic-cover {
+            width: 100%; height: 350px;
+            border-bottom: var(--comic-border);
+            background-color: var(--comic-grey);
+            overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative;
+        }
+
+        .comic-cover img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+        .comic-info { padding: 15px; text-align: center; background: var(--comic-white); }
+        .comic-title { font-size: 22px; font-weight: 900; margin: 0 0 5px 0; }
+        .comic-meta { font-size: 14px; font-weight: bold; color: #555; }
+        
+        .badge {
+            position: absolute; top: -15px; right: -15px; background: var(--comic-yellow); border: 3px solid var(--comic-black);
+            padding: 8px 15px; font-weight: 900; font-size: 16px; transform: rotate(12deg); box-shadow: 4px 4px 0 var(--comic-black); z-index: 2;
+        }
+        .badge.coming-soon { background: var(--comic-grey); color: #555; }
+
+        /* --- 閱讀器 UI --- */
+        #reader-view { width: 100%; display: none; flex-direction: column; align-items: center; }
+        #book-wrapper { position: relative; display: flex; justify-content: center; align-items: center; width: 100%; max-width: 1400px; }
+
+        .page {
+            background-color: var(--comic-white); border: 2px solid var(--comic-black);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1); overflow: hidden; display: flex; box-sizing: border-box; position: relative;
+        }
+
+        .page-content {
+            width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: var(--comic-white);
+        }
+
+        .page-content img {
+            width: 100%; flex-grow: 1; min-height: 0; object-fit: contain;
+            user-select: none; -webkit-user-drag: none; cursor: zoom-in; padding: 10px; box-sizing: border-box;
+        }
+
+        .page-text {
+            width: 100%; background: var(--comic-white); border-top: 3px solid var(--comic-black);
+            padding: 12px 20px; font-size: 16px; font-weight: 900; line-height: 1.5; text-align: justify; z-index: 5; box-sizing: border-box;
+        }
+
+        /* 底部控制欄 */
+        .controls {
+            margin-top: 30px; display: flex; align-items: center; justify-content: center;
+            flex-wrap: nowrap; white-space: nowrap; gap: 15px; background: var(--comic-white);
+            padding: 12px 25px; border: var(--comic-border); box-shadow: var(--comic-shadow); z-index: 10;
+        }
+
+        .page-info { font-size: 18px; font-weight: 900; display: flex; align-items: center; gap: 5px; }
+        
+        #page-input {
+            width: 50px; text-align: center; font-size: 18px; font-weight: 900;
+            border: 2px solid var(--comic-black); border-radius: 4px; padding: 4px; outline: none; background-color: var(--comic-white);
+        }
+        #page-input:focus { background-color: #eee; }
+        #page-input::-webkit-outer-spin-button, #page-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+        #lightbox {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: rgba(0, 0, 0, 0.85); z-index: 9999; justify-content: center; align-items: center; cursor: zoom-out;
+        }
+        #lightbox img { max-width: 95%; max-height: 95%; object-fit: contain; border: 5px solid var(--comic-white); box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+
+        #loading {
+            position: absolute; font-size: 24px; font-weight: bold; background: var(--comic-yellow); border: var(--comic-border);
+            padding: 20px 40px; box-shadow: var(--comic-shadow); z-index: 100; display: none; transform: rotate(-3deg); top: 30%;
+        }
+
+        @media (max-width: 768px) {
+            header { grid-template-columns: auto 1fr; gap: 10px; padding: 10px; }
+            .logo { font-size: 16px; padding: 5px 10px; }
+            .header-right { display: none; }
+            .btn { padding: 6px 10px; font-size: 14px; box-shadow: 2px 2px 0px var(--comic-black); }
+            #catalog-view { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 0; }
+            .comic-cover { height: 220px; }
+            .comic-title { font-size: 16px; }
+            .badge { font-size: 12px; padding: 4px 8px; top: -8px; right: -8px; }
+            .controls { padding: 10px; gap: 10px; }
+            .page-text { font-size: 14px; padding: 8px 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-left">
+            <button id="btn-back" class="btn" style="display: none;">◄ 返回目錄</button>
+        </div>
+        <div class="logo">DSE 範文漫畫館</div>
+        <div class="header-right"></div>
+    </header>
+
+    <main>
+        <div id="loading">正在讀取漫畫...</div>
+
+        <!-- 主頁：漫畫目錄 UI -->
+        <div id="catalog-view"></div>
+
+        <!-- 內頁：漫畫閱讀器 -->
+        <div id="reader-view">
+            <div id="book-wrapper">
+                <div id="book"></div>
+            </div>
+
+            <!-- 底部控制列 -->
+            <div class="controls">
+                <button class="btn" id="btn-prev">◄ 上一頁</button>
+                <div class="page-info">
+                    第 <input type="number" id="page-input" value="1" min="1"> / <span id="total-pages">1</span> 頁
+                </div>
+                <button class="btn" id="btn-next">下一頁 ►</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 圖片放大遮罩層 -->
+    <div id="lightbox" onclick="closeLightbox()">
+        <img id="lightbox-img" src="" alt="放大觀看">
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. Google Apps Script Web App URL 設定
+        // ==========================================
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbwvrHGW-m-UpVfvhc-rg2Rjo_tySA8XML5pGovWgGOdNvds83OihWlCOAh0Qte1GumHFA/exec"; 
+
+        // ==========================================
+        // 2. 漫畫資料庫 (存放目錄結構與資訊)
+        // ==========================================
+        const comicDatabase = {
+            "chushibiao": {
+                title: "《出師表》",
+                author: "諸葛亮",
+                folder: "《出師表》", 
+                // 這裡保留你專屬的《出師表》文件夾 ID
+                folderId: "1AxZlN3nY_NkaJD3EBfrF1N31mYiK2pnx", 
+                totalPages: 36,
+                texts:[
+                    "先帝創業未半而中道崩殂，", "今天下三分，益州疲弊，此誠危急存亡之秋也。", "然侍衛之臣不懈於內，忠志之士忘身於外者，",
+                    "蓋追先帝之殊遇，欲報之於陛下也。", "誠宜開張聖聽，以光先帝遺德，恢弘志士之氣，", "不宜妄自菲薄，引喻失義，以塞忠諫之路也。",
+                    "宮中府中，俱為一體，陟罰臧否，不宜異同。", "若有作姦犯科及為忠善者，宜付有司論其刑賞，", "以昭陛下平明之理，不宜偏私，使內外異法也。",
+                    "侍中、侍郎郭攸之、費禕、董允等，此皆良實，志慮忠純，", "是以先帝簡拔以遺陛下。", "愚以為宮中之事，事無大小，悉以咨之，然後施行，",
+                    "必能裨補闕漏，有所廣益。", "將軍向寵，性行淑均，曉暢軍事，", "試用於昔日，先帝稱之曰能，是以眾議舉寵為督。",
+                    "愚以為營中之事，悉以咨之，必能使行陣和睦，", "優劣得所。", "親賢臣，遠小人，此先漢所以興隆也；親小人，遠賢臣，此後漢所以傾頹也。",
+                    "先帝在時，每與臣論此事，未嘗不歎息痛恨於桓、靈也。", "侍中、尚書、長史、參軍，此悉貞良死節之臣，", "願陛下親之信之，則漢室之隆，可計日而待也。",
+                    "臣本布衣，躬耕於南陽，苟全性命於亂世，不求聞達於諸侯。", "先帝不以臣卑鄙，猥自枉屈，三顧臣於草廬之中，", "咨臣以當世之事，由是感激，遂許先帝以驅馳。",
+                    "後值傾覆，受任於敗軍之際，", "奉命於危難之間，爾來二十有一年矣。", "先帝知臣謹慎，故臨崩寄臣以大事也。",
+                    "受命以來，夙夜憂歎，恐託付不效，以傷先帝之明，", "故五月渡瀘，深入不毛。今南方已定，兵甲已足，", "當獎率三軍，北定中原，庶竭駑鈍，攘除奸凶，",
+                    "興復漢室，還于舊都。此臣所以報先帝，而忠陛下之職分也。", "至於斟酌損益，進盡忠言，則攸之、禕、允之任也。", "願陛下託臣以討賊興復之效，不效則治臣之罪，以告先帝之靈。",
+                    "若無興德之言，則責攸之、禕、允等之慢，以彰其咎。", "陛下亦宜自謀，以咨諏善道，察納雅言，深追先帝遺詔。", "臣不勝受恩感激。今當遠離，臨表涕零，不知所言。"
+                ]
+            },
+            "quanxue": { title: "《勸學》", author: "荀子", folderId: "", folder: "《勸學》", totalPages: 0, texts:[] },
+            "shishu": { title: "《師說》", author: "韓愈", folderId: "", folder: "《師說》", totalPages: 0, texts:[] }
+        };
+
+        // 安全無報錯的 SVG 佔位圖 (Base64 編碼，絕不會出錯)
+        const placeholderImg = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E9%BB%9E%E6%93%8A%E9%96%B1%E8%AE%80%3C%2Ftext%3E%3C%2Fsvg%3E";
+        const errorImgSafe = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E5%9C%96%E7%89%87%E8%BC%89%E5%85%A5%E5%A4%B1%E6%95%97%3C%2Ftext%3E%3C%2Fsvg%3E";
+
+        let pageFlip = null;
+        let currentComicKey = null;
+
+        const catalogView = document.getElementById('catalog-view');
+        const readerView = document.getElementById('reader-view');
+        const bookElement = document.getElementById('book');
+        const btnBack = document.getElementById('btn-back');
+        const pageInput = document.getElementById('page-input');
+        const totalPagesSpan = document.getElementById('total-pages');
+        const loading = document.getElementById('loading');
+
+        // ==========================================
+        // 3. 生成主頁目錄 UI
+        // ==========================================
+        function renderCatalog() {
+            catalogView.innerHTML = '';
+            
+            for (const[key, data] of Object.entries(comicDatabase)) {
+                const isAvailable = data.totalPages > 0;
+                const card = document.createElement('div');
+                card.className = `comic-card ${isAvailable ? '' : 'disabled'}`;
+                
+                const badgeHtml = isAvailable ? `<div class="badge">${data.totalPages} 頁</div>` : `<div class="badge coming-soon">敬請期待</div>`;
+
+                card.innerHTML = `
+                    ${badgeHtml}
+                    <div class="comic-cover">
+                        <img src="${placeholderImg}" alt="${data.title} 封面">
+                    </div>
+                    <div class="comic-info">
+                        <h3 class="comic-title">${data.title}</h3>
+                        <div class="comic-meta">${data.author}</div>
+                    </div>
+                `;
+
+                if (isAvailable) {
+                    card.onclick = () => loadComic(key);
+                }
+                catalogView.appendChild(card);
+            }
+        }
+
+        function showCatalog() {
+            readerView.style.display = 'none';
+            btnBack.style.display = 'none';
+            catalogView.style.display = 'grid';
+            if (pageFlip) { pageFlip.destroy(); pageFlip = null; bookElement.innerHTML = ''; }
+            currentComicKey = null;
+        }
+
+        btnBack.addEventListener('click', showCatalog);
+
+        // ==========================================
+        // 4. 動態透過 GAS 載入與智能配對圖片 (防封鎖外連版)
+        // ==========================================
+        async function loadComic(comicKey) {
+            const data = comicDatabase[comicKey];
+            if (!data || data.totalPages === 0) return;
+
+            currentComicKey = comicKey;
+            
+            catalogView.style.display = 'none';
+            btnBack.style.display = 'block';
+            readerView.style.display = 'flex';
+            
+            loading.style.display = 'block';
+            bookElement.style.display = 'none';
+
+            try {
+                // 為了防呆，同時送出 folder 和 folderId (無論你用的是舊版或新版 GAS 都會通)
+                const apiUrl = `${GAS_URL}?folderId=${encodeURIComponent(data.folderId)}&folder=${encodeURIComponent(data.folder)}`;
+                const response = await fetch(apiUrl);
+                const fileMap = await response.json();
+
+                if (fileMap.error) {
+                    alert("獲取檔案失敗：" + fileMap.error + "\n請確保資料夾已設定為【知道連結的任何人皆可查看】");
+                    showCatalog();
+                    loading.style.display = 'none';
+                    return;
+                }
+
+                // AI 智能排序檔案陣列 (根據檔名數字 1~36 排序)
+                let filesArray = Object.keys(fileMap).map(name => ({
+                    name: name,
+                    id: fileMap[name]
+                }));
+
+                filesArray.sort((a, b) => {
+                    const numA = parseInt(a.name.match(/\d+/) || [0], 10);
+                    const numB = parseInt(b.name.match(/\d+/) || [0], 10);
+                    return numA - numB;
+                });
+
+                let pagesHTML = '';
+                for (let i = 1; i <= data.totalPages; i++) {
+                    const file = filesArray[i - 1]; 
+                    const fileId = file ? file.id : null;
+                    
+                    // 【重點更新】使用 Thumbnail API (sz=w1500 設定高畫質)，完美繞過 Google 阻擋直接顯示外連！
+                    const imgPath = fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w1500` : errorImgSafe;
+
+                    const pageText = (data.texts && data.texts[i - 1]) ? data.texts[i - 1] : '';
+                    const textDiv = pageText ? `<div class="page-text">${pageText}</div>` : '';
+
+                    pagesHTML += `
+                        <div class="page">
+                            <div class="page-content">
+                                <img src="${imgPath}" alt="第${i}頁" 
+                                     onerror="this.onerror=null; this.src='${errorImgSafe}'" 
+                                     loading="lazy"
+                                     onclick="openLightbox(this.src)">
+                                ${textDiv}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                bookElement.innerHTML = pagesHTML;
+
+                setTimeout(() => {
+                    initPageFlip();
+                    loading.style.display = 'none';
+                    bookElement.style.display = 'block';
+                }, 800);
+
+            } catch (error) {
+                console.error(error);
+                alert("無法連接到 Google Apps Script，請檢查 API 網址是否正確。");
+                showCatalog();
+                loading.style.display = 'none';
+            }
+        }
+
+        // ==========================================
+        // 5. PageFlip 初始化與控制
+        // ==========================================
+        function initPageFlip() {
+            pageFlip = new St.PageFlip(bookElement, {
+                width: 700, height: 480, size: "stretch",         
+                minWidth: 300, maxWidth: 900, minHeight: 200, maxHeight: 700,
+                maxShadowOpacity: 0.5, showCover: true, usePortrait: true,       
+                mobileScrollSupport: false, useMouseEvents: false    
+            });
+
+            const pages = document.querySelectorAll('.page');
+            pageFlip.loadFromHTML(pages);
+
+            pageFlip.on('flip', (e) => {
+                updatePageInfo(e.data);
+            });
+            updatePageInfo(0);
+        }
+
+        function updatePageInfo(currentPage) {
+            if (!currentComicKey) return;
+            const currentComic = comicDatabase[currentComicKey];
+            pageInput.value = currentPage + 1;
+            pageInput.max = currentComic.totalPages;
+            totalPagesSpan.textContent = currentComic.totalPages;
+        }
+
+        document.getElementById('btn-prev').addEventListener('click', () => { if (pageFlip) pageFlip.flipPrev(); });
+        document.getElementById('btn-next').addEventListener('click', () => { if (pageFlip) pageFlip.flipNext(); });
+
+        pageInput.addEventListener('change', (e) => {
+            if (!pageFlip) return;
+            let targetPage = parseInt(e.target.value, 10);
+            const maxPage = parseInt(pageInput.max, 10);
+            if (isNaN(targetPage) || targetPage < 1) targetPage = 1;
+            else if (targetPage > maxPage) targetPage = maxPage;
+            pageInput.value = targetPage;
+            pageFlip.flip(targetPage - 1);
+        });
+
+        pageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') pageInput.blur(); });
+        pageInput.addEventListener('focus', () => { pageInput.select(); });
+
+        // ==========================================
+        // 6. 鍵盤與自訂觸控滑動 (向右滑上一頁，左滑下一頁)
+        // ==========================================
+        document.addEventListener('keydown', (e) => {
+            if (!pageFlip || catalogView.style.display === 'grid') return;
+            if (e.key === "ArrowLeft") pageFlip.flipPrev();
+            else if (e.key === "ArrowRight") pageFlip.flipNext();
+            else if (e.key === "Escape") closeLightbox();
+        });
+
+        let touchStartX = 0, touchEndX = 0, touchStartY = 0, touchEndY = 0;
+        const bookWrapperElement = document.getElementById('book-wrapper');
+
+        bookWrapperElement.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+
+        bookWrapperElement.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            touchEndY = e.changedTouches[0].screenY;
+            handleSwipe();
+        }, { passive: true });
+
+        function handleSwipe() {
+            if (!pageFlip) return;
+            const diffX = touchEndX - touchStartX;
+            const diffY = touchEndY - touchStartY;
+
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                if (diffX < -50) {
+                    // 向左滑動 -> 下一頁
+                    pageFlip.flipNext();
+                } else if (diffX > 50) {
+                    // 向右滑動 -> 上一頁
+                    pageFlip.flipPrev();
+                }
+            }
+        }
+
+        // ==========================================
+        // 7. Lightbox 放大功能
+        // ==========================================
+        function openLightbox(imgSrc) {
+            if(imgSrc.includes('data:image/svg+xml')) return; 
+            const lightbox = document.getElementById('lightbox');
+            document.getElementById('lightbox-img').src = imgSrc;
+            lightbox.style.display = 'flex';
+        }
+        function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
+
+        // 啟動程式
+        window.addEventListener('DOMContentLoaded', () => { renderCatalog(); });
+    </script>
+</body>
+</html>
