@@ -7271,34 +7271,7 @@ var statsApp, statsDatabase, statsAuth;
     });
 })();
 
-// === 全域請求攔截器 (只針對 Sansidata 注入 Token) ===
-(function() {
-    const originalFetch = window.fetch; 
-    const TARGET_URL_PART = "script.google.com"; 
 
-    window.fetch = async function(url, options) {
-        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
-            
-            // 確保從 StatsApp 的 Auth 獲取 Token
-            const user = statsAuth ? statsAuth.currentUser : null;
-
-            if (user) {
-                try {
-                    const token = await user.getIdToken(true);
-                    let bodyData = JSON.parse(options.body);
-                    bodyData.token = token; // 強制注入 Token
-                    options.body = JSON.stringify(bodyData);
-                    console.log("[TokenInjector] 已成功注入 Sansidata 生成權限 Token");
-                } catch (e) {
-                    console.error("[TokenInjector] Token 獲取失敗:", e);
-                }
-            } else {
-                console.warn("[TokenInjector] 警告：無 Sansidata 登入資訊，請求將被後端拒絕");
-            }
-        }
-        return originalFetch(url, options);
-    };
-})();
 
 </script>
 
@@ -7517,56 +7490,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('DOMContentLoaded', initPresenceSystem);
 </script>
 
-<script>
 
-
-// === 全域請求攔截器 (針對 Sansidata 注入 Token) ===
-(function() {
-    const originalFetch = window.fetch; 
-    const TARGET_URL_PART = "script.google.com"; 
-
-    window.fetch = async function(url, options) {
-        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
-            
-            console.log("[TokenInjector] 正在注入 Sansidata Token...");
-
-            const user = await new Promise((resolve) => {
-                if (statsAuth.currentUser) {
-                    resolve(statsAuth.currentUser);
-                } else {
-                    const unsubscribe = statsAuth.onAuthStateChanged(u => {
-                        unsubscribe();
-                        resolve(u);
-                    });
-                    setTimeout(() => resolve(null), 2000); 
-                }
-            });
-
-            if (user) {
-                try {
-                    const token = await user.getIdToken(true);
-                    let bodyData = JSON.parse(options.body);
-                    bodyData.token = token; // ★ 這裡注入 Token
-                    options.body = JSON.stringify(bodyData);
-                    console.log("[TokenInjector] Token 注入成功");
-                } catch (e) {
-                    console.error("[TokenInjector] 注入失敗:", e);
-                }
-            }
-        }
-        return originalFetch(url, options);
-    };
-})();
-
-	
-</script>
 
 
 <script>
-
-
 // ===============================================================
-// === [神思通用組件] 嚴格權限鎖 (零容忍版) ===
+// === [神思通用組件] 嚴格權限鎖 (零容忍版) + Token 自動注入 ===
 // ===============================================================
 (function() {
     // 防止重複注入
@@ -7646,7 +7575,7 @@ document.addEventListener('DOMContentLoaded', function() {
             modal.classList.remove('sansi-limit-show');
             setTimeout(() => { modal.style.display = 'none'; }, 300);
             
-            // 針對陳SIR教室環境的 UI 重置
+            // 針對喻蛋教室環境的 UI 重置
             const typingInd = document.getElementById('typing-indicator');
             if(typingInd) typingInd.style.display = 'none';
             
@@ -7657,7 +7586,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // --- 4. 嚴格攔截邏輯 ---
+    // --- 4. 嚴格攔截邏輯 + Token 自動注入 (合併版) ---
     const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
@@ -7666,30 +7595,63 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const s = localStorage.getItem('studentProfile');
             
-            // 如果有資料 -> 放行
-            if (s) {
-                return originalFetch(url, options);
+            // 情況一：如果沒資料 -> 直接阻擋並顯示組件
+            if (!s) {
+                console.warn("🚫 [Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
+                
+                const modal = document.getElementById('sansiLimitModal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    void modal.offsetWidth; 
+                    modal.classList.add('sansi-limit-show');
+                }
+                return Promise.reject(new Error("Login Required - Guest Access Denied"));
             }
 
-            // 如果沒資料 -> 直接阻擋並顯示組件
-            console.warn("🚫 [Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
-            
-            const modal = document.getElementById('sansiLimitModal');
-            if (modal) {
-                modal.style.display = 'flex';
-                void modal.offsetWidth; 
-                modal.classList.add('sansi-limit-show');
+            // 情況二：如果有資料，且是發送給後端 (GAS) 的 POST 請求 -> 獲取並注入 Token
+            if (options && options.method === 'POST' && url.includes('script.google.com')) {
+                console.log("🔑 [TokenInjector] 正在獲取並注入 Sansidata Token...");
+                try {
+                    // 安全獲取 Firebase 用戶狀態 (設定 2 秒超時防卡死)
+                    const user = await new Promise((resolve) => {
+                        if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) {
+                            resolve(statsAuth.currentUser);
+                        } else if (typeof statsAuth !== 'undefined') {
+                            const unsubscribe = statsAuth.onAuthStateChanged(u => {
+                                unsubscribe();
+                                resolve(u);
+                            });
+                            setTimeout(() => resolve(null), 2000); 
+                        } else {
+                            resolve(null);
+                        }
+                    });
+
+                    // 將 Token 解析進 payload
+                    if (user) {
+                        const token = await user.getIdToken(true);
+                        let bodyData = JSON.parse(options.body);
+                        bodyData.token = token; // ★ 強制注入 Token
+                        options.body = JSON.stringify(bodyData);
+                        console.log("✅ [TokenInjector] Token 注入成功！");
+                    } else {
+                        console.warn("⚠️ [TokenInjector] 警告：無法獲取 currentUser，Token 注入失敗！");
+                    }
+                } catch (e) {
+                    console.error("❌ [TokenInjector] 注入 Token 時發生錯誤:", e);
+                }
             }
 
-            return Promise.reject(new Error("Login Required - Guest Access Denied"));
+            // 處理完成，放行給原生的 fetch 去請求伺服器
+            return originalFetch(url, options);
         }
 
+        // 非目標網址，直接放行
         return originalFetch(url, options);
     };
     
-    console.log("🔒 神思嚴格權限鎖 (必須登入) 已啟動");
+    console.log("🔒 神思嚴格權限鎖 (附帶自動 Token 注入) 已啟動");
 })();
-	
 </script>
 
 
