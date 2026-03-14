@@ -1800,14 +1800,15 @@ transform: scale(1.1);
 // API 配置信息 (已更新為前端直接呼叫)
 // ===============================================================
  
-// 定義 API 金鑰列表
-const API_KEYS = ["friend1"];
+// ===============================================================
+// API 配置信息 (替換為翻水 GAS 節點)
+// ===============================================================
  
-// 定義 API 端點
-const API_URL = "https://api-fawn-chi.vercel.app/api/v1/chat/completions";
+// 翻水使用的 GAS 節點 URL
+const API_URL = "https://script.google.com/macros/s/AKfycbzaAnSXaaCohL8b92B7bRzhMk3cMr7hhoQc1icKSr_Oy1JLFUPV32jbouJIKfEIgUepeA/exec";
  
-// 定義模型名稱
-const MODEL = "zai-glm-4.7";  // <--- 修改這裡
+// 更改為 deepseek 模型
+const MODEL = "deepseek";
  
 // 懸浮窗狀態管理 (保持不變)
 let isFloatingEnabled = true;
@@ -2215,51 +2216,34 @@ aiSearchBtn.disabled = false;
 // 修改後的 callApi 函式 (前端直接呼叫版)
 // ===============================================================
 async function callApi(prompt) {
-    // 簡單的防呆，檢測是否登入 (保留原有邏輯)
     if (!localStorage.getItem('studentProfile')) {
         console.log("呼叫 API 時檢測到未登入，訪客限制將由攔截器處理...");
     }
  
     try {
-        // 從列表中隨機選取一個 Key (目前只有 friend1)
-        const apiKey = API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
- 
-      const response = await fetch(API_URL, {
+        // 使用與「翻水」相同的 Fetch 邏輯（不加 headers 以避免 GAS CORS 預檢問題）
+        const response = await fetch(API_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
             body: JSON.stringify({
                 model: MODEL,
                 messages: [{
                     role: "user",
                     content: prompt
                 }],
-                temperature: 0.7,
-                // --- 修改開始 ---
-            
-                max_completion_tokens: 40000, // 根據您的要求，設定為 40k
-                disable_reasoning: true,      // 強制關閉思考/推理模式
-                // --- 修改結束 ---
                 stream: false
             })
         });
  
         if (!response.ok) {
-            let errorDetails = "";
-            try {
-                errorDetails = await response.text();
-            } catch (e) {
-                errorDetails = "無法讀取錯誤詳細資訊";
-            }
-            console.error(`API 請求失敗詳細資訊 (Status ${response.status}):`, errorDetails);
-            throw new Error(`API 請求失敗 (${response.status}): ${errorDetails}`);
+            throw new Error(`API 請求失敗 (${response.status})`);
         }
  
         const data = await response.json();
         
-        // 記錄使用的模型資訊
+        // 記錄使用的模型資訊與 Provider 來源 (參考翻水寫法)
+        if (data._provider_log) {
+            console.log(`%c[Backend] Provider: ${data._provider_log}`, 'background: #2b2d42; color: #8d99ae; padding: 4px 8px; border-radius: 4px; font-weight: bold;');
+        }
         console.log(`%c🚀 [API 成功] Model: ${MODEL}`, "color: #00bcd4; font-weight: bold; font-size: 14px; background: #333; padding: 4px; border-radius: 4px;");
  
         if (data.error) {
@@ -2273,7 +2257,6 @@ async function callApi(prompt) {
         throw error;
     }
 }
-
 // ===============================================================
 // 1. 強力 JSON 提取與清洗函數 (修訂版：防止崩潰核心)
 // ===============================================================
