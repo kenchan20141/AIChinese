@@ -7232,11 +7232,11 @@ window.addEventListener('click', (e) => {
 
 
 
-<!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
-<!-- === [修改版] 雙 Firebase 共存設定 === -->
+<!-- === 2. Firebase 初始化與配置 (神思大數據與驗證專用) === -->
 <script>
-// === Sansidata 核心初始化 (確保全域唯一) ===
-// === Sansidata 獨立系統初始化 ===
+// ===============================================================
+// === [核心] Sansidata 獨立系統初始化 ===
+// ===============================================================
 var statsApp, statsDatabase, statsAuth;
 
 (function() {
@@ -7250,21 +7250,20 @@ var statsApp, statsDatabase, statsAuth;
         databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
     };
 
-    // 具名初始化，徹底隔絕 喻蛋教室 (Default App) 與 Sansidata (StatsApp)
     if (!firebase.apps.find(app => app.name === "StatsApp")) {
         statsApp = firebase.initializeApp(sansiConfig, "StatsApp");
     } else {
         statsApp = firebase.app("StatsApp");
     }
 
-    statsDatabase = statsApp.database(); // 修復數據模組報錯
+    statsDatabase = statsApp.database();
     statsAuth = statsApp.auth();
 
     // 持久化與身份同步
     statsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
         statsAuth.onAuthStateChanged(async (user) => {
             if (user) {
-                console.log("[Sansidata] 🟢 生成權限驗證成功:", user.email);
+                console.log("🟢 [Sansidata] 生成權限驗證成功:", user.email);
                 const s = JSON.parse(localStorage.getItem('studentProfile'));
                 if (!s) {
                     try {
@@ -7276,35 +7275,73 @@ var statsApp, statsDatabase, statsAuth;
                     } catch (e) { console.error("同步失敗:", e); }
                 }
             } else {
-                console.log("[Sansidata] ⚪ 未驗證生成權限");
+                console.log("⚪ [Sansidata] 未驗證生成權限或登入已失效");
+                // 如果 LocalStorage 有資料但 Firebase 沒登入，代表 Session 丟失
+                if (localStorage.getItem('studentProfile')) {
+                    console.warn("⚠️ 發現 Session 脫節，稍後若使用 AI 功能將會要求重新登入。");
+                }
             }
         });
     });
 })();
 
-// === 全域請求攔截器 (只針對 Sansidata 注入 Token) ===
+// ===============================================================
+// === [攔截器] 唯一、乾淨的全域請求攔截器 (Token Injector) ===
+// ===============================================================
 (function() {
+    if (window.SansiFetchInterceptorApplied) return;
+    window.SansiFetchInterceptorApplied = true;
+
     const originalFetch = window.fetch; 
     const TARGET_URL_PART = "script.google.com"; 
 
     window.fetch = async function(url, options) {
         if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
             
-            // 確保從 StatsApp 的 Auth 獲取 Token
-            const user = statsAuth ? statsAuth.currentUser : null;
+            console.log("🛡️ [TokenInjector] 準備注入 Token...");
+
+            // 等待 Firebase 狀態確認 (確保跨頁面時能讀取到 LocalStorage 的 Session)
+            const user = await new Promise((resolve) => {
+                if (statsAuth.currentUser) {
+                    resolve(statsAuth.currentUser);
+                } else {
+                    const unsubscribe = statsAuth.onAuthStateChanged(u => {
+                        unsubscribe();
+                        resolve(u);
+                    });
+                    setTimeout(() => { unsubscribe(); resolve(null); }, 3000); 
+                }
+            });
 
             if (user) {
                 try {
-                    const token = await user.getIdToken(true);
+                    const token = await user.getIdToken(true); // 強制獲取最新 Token
                     let bodyData = JSON.parse(options.body);
-                    bodyData.token = token; // 強制注入 Token
+                    bodyData.token = token;
                     options.body = JSON.stringify(bodyData);
-                    console.log("[TokenInjector] 已成功注入 Sansidata 生成權限 Token");
+                    console.log("✅ [TokenInjector] Token 注入成功");
                 } catch (e) {
-                    console.error("[TokenInjector] Token 獲取失敗:", e);
+                    console.error("❌ [TokenInjector] Token 注入失敗:", e);
                 }
             } else {
-                console.warn("[TokenInjector] 警告：無 Sansidata 登入資訊，請求將被後端拒絕");
+                console.error("🚫 [TokenInjector] 嚴重警告：Firebase 完全沒有登入狀態！");
+                
+                // 停止發送無效請求，直接觸發權限鎖彈窗
+                const modal = document.getElementById('sansiLimitModal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    void modal.offsetWidth; 
+                    modal.classList.add('sansi-limit-show');
+                    document.querySelector('#sansiLimitModal .sansi-limit-desc').innerHTML = "您的登入狀態已過期或丟失。<br>請重新登入學校帳號以獲取授權。";
+                }
+                
+                // 恢復介面按鈕狀態
+                const typingInd = document.getElementById('typing-indicator');
+                if(typingInd) typingInd.style.display = 'none';
+                document.getElementById('send-btn').disabled = false;
+                document.getElementById('voice-btn').disabled = false;
+                
+                return Promise.reject(new Error("Firebase Auth Session Expired. Please Re-login."));
             }
         }
         return originalFetch(url, options);
@@ -7316,19 +7353,20 @@ var statsApp, statsDatabase, statsAuth;
 
 <!-- === [修改版] 神思大數據收集模組 (使用 statsDatabase) === -->
 <script>
+// ===============================================================
+// === [數據統計] 神思大數據收集模組 ===
+// ===============================================================
 document.addEventListener('DOMContentLoaded', function() {
     let totalSeconds = 0;
     let timerInterval = null;
 
-    // 立即檢查
-    console.log("🔍 [Stats] 正在檢查統計環境...");
-
     function getDateParts() {
         const now = new Date();
-        const y = String(now.getFullYear());
-        const m = String(now.getMonth() + 1).padStart(2, '0');
-        const d = String(now.getDate()).padStart(2, '0');
-        return { y, m, d };
+        return { 
+            y: String(now.getFullYear()), 
+            m: String(now.getMonth() + 1).padStart(2, '0'), 
+            d: String(now.getDate()).padStart(2, '0') 
+        };
     }
 
     function getIdentity() {
@@ -7340,40 +7378,28 @@ document.addEventListener('DOMContentLoaded', function() {
             const safeName = s.name.replace(/[.#$/[\]]/g, '_'); 
             return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class, name: s.name };
         } else {
-            let guestID = localStorage.getItem('sansi_guest_uuid');
-            if (!guestID) {
-                guestID = 'guest_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('sansi_guest_uuid', guestID);
-            }
+            let guestID = localStorage.getItem('sansi_guest_uuid') || ('guest_' + Math.random().toString(36).substr(2, 9));
+            localStorage.setItem('sansi_guest_uuid', guestID);
             return { type: 'guest', id: guestID, grade: 'Guest', class: 'Visitor', name: '訪客' };
         }
     }
 
     async function logVisitOnce() {
-        // 修改這裡：從 window 獲取以確保讀得到
-        const db = window.statsDatabase;
-        if (!db) {
-            console.warn("⚠️ [Stats] 找不到 statsDatabase，停止訪問記錄");
-            return;
-        }
+        if (!statsDatabase || !statsAuth.currentUser) return; // 沒登入不上傳統計，避免 permission_denied
         
         const { y, m, d } = getDateParts();
         const identity = getIdentity();
         const uid = identity.id;
-
         const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
         if (sessionStorage.getItem(sessionKey)) return; 
 
-        console.log(`📍 [Stats] 正在為 ${identity.name} 上傳今日首訪...`);
-        
         try {
-            const trackingRef = db.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
+            const trackingRef = statsDatabase.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
             const snap = await trackingRef.once('value');
             const isFirstTimeToday = !snap.exists();
 
             const updates = {};
             const increment1 = firebase.database.ServerValue.increment(1);
-            
             const globalPath = `stats_global/${y}/${m}/${d}`;
             updates[`${globalPath}/visits`] = increment1;
 
@@ -7392,23 +7418,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     updates[`${schoolPath}/unique`] = increment1;
                     updates[`stats_classes/${classKey}/${y}/${m}/${d}/unique`] = increment1;
                 }
-            } else if (isFirstTimeToday) {
-                updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
-                updates[`${globalPath}/unique`] = increment1;
             }
 
-            await db.ref().update(updates);
+            await statsDatabase.ref().update(updates);
             sessionStorage.setItem(sessionKey, 'true');
-            console.log("✅ [Stats] 訪問計數完成");
-        } catch (e) {
-            console.error("❌ [Stats] 訪問記錄出錯:", e);
-        }
+        } catch (e) {}
     }
 
     function uploadOneMinute() {
-        const db = window.statsDatabase;
-        if (!db) return;
-        
+        if (!statsDatabase || !statsAuth.currentUser) return;
         logVisitOnce(); 
 
         const { y, m, d } = getDateParts();
@@ -7417,7 +7435,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const updates = {};
         const increment60 = firebase.database.ServerValue.increment(60);
-
         updates[`stats_global/${y}/${m}/${d}/duration`] = increment60;
 
         if (identity.type === 'student') {
@@ -7427,21 +7444,13 @@ document.addEventListener('DOMContentLoaded', function() {
             updates[`stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/duration`] = increment60;
         }
 
-        db.ref().update(updates)
-            .then(() => console.log("⏱️ [Stats] 已累積在線時長 60 秒"))
-            .catch(e => console.error("❌ [Stats] 時長上傳失敗:", e));
+        statsDatabase.ref().update(updates).catch(e => {});
     }
 
     function startTimer() {
         if (timerInterval) return;
-        console.log("🚀 [Stats] 計時器已啟動");
         timerInterval = setInterval(() => {
             totalSeconds++;
-            // 每秒鐘靜默計時，每 30 秒在 Console 顯示一次狀態
-            if (totalSeconds % 30 === 0) {
-                console.log(`⏳ [Stats] 當前在線: ${totalSeconds}秒`);
-            }
-            // 到達 30s, 90s, 150s... 時上傳
             if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
                 uploadOneMinute();
             }
@@ -7450,19 +7459,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function pauseTimer() {
         if (timerInterval) {
-            console.log("⏸️ [Stats] 計時暫停");
             clearInterval(timerInterval);
             timerInterval = null;
         }
     }
 
-    // 啟動流程
     setTimeout(() => {
         if (window.statsDatabase) {
             logVisitOnce();
             startTimer();
-        } else {
-            console.error("❌ [Stats] 啟動失敗：找不到 statsDatabase");
         }
     }, 3000);
 
@@ -7471,61 +7476,120 @@ document.addEventListener('DOMContentLoaded', function() {
         else startTimer();
     });
 });
-</script>
 
-<!-- === [修改版] 在線狀態自動報到系統 (使用 statsDatabase) === -->
-<script>
-    function initPresenceSystem() {
-        setTimeout(() => {
-            // 修改這裡：檢查 statsDatabase
-            if (typeof statsDatabase === 'undefined') return;
+// ===============================================================
+// === [在線狀態] 自動報到系統 ===
+// ===============================================================
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        if (typeof statsDatabase === 'undefined' || !statsAuth.currentUser) return;
 
-            // 修改這裡：使用 statsDatabase 監聽連線
-            const connectedRef = statsDatabase.ref('.info/connected');
+        const connectedRef = statsDatabase.ref('.info/connected');
+        connectedRef.on('value', (snap) => {
+            if (snap.val() === true) {
+                const s = JSON.parse(localStorage.getItem('studentProfile'));
+                let myUid = "", userData = {};
 
-            connectedRef.on('value', (snap) => {
-                if (snap.val() === true) {
-                    const s = JSON.parse(localStorage.getItem('studentProfile'));
-                    let myUid = "";
-                    let userData = {};
-
-                    if (s && s.name) {
-                        // 這裡要注意：如果你的用戶登入是在 Main App，這裡是獲取不到 auth 的
-                        // 但既然是統計，通常依賴 localStorage 的 studentProfile
-                        myUid = `stu_${s.grade}${s.class}_${s.name}`;
-                        userData = {
-                            name: s.name,
-                            grade: s.grade,
-                            class: s.class,
-                            timestamp: firebase.database.ServerValue.TIMESTAMP,
-                            device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
-                        };
-                    } else {
-                        let guestId = localStorage.getItem('sansi_guest_uuid');
-                        if (!guestId) {
-                            guestId = 'guest_' + Math.random().toString(36).substr(2, 9);
-                            localStorage.setItem('sansi_guest_uuid', guestId);
-                        }
-                        myUid = guestId;
-                        userData = {
-                            name: "訪客",
-                            grade: "Guest",
-                            class: "Visitor",
-                            timestamp: firebase.database.ServerValue.TIMESTAMP
-                        };
-                    }
-
-                    // 修改這裡：使用 statsDatabase
-                    const myPresenceRef = statsDatabase.ref(`online_users/${myUid}`);
-
-                    myPresenceRef.onDisconnect().remove().then(() => {
-                        myPresenceRef.set(userData);
-                    });
+                if (s && s.name) {
+                    myUid = `stu_${s.grade}${s.class}_${s.name}`;
+                    userData = {
+                        name: s.name, grade: s.grade, class: s.class,
+                        timestamp: firebase.database.ServerValue.TIMESTAMP,
+                        device: /Mobile|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+                    };
+                } else {
+                    let guestId = localStorage.getItem('sansi_guest_uuid') || ('guest_' + Math.random().toString(36).substr(2, 9));
+                    myUid = guestId;
+                    userData = { name: "訪客", grade: "Guest", class: "Visitor", timestamp: firebase.database.ServerValue.TIMESTAMP };
                 }
-            });
-        }, 2000);
-    }
-    document.addEventListener('DOMContentLoaded', initPresenceSystem);
+
+                const myPresenceRef = statsDatabase.ref(`online_users/${myUid}`);
+                myPresenceRef.onDisconnect().remove().then(() => {
+                    myPresenceRef.set(userData);
+                });
+            }
+        });
+    }, 2000);
+});
+
+
+
+
+
+
+
+
+	// ===============================================================
+// === [UI 組件] 嚴格權限鎖彈窗 (零容忍版) ===
+// ===============================================================
+(function() {
+    if (document.getElementById('sansiLimitModal')) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+        .sansi-limit-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(8px);
+            z-index: 9999999; display: none; justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        .sansi-limit-show { opacity: 1; }
+        .sansi-limit-card {
+            background: #fdfcf8; border: 1px solid #e0ddd7; border-radius: 16px;
+            padding: 35px 25px; width: 90%; max-width: 380px;
+            box-shadow: 0 15px 40px rgba(141, 110, 99, 0.2);
+            text-align: center; transform: translateY(20px);
+            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+            font-family: 'Noto Serif TC', serif;
+        }
+        .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
+        .sansi-limit-icon { font-size: 3.5rem; color: #d69a92; margin-bottom: 20px; }
+        .sansi-limit-title { color: #5d4037; font-size: 1.5rem; font-weight: bold; margin: 0 0 15px 0; }
+        .sansi-limit-desc { color: #666; font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
+        .sansi-btn-group { display: flex; gap: 12px; margin-top: 10px; }
+        .sansi-limit-btn {
+            border: none; padding: 12px 0; border-radius: 50px;
+            font-size: 1rem; font-weight: bold; cursor: pointer;
+            transition: all 0.2s; font-family: 'Noto Serif TC', serif;
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+            text-decoration: none;
+        }
+        .btn-primary { background: #8fa398; color: white; box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4); }
+        .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
+        .btn-secondary { background: #f0f0f0; color: #777; }
+        .btn-secondary:hover { background-color: #e5e5e5; }
+    `;
+    document.head.appendChild(style);
+
+    const modalHTML = `
+        <div id="sansiLimitModal" class="sansi-limit-overlay">
+            <div class="sansi-limit-card">
+                <div class="sansi-limit-icon"><i class="fas fa-lock"></i></div>
+                <div class="sansi-limit-title">會員限定功能</div>
+                <div class="sansi-limit-desc">
+                    此功能僅開放給神思登入用戶。<br>請先登入學校帳號以繼續使用。
+                </div>
+                <div class="sansi-btn-group">
+                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">取消</button>
+                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'">
+                        <i class="fas fa-sign-in-alt"></i> 前往登入
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    const div = document.createElement('div');
+    div.innerHTML = modalHTML;
+    document.body.appendChild(div);
+
+    window.closeSansiLimitModal = function() {
+        const modal = document.getElementById('sansiLimitModal');
+        if (modal) {
+            modal.classList.remove('sansi-limit-show');
+            setTimeout(() => { modal.style.display = 'none'; }, 300);
+        }
+    };
+})();
 </script>
 
 <script>
@@ -7572,76 +7636,6 @@ document.addEventListener('DOMContentLoaded', function() {
 	
 </script>
 
-
-<script>
-
-
-// ===============================================================
-// === [神思通用組件] 嚴格權限鎖 (零容忍版) ===
-// ===============================================================
-// ===============================================================
-// === [修訂版] 全域請求攔截器 (整合版：確保 Token 正確注入) ===
-// ===============================================================
-(function() {
-    // 防止攔截器被重複定義
-    if (window.SansiFetchInterceptorApplied) return;
-    window.SansiFetchInterceptorApplied = true;
-
-    const originalFetch = window.fetch; 
-    const TARGET_URL_PART = "script.google.com"; 
-
-    window.fetch = async function(url, options) {
-        // 只攔截發往 GAS 的 POST 請求
-        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
-            
-            console.log("🛡️ [TokenInjector] 正在準備注入 Sansidata Token...");
-
-            // 建立一個可靠的 Promise，等待 Firebase Auth 狀態確認 (最多等待 3.5 秒)
-            const user = await new Promise((resolve) => {
-                if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) {
-                    resolve(statsAuth.currentUser); // 已經有登入狀態，直接返回
-                } else if (typeof statsAuth !== 'undefined') {
-                    // 等待狀態改變
-                    const unsubscribe = statsAuth.onAuthStateChanged(u => {
-                        unsubscribe();
-                        resolve(u);
-                    });
-                    // 設置超時機制，避免無限等待
-                    setTimeout(() => {
-                        unsubscribe();
-                        resolve(null);
-                    }, 3500); 
-                } else {
-                    resolve(null); // statsAuth 根本沒初始化
-                }
-            });
-
-            if (user) {
-                try {
-                    // 獲取最新 Token (傳入 true 強制刷新，避免過期)
-                    const token = await user.getIdToken(true);
-                    let bodyData = JSON.parse(options.body);
-                    bodyData.token = token; // ★ 核心：注入 Token 供後端驗證
-                    options.body = JSON.stringify(bodyData);
-                    console.log("✅ [TokenInjector] Token 注入成功，發送請求至 GAS");
-                } catch (e) {
-                    console.error("❌ [TokenInjector] Token 獲取或注入失敗:", e);
-                }
-            } else {
-                console.warn("⚠️ [TokenInjector] 警告：無法獲取 statsAuth 登入狀態！請求將缺少 Token，後端可能會返回 Unauthorized。");
-                // 如果 Token 丟失但 localStorage 還有資料，可能是 Session 過期，觸發重新登入提示
-                if (localStorage.getItem('studentProfile')) {
-                    console.warn("💡 提示：發現 studentProfile 但 Token 缺失，請引導用戶回 index2.html 重新登入。");
-                }
-            }
-        }
-        
-        // 執行實際的 fetch 請求
-        return originalFetch(url, options);
-    };
-})();
-	
-</script>
 
 
 
