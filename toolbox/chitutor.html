@@ -7579,126 +7579,66 @@ document.addEventListener('DOMContentLoaded', function() {
 // ===============================================================
 // === [神思通用組件] 嚴格權限鎖 (零容忍版) ===
 // ===============================================================
+// ===============================================================
+// === [修訂版] 全域請求攔截器 (整合版：確保 Token 正確注入) ===
+// ===============================================================
 (function() {
-    // 防止重複注入
-    if (window.SansiInterceptorLoaded) return;
-    window.SansiInterceptorLoaded = true;
+    // 防止攔截器被重複定義
+    if (window.SansiFetchInterceptorApplied) return;
+    window.SansiFetchInterceptorApplied = true;
 
-    // --- 1. 注入 CSS ---
-    const style = document.createElement('style');
-    style.textContent = `
-        .sansi-limit-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(253, 252, 248, 0.95);
-            backdrop-filter: blur(8px);
-            z-index: 9999999;
-            display: none; justify-content: center; align-items: center;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
-        .sansi-limit-show { opacity: 1; }
-        .sansi-limit-card {
-            background: #fdfcf8; border: 1px solid #e0ddd7; border-radius: 16px;
-            padding: 35px 25px; width: 90%; max-width: 380px;
-            box-shadow: 0 15px 40px rgba(141, 110, 99, 0.2);
-            text-align: center; transform: translateY(20px);
-            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-            font-family: 'Noto Serif TC', serif;
-        }
-        .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
-        .sansi-limit-icon { font-size: 3.5rem; color: #d69a92; margin-bottom: 20px; }
-        .sansi-limit-title { color: #5d4037; font-size: 1.5rem; font-weight: bold; margin: 0 0 15px 0; }
-        .sansi-limit-desc { color: #666; font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
-        .sansi-btn-group { display: flex; gap: 12px; margin-top: 10px; }
-        .sansi-limit-btn {
-            border: none; padding: 12px 0; border-radius: 50px;
-            font-size: 1rem; font-weight: bold; cursor: pointer;
-            transition: all 0.2s; font-family: 'Noto Serif TC', serif;
-            flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
-            text-decoration: none;
-        }
-        .btn-primary { background: #8fa398; color: white; box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4); }
-        .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
-        .btn-secondary { background: #f0f0f0; color: #777; }
-        .btn-secondary:hover { background-color: #e5e5e5; }
-    `;
-    document.head.appendChild(style);
+    const originalFetch = window.fetch; 
+    const TARGET_URL_PART = "script.google.com"; 
 
-    // --- 2. 注入 HTML (連結指向上一層 index2.html) ---
-    const modalHTML = `
-        <div id="sansiLimitModal" class="sansi-limit-overlay">
-            <div class="sansi-limit-card">
-                <div class="sansi-limit-icon">
-                    <i class="fas fa-lock"></i>
-                </div>
-                <div class="sansi-limit-title">會員限定功能</div>
-                <div class="sansi-limit-desc">
-                    此功能僅開放給神思登入用戶。<br>
-                    請先登入學校帳號以繼續使用。
-                </div>
-                <div class="sansi-btn-group">
-                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
-                        取消
-                    </button>
-                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='../index2.html'">
-                        <i class="fas fa-sign-in-alt"></i> 前往登入
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div);
-
-    // --- 3. 視窗控制 ---
-    window.closeSansiLimitModal = function() {
-        const modal = document.getElementById('sansiLimitModal');
-        if (modal) {
-            modal.classList.remove('sansi-limit-show');
-            setTimeout(() => { modal.style.display = 'none'; }, 300);
-            
-            // 針對喻蛋教室環境的 UI 重置
-            const typingInd = document.getElementById('typing-indicator');
-            if(typingInd) typingInd.style.display = 'none';
-            
-            const sendBtn = document.getElementById('send-btn');
-            const voiceBtn = document.getElementById('voice-btn');
-            if(sendBtn) sendBtn.disabled = false;
-            if(voiceBtn) voiceBtn.disabled = false;
-        }
-    };
-
-    // --- 4. 嚴格攔截邏輯 ---
-    const originalFetch = window.fetch;
-    
     window.fetch = async function(url, options) {
-        // 監測 AI 相關請求
-        if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
+        // 只攔截發往 GAS 的 POST 請求
+        if (typeof url === 'string' && url.includes(TARGET_URL_PART) && options && options.method === 'POST') {
             
-            const s = localStorage.getItem('studentProfile');
-            
-            // 如果有資料 -> 放行
-            if (s) {
-                return originalFetch(url, options);
-            }
+            console.log("🛡️ [TokenInjector] 正在準備注入 Sansidata Token...");
 
-            // 如果沒資料 -> 直接阻擋並顯示組件
-            console.warn("🚫 [Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
-            
-            const modal = document.getElementById('sansiLimitModal');
-            if (modal) {
-                modal.style.display = 'flex';
-                void modal.offsetWidth; 
-                modal.classList.add('sansi-limit-show');
-            }
+            // 建立一個可靠的 Promise，等待 Firebase Auth 狀態確認 (最多等待 3.5 秒)
+            const user = await new Promise((resolve) => {
+                if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) {
+                    resolve(statsAuth.currentUser); // 已經有登入狀態，直接返回
+                } else if (typeof statsAuth !== 'undefined') {
+                    // 等待狀態改變
+                    const unsubscribe = statsAuth.onAuthStateChanged(u => {
+                        unsubscribe();
+                        resolve(u);
+                    });
+                    // 設置超時機制，避免無限等待
+                    setTimeout(() => {
+                        unsubscribe();
+                        resolve(null);
+                    }, 3500); 
+                } else {
+                    resolve(null); // statsAuth 根本沒初始化
+                }
+            });
 
-            return Promise.reject(new Error("Login Required - Guest Access Denied"));
+            if (user) {
+                try {
+                    // 獲取最新 Token (傳入 true 強制刷新，避免過期)
+                    const token = await user.getIdToken(true);
+                    let bodyData = JSON.parse(options.body);
+                    bodyData.token = token; // ★ 核心：注入 Token 供後端驗證
+                    options.body = JSON.stringify(bodyData);
+                    console.log("✅ [TokenInjector] Token 注入成功，發送請求至 GAS");
+                } catch (e) {
+                    console.error("❌ [TokenInjector] Token 獲取或注入失敗:", e);
+                }
+            } else {
+                console.warn("⚠️ [TokenInjector] 警告：無法獲取 statsAuth 登入狀態！請求將缺少 Token，後端可能會返回 Unauthorized。");
+                // 如果 Token 丟失但 localStorage 還有資料，可能是 Session 過期，觸發重新登入提示
+                if (localStorage.getItem('studentProfile')) {
+                    console.warn("💡 提示：發現 studentProfile 但 Token 缺失，請引導用戶回 index2.html 重新登入。");
+                }
+            }
         }
-
+        
+        // 執行實際的 fetch 請求
         return originalFetch(url, options);
     };
-    
-    console.log("🔒 神思嚴格權限鎖 (必須登入) 已啟動");
 })();
 	
 </script>
