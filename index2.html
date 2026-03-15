@@ -20470,52 +20470,55 @@ function closeStudentCloudModal() {
 // ==========================================
 
 // 檢查學生登入狀態 & 啟動課業監聽
+// 檢查學生登入狀態 & 啟動課業監聽
 async function checkStudentLogin() {
-    // 嘗試讀取本地學生檔案 (登出時不再刪除此檔案，所以通常會有)
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
-    
-    if (!s) {
-        // 如果完全沒有資料，顯示登入表單
+    // 1. 先等待 Firebase Auth 狀態確認 (確保不是因為連線慢而誤判)
+    let authWait = 0;
+    while (!auth.currentUser && authWait < 10) {
+        await new Promise(r => setTimeout(r, 200));
+        authWait++;
+    }
+
+    const currentUser = auth.currentUser;
+    let s = JSON.parse(localStorage.getItem('studentProfile'));
+
+    // ★ 防偽造核心邏輯 ★
+    // 如果本地有資料，但 Firebase 沒登入，或是兩者的 UID 不吻合 (被人竄改)
+    if (s) {
+        if (!currentUser || s.uid !== currentUser.uid) {
+            console.warn("🚨 偵測到無效或偽造的本地登入資料，已強制清除！");
+            localStorage.removeItem('studentProfile');
+            s = null; // 清空變數，強制系統進入未登入狀態
+            
+            // 選擇性：如果 currentUser 存在，可以嘗試從雲端幫他抓回真實資料
+            if (currentUser && currentUser.email) {
+                s = await findProfileByEmail(currentUser.email);
+                if(s) localStorage.setItem('studentProfile', JSON.stringify(s));
+            }
+        }
+    }
+
+    if (!s || !currentUser) {
+        // 確實未登入，顯示登入表單
         document.getElementById('studentIdentityForm').style.display = 'block';
         document.getElementById('studentCloudPanel').style.display = 'none';
         return;
     }
  
-    // 有資料，顯示雲端面板
+    // 通過驗證，顯示雲端面板
     document.getElementById('studentIdentityForm').style.display = 'none';
     document.getElementById('studentCloudPanel').style.display = 'block';
     updateWelcomeMessage(s);
     
-    // 檢查 Firebase Auth 狀態 (是否過期)
-    // 我們只在 Auth 準備好時觸發「課業載入」
-    // ★★★ 關鍵：這裡只載入課業，不同步歷史 ★★★
+    // 載入課業等後續動作
     try {
-        // 如果 Auth 未初始化，等待一下
-        let authWait = 0;
-        while (!auth.currentUser && authWait < 5) {
-            await new Promise(r => setTimeout(r, 200));
-            authWait++;
-        }
- 
-        if (auth.currentUser) {
-            // 已連線：載入課業列表
-            await loadAssignments(s.grade, s.class);
-            
-            // 啟動紅點監聽 (如果有未交功課)
-            monitorPendingAssignments();
-            
-            // ★★★ 這裡啟動「省流同步」，只在背景執行，不阻擋 UI ★★★
-            smartSyncHistory();
-        } else {
-            console.log("處於離線或未驗證狀態，顯示本地緩存的介面");
-            // 即使沒連線，也可以顯示介面，但不載入新課業
-        }
- 
+        await loadAssignments(s.grade, s.class);
+        monitorPendingAssignments();
+        smartSyncHistory();
     } catch (err) {
         console.error("登入檢查錯誤:", err);
     }
 }
-
 	
 // 2. 輔助函式：更新歡迎文字
 // 2. 輔助函式：更新歡迎文字 (優化顯示版)
