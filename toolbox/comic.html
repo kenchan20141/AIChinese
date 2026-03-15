@@ -571,8 +571,7 @@ let bookElement = document.getElementById('book'); // <--- 把 const 改為 let
                 // 2. 若無緩存，向 Google 請求圖片並轉換為 Blob 存入資料庫
               // 2. 若無緩存，向 Google 請求圖片並轉換為 Blob 存入資料庫
 // 加入時間戳與 cache: 'no-store'，強制避開瀏覽器與 Google 的網路快取
-const fetchUrl = url + "&_t=" + new Date().getTime();
-const response = await fetch(fetchUrl, { mode: 'cors', cache: 'no-store' });
+const response = await fetch(url, { mode: 'cors', cache: 'reload' });
                 if (!response.ok) throw new Error("Network response not ok");
                 
                 const blob = await response.blob();
@@ -876,13 +875,9 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
             const btn = document.getElementById('btn-update');
             const originalText = btn.innerText;
             btn.innerText = "清理中...";
-            btn.style.pointerEvents = "none"; // 防止重複點擊
+            btn.style.pointerEvents = "none";
 
             try {
-                // 🌟 加入這兩行：產生一個 1~50 的隨機數字作為尺寸偏移量，強制 Google 重新生成縮圖！
-                const randomOffset = Math.floor(Math.random() * 50) + 1;
-                localStorage.setItem('dse_img_offset', randomOffset);
-
                 // 1. 清除 LocalStorage 中的目錄結構快取
                 Object.keys(localStorage).forEach(key => {
                     if (key.startsWith('dse_comic_map_')) {
@@ -890,20 +885,32 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
                     }
                 });
 
-                // 2. 清除 IndexedDB 中的永久圖片快取
+                // 2. 【核心修訂】關閉連線並「徹底刪除」當前網頁的 IndexedDB 資料庫
                 const db = await dbPromise;
-                const tx = db.transaction(STORE_NAME, "readwrite");
-                tx.objectStore(STORE_NAME).clear();
-
-                // 等待資料庫清除完畢
-                await new Promise(resolve => tx.oncomplete = resolve);
+                db.close(); // 必須先關閉當前網頁的資料庫連線
+                
+                await new Promise((resolve, reject) => {
+                    const req = indexedDB.deleteDatabase(DB_NAME);
+                    req.onsuccess = resolve;
+                    req.onerror = reject;
+                    req.onblocked = resolve; // 防止被其他分頁卡住
+                });
 
                 // 3. 清除記憶體快取
                 sessionBlobUrls.clear();
 
-                // 4. 通知用家並重新載入網頁
-                alert("漫畫資源已更新！將重新載入書櫃。");
-                location.reload(); 
+                // 4. 清除瀏覽器 Cache API (如果有殘留)
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    for (let name of cacheNames) {
+                        await caches.delete(name);
+                    }
+                }
+
+                alert("資料已全面更新！即將重新載入最新漫畫。");
+                
+                // 5. 加上隨機時間戳重新載入，強制刷新網頁
+                window.location.href = window.location.pathname + "?_t=" + new Date().getTime();
 
             } catch (error) {
                 console.error("更新快取失敗:", error);
