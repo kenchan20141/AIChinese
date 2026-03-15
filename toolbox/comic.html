@@ -656,7 +656,8 @@ const response = await fetch(fetchUrl, { mode: 'cors', cache: 'no-store' });
                     
                     if (coverKey) {
                         const coverId = fileMap[coverKey];
-                        const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w600`;
+                        const offset = parseInt(localStorage.getItem('dse_img_offset') || '0');
+const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + offset}`;
                         // 🌟 使用 IndexedDB 緩存獲取封面
                         const localUrl = await getCachedImageURL(driveUrl);
                         const imgEl = document.getElementById(imgId);
@@ -758,7 +759,9 @@ const response = await fetch(fetchUrl, { mode: 'cors', cache: 'no-store' });
                     for (let i = 1; i <= data.totalPages; i++) {
                         const file = filesArray[i - 1]; 
                         if (file && file.id) {
-                            const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w1500`;
+                           // 🌟 同樣加上尺寸偏移量，破解內頁的高清大圖快取
+const offset = parseInt(localStorage.getItem('dse_img_offset') || '0');
+const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + offset}`;
                             getCachedImageURL(driveUrl).then(localUrl => {
                                 if (activeKey !== currentComicKey) return; // 若用家中途跳走則中止替換
                                 const imgEl = document.getElementById(`page-img-${comicKey}-${i}`);
@@ -869,13 +872,17 @@ const response = await fetch(fetchUrl, { mode: 'cors', cache: 'no-store' });
 // ==========================================
         // 手動更新按鍵功能 (清除所有快取並重載)
         // ==========================================
-        document.getElementById('btn-update').addEventListener('click', async () => {
+         document.getElementById('btn-update').addEventListener('click', async () => {
             const btn = document.getElementById('btn-update');
             const originalText = btn.innerText;
             btn.innerText = "清理中...";
             btn.style.pointerEvents = "none"; // 防止重複點擊
 
             try {
+                // 🌟 加入這兩行：產生一個 1~50 的隨機數字作為尺寸偏移量，強制 Google 重新生成縮圖！
+                const randomOffset = Math.floor(Math.random() * 50) + 1;
+                localStorage.setItem('dse_img_offset', randomOffset);
+
                 // 1. 清除 LocalStorage 中的目錄結構快取
                 Object.keys(localStorage).forEach(key => {
                     if (key.startsWith('dse_comic_map_')) {
