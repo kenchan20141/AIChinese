@@ -3245,11 +3245,17 @@ const database = firebase.database(); // 這是原本存點數、商店用的
 
 // 在現有Firebase初始化後添加
 const auth = firebase.auth();
+
+// 【核心修復 1】：強制主系統(喻蛋)使用 SESSION 儲存，防止手機無痕模式掉登入
+auth.setPersistence(firebase.auth.Auth.Persistence.SESSION)
+    .catch(function(error) {
+        console.warn("主系統 Firebase 儲存策略設定失敗 (可能因極端的無痕模式限制):", error);
+    });
+
 let currentUser = null;
 let userProfile = null;
 let currentGiftReceiver = null;
 let selectedGiftItem = null;
-
 
 // 添加認證相關變量
 const authContainer = document.getElementById('auth-container');
@@ -3267,11 +3273,8 @@ const friendsModal = document.getElementById('friends-modal');
 const closeFriends = document.getElementById('close-friends');
 const friendsTabs = document.querySelectorAll('.friends-tabs .tab');
 
-
-
 // === 後端配置 ===
 const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec"; // 請確認這是您正確的 GAS URL
-
 // 保持模型定義 (後端會接收此參數)
 const MODEL = "gemini-search";
 
@@ -7237,9 +7240,6 @@ window.addEventListener('click', (e) => {
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
 <script>
-// === Sansidata 獨立系統初始化 ===
-// === Sansidata 獨立系統初始化 (修復手機端 IndexedDB 競態衝突) ===
-// === Sansidata 獨立系統初始化 (智慧防撞車版) ===
 var statsApp, statsDatabase, statsAuth;
 
 function initSansiData() {
@@ -7264,6 +7264,12 @@ function initSansiData() {
 
         statsDatabase = statsApp.database(); 
         statsAuth = statsApp.auth();
+        
+        // 【核心修復 2】：強制神思系統使用 SESSION 儲存，適應手機版無痕模式
+        statsAuth.setPersistence(firebase.auth.Auth.Persistence.SESSION)
+            .catch(function(error) {
+                console.warn("神思系統 Firebase 儲存策略設定失敗:", error);
+            });
         
         statsAuth.onAuthStateChanged(async (user) => {
             if (user) {
