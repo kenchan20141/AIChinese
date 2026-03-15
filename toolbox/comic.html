@@ -199,6 +199,29 @@
             .controls { padding: 10px; gap: 10px; }
             .page-text { font-size: 14px; padding: 8px 10px; }
         }
+
+@media (max-width: 768px) {
+            /* 1. 將 header 改為三欄佈局，並稍微縮小間距 */
+            header { grid-template-columns: 1fr auto 1fr; gap: 5px; padding: 10px 5px; }
+            
+            /* 2. 稍微縮小 Logo 字體，避免把左右按鈕擠走 */
+            .logo { font-size: 14px; padding: 5px 8px; }
+            
+            /* 3. 移除 display: none，讓右側區域重新顯示 */
+            .header-right { display: flex; justify-content: flex-end; }
+            
+            /* 4. 進一步縮小按鈕的 padding 與字體大小，確保在小螢幕能完整顯示 */
+            .btn { padding: 5px 8px; font-size: 12px; box-shadow: 2px 2px 0px var(--comic-black); }
+            
+            /* 其他保持不變 */
+            #catalog-view { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 0; }
+            .comic-cover { height: 220px; }
+            .comic-title { font-size: 16px; }
+            .badge { font-size: 12px; padding: 4px 8px; top: -8px; right: -8px; }
+            .controls { padding: 10px; gap: 10px; }
+            .page-text { font-size: 14px; padding: 8px 10px; }
+        }
+        
     </style>
 </head>
 <body>
@@ -208,7 +231,9 @@
             <button id="btn-back" class="btn" style="display: none;">◄ 返回目錄</button>
         </div>
         <div class="logo">DSE 範文漫畫館</div>
-        <div class="header-right"></div>
+        <div class="header-right">
+    <button id="btn-update" class="btn">↻</button>
+</div>
     </header>
 
     <main>
@@ -275,7 +300,7 @@
     },
     "xiaoyaoyou": { 
         title: "《逍遙遊》", 
-        author: "莊子", 
+        author: "莊子一門", 
         folderId: "11746a1sOL6Kr61HRKyuGPmsQU4tk2T-K", 
         folder: "《逍遙遊》", 
         totalPages: 29, 
@@ -396,7 +421,7 @@
     },
        "yuwosuoyuye": { 
         title: "《魚我所欲也》", 
-        author: "孟子", 
+        author: "孟子一門", 
         folderId: "1jLzHK1ibMoBcEURYj1RAZW-It5Vg5zpO", 
         folder: "《魚我所欲也》", 
         totalPages: 19, 
@@ -424,7 +449,7 @@
     },
        "quanxue": {
         title: "《勸學》",
-        author: "荀子",
+        author: "荀子一門",
         folderId: "1v7HLwNI5adR3AZ_SFna92ZAbQGG-2dGh",
         folder: "《勸學》",
         totalPages: 20,
@@ -453,7 +478,7 @@
     },
        "lunrenlunxiaolunjunzi": {
         title: "《論仁、論孝、論君子》",
-        author: "孔門弟子",
+        author: "孔門一門",
         folderId: "1oUsRn7RhHnapMRr9IQqUv2ocZ5FlKZIL",
         folder: "《論仁、論孝、論君子》",
         totalPages: 27,
@@ -836,6 +861,49 @@ let bookElement = document.getElementById('book'); // <--- 把 const 改為 let
         }
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
 
+
+
+// ==========================================
+        // 手動更新按鍵功能 (清除所有快取並重載)
+        // ==========================================
+        document.getElementById('btn-update').addEventListener('click', async () => {
+            const btn = document.getElementById('btn-update');
+            const originalText = btn.innerText;
+            btn.innerText = "清理中...";
+            btn.style.pointerEvents = "none"; // 防止重複點擊
+
+            try {
+                // 1. 清除 LocalStorage 中的目錄結構快取
+                Object.keys(localStorage).forEach(key => {
+                    if (key.startsWith('dse_comic_map_')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+
+                // 2. 清除 IndexedDB 中的永久圖片快取
+                const db = await dbPromise;
+                const tx = db.transaction(STORE_NAME, "readwrite");
+                tx.objectStore(STORE_NAME).clear();
+
+                // 等待資料庫清除完畢
+                await new Promise(resolve => tx.oncomplete = resolve);
+
+                // 3. 清除記憶體快取
+                sessionBlobUrls.clear();
+
+                // 4. 通知用家並重新載入網頁
+                alert("漫畫資源已更新！將重新載入書櫃。");
+                location.reload(); 
+
+            } catch (error) {
+                console.error("更新快取失敗:", error);
+                alert("更新失敗，請稍後再試。");
+                btn.innerText = originalText;
+                btn.style.pointerEvents = "auto";
+            }
+        });
+
+        
         // 啟動程式
         window.addEventListener('DOMContentLoaded', () => { renderCatalog(); });
     </script>
