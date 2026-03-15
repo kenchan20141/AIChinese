@@ -7496,6 +7496,9 @@ document.addEventListener('DOMContentLoaded', function() {
 // ===============================================================
 // === [神思通用組件] 嚴格權限鎖 + Token 自動注入 (參照題孳邏輯修復版) ===
 // ===============================================================
+// ===============================================================
+// === [神思通用組件] 嚴格權限鎖 + Token 自動注入 (手機防 null 延遲終極版) ===
+// ===============================================================
 (function() {
     // 防止重複注入
     if (window.SansiInterceptorLoaded) return;
@@ -7504,10 +7507,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
-        // 只監測 AI 相關請求 (發往 GAS 或 pollinations)
+        // 只監測 AI 相關請求
         if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
             
-            // 1. 判斷權限：【完全依賴 localStorage】，這與「題孳」的做法一致，完美解決手機端延遲問題
+            // 1. 判斷權限：完全依賴 localStorage，與題孳邏輯一致
             const s = localStorage.getItem('studentProfile');
 
             if (!s) {
@@ -7519,7 +7522,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     modal.classList.add('sansi-limit-show');
                 }
                 
-                // 恢復 喻蛋教室 的 UI 狀態
+                // 恢復 喻蛋教室 UI 狀態
                 const typingInd = document.getElementById('typing-indicator');
                 if (typingInd) typingInd.style.display = 'none';
                 const sendBtn = document.getElementById('send-btn');
@@ -7530,45 +7533,51 @@ document.addEventListener('DOMContentLoaded', function() {
                 return Promise.reject(new Error("Login Required - Access Denied"));
             }
 
-            // 2. 注入 Token (如果是 POST 發給後端)
+            // 2. 注入 Token
             if (options && options.method === 'POST' && url.includes('script.google.com')) {
                 try {
-                    // 嘗試獲取 User (兼容雙 Firebase 實例：優先用 statsAuth)
+                    // 兼容雙 Firebase 實例：優先用 statsAuth (神思帳號)
                     const targetAuth = (typeof statsAuth !== 'undefined') ? statsAuth : (typeof auth !== 'undefined' ? auth : null);
                     
+                    // 【關鍵修復】使用「死等」機制：忽略一開始的 null，直到超時或真正抓到 user
                     const user = await new Promise(resolve => {
                         if (!targetAuth) return resolve(null);
                         if (targetAuth.currentUser) return resolve(targetAuth.currentUser);
-                        // 最多等 2 秒，不等太久以免卡死 UI
-                        const timer = setTimeout(() => resolve(null), 2000);
+                        
+                        // 延長到 4 秒，確保手機 IndexedDB 有足夠時間喚醒
+                        const timer = setTimeout(() => {
+                            if (unsubscribe) unsubscribe();
+                            resolve(null);
+                        }, 4000); 
+                        
                         const unsubscribe = targetAuth.onAuthStateChanged(u => {
-                            clearTimeout(timer);
-                            unsubscribe();
-                            resolve(u);
+                            if (u) {
+                                // 只有當 u 不是 null 時，才視為真正載入完畢
+                                clearTimeout(timer);
+                                unsubscribe();
+                                resolve(u);
+                            }
+                            // 如果是 null，什麼都不做，繼續等它甦醒
                         });
                     });
 
                     let bodyData = JSON.parse(options.body);
 
                     if (user) {
-                        // 如果成功抓到 user，注入 Token
+                        // 成功抓到 user，獲取 Token
                         const token = await user.getIdToken(false);
                         bodyData.token = token; 
                         console.log("✅ [TokenInjector] Token 注入成功！");
                     } else {
-                        // ★★★ 核心修復關鍵：這裡絕對不能 throw Error！★★★
-                        // 模仿「題孳」的做法：如果手機端 Firebase 載入慢導致 user 為 null，
-                        // 我們只發出警告，給空 Token，並【強制放行請求】，後端依然會根據其他參數處理。
-                        console.warn("⚠️ [TokenInjector] 手機端 Firebase 尚未就緒，將以無 Token 狀態放行請求");
+                        console.warn("⚠️ [TokenInjector] 4秒超時仍無法取得 user，以空 Token 發送");
                         bodyData.token = ""; 
                     }
 
-                    // 更新請求內容
+                    // 寫回 options.body
                     options.body = JSON.stringify(bodyData);
 
                 } catch (e) {
                     console.error("❌ [TokenInjector] 注入 Token 時發生錯誤:", e);
-                    // 即使出錯，也順其自然放行，不要阻擋 fetch
                 }
             }
         }
@@ -7577,7 +7586,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return originalFetch(url, options);
     };
     
-    console.log("🔒 神思嚴格權限鎖 (手機相容版) 已啟動");
+    console.log("🔒 神思嚴格權限鎖 (手機防 null 延遲終極版) 已啟動");
 })();
 </script>
 
