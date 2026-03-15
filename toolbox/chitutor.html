@@ -7235,6 +7235,7 @@ window.addEventListener('click', (e) => {
 <!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
+<!-- === [修改版] 雙 Firebase 共存設定 === -->
 <script>
 // === Sansidata 獨立系統初始化 ===
 var statsApp, statsDatabase, statsAuth;
@@ -7260,10 +7261,9 @@ var statsApp, statsDatabase, statsAuth;
     statsDatabase = statsApp.database(); 
     statsAuth = statsApp.auth();
 
-    // 【修訂重點 1】：取消 .then() 依賴！
-    // 手機端部分瀏覽器設定持久化時可能會延遲或無回應，導致原本寫在 then 裡面的監聽器不被執行
-    // 改為獨立執行並捕捉錯誤，確保後續的 onAuthStateChanged 必定能啟動
-    statsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => console.warn("持久化設定警告:", e));
+    // 【修訂重點】：移除 statsAuth.setPersistence(...) 
+    // 原因：Firebase Web 預設已是 LOCAL（IndexedDB 優先）。在手機端同時有兩個 Firebase App 初始化時，
+    // 強制設定 Persistence 容易引發 IndexedDB 競態條件 (Race Condition) 導致讀取被中斷。
     
     statsAuth.onAuthStateChanged(async (user) => {
         if (user) {
@@ -7504,7 +7504,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // ===============================================================
-// === [神思通用組件] 嚴格權限鎖 (零容忍版) + Token 自動注入 ===
+// ===[神思通用組件] 嚴格權限鎖 (零容忍版) + Token 自動注入 ===
 // ===============================================================
 (function() {
     // 防止重複注入
@@ -7596,7 +7596,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // --- 4. 嚴格攔截邏輯 + Token 自動注入 (合併版) ---
-   const originalFetch = window.fetch;
+    const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
         // 監測 AI 相關請求
@@ -7619,20 +7619,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // 情況二：如果有資料，且是發送給後端 (GAS) 的 POST 請求 -> 獲取並注入 Token
             if (options && options.method === 'POST' && url.includes('script.google.com')) {
-                console.log("🔑 [TokenInjector] 正在獲取並注入 Sansidata Token...");
+                console.log("🔑[TokenInjector] 正在獲取並注入 Sansidata Token...");
                 try {
                     // 安全獲取 Firebase 用戶狀態
                     const user = await new Promise((resolve) => {
                         if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) {
                             resolve(statsAuth.currentUser);
                         } else if (typeof statsAuth !== 'undefined') {
+                            let isResolved = false;
                             const unsubscribe = statsAuth.onAuthStateChanged(u => {
-                                unsubscribe();
-                                resolve(u);
+                                // 【修訂重點】：在雙 Firebase 手機環境中，初始化可能先返回 null
+                                // 這裡只在成功獲取用戶時 resolve，避免因過早 resolve(null) 導致沒有 Token 送出
+                                if (u && !isResolved) {
+                                    isResolved = true;
+                                    unsubscribe();
+                                    resolve(u);
+                                }
                             });
-                            // 【修訂重點 2】：將超時時間從 2000ms 延長至 6000ms
-                            // 手機端效能較弱，讀取本地憑證庫需要更長時間，給予充分時間等待
-                            setTimeout(() => resolve(null), 6000); 
+                            // 【修訂重點】：超時時間內若真的未獲取到用戶，才放棄並 resolve(null)
+                            setTimeout(() => {
+                                if (!isResolved) {
+                                    isResolved = true;
+                                    unsubscribe();
+                                    resolve(null);
+                                }
+                            }, 6000); 
                         } else {
                             resolve(null);
                         }
