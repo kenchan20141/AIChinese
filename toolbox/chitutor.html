@@ -7234,8 +7234,8 @@ window.addEventListener('click', (e) => {
 
 <!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
+<!-- === [修改版] 雙 Firebase 共存設定 === -->
 <script>
-// === Sansidata 核心初始化 (確保全域唯一) ===
 // === Sansidata 獨立系統初始化 ===
 var statsApp, statsDatabase, statsAuth;
 
@@ -7257,33 +7257,32 @@ var statsApp, statsDatabase, statsAuth;
         statsApp = firebase.app("StatsApp");
     }
 
-    statsDatabase = statsApp.database(); // 修復數據模組報錯
+    statsDatabase = statsApp.database(); 
     statsAuth = statsApp.auth();
 
-    // 持久化與身份同步
-    statsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
-        statsAuth.onAuthStateChanged(async (user) => {
-            if (user) {
-                console.log("[Sansidata] 🟢 生成權限驗證成功:", user.email);
-                const s = JSON.parse(localStorage.getItem('studentProfile'));
-                if (!s) {
-                    try {
-                        const emailKey = btoa(user.email);
-                        const snapshot = await statsDatabase.ref('email_mapping/' + emailKey).once('value');
-                        if (snapshot.exists()) {
-                            localStorage.setItem('studentProfile', JSON.stringify(snapshot.val()));
-                        }
-                    } catch (e) { console.error("同步失敗:", e); }
-                }
-            } else {
-                console.log("[Sansidata] ⚪ 未驗證生成權限");
+    // 【修訂重點 1】：取消 .then() 依賴！
+    // 手機端部分瀏覽器設定持久化時可能會延遲或無回應，導致原本寫在 then 裡面的監聽器不被執行
+    // 改為獨立執行並捕捉錯誤，確保後續的 onAuthStateChanged 必定能啟動
+    statsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => console.warn("持久化設定警告:", e));
+    
+    statsAuth.onAuthStateChanged(async (user) => {
+        if (user) {
+            console.log("[Sansidata] 🟢 生成權限驗證成功:", user.email);
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (!s) {
+                try {
+                    const emailKey = btoa(user.email);
+                    const snapshot = await statsDatabase.ref('email_mapping/' + emailKey).once('value');
+                    if (snapshot.exists()) {
+                        localStorage.setItem('studentProfile', JSON.stringify(snapshot.val()));
+                    }
+                } catch (e) { console.error("同步失敗:", e); }
             }
-        });
+        } else {
+            console.log("[Sansidata] ⚪ 未驗證生成權限");
+        }
     });
 })();
-
-
-
 </script>
 
 
@@ -7597,7 +7596,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // --- 4. 嚴格攔截邏輯 + Token 自動注入 (合併版) ---
-    const originalFetch = window.fetch;
+   const originalFetch = window.fetch;
     
     window.fetch = async function(url, options) {
         // 監測 AI 相關請求
@@ -7607,7 +7606,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // 情況一：如果沒資料 -> 直接阻擋並顯示組件
             if (!s) {
-                console.warn("🚫 [Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
+                console.warn("🚫[Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
                 
                 const modal = document.getElementById('sansiLimitModal');
                 if (modal) {
@@ -7622,7 +7621,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (options && options.method === 'POST' && url.includes('script.google.com')) {
                 console.log("🔑 [TokenInjector] 正在獲取並注入 Sansidata Token...");
                 try {
-                    // 安全獲取 Firebase 用戶狀態 (設定 2 秒超時防卡死)
+                    // 安全獲取 Firebase 用戶狀態
                     const user = await new Promise((resolve) => {
                         if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) {
                             resolve(statsAuth.currentUser);
@@ -7631,7 +7630,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 unsubscribe();
                                 resolve(u);
                             });
-                            setTimeout(() => resolve(null), 2000); 
+                            // 【修訂重點 2】：將超時時間從 2000ms 延長至 6000ms
+                            // 手機端效能較弱，讀取本地憑證庫需要更長時間，給予充分時間等待
+                            setTimeout(() => resolve(null), 6000); 
                         } else {
                             resolve(null);
                         }
@@ -7643,9 +7644,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         let bodyData = JSON.parse(options.body);
                         bodyData.token = token; // ★ 強制注入 Token
                         options.body = JSON.stringify(bodyData);
-                        console.log("✅ [TokenInjector] Token 注入成功！");
+                        console.log("✅[TokenInjector] Token 注入成功！");
                     } else {
-                        console.warn("⚠️ [TokenInjector] 警告：無法獲取 currentUser，Token 注入失敗！");
+                        console.warn("⚠️[TokenInjector] 警告：無法獲取 currentUser，Token 注入失敗！");
                     }
                 } catch (e) {
                     console.error("❌ [TokenInjector] 注入 Token 時發生錯誤:", e);
