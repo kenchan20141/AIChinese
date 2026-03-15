@@ -7238,9 +7238,10 @@ window.addEventListener('click', (e) => {
 <!-- === [修改版] 雙 Firebase 共存設定 === -->
 <script>
 // === Sansidata 獨立系統初始化 ===
+// === Sansidata 獨立系統初始化 (修復手機端 IndexedDB 競態衝突) ===
 var statsApp, statsDatabase, statsAuth;
 
-(function() {
+function initSansiData() {
     const sansiConfig = {
         apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
         authDomain: "sansidata.firebaseapp.com",
@@ -7251,7 +7252,7 @@ var statsApp, statsDatabase, statsAuth;
         databaseURL: "https://sansidata-default-rtdb.firebaseio.com"
     };
 
-    // 具名初始化，徹底隔絕 喻蛋教室 (Default App) 與 Sansidata (StatsApp)
+    // 確保不會重複初始化
     if (!firebase.apps.find(app => app.name === "StatsApp")) {
         statsApp = firebase.initializeApp(sansiConfig, "StatsApp");
     } else {
@@ -7260,10 +7261,6 @@ var statsApp, statsDatabase, statsAuth;
 
     statsDatabase = statsApp.database(); 
     statsAuth = statsApp.auth();
-
-    // 【修訂重點】：移除 statsAuth.setPersistence(...) 
-    // 原因：Firebase Web 預設已是 LOCAL（IndexedDB 優先）。在手機端同時有兩個 Firebase App 初始化時，
-    // 強制設定 Persistence 容易引發 IndexedDB 競態條件 (Race Condition) 導致讀取被中斷。
     
     statsAuth.onAuthStateChanged(async (user) => {
         if (user) {
@@ -7279,10 +7276,13 @@ var statsApp, statsDatabase, statsAuth;
                 } catch (e) { console.error("同步失敗:", e); }
             }
         } else {
-            console.log("[Sansidata] ⚪ 未驗證生成權限");
+            console.log("[Sansidata] ⚪ 未驗證生成權限 (手機端若無登入紀錄屬正常現象)");
         }
     });
-})();
+}
+
+// 👑 核心修復：延遲 800 毫秒執行，讓主系統先完成讀取，錯開兩者的資源搶奪
+setTimeout(initSansiData, 800);
 </script>
 
 
@@ -7506,6 +7506,9 @@ document.addEventListener('DOMContentLoaded', function() {
 // ===============================================================
 // ===[神思通用組件] 嚴格權限鎖 (零容忍版) + Token 自動注入 ===
 // ===============================================================
+// ===============================================================
+// ===[神思通用組件] 嚴格權限鎖 (零容忍版) + Token 自動注入 ===
+// ===============================================================
 (function() {
     // 防止重複注入
     if (window.SansiInterceptorLoaded) return;
@@ -7628,15 +7631,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         } else if (typeof statsAuth !== 'undefined') {
                             let isResolved = false;
                             const unsubscribe = statsAuth.onAuthStateChanged(u => {
-                                // 【修訂重點】：在雙 Firebase 手機環境中，初始化可能先返回 null
-                                // 這裡只在成功獲取用戶時 resolve，避免因過早 resolve(null) 導致沒有 Token 送出
                                 if (u && !isResolved) {
                                     isResolved = true;
                                     unsubscribe();
                                     resolve(u);
                                 }
                             });
-                            // 【修訂重點】：超時時間內若真的未獲取到用戶，才放棄並 resolve(null)
+                            // 超時時間內若未獲取到用戶，放棄並 resolve(null)
                             setTimeout(() => {
                                 if (!isResolved) {
                                     isResolved = true;
@@ -7658,9 +7659,32 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log("✅[TokenInjector] Token 注入成功！");
                     } else {
                         console.warn("⚠️[TokenInjector] 警告：無法獲取 currentUser，Token 注入失敗！");
+                        
+                        // 👑 核心修復：打破死結。
+                        // 如果 localStorage 有資料，但 Firebase 抓不到用戶，代表手機端登入狀態異常。
+                        // 我們清空假狀態，並強制彈出登入視窗！
+                        localStorage.removeItem('studentProfile'); 
+                        
+                        const modal = document.getElementById('sansiLimitModal');
+                        if (modal) {
+                            modal.style.display = 'flex';
+                            void modal.offsetWidth; 
+                            modal.classList.add('sansi-limit-show');
+                        }
+                        
+                        // 解除輸入框與按鈕的鎖定，讓用戶可以再次操作
+                        const typingInd = document.getElementById('typing-indicator');
+                        if(typingInd) typingInd.style.display = 'none';
+                        const sendBtn = document.getElementById('send-btn');
+                        if(sendBtn) sendBtn.disabled = false;
+                        const voiceBtn = document.getElementById('voice-btn');
+                        if(voiceBtn) voiceBtn.disabled = false;
+
+                        // 拒絕發送無效請求給後端
+                        return Promise.reject(new Error("Firebase Auth 狀態遺失，請重新登入學校帳號"));
                     }
                 } catch (e) {
-                    console.error("❌ [TokenInjector] 注入 Token 時發生錯誤:", e);
+                    console.error("❌[TokenInjector] 注入 Token 時發生錯誤:", e);
                 }
             }
 
