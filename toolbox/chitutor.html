@@ -7534,31 +7534,54 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // 2. 注入 Token
+         // 2. 注入 Token
             if (options && options.method === 'POST' && url.includes('script.google.com')) {
                 try {
-                    // 兼容雙 Firebase 實例：優先用 statsAuth (神思帳號)
-                    const targetAuth = (typeof statsAuth !== 'undefined') ? statsAuth : (typeof auth !== 'undefined' ? auth : null);
-                    
-                    // 【關鍵修復】使用「死等」機制：忽略一開始的 null，直到超時或真正抓到 user
+                    // 【關鍵修復】同時檢查 auth (喻蛋主帳號) 與 statsAuth (神思帳號)，誰有登入就用誰的 Token
                     const user = await new Promise(resolve => {
-                        if (!targetAuth) return resolve(null);
-                        if (targetAuth.currentUser) return resolve(targetAuth.currentUser);
+                        // 1. 先同步檢查是否已經有實例完成登入
+                        if (typeof auth !== 'undefined' && auth.currentUser) return resolve(auth.currentUser);
+                        if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) return resolve(statsAuth.currentUser);
                         
-                        // 延長到 4 秒，確保手機 IndexedDB 有足夠時間喚醒
+                        // 2. 如果暫時都沒抓到，設定 4 秒超時並同時監聽兩者
+                        let resolved = false;
                         const timer = setTimeout(() => {
-                            if (unsubscribe) unsubscribe();
-                            resolve(null);
-                        }, 4000); 
-                        
-                        const unsubscribe = targetAuth.onAuthStateChanged(u => {
-                            if (u) {
-                                // 只有當 u 不是 null 時，才視為真正載入完畢
-                                clearTimeout(timer);
-                                unsubscribe();
-                                resolve(u);
+                            if (!resolved) {
+                                resolved = true;
+                                if (unsubAuth) unsubAuth();
+                                if (unsubStats) unsubStats();
+                                resolve(null); // 超時放棄
                             }
-                            // 如果是 null，什麼都不做，繼續等它甦醒
-                        });
+                        }, 4000);
+
+                        let unsubAuth = null;
+                        let unsubStats = null;
+
+                        // 監聽主帳號
+                        if (typeof auth !== 'undefined') {
+                            unsubAuth = auth.onAuthStateChanged(u => {
+                                if (u && !resolved) {
+                                    resolved = true;
+                                    clearTimeout(timer);
+                                    if (unsubAuth) unsubAuth();
+                                    if (unsubStats) unsubStats();
+                                    resolve(u);
+                                }
+                            });
+                        }
+
+                        // 監聽神思帳號
+                        if (typeof statsAuth !== 'undefined') {
+                            unsubStats = statsAuth.onAuthStateChanged(u => {
+                                if (u && !resolved) {
+                                    resolved = true;
+                                    clearTimeout(timer);
+                                    if (unsubAuth) unsubAuth();
+                                    if (unsubStats) unsubStats();
+                                    resolve(u);
+                                }
+                            });
+                        }
                     });
 
                     let bodyData = JSON.parse(options.body);
@@ -7567,7 +7590,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         // 成功抓到 user，獲取 Token
                         const token = await user.getIdToken(false);
                         bodyData.token = token; 
-                        console.log("✅ [TokenInjector] Token 注入成功！");
+                        console.log("✅ [TokenInjector] Token 注入成功！(來自: " + (user.email || "已知用戶") + ")");
                     } else {
                         console.warn("⚠️ [TokenInjector] 4秒超時仍無法取得 user，以空 Token 發送");
                         bodyData.token = ""; 
