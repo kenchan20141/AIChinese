@@ -656,7 +656,9 @@ const response = await fetch(url, { mode: 'cors', cache: 'reload' });
                     if (coverKey) {
                         const coverId = fileMap[coverKey];
                         const offset = parseInt(localStorage.getItem('dse_img_offset') || '0');
-const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + offset}`;
+// 🌟 讀取尺寸變數，讓 w600 變成 w601, w602... 強制 Google 重新生成最新縮圖
+const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
+const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + imgVer}`;
                         // 🌟 使用 IndexedDB 緩存獲取封面
                         const localUrl = await getCachedImageURL(driveUrl);
                         const imgEl = document.getElementById(imgId);
@@ -760,7 +762,9 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + o
                         if (file && file.id) {
                            // 🌟 同樣加上尺寸偏移量，破解內頁的高清大圖快取
 const offset = parseInt(localStorage.getItem('dse_img_offset') || '0');
-const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + offset}`;
+// 🌟 同樣加上尺寸變數，破解內頁的高清大圖快取
+const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
+const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + imgVer}`;
                             getCachedImageURL(driveUrl).then(localUrl => {
                                 if (activeKey !== currentComicKey) return; // 若用家中途跳走則中止替換
                                 const imgEl = document.getElementById(`page-img-${comicKey}-${i}`);
@@ -878,6 +882,12 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
             btn.style.pointerEvents = "none";
 
             try {
+                // 🌟 【終極破解】每次點擊更新時，讓圖片尺寸變數 +1 (最大到 50 後重置)
+                let imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0') + 1;
+                if (imgVer > 50) imgVer = 0;
+                localStorage.setItem('dse_img_ver', imgVer);
+
+                // 1. 清除 LocalStorage 中的目錄結構快取
                 // 1. 清除 LocalStorage 中的目錄結構快取
                 Object.keys(localStorage).forEach(key => {
                     if (key.startsWith('dse_comic_map_')) {
