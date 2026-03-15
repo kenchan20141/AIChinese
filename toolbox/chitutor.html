@@ -5508,8 +5508,13 @@ function logProviderInfo(dataOrResponse, apiName) {
     // 發送消息到 API (GAS 代理版)
 async function sendMessage() {
     // 【核心修訂】改為檢查 studentProfile (神思組件的判斷標準)
+   // 【核心修訂】改為檢查 studentProfile (神思組件的判斷標準)
     const s = localStorage.getItem('studentProfile');
-    if (!s) {
+    // 放寬驗證：如果 localStorage 讀不到，但 Firebase 顯示已登入，也允許通行
+    const isLogged = s || (typeof statsAuth !== 'undefined' && statsAuth.currentUser) || (typeof auth !== 'undefined' && auth.currentUser);
+    
+    if (!isLogged) {
+        // 直接觸發神思組件的彈窗
         // 直接觸發神思組件的彈窗
         const modal = document.getElementById('sansiLimitModal');
         if (modal) {
@@ -7603,10 +7608,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // 監測 AI 相關請求
         if (typeof url === 'string' && (url.includes('pollinations.ai') || url.includes('script.google.com'))) {
             
-            const s = localStorage.getItem('studentProfile');
+          const s = localStorage.getItem('studentProfile');
+            const isLogged = s || (typeof statsAuth !== 'undefined' && statsAuth.currentUser) || (typeof auth !== 'undefined' && auth.currentUser);
             
-            // 情況一：如果沒資料 -> 直接阻擋並顯示組件
-            if (!s) {
+            // 情況一：如果沒資料且未登入 -> 直接阻擋並顯示組件
+            if (!isLogged) {
                 console.warn("🚫 [Sansi Security] 未登入用戶嘗試使用生成功能，已攔截。");
                 
                 const modal = document.getElementById('sansiLimitModal');
@@ -7624,18 +7630,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 try {
                     // 安全獲取 Firebase 用戶狀態 (設定 2 秒超時防卡死)
                     const user = await new Promise((resolve) => {
-                        if (typeof statsAuth !== 'undefined' && statsAuth.currentUser) {
-                            resolve(statsAuth.currentUser);
-                        } else if (typeof statsAuth !== 'undefined') {
-                            const unsubscribe = statsAuth.onAuthStateChanged(u => {
+                        let targetAuth = (typeof statsAuth !== 'undefined' && statsAuth.currentUser) ? statsAuth : 
+                                         (typeof auth !== 'undefined' && auth.currentUser) ? auth : 
+                                         (typeof statsAuth !== 'undefined') ? statsAuth : auth;
+                                         
+                        if (targetAuth && targetAuth.currentUser) {
+                            resolve(targetAuth.currentUser);
+                        } else if (targetAuth) {
+                            const unsubscribe = targetAuth.onAuthStateChanged(u => {
                                 unsubscribe();
                                 resolve(u);
                             });
-                            setTimeout(() => resolve(null), 2000); 
+                            // 手機版載入較慢，將超時延長至 5000 毫秒 (5秒)
+                            setTimeout(() => resolve(null), 5000); 
                         } else {
                             resolve(null);
                         }
-                    });
+                    });;
 
                     // 將 Token 解析進 payload
                     if (user) {
