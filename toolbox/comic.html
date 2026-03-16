@@ -347,6 +347,10 @@
             .controls { padding: 10px; gap: 10px; width: 100%; box-sizing: border-box; }
             .copyright-footer p { font-size: 12px; }
         }
+
+
+#search-results { width: 100%; left: 0; transform: none; right: auto; top: 45px; box-sizing: border-box; }
+        
     </style>
 </head>
 <body>
@@ -743,7 +747,7 @@
             
             // 定義三大分類
             const groups = {
-                'wen': { title: '文', items:[], color: 'var(--comic-yellow)', text: 'var(--comic-black)' },
+                'wen': { title: '文', items:[], color: 'var(--comic-green)', text: 'var(--comic-black)' }, // 修改了這裡
                 'shi': { title: '詩', items:[], color: 'var(--comic-blue)', text: 'var(--comic-white)' },
                 'ci': { title: '詞', items:[], color: 'var(--comic-red)', text: 'var(--comic-white)' }
             };
@@ -927,33 +931,27 @@
             renderCurrentMode(currentStartPage);
         });
 
-        function renderCurrentMode(startPage = 1) {
-            if (!currentComicKey) return;
-            if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
-            bookWrapper.innerHTML = '<div id="book"></div>';
-            bookElement = document.getElementById('book');
-            scrollWrapper.innerHTML = '';
+       function renderCurrentMode(startPage = 1) {
+    if (!currentComicKey) return;
+    if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+    bookWrapper.innerHTML = '<div id="book"></div>';
+    bookElement = document.getElementById('book');
+    scrollWrapper.innerHTML = '';
 
-            if (readMode === 'flip') {
-                bookWrapper.style.display = 'flex';
-                scrollWrapper.style.display = 'none';
-                controlsBottom.style.display = 'flex';
-                renderFlipMode(startPage);
-            } else {
-                bookWrapper.style.display = 'none';
-                scrollWrapper.style.display = 'flex';
-                controlsBottom.style.display = 'none';
-                renderScrollMode(startPage);
-            }
-            
-            // 修復捲動模式 Bug：若由第 1 頁開始，確保強制滾動至頁面頂部
-            if (startPage === 1) {
-                window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-            }
+    if (readMode === 'flip') {
+        bookWrapper.style.display = 'flex';
+        scrollWrapper.style.display = 'none';
+        controlsBottom.style.display = 'flex';
+        renderFlipMode(startPage);
+    } else {
+        bookWrapper.style.display = 'none';
+        scrollWrapper.style.display = 'flex';
+        controlsBottom.style.display = 'none';
+        renderScrollMode(startPage);
+    }
 
-            loadImagesIntoDOM();
-        }
-
+    loadImagesIntoDOM();
+}
         // --- 翻頁模式 ---
         function renderFlipMode(startPage) {
             let pagesHTML = '';
@@ -1022,48 +1020,59 @@
         }
 
         // --- 捲動模式 (條漫) ---
-        function renderScrollMode(startPage) {
-            let html = '';
-            for (let i = 1; i <= currentComicData.totalPages; i++) {
-                const imgId = `page-img-${currentComicKey}-${i}`;
-                const pageText = (currentComicData.texts && currentComicData.texts[i - 1]) ? currentComicData.texts[i - 1] : '';
-                const textDiv = pageText ? `<div class="page-text" style="transition: background-color 0.5s;">${pageText}</div>` : '';
-                
-                html += `
-                    <div class="scroll-panel" id="scroll-panel-${currentComicKey}-${i}">
-                        <div class="page-content">
-                            <img id="${imgId}" src="${placeholderImg}" alt="第${i}圖" onerror="this.onerror=null; this.src='${errorImgSafe}'" onclick="openLightbox(this.src)">
-                            ${textDiv}
-                        </div>
-                    </div>
-                `;
+       // --- 捲動模式 (條漫) ---
+function renderScrollMode(startPage) {
+    let html = '';
+    for (let i = 1; i <= currentComicData.totalPages; i++) {
+        const imgId = `page-img-${currentComicKey}-${i}`;
+        const pageText = (currentComicData.texts && currentComicData.texts[i - 1]) ? currentComicData.texts[i - 1] : '';
+        const textDiv = pageText ? `<div class="page-text" style="transition: background-color 0.5s;">${pageText}</div>` : '';
+        
+        html += `
+            <div class="scroll-panel" id="scroll-panel-${currentComicKey}-${i}">
+                <div class="page-content">
+                    <img id="${imgId}" src="${placeholderImg}" alt="第${i}圖" onerror="this.onerror=null; this.src='${errorImgSafe}'" onclick="openLightbox(this.src)">
+                    ${textDiv}
+                </div>
+            </div>
+        `;
+    }
+    scrollWrapper.innerHTML = html;
+
+    // 設置 Intersection Observer 監聽捲動進度
+    if (scrollObserver) scrollObserver.disconnect();
+    scrollObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const panelId = entry.target.id;
+                const parts = panelId.split('-');
+                const pageNum = parseInt(parts[parts.length - 1], 10);
+                if (currentComicKey) {
+                    localStorage.setItem(`comic_progress_${currentComicKey}`, pageNum);
+                }
             }
-            scrollWrapper.innerHTML = html;
+        });
+    }, { threshold: 0.5 });
+    
+    document.querySelectorAll('.scroll-panel').forEach(panel => scrollObserver.observe(panel));
 
-            // 設置 Intersection Observer 監聽捲動進度
-            if (scrollObserver) scrollObserver.disconnect();
-            scrollObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const panelId = entry.target.id;
-                        const parts = panelId.split('-');
-                        const pageNum = parseInt(parts[parts.length - 1], 10);
-                        if (currentComicKey) {
-                            localStorage.setItem(`comic_progress_${currentComicKey}`, pageNum);
-                        }
-                    }
-                });
-            }, { threshold: 0.5 });
-            
-            document.querySelectorAll('.scroll-panel').forEach(panel => scrollObserver.observe(panel));
-
-            if (startPage > 1) {
-                setTimeout(() => {
-                    const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${startPage}`);
-                    if (targetEl) targetEl.scrollIntoView({ behavior: 'instant', block: 'start' });
-                }, 100);
+    // 強制精準滾動修復：確保切換模式時，畫面完美對齊當前進度的圖幅
+    setTimeout(() => {
+        if (startPage <= 1) {
+            // 如果是第 1 頁，強制回到最頂部
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        } else {
+            // 如果是其他頁數，精準定位並扣除頂部 Header 的高度 (約 80px)
+            const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${startPage}`);
+            if (targetEl) {
+                const headerOffset = 80; 
+                const elementPosition = targetEl.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+                window.scrollTo({ top: offsetPosition, behavior: 'instant' });
             }
         }
+    }, 150); // 設定 150ms 延遲，確保 DOM 與圖片外框已完全撐開
+}
 
         function loadImagesIntoDOM() {
             const activeKey = currentComicKey;
@@ -1085,13 +1094,34 @@
         // ==========================================
         // 5. 播放器與雜項
         // ==========================================
-        function updatePageInfo(currentPageIndex) {
-            if (!currentComicData) return;
-            const totalFlipPages = Math.ceil(currentComicData.totalPages / window.panelsPerPage);
-            pageInput.value = currentPageIndex + 1;
-            pageInput.max = totalFlipPages;
-            totalPagesSpan.textContent = totalFlipPages;
-        }
+       // --- 替換這段更新頁面資訊的函數 ---
+function updatePageInfo(currentPageIndex) {
+    if (!currentComicData) return;
+    
+    // 總頁數顯示為實際漫畫圖幅數，不再除以 2
+    pageInput.max = currentComicData.totalPages;
+    totalPagesSpan.textContent = currentComicData.totalPages;
+    
+    // 計算當前看到第幾幅圖
+    let currentPanel = (currentPageIndex + 1) * window.panelsPerPage;
+    // 如果計算結果超出總頁數（例如最後一頁只剩一幅圖），則顯示總頁數
+    if (currentPanel > currentComicData.totalPages) {
+        currentPanel = currentComicData.totalPages;
+    }
+    
+    pageInput.value = currentPanel;
+}
+
+// --- 替換這段輸入框的監聽器 ---
+pageInput.addEventListener('change', (e) => {
+    if (!pageFlip) return;
+    let target = parseInt(e.target.value, 10);
+    if (target >= 1 && target <= parseInt(pageInput.max, 10)) {
+        // 將用家輸入的圖幅數，反向轉換回實體翻頁的 Index 進行跳轉
+        let flipPageIndex = Math.ceil(target / window.panelsPerPage) - 1;
+        pageFlip.flip(flipPageIndex);
+    }
+});
 
         document.getElementById('btn-prev').addEventListener('click', () => { if (pageFlip) pageFlip.flipPrev(); });
         document.getElementById('btn-next').addEventListener('click', () => { if (pageFlip) pageFlip.flipNext(); });
