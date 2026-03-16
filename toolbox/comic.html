@@ -229,6 +229,27 @@
 .search-item:hover { background: var(--comic-yellow); color: var(--comic-black); }
 .search-item strong { display: block; margin-bottom: 5px; font-size: 16px; color: var(--comic-black); }
 .highlight { color: var(--comic-red); background: var(--comic-yellow); padding: 0 2px; border-radius: 3px; font-weight: bold; }
+
+
+.copyright-footer {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    padding: 5px 10px;
+    background-color: #f1f1f1;
+}
+
+.copyright-footer p {
+    margin: 0;
+    font-size: 14px;
+}
+
+@media (max-width: 600px) {
+    .copyright-footer p {
+        font-size: 12px;
+    }
+}
+
         
     </style>
 </head>
@@ -974,7 +995,7 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + i
         // ==========================================
         // 4. 動態生成與【懶加載】圖片
         // ==========================================
-        async function loadComic(comicKey) {
+     async function loadComic(comicKey) {
             const data = comicDatabase[comicKey];
             if (!data || data.totalPages === 0) return;
 
@@ -1000,22 +1021,46 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + i
                     .map(name => ({ name: name, id: fileMap[name] }))
                     .filter(file => parseInt(file.name.match(/\d+/) || [-1], 10) !== 0);
 
-                filesArray.sort((a, b) => parseInt(a.name.match(/\d+/) || [0], 10) - parseInt(b.name.match(/\d+/) || [0], 10));
+                filesArray.sort((a, b) => parseInt(a.name.match(/\d+/) || [0], 10) - parseInt(b.name.match(/\d+/) ||[0], 10));
 
                 let pagesHTML = '';
-                // 🌟 先用極小體積的 Placeholder 瞬間建立書本結構
-                for (let i = 1; i <= data.totalPages; i++) {
-                    const imgId = `page-img-${comicKey}-${i}`;
-                    const pageText = (data.texts && data.texts[i - 1]) ? data.texts[i - 1] : '';
-                    const textDiv = pageText ? `<div class="page-text">${pageText}</div>` : '';
+                
+                // 🌟 核心修訂 1：精準偵測「直向螢幕」或手機尺寸
+                const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth <= 768;
+                window.panelsPerPage = isPortrait ? 2 : 1; 
+                const totalFlipPages = Math.ceil(data.totalPages / window.panelsPerPage);
 
-                    pagesHTML += `
-                        <div class="page">
-                            <div class="page-content">
-                                <img id="${imgId}" src="${placeholderImg}" alt="第${i}頁" 
+                for (let i = 0; i < totalFlipPages; i++) {
+                    let contentHTML = '';
+                    
+                    for (let j = 0; j < window.panelsPerPage; j++) {
+                        const actualPageIndex = i * window.panelsPerPage + j + 1;
+                        if (actualPageIndex > data.totalPages) break; // 超出總頁數則不渲染
+                        
+                        const imgId = `page-img-${comicKey}-${actualPageIndex}`;
+                        const pageText = (data.texts && data.texts[actualPageIndex - 1]) ? data.texts[actualPageIndex - 1] : '';
+                        const textDiv = pageText ? `<div class="page-text" style="transition: background-color 0.5s;">${pageText}</div>` : '';
+                        
+                        // 若為雙頁模式，且是上方分鏡，加入底部粗黑線區隔
+                        const borderStyle = (window.panelsPerPage > 1 && j === 0 && actualPageIndex < data.totalPages) 
+                            ? 'border-bottom: 4px solid var(--comic-black);' : '';
+
+                        // 內部每個分鏡強制平分高度 (flex: 1)
+                        contentHTML += `
+                            <div class="page-content" style="flex: 1; min-height: 0; width: 100%; ${borderStyle}">
+                                <img id="${imgId}" src="${placeholderImg}" alt="第${actualPageIndex}頁" 
                                      onerror="this.onerror=null; this.src='${errorImgSafe}'" 
                                      onclick="openLightbox(this.src)">
                                 ${textDiv}
+                            </div>
+                        `;
+                    }
+
+                    // 🌟 核心修訂 2：利用內層 wrapper 防護 PageFlip 破壞 Flex 佈局
+                    pagesHTML += `
+                        <div class="page">
+                            <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
+                                ${contentHTML}
                             </div>
                         </div>
                     `;
@@ -1023,24 +1068,19 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + i
                 
                 bookElement.innerHTML = pagesHTML;
 
-                // 稍微延遲讓 DOM 渲染，然後初始化翻頁效果
                 setTimeout(() => {
                     initPageFlip();
                     loading.style.display = 'none';
                     bookElement.style.display = 'block';
 
-                    // 🌟 背景非同步替換真實的高清原圖 (從 IndexedDB 或 Google 讀取)
                     const activeKey = currentComicKey;
                     for (let i = 1; i <= data.totalPages; i++) {
                         const file = filesArray[i - 1]; 
                         if (file && file.id) {
-                           // 🌟 同樣加上尺寸偏移量，破解內頁的高清大圖快取
-const offset = parseInt(localStorage.getItem('dse_img_offset') || '0');
-// 🌟 同樣加上尺寸變數，破解內頁的高清大圖快取
-const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
-const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + imgVer}`;
+                            const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
+                            const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + imgVer}`;
                             getCachedImageURL(driveUrl).then(localUrl => {
-                                if (activeKey !== currentComicKey) return; // 若用家中途跳走則中止替換
+                                if (activeKey !== currentComicKey) return; 
                                 const imgEl = document.getElementById(`page-img-${comicKey}-${i}`);
                                 if (imgEl) imgEl.src = localUrl;
                             });
@@ -1059,12 +1099,25 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
         // ==========================================
         // 5. PageFlip 初始化與控制
         // ==========================================
-        function initPageFlip() {
+      function initPageFlip() {
+            // 讀取剛才在 loadComic 中設定的變數
+            const isPortrait = window.panelsPerPage === 2;
+            
             pageFlip = new St.PageFlip(bookElement, {
-                width: 700, height: 480, size: "stretch",         
-                minWidth: 300, maxWidth: 900, minHeight: 200, maxHeight: 700,
-                maxShadowOpacity: 0.5, showCover: true, usePortrait: true,       
-                mobileScrollSupport: false, useMouseEvents: false    
+                width: 700, 
+                // 🌟 當雙分鏡模式時，高度設定為兩倍 (960)，以維持完美的比例
+                height: isPortrait ? 960 : 480, 
+                size: "stretch",         
+                minWidth: 300, 
+                maxWidth: 900, 
+                minHeight: 200, 
+                // 🌟 放寬最大高度，避免被壓縮
+                maxHeight: isPortrait ? 1500 : 700, 
+                maxShadowOpacity: 0.5, 
+                showCover: true, 
+                usePortrait: true,       
+                mobileScrollSupport: false, 
+                useMouseEvents: false    
             });
 
             const pages = document.querySelectorAll('.page');
@@ -1077,12 +1130,20 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
             updatePageInfo(0);
         }
 
-        function updatePageInfo(currentPage) {
+
+
+        
+      function updatePageInfo(currentPageIndex) {
             if (!currentComicKey) return;
             const currentComic = comicDatabase[currentComicKey];
-            pageInput.value = currentPage + 1;
-            pageInput.max = currentComic.totalPages;
-            totalPagesSpan.textContent = currentComic.totalPages;
+            
+            // 重新計算頁面總數 (因為 36 個分鏡在手機上會變成 18 頁實體翻頁)
+            const panelsPerPage = window.panelsPerPage || 1;
+            const totalFlipPages = Math.ceil(currentComic.totalPages / panelsPerPage);
+            
+            pageInput.value = currentPageIndex + 1;
+            pageInput.max = totalFlipPages;
+            totalPagesSpan.textContent = totalFlipPages;
         }
 
         document.getElementById('btn-prev').addEventListener('click', () => { if (pageFlip) pageFlip.flipPrev(); });
@@ -1257,25 +1318,26 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
             }
         });
 
-        async function jumpToSearch(comicKey, pageNumber) {
-            // 如果不在該漫畫中，先載入漫畫
+       async function jumpToSearch(comicKey, actualPageNumber) {
             if (currentComicKey !== comicKey || readerView.style.display === 'none') {
                 await loadComic(comicKey);
             }
             
-            // 輪詢等待 PageFlip 初始化結構完成
             const checkPageFlip = setInterval(() => {
                 if (pageFlip && bookElement.style.display === 'block') {
                     clearInterval(checkPageFlip);
                     
-                    // 執行快速翻頁
-                    pageFlip.flip(pageNumber - 1);
+                    // 根據目前的分鏡數量，計算實際要翻到的那張紙的索引 (Index)
+                    const panelsPerPage = window.panelsPerPage || 1;
+                    const flipPageIndex = Math.ceil(actualPageNumber / panelsPerPage) - 1;
                     
-                    // 黃色螢光筆提示動畫 (等待翻頁動畫結束後觸發)
+                    pageFlip.flip(flipPageIndex);
+                    
                     setTimeout(() => {
-                        const targetPage = document.querySelectorAll('.page')[pageNumber - 1];
-                        if (targetPage) {
-                            const textEl = targetPage.querySelector('.page-text');
+                        // 透過特定的分鏡圖片 ID 找到精準的分鏡，不論它在雙頁的上方還是下方
+                        const targetImg = document.getElementById(`page-img-${comicKey}-${actualPageNumber}`);
+                        if (targetImg) {
+                            const textEl = targetImg.parentElement.querySelector('.page-text');
                             if (textEl) {
                                 textEl.style.transition = 'background-color 0.2s';
                                 textEl.style.backgroundColor = 'var(--comic-yellow)';
@@ -1295,5 +1357,12 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + 
         // 啟動程式
         window.addEventListener('DOMContentLoaded', () => { renderCatalog(); });
     </script>
+
+<footer class="copyright-footer">
+<p>Copyright © 2026 陳冠健. All rights reserved.</p>
+</footer>
+
+
+    
 </body>
 </html>
