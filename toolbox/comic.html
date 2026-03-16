@@ -2,7 +2,7 @@
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DSE範文漫畫館</title>
     
     <!-- 引入 PageFlip 翻頁庫 -->
@@ -18,9 +18,12 @@
             --comic-grey: #e0e0e0;
             --comic-yellow: #ffcc00;
             --comic-red: #e63946;
+            --comic-blue: #3a86ff;
+            --comic-cyan: #48cae4;  /* 白色按鈕懸浮時的青色 */
+            --comic-green: #06d6a0; /* 模式切換按鈕的綠色 */
             --comic-border: 4px solid var(--comic-black);
             --comic-shadow: 6px 6px 0px var(--comic-black);
-            --comic-shadow-hover: 10px 10px 0px var(--comic-black);
+            --comic-shadow-hover: 12px 12px 0px var(--comic-black);
         }
 
         body {
@@ -38,35 +41,9 @@
             overflow-x: hidden;
         }
 
-        /* 頂部導航欄 */
-        header {
-            background-color: var(--comic-white);
-            border-bottom: var(--comic-border);
-            padding: 15px 20px;
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            align-items: center;
-            box-shadow: 0 4px 0px rgba(0,0,0,1);
-            position: relative;
-            z-index: 10;
-        }
-
-        .header-left { display: flex; justify-content: flex-start; }
-        .header-right { display: flex; justify-content: flex-end; }
-
-        .logo {
-            font-size: 26px;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            background: var(--comic-black);
-            color: var(--comic-white);
-            padding: 8px 20px;
-            transform: skew(-5deg);
-            text-align: center;
-            white-space: nowrap;
-        }
-
+        /* =========================================
+           SVG 按鈕與共用元件
+           ========================================= */
         .btn {
             background-color: var(--comic-white);
             color: var(--comic-black);
@@ -78,790 +55,636 @@
             transition: all 0.2s;
             box-shadow: 4px 4px 0px var(--comic-black);
             font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
 
-        .btn:hover { background-color: var(--comic-yellow); transform: translate(-2px, -2px); box-shadow: 6px 6px 0px var(--comic-black); }
+        /* 白色按鈕懸浮改為青藍色 */
+        .btn:hover { background-color: var(--comic-cyan); transform: translate(-2px, -2px); box-shadow: 6px 6px 0px var(--comic-black); }
         .btn:active { transform: translate(3px, 3px); box-shadow: 0px 0px 0px var(--comic-black); }
+        .btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 
-        /* 主視圖容器 */
-        main {
-            flex-grow: 1;
+        /* 顏色按鈕類別 */
+        .btn-yellow { background-color: var(--comic-yellow); }
+        .btn-yellow:hover { background-color: #fca311; }
+        
+        .btn-green { background-color: var(--comic-green); }
+        .btn-green:hover { background-color: #05b586; }
+
+        #btn-update { padding: 8px; width: 42px; height: 42px; }
+
+        /* =========================================
+           頂部導航欄
+           ========================================= */
+        header {
+            background-color: var(--comic-white);
+            border-bottom: var(--comic-border);
+            padding: 15px 20px;
             display: flex;
-            flex-direction: column;
+            justify-content: space-between;
             align-items: center;
-            padding: 30px 20px;
-            width: 100%;
+            box-shadow: 0 4px 0px rgba(0,0,0,1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            gap: 15px;
+        }
+
+        .logo {
+            font-size: 26px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: var(--comic-black);
+            color: var(--comic-white);
+            padding: 8px 20px;
+            transform: skew(-5deg);
+            cursor: pointer;
+        }
+
+        .header-actions { display: flex; align-items: center; gap: 15px; flex: 1; justify-content: flex-end; }
+
+        /* --- 搜尋列 UI --- */
+        #search-container { position: relative; display: flex; align-items: center; width: 220px; transition: width 0.3s; }
+        #search-container:focus-within { width: 280px; }
+        .search-icon { position: absolute; left: 12px; pointer-events: none; width: 16px; height: 16px; stroke: var(--comic-black); stroke-width: 3; fill: none; }
+        
+        #search-input {
+            width: 100%; padding: 8px 15px 8px 35px; font-size: 16px; font-weight: 900;
+            border: 3px solid var(--comic-black); border-radius: 20px; outline: none;
+            box-shadow: 2px 2px 0 var(--comic-black); transition: all 0.3s;
+            background: var(--comic-white); box-sizing: border-box;
+        }
+        #search-input:focus { box-shadow: 4px 4px 0 var(--comic-black); transform: translate(-2px, -2px); background: #fffde7; }
+
+        #search-results {
+            position: absolute; top: 45px; right: 0; width: 320px; background: var(--comic-white);
+            border: 3px solid var(--comic-black); box-shadow: 4px 4px 0 var(--comic-black); border-radius: 8px;
+            display: none; z-index: 1000; max-height: 60vh; overflow-y: auto; text-align: left;
+        }
+        .search-item { padding: 12px 15px; border-bottom: 2px solid var(--comic-black); cursor: pointer; font-size: 15px; line-height: 1.4; color: #333; }
+        .search-item:last-child { border-bottom: none; }
+        .search-item:hover { background: var(--comic-cyan); color: var(--comic-black); }
+        .search-item strong { display: block; margin-bottom: 5px; font-size: 16px; color: var(--comic-black); }
+        .highlight { color: var(--comic-red); background: var(--comic-yellow); padding: 0 2px; border-radius: 3px; font-weight: bold; }
+
+        /* =========================================
+           主視圖與重構的漫畫風書櫃 (分類設計)
+           ========================================= */
+        main { flex-grow: 1; display: flex; flex-direction: column; align-items: center; width: 100%; box-sizing: border-box; }
+
+        #catalog-view { 
+            display: flex; 
+            flex-direction: column;
+            gap: 50px; 
+            width: 100%; max-width: 1200px; padding: 50px 20px; 
             box-sizing: border-box;
         }
 
-        /* --- 漫畫目錄 UI --- */
-        #catalog-view {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-            gap: 40px;
-            width: 100%;
-            max-width: 1200px;
-        }
-
-        .comic-card {
-            border: var(--comic-border);
-            box-shadow: var(--comic-shadow);
-            background: var(--comic-white);
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-            text-decoration: none;
-            color: inherit;
-        }
-
-        .comic-card:hover:not(.disabled) { transform: translateY(-8px) scale(1.02); box-shadow: var(--comic-shadow-hover); }
-        .comic-card.disabled { cursor: not-allowed; filter: grayscale(100%); opacity: 0.8; }
-
-        .comic-cover {
-            width: 100%; height: 350px;
-            border-bottom: var(--comic-border);
-            background-color: var(--comic-grey);
-            overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative;
-        }
-
-        .comic-cover img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
-        .comic-info { padding: 15px; text-align: center; background: var(--comic-white); }
-        .comic-title { font-size: 22px; font-weight: 900; margin: 0 0 5px 0; }
-        .comic-meta { font-size: 14px; font-weight: bold; color: #555; }
+        .genre-section { width: 100%; display: flex; flex-direction: column; }
         
+        .genre-header { 
+            margin-bottom: 30px; 
+            border-bottom: 6px solid var(--comic-black); 
+            padding-bottom: 5px;
+        }
+
+        .genre-title {
+            font-size: 24px; font-weight: 900; margin: 0;
+            display: inline-block; padding: 8px 25px;
+            border: 4px solid var(--comic-black);
+            box-shadow: 4px 4px 0 var(--comic-black);
+            transform: skew(-5deg);
+        }
+
+        .genre-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 60px 0;
+            width: 100%;
+        }
+
+        /* 2D 扁平漫畫風層板 (取代舊的 THREE.JS 偽 3D) */
+        .shelf-slot {
+            display: flex; justify-content: center; align-items: flex-end;
+            position: relative; padding-bottom: 12px;
+            border-bottom: 8px solid var(--comic-black); /* 粗黑線體現漫畫感 */
+        }
+        
+        /* 網點陰影點綴 */
+        .shelf-slot::after {
+            content: ''; position: absolute; bottom: -16px; left: 0; right: 0; height: 8px;
+            background-image: radial-gradient(var(--comic-black) 40%, transparent 40%);
+            background-size: 4px 4px; z-index: 0;
+        }
+
+        /* 3D 實體書設計 (完全保留) */
+        .comic-book {
+            position: relative; z-index: 5; cursor: pointer; perspective: 1200px;
+            margin: 0 15px; max-width: 85%;
+        }
+
+        .comic-book-inner {
+            position: relative; display: inline-block; transform-style: preserve-3d;
+            --thickness: 24px; /* 書本預設厚度 */
+            transform: rotateY(-25deg);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .comic-book:hover:not(.disabled) .comic-book-inner {
+            transform: rotateY(-5deg) translateZ(30px) translateY(-10px);
+        }
+        .comic-book.disabled .comic-book-inner { filter: grayscale(100%); cursor: not-allowed; }
+
+        /* 封面圖片 (嚴格鎖定比例) */
+        .comic-cover-img {
+            display: block; width: auto; height: auto;
+            max-width: 100%; max-height: 250px;
+            border: 3px solid var(--comic-black); background: var(--comic-white); box-sizing: border-box;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+        }
+
+        /* 書脊 (動態貼合左側) */
+        .comic-spine {
+            position: absolute; top: 0; bottom: 0; right: 100%; width: var(--thickness);
+            background: var(--comic-yellow); border: 3px solid var(--comic-black); border-right: none;
+            transform-origin: right; transform: rotateY(-90deg); box-sizing: border-box;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .spine-text {
+            writing-mode: vertical-rl; text-orientation: upright;
+            font-weight: 900; font-size: 14px; letter-spacing: 2px; padding: 10px 0;
+        }
+
+        /* 書頁厚度邊緣 (動態貼合右側與頂部) */
+        .comic-pages-edge {
+            position: absolute; top: 3px; bottom: 3px; left: 100%; width: var(--thickness);
+            background: #fff; border: 3px solid var(--comic-black); border-left: none;
+            transform-origin: left; transform: rotateY(90deg);
+            background-image: repeating-linear-gradient(to bottom, transparent, transparent 2px, #ccc 2px, #ccc 3px);
+        }
+        .comic-pages-top {
+            position: absolute; bottom: 100%; left: 3px; right: 3px; height: var(--thickness);
+            background: #fff; border: 3px solid var(--comic-black); border-bottom: none;
+            transform-origin: bottom; transform: rotateX(89.9deg);
+            background-image: repeating-linear-gradient(to right, transparent, transparent 2px, #ccc 2px, #ccc 3px);
+        }
+
+        /* 分類書脊顏色 */
+        .genre-shi .comic-spine { background: var(--comic-blue); color: #fff;}
+        .genre-ci .comic-spine { background: var(--comic-red); color: #fff;}
+        .genre-wen .comic-spine { background: var(--comic-yellow); color: #000;}
+
         .badge {
             position: absolute; top: -15px; right: -15px; background: var(--comic-yellow); border: 3px solid var(--comic-black);
-            padding: 8px 15px; font-weight: 900; font-size: 16px; transform: rotate(12deg); box-shadow: 4px 4px 0 var(--comic-black); z-index: 2;
+            padding: 5px 10px; font-weight: 900; font-size: 14px; box-shadow: 3px 3px 0 var(--comic-black); z-index: 10;
+            transform: translateZ(10px) rotate(15deg); color: var(--comic-black);
         }
         .badge.coming-soon { background: var(--comic-grey); color: #555; }
 
-        /* --- 閱讀器 UI --- */
-        #reader-view { width: 100%; display: none; flex-direction: column; align-items: center; }
+        /* =========================================
+           閱讀器 UI (雙模式與進度對話框)
+           ========================================= */
+        #reader-view { width: 100%; display: none; flex-direction: column; align-items: center; padding-top: 20px;}
+        
+        .reader-top-bar {
+            display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; max-width: 1400px;
+            margin-bottom: 20px; background: var(--comic-white); padding: 15px 20px;
+            border: 3px solid var(--comic-black); box-shadow: 4px 4px 0 var(--comic-black); box-sizing: border-box;
+        }
+        /* 篇章標題置頂居中 */
+        .reader-title { font-size: 26px; font-weight: 900; margin: 0; text-align: center; }
+        /* 返回與切換模式放在同一行 */
+        .reader-actions { display: flex; justify-content: center; align-items: center; gap: 20px; width: 100%; }
+
+        /* 模式 1：翻頁模式 */
         #book-wrapper { position: relative; display: flex; justify-content: center; align-items: center; width: 100%; max-width: 1400px; }
+        .page { background-color: var(--comic-white); border: 2px solid var(--comic-black); box-shadow: inset 0 0 10px rgba(0,0,0,0.1); overflow: hidden; display: flex; box-sizing: border-box; position: relative; }
+        
+        /* 模式 2：條漫捲動模式 */
+        #scroll-wrapper { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 800px; gap: 40px; margin-bottom: 30px; }
+        .scroll-panel { width: 100%; background: var(--comic-white); border: var(--comic-border); box-shadow: var(--comic-shadow); display: flex; flex-direction: column; }
 
-        .page {
-            background-color: var(--comic-white); border: 2px solid var(--comic-black);
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.1); overflow: hidden; display: flex; box-sizing: border-box; position: relative;
-        }
-
-        .page-content {
-            width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: var(--comic-white);
-        }
-
-        .page-content img {
-            width: 100%; flex-grow: 1; min-height: 0; object-fit: contain;
-            user-select: none; -webkit-user-drag: none; cursor: zoom-in; padding: 10px; box-sizing: border-box;
-        }
-
-        .page-text {
-            width: 100%; background: var(--comic-white); border-top: 3px solid var(--comic-black);
-            padding: 12px 20px; font-size: 16px; font-weight: 900; line-height: 1.5; text-align: justify; z-index: 5; box-sizing: border-box;
-        }
+        /* 共用內容 */
+        .page-content { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: var(--comic-white); }
+        .page-content img { width: 100%; flex-grow: 1; min-height: 0; object-fit: contain; user-select: none; -webkit-user-drag: none; cursor: zoom-in; padding: 10px; box-sizing: border-box; }
+        .page-text { width: 100%; background: var(--comic-white); border-top: 3px solid var(--comic-black); padding: 12px 20px; font-size: 16px; font-weight: 900; line-height: 1.5; text-align: justify; z-index: 5; box-sizing: border-box; }
 
         /* 底部控制欄 */
         .controls {
-            margin-top: 30px; display: flex; align-items: center; justify-content: center;
-            flex-wrap: nowrap; white-space: nowrap; gap: 15px; background: var(--comic-white);
-            padding: 12px 25px; border: var(--comic-border); box-shadow: var(--comic-shadow); z-index: 10;
+            margin-top: 30px; margin-bottom: 40px; display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; gap: 15px;
+            background: var(--comic-white); padding: 12px 25px; border: var(--comic-border); box-shadow: var(--comic-shadow); z-index: 10;
         }
-
         .page-info { font-size: 18px; font-weight: 900; display: flex; align-items: center; gap: 5px; }
-        
-        #page-input {
-            width: 50px; text-align: center; font-size: 18px; font-weight: 900;
-            border: 2px solid var(--comic-black); border-radius: 4px; padding: 4px; outline: none; background-color: var(--comic-white);
-        }
-        #page-input:focus { background-color: #eee; }
-        #page-input::-webkit-outer-spin-button, #page-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        #page-input { width: 50px; text-align: center; font-size: 18px; font-weight: 900; border: 2px solid var(--comic-black); border-radius: 4px; padding: 4px; outline: none; background-color: var(--comic-white); }
+        #page-input:focus { background-color: var(--comic-cyan); }
 
-        #lightbox {
-            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background-color: rgba(0, 0, 0, 0.85); z-index: 9999; justify-content: center; align-items: center; cursor: zoom-out;
+        /* =========================================
+           漫畫風格提示視窗 (恢復閱讀進度)
+           ========================================= */
+        .comic-dialog-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.85); z-index: 10000;
+            display: flex; justify-content: center; align-items: center;
         }
-        #lightbox img { max-width: 95%; max-height: 95%; object-fit: contain; border: 5px solid var(--comic-white); box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+        .comic-dialog {
+            background: var(--comic-white); border: 5px solid var(--comic-black);
+            box-shadow: 12px 12px 0 var(--comic-yellow); padding: 30px;
+            max-width: 420px; width: 85%; text-align: center;
+            transform: rotate(-2deg);
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes popIn { 0% { transform: scale(0.5) rotate(-10deg); opacity: 0; } 100% { transform: scale(1) rotate(-2deg); opacity: 1; } }
+        .comic-dialog-title {
+            font-size: 24px; font-weight: 900; margin-bottom: 20px;
+            background: var(--comic-black); color: var(--comic-white);
+            display: inline-block; padding: 5px 20px; transform: skew(-5deg); box-shadow: 4px 4px 0 var(--comic-red);
+        }
+        .comic-dialog-content { font-size: 18px; font-weight: bold; margin-bottom: 30px; line-height: 1.6; }
+        .comic-dialog-actions { display: flex; justify-content: center; gap: 15px; }
+
+        /* =========================================
+           特效與雜項
+           ========================================= */
+        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.85); z-index: 9999; justify-content: center; align-items: center; cursor: zoom-out; }
+        #lightbox img { max-width: 95%; max-height: 95%; object-fit: contain; border: 5px solid var(--comic-white); box-shadow: 0 0 20px rgba(0,0,0,0.8); background: white; }
 
         #loading {
-            position: absolute; font-size: 24px; font-weight: bold; background: var(--comic-yellow); border: var(--comic-border);
-            padding: 20px 40px; box-shadow: var(--comic-shadow); z-index: 100; display: none; transform: rotate(-3deg); top: 30%;
+            position: fixed; font-size: 24px; font-weight: bold; background: var(--comic-yellow); border: var(--comic-border);
+            padding: 20px 40px; box-shadow: var(--comic-shadow); z-index: 1000; display: none; transform: rotate(-3deg); top: 30%; left: 50%; margin-left: -120px;
         }
 
-       @media (max-width: 768px) {
-    /* 讓 header 轉為彈性垂直佈局 */
-    header { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
-    .header-left { position: absolute; left: 10px; top: 15px; width: auto; z-index: 10; flex: none; }
-    .logo { font-size: 18px; padding: 5px 15px; margin-top: 5px; order: 1;}
-    .header-right { width: 100%; justify-content: center; order: 2; display: flex; gap: 10px; }
-    
-    #search-container { width: 100%; flex: 1; }
-    #search-input { width: 100%; max-width: 100%; }
-    #search-input:focus { width: 100%; transform: translate(0, -2px); }
-    #search-results { width: 95vw; left: 50%; transform: translateX(-50%); right: auto; top: 45px; }
+        .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: #f1f1f1; z-index: 50;}
+        .copyright-footer p { margin: 0; font-size: 14px; }
 
-    .btn { padding: 6px 10px; font-size: 14px; box-shadow: 2px 2px 0px var(--comic-black); }
-    #catalog-view { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 0; }
-    .comic-cover { height: 220px; }
-    .comic-title { font-size: 16px; }
-    .badge { font-size: 12px; padding: 4px 8px; top: -8px; right: -8px; }
-    .controls { padding: 10px; gap: 10px; }
-    .page-text { font-size: 14px; padding: 8px 10px; }
-}
+        /* =========================================
+           響應式設計 (手機優化，一排兩封面)
+           ========================================= */
+        @media (max-width: 768px) {
+            header { flex-direction: column; gap: 15px; padding: 15px 10px; align-items: center; }
+            .logo { font-size: 20px; padding: 5px 15px; transform: skew(0); }
+            .header-actions { width: 100%; justify-content: space-between; gap: 10px; }
+            #search-container { width: 100%; flex: 1; }
+            #search-input { width: 100%; max-width: 100%; }
+            #search-results { width: 95vw; left: 50%; transform: translateX(-50%); right: auto; top: 45px; }
 
-
-        /* --- 搜尋列 UI --- */
-#search-container { position: relative; display: flex; align-items: center; }
-
-#search-input {
-    padding: 8px 15px; font-size: 16px; font-weight: 900; border: 3px solid var(--comic-black);
-    border-radius: 20px; outline: none; box-shadow: 2px 2px 0 var(--comic-black);
-    transition: all 0.3s; width: 200px; box-sizing: border-box; background: var(--comic-white);
-}
-#search-input:focus { box-shadow: 4px 4px 0 var(--comic-black); transform: translate(-2px, -2px); width: 250px; background: #fffde7; }
-
-#search-results {
-    position: absolute; top: 45px; right: 0; width: 320px; background: var(--comic-white);
-    border: 3px solid var(--comic-black); box-shadow: 4px 4px 0 var(--comic-black); border-radius: 8px;
-    display: none; z-index: 1000; max-height: 60vh; overflow-y: auto; text-align: left;
-}
-.search-item { padding: 12px 15px; border-bottom: 2px solid var(--comic-black); cursor: pointer; font-size: 15px; line-height: 1.4; color: #333; }
-.search-item:last-child { border-bottom: none; }
-.search-item:hover { background: var(--comic-yellow); color: var(--comic-black); }
-.search-item strong { display: block; margin-bottom: 5px; font-size: 16px; color: var(--comic-black); }
-.highlight { color: var(--comic-red); background: var(--comic-yellow); padding: 0 2px; border-radius: 3px; font-weight: bold; }
-
-
-.copyright-footer {
-    position: fixed;
-    bottom: 0;
-    right: 0;
-    padding: 5px 10px;
-    background-color: #f1f1f1;
-}
-
-.copyright-footer p {
-    margin: 0;
-    font-size: 14px;
-}
-
-@media (max-width: 600px) {
-    .copyright-footer p {
-        font-size: 12px;
-    }
-}
-
-
-:root {
-            --comic-black: #111;
-            --comic-white: #fdfdfd;
-            --comic-grey: #e0e0e0;
-            --comic-yellow: #ffcc00;
-            --comic-red: #e63946;
-            --comic-blue: #3a86ff; /* 新增這行：給「詩」使用的漫畫藍 */
-            --comic-border: 4px solid var(--comic-black);
-            /* ...原本的設定保持不變... */
+            .genre-grid { grid-template-columns: repeat(2, 1fr); gap: 40px 0; }
+            .genre-title { font-size: 20px; }
+            
+            .comic-book-inner { --thickness: 16px; transform: rotateY(-15deg); }
+            .comic-book:hover:not(.disabled) .comic-book-inner { transform: rotateY(0deg) translateZ(10px) translateY(-5px); }
+            .comic-cover-img { max-height: 160px; }
+            .spine-text { font-size: 11px; letter-spacing: 1px; }
+            .badge { font-size: 11px; padding: 3px 6px; top: -10px; right: -10px; }
+            
+            .reader-top-bar { padding: 10px; gap: 10px; margin-bottom: 10px;}
+            .reader-title { font-size: 20px; }
+            .reader-actions { gap: 10px; flex-wrap: wrap;}
+            .btn { padding: 6px 10px; font-size: 14px; }
+            .page-text { font-size: 14px; padding: 8px 10px; }
+            .controls { padding: 10px; gap: 10px; width: 100%; box-sizing: border-box; }
+            .copyright-footer p { font-size: 12px; }
         }
-
-
-        /* --- 體裁分類專屬陰影 (文:預設黑 / 詩:藍 / 詞:紅) --- */
-        .comic-card.genre-shi { box-shadow: 6px 6px 0px var(--comic-blue); }
-        .comic-card.genre-shi:hover:not(.disabled) { box-shadow: 10px 10px 0px var(--comic-blue); }
-        .comic-card.genre-shi .badge { box-shadow: 4px 4px 0 var(--comic-blue); }
-
-        .comic-card.genre-ci { box-shadow: 6px 6px 0px var(--comic-red); }
-        .comic-card.genre-ci:hover:not(.disabled) { box-shadow: 10px 10px 0px var(--comic-red); }
-        .comic-card.genre-ci .badge { box-shadow: 4px 4px 0 var(--comic-red); }
-
-
-        
-
-        
     </style>
 </head>
 <body>
 
     <header>
-        <div class="header-left">
-            <button id="btn-back" class="btn" style="display: none;">◄ 返回目錄</button>
+        <div class="logo" onclick="showCatalog()">DSE 範文漫畫館</div>
+        <div class="header-actions">
+            <div id="search-container">
+                <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="search-input" placeholder="搜尋內文..." autocomplete="off">
+                <div id="search-results"></div>
+            </div>
+            <!-- 去除更新字眼，只留圖示與 Title 提示 -->
+            <button id="btn-update" class="btn" title="清理快取並更新資料">
+                <svg viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.32-9.83l.98 2.26"/></svg>
+            </button>
         </div>
-        <div class="logo">DSE 範文漫畫館</div>
-        <div class="header-right">
-    <!-- 新增搜尋框 -->
-    <div id="search-container">
-        <input type="text" id="search-input" placeholder="搜尋內文..." autocomplete="off">
-        <div id="search-results"></div>
-    </div>
-    <button id="btn-update" class="btn" style="margin-left: 10px;">↻</button>
-</div>
     </header>
 
     <main>
-        <div id="loading">正在讀取漫畫...</div>
+        <div id="loading">載入中...</div>
 
-        <!-- 主頁：漫畫目錄 UI -->
+        <!-- 主頁：重構後的漫畫書櫃 UI -->
         <div id="catalog-view"></div>
 
         <!-- 內頁：漫畫閱讀器 -->
         <div id="reader-view">
+            <div class="reader-top-bar">
+                <!-- 標題置頂居中 -->
+                <h2 class="reader-title" id="reader-title">漫畫標題</h2>
+                <!-- 返回目錄與切換模式放在同一行 -->
+                <div class="reader-actions">
+                    <button class="btn" id="btn-back">
+                        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> 返回目錄
+                    </button>
+                    <!-- 切換按鈕，顏色由 JS 動態控制 -->
+                    <button class="btn btn-yellow" id="btn-toggle-mode">
+                        <span id="mode-icon"></span> 
+                        <span id="mode-text">切換模式</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 模式 1：翻頁模式 -->
             <div id="book-wrapper">
                 <div id="book"></div>
             </div>
 
+            <!-- 模式 2：捲動模式 (條漫) -->
+            <div id="scroll-wrapper"></div>
+
             <!-- 底部控制列 -->
-            <div class="controls">
-                <button class="btn" id="btn-prev">◄ 上一頁</button>
+            <div class="controls" id="controls-bottom">
+                <button class="btn" id="btn-prev">
+                    <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> 上一頁
+                </button>
                 <div class="page-info">
                     第 <input type="number" id="page-input" value="1" min="1"> / <span id="total-pages">1</span> 頁
                 </div>
-                <button class="btn" id="btn-next">下一頁 ►</button>
+                <button class="btn" id="btn-next">
+                    下一頁 <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
             </div>
         </div>
 
-        <!-- 翻頁音效元素 -->
+        <!-- 翻頁音效 -->
         <audio id="flip-sound" src="翻頁.MP3" preload="auto"></audio>
     </main>
 
-    <!-- 圖片放大遮罩層 -->
+    <!-- 漫畫風進度確認對話框 -->
+    <div id="resume-dialog" class="comic-dialog-overlay" style="display: none;">
+        <div class="comic-dialog">
+            <div class="comic-dialog-title">繼續閱讀？</div>
+            <div class="comic-dialog-content">
+                系統記錄你上次讀到第 <span id="resume-page-num" class="highlight"></span> 幅圖，<br>要從這裡繼續嗎？
+            </div>
+            <div class="comic-dialog-actions">
+                <button class="btn" id="btn-resume-no">從頭開始</button>
+                <button class="btn btn-yellow" id="btn-resume-yes">繼續閱讀</button>
+            </div>
+        </div>
+    </div>
+
     <div id="lightbox" onclick="closeLightbox()">
         <img id="lightbox-img" src="" alt="放大觀看">
     </div>
 
+    <footer class="copyright-footer">
+        <p>Copyright © 2026 陳冠健. All rights reserved.</p>
+    </footer>
+
     <script>
-        // ==========================================
-        // 1. Google Apps Script Web App URL 設定
-        // ==========================================
         const GAS_URL = "https://script.google.com/macros/s/AKfycbwvrHGW-m-UpVfvhc-rg2Rjo_tySA8XML5pGovWgGOdNvds83OihWlCOAh0Qte1GumHFA/exec"; 
 
         // ==========================================
-        // 2. 漫畫資料庫 (存放目錄結構與資訊)
+        // 1. 完整保留的漫畫資料庫 (無任何刪減)
         // ==========================================
-   const comicDatabase = {
-    "chushibiao": {
-        title: "《出師表》",
-        author: "諸葛亮",
-        folder: "《出師表》", 
-        folderId: "1AxZlN3nY_NkaJD3EBfrF1N31mYiK2pnx", 
-        totalPages: 36,
-        texts:[
-            "先帝創業未半而中道崩殂，", "今天下三分，益州疲弊，此誠危急存亡之秋也。", "然侍衛之臣不懈於內，忠志之士忘身於外者，",
-            "蓋追先帝之殊遇，欲報之於陛下也。", "誠宜開張聖聽，以光先帝遺德，恢弘志士之氣，", "不宜妄自菲薄，引喻失義，以塞忠諫之路也。",
-            "宮中府中，俱為一體，陟罰臧否，不宜異同。", "若有作姦犯科及為忠善者，宜付有司論其刑賞，", "以昭陛下平明之理，不宜偏私，使內外異法也。",
-            "侍中、侍郎郭攸之、費禕、董允等，此皆良實，志慮忠純，", "是以先帝簡拔以遺陛下。", "愚以為宮中之事，事無大小，悉以咨之，然後施行，",
-            "必能裨補闕漏，有所廣益。", "將軍向寵，性行淑均，曉暢軍事，", "試用於昔日，先帝稱之曰能，是以眾議舉寵為督。",
-            "愚以為營中之事，悉以咨之，必能使行陣和睦，", "優劣得所。", "親賢臣，遠小人，此先漢所以興隆也；親小人，遠賢臣，此後漢所以傾頹也。",
-            "先帝在時，每與臣論此事，未嘗不歎息痛恨於桓、靈也。", "侍中、尚書、長史、參軍，此悉貞良死節之臣，", "願陛下親之信之，則漢室之隆，可計日而待也。",
-            "臣本布衣，躬耕於南陽，苟全性命於亂世，不求聞達於諸侯。", "先帝不以臣卑鄙，猥自枉屈，三顧臣於草廬之中，", "咨臣以當世之事，由是感激，遂許先帝以驅馳。",
-            "後值傾覆，受任於敗軍之際，", "奉命於危難之間，爾來二十有一年矣。", "先帝知臣謹慎，故臨崩寄臣以大事也。",
-            "受命以來，夙夜憂歎，恐託付不效，以傷先帝之明，", "故五月渡瀘，深入不毛。今南方已定，兵甲已足，", "當獎率三軍，北定中原，庶竭駑鈍，攘除奸凶，",
-            "興復漢室，還于舊都。此臣所以報先帝，而忠陛下之職分也。", "至於斟酌損益，進盡忠言，則攸之、禕、允之任也。", "願陛下託臣以討賊興復之效，不效則治臣之罪，以告先帝之靈。",
-            "若無興德之言，則責攸之、禕、允等之慢，以彰其咎。", "陛下亦宜自謀，以咨諏善道，察納雅言，深追先帝遺詔。", "臣不勝受恩感激。今當遠離，臨表涕零，不知所言。"
-        ]
-    },
-    "xiaoyaoyou": { 
-        title: "《逍遙遊》", 
-        author: "《莊子》", 
-        folderId: "11746a1sOL6Kr61HRKyuGPmsQU4tk2T-K", 
-        folder: "《逍遙遊》", 
-        totalPages: 29, 
-        texts:[
-            "惠子謂莊子曰：「魏王貽我大瓠之種，", "我樹之成而實五石。", "以盛水漿，其堅不能自舉也。",
-            "剖之以為瓢，則瓠落無所容。", "非不呺然大也，吾為其無用而掊之。」", "莊子曰：「夫子固拙於用大矣。",
-            "宋人有善為不龜手之藥者，世世以洴澼絖為事。", "客聞之，請買其方百金。", "聚族而謀曰：『我世世為洴澼絖，不過數金。",
-            "今一朝而鬻技百金，請與之。』", "客得之，以說吳王。", "越有難，吳王使之將。冬，與越人水戰，大敗越人，",
-            "裂地而封之。", "能不龜手一也，或以封，或不免於洴澼絖，則所用之異也。", "今子有五石之瓠，何不慮以為大樽而浮乎江湖，",
-            "而憂其瓠落無所容？則夫子猶有蓬之心也夫！」", "惠子謂莊子曰：「吾有大樹，人謂之樗。", "其大本擁腫而不中繩墨，",
-            "其小枝卷曲而不中規矩。", "立之塗，匠者不顧。", "今子之言，大而無用，眾所同棄也。」",
-            "莊子曰：「子獨不見狸狌乎？卑身而伏，以候敖者；", "東西跳梁，不辟高下；中於機辟，死於罔罟。", "今夫斄牛，其大若垂天之雲。",
-            "此能為大矣，而不能執鼠。", "今子有大樹，患其無用，何不樹之於無何有之鄉，廣莫之野，", "彷徨乎無為其側，逍遙乎寢臥其下。",
-            "不夭斤斧，物無害者，", "無所可用，安所困苦哉！」"
-        ] 
-    },
-    "shishu": { 
-        title: "《師說》", 
-        author: "韓愈", 
-        folderId: "1m0eXAjQ4tb_jivjcz_cVwzrRJIUeYWs7", 
-        folder: "《師說》", 
-        totalPages: 21, 
-        texts:[
-            "古之學者必有師。師者，所以傳道受業解惑也。", 
-            "人非生而知之者，孰能無惑？惑而不從師，其為惑也，終不解矣。", 
-            "生乎吾前，其聞道也固先乎吾，吾從而師之；", 
-            "生乎吾後，其聞道也亦先乎吾，吾從而師之。", 
-            "吾師道也，夫庸知其年之先後生於吾乎？是故無貴無賤，無長無少，道之所存，師之所存也。", 
-            "嗟乎！師道之不傳也久矣！欲人之無惑也難矣！", 
-            "古之聖人，其出人也遠矣，猶且從師而問焉；", 
-            "今之眾人，其下聖人也亦遠矣，而恥學於師。", 
-            "是故聖益聖，愚益愚。聖人之所以為聖，愚人之所以為愚，其皆出於此乎？", 
-            "愛其子，擇師而教之；於其身也，則恥師焉，惑矣。", 
-            "彼童子之師，授之書而習其句讀者，非吾所謂傳其道解其惑者也。", 
-            "句讀之不知，惑之不解，或師焉，或不焉，小學而大遺，吾未見其明也。", 
-            "巫醫樂師百工之人，不恥相師。", 
-            "士大夫之族，曰師、曰弟子云者，則群聚而笑之。", 
-            "問之，則曰：「彼與彼年相若也，道相似也。位卑則足羞，官盛則近諛。」", 
-            "嗚呼！師道之不復可知矣。巫醫樂師百工之人，君子不齒，今其智乃反不能及，其可怪也歟！", 
-            "聖人無常師。孔子師郯子、萇弘、師襄、老聃。郯子之徒，其賢不及孔子。", 
-            "孔子曰：「三人行，則必有我師。」", 
-            "是故弟子不必不如師，師不必賢於弟子，聞道有先後，術業有專攻，如是而已。", 
-            "李氏子蟠，年十七，好古文，六藝經傳皆通習之，", 
-            "不拘於時，學於余。余嘉其能行古道，作《師說》以貽之。"
-        ] 
-    },
-       "xishanyanyouji": { 
-        title: "《始得西山宴遊記》", 
-        author: "柳宗元", 
-        folderId: "1KSgikNxXETfe5R7IuymXom-4ODoGXcCS", 
-        folder: "《始得西山宴遊記》", 
-        totalPages: 21, 
-        texts:[
-            "自余為僇人，居是州，恆惴慄。", 
-            "其隟也，則施施而行，漫漫而遊。日與其徒上高山，入深林，", 
-            "窮迴溪，幽泉怪石，無遠不到。", 
-            "到則披草而坐，傾壺而醉。", 
-            "醉則更相枕以臥，臥而夢。", 
-            "意有所極，夢亦同趣。覺而起，起而歸。", 
-            "以為凡是州之山水有異態者，皆我有也，而未始知西山之怪特。", 
-            "今年九月二十八日，因坐法華西亭，望西山，始指異之。", 
-            "遂命僕人過湘江，緣染溪，斫榛莽，焚茅茷，窮山之高而止。", 
-            "攀援而登，箕踞而遨，則凡數州之土壤，皆在衽席之下。", 
-            "其高下之勢，岈然窪然，若垤若穴，", 
-            "尺寸千里，攢蹙累積，莫得遯隱。", 
-            "縈青繚白，外與天際，四望如一。", 
-            "然後知是山之特立，不與培塿為類。", 
-            "悠悠乎與顥氣俱，而莫得其涯；", 
-            "洋洋乎與造物者遊，而不知其所窮。", 
-            "引觴滿酌，頹然就醉，不知日之入。", 
-            "蒼然暮色，自遠而至，至無所見，而猶不欲歸。", 
-            "心凝形釋，與萬化冥合。", 
-            "然後知吾嚮之未始遊，遊於是乎始。故為之文以志。", 
-            "是歲，元和四年也。"
-        ] 
-    },
-       "yueyanglouji": { 
-        title: "《岳陽樓記》", 
-        author: "范仲淹", 
-        folderId: "1ZIW5BsMvthRxr0ecWxXMrHXu6F2exV83", 
-        folder: "《岳陽樓記》", 
-        totalPages: 33, 
-        texts:[
-            "慶曆四年春，滕子京謫守巴陵郡。", 
-            "越明年，政通人和，百廢具興。", 
-            "乃重修岳陽樓，增其舊制，", 
-            "刻唐賢今人詩賦於其上，", 
-            "屬予作文以記之。", 
-            "予觀夫巴陵勝狀，在洞庭一湖。", 
-            "銜遠山，吞長江，浩浩湯湯，橫無際涯；", 
-            "朝暉夕陰，氣象萬千。", 
-            "此則岳陽樓之大觀也，前人之述備矣。", 
-            "然則北通巫峽，南極瀟湘，", 
-            "遷客騷人，多會於此，", 
-            "覽物之情，得無異乎？", 
-            "若夫霪雨霏霏，連月不開；", 
-            "陰風怒號，濁浪排空；", 
-            "日星隱曜，山岳潛形；", 
-            "商旅不行，檣傾楫摧；", 
-            "薄暮冥冥，虎嘯猿啼。", 
-            "登斯樓也，則有去國懷鄉，憂讒畏譏，", 
-            "滿目蕭然，感極而悲者矣。", 
-            "至若春和景明，波瀾不驚，上下天光，一碧萬頃；", 
-            "沙鷗翔集，錦鱗游泳，", 
-            "岸芷汀蘭，郁郁青青。", 
-            "而或長煙一空，皓月千里，", 
-            "浮光躍金，靜影沉璧；", 
-            "漁歌互答，此樂何極！", 
-            "登斯樓也，則有心曠神怡，寵辱皆忘，", 
-            "把酒臨風，其喜洋洋者矣。", 
-            "嗟夫！予嘗求古仁人之心，或異二者之為。", 
-            "何哉？不以物喜，不以己悲。", 
-            "居廟堂之高，則憂其民；處江湖之遠，則憂其君。", 
-            "是進亦憂，退亦憂，然則何時而樂耶？", 
-            "其必曰：「先天下之憂而憂，後天下之樂而樂」乎！", 
-            "噫！微斯人，吾誰與歸？"
-        ] 
-    },
-       "yuwosuoyuye": { 
-        title: "《魚我所欲也》", 
-        author: "《孟子》", 
-        folderId: "1jLzHK1ibMoBcEURYj1RAZW-It5Vg5zpO", 
-        folder: "《魚我所欲也》", 
-        totalPages: 19, 
-        texts:[
-            "魚，我所欲也；熊掌，亦我所欲也。二者不可得兼，舍魚而取熊掌者也。", 
-            "生，亦我所欲也；義，亦我所欲也。二者不可得兼，舍生而取義者也。", 
-            "生亦我所欲，所欲有甚於生者，故不為苟得也；", 
-            "死亦我所惡，所惡有甚於死者，故患有所不辟也。", 
-            "如使人之所欲莫甚於生，則凡可以得生者何不用也？", 
-            "使人之所惡莫甚於死者，則凡可以辟患者何不為也？", 
-            "由是則生而有不用也，由是則可以辟患而有不為也。", 
-            "是故所欲有甚於生者，所惡有甚於死者。", 
-            "非獨賢者有是心也，人皆有之，賢者能勿喪耳。", 
-            "一簞食，一豆羹，得之則生，弗得則死。", 
-            "嘑爾而與之，行道之人弗受；", 
-            "蹴爾而與之，乞人不屑也。", 
-            "萬鍾則不辯禮義而受之，", 
-            "萬鍾於我何加焉！", 
-            "為宮室之美，妻妾之奉，所識窮乏者得我與？", 
-            "鄉為身死而不受，今為宮室之美為之；", 
-            "鄉為身死而不受，今為妻妾之奉為之；", 
-            "鄉為身死而不受，今為所識窮乏者得我而為之：", 
-            "是亦不可以已乎？此之謂失其本心。"
-        ] 
-    },
-       "quanxue": {
-        title: "《勸學》",
-        author: "《荀子》",
-        folderId: "1v7HLwNI5adR3AZ_SFna92ZAbQGG-2dGh",
-        folder: "《勸學》",
-        totalPages: 20,
-        texts:[
-            "君子曰：學不可以已。", 
-            "青，取之於藍，而青於藍；冰，水為之，而寒於水。", 
-            "木直中繩，輮以為輪，其曲中規；雖有槁暴，不復挺者，輮使之然也。", 
-            "故木受繩則直，金就礪則利，", 
-            "君子博學而日參省乎己，則知明而行無過矣。", 
-            "吾嘗終日而思矣，不如須臾之所學也；", 
-            "吾嘗跂而望矣，不如登高之博見也。", 
-            "登高而招，臂非加長也，而見者遠；", 
-            "順風而呼，聲非加疾也，而聞者彰。", 
-            "假輿馬者，非利足也，而致千里；", 
-            "假舟楫者，非能水也，而絕江河。", 
-            "君子生非異也，善假於物也。", 
-            "積土成山，風雨興焉；", 
-            "積水成淵，蛟龍生焉；", 
-            "積善成德，而神明自得，聖心備焉。", 
-            "故不積跬步，無以至千里；不積小流，無以成江海。", 
-            "騏驥一躍，不能十步；駑馬十駕，功在不舍。", 
-            "鍥而舍之，朽木不折；鍥而不舍，金石可鏤。", 
-            "蚓無爪牙之利，筋骨之強，上食埃土，下飲黃泉，用心一也。", 
-            "蟹六跪而二螯，非蛇蟺之穴無可寄託者，用心躁也。"
-        ]
-    },
-       "lunrenlunxiaolunjunzi": {
-        title: "《論仁、論孝、論君子》",
-        author: "《論語》",
-        folderId: "1oUsRn7RhHnapMRr9IQqUv2ocZ5FlKZIL",
-        folder: "《論仁、論孝、論君子》",
-        totalPages: 27,
-        texts:[
-            "子曰：「不仁者，不可以久處約 ，不可以長處樂。仁者安仁，知者利仁 。」（《里仁》第四）",
-            "子曰：「富與貴，是人之所欲也；不以其道得之，不處也 。",
-            "貧與賤，是人之所惡也；不以其道得之 ，不去也。",
-            "君子去仁，惡乎成名？",
-            "君子無終食之間違仁 ，造次必於是 ，顛沛必於是。」（《里仁》第四）",
-            "顏淵問仁。子曰：「克己復禮為仁 。",
-            "一日克己復禮，天下歸仁焉。為仁由己，而由人乎哉 ？」",
-            "顏淵曰：「請問其目 。」子曰：「非禮勿視，非禮勿聽，非禮勿言，非禮勿動 。」",
-            "顏淵曰：「回雖不敏，請事斯語矣 。」（《顏淵》第十二）",
-            "子曰：「志士仁人，無求生以害仁，有殺身以成仁 。」",
-            "孟懿子問孝。子曰：「無違。」",
-            "樊遲御 ，子告之曰：「孟孫問孝於我，我對曰，無違。」",
-            "樊遲曰：「何謂也？」子曰：「生事之以禮；死葬之以禮，祭之以禮 。」（《為政》第二）",
-            "子游問孝。子曰：「今之孝者，是謂能養。",
-            "至於犬馬，皆能有養 ；不敬，何以別乎！」（《為政》第二）",
-            "子曰：「事父母幾諫，見志不從，又敬不違，勞而不怨。」（《里仁》第四）",
-            "子曰：「父母之年，不可不知也。一則以喜，一則以懼。」（《里仁》第四）",
-            "子曰：「君子不重則不威；學則不固。",
-            "主忠信。無友不如己者。過則勿憚改。」（《學而》第一）",
-            "子曰：「君子坦蕩蕩，小人長戚戚。」（《述而》第七）",
-            "司馬牛問君子。子曰：「君子不憂不懼。」",
-            "曰：「不憂不懼，斯謂之君子矣乎？」子曰：「內省不疚，夫何憂何懼？」（《顏淵》第十二）",
-            "子曰：「君子成人之美，不成人之惡。小人反是。」（《顏淵》第十二）",
-            "子曰：「君子恥其言而過其行。」（《憲問》第十四）",
-            "子曰：「君子義以為質，禮以行之，孫以出之，信以成之。君子哉！」（《衛靈公》第十五）",
-            "子曰：「君子病無能焉，不病人之不己知也。」（《衛靈公》第十五）",
-            "子曰：「君子求諸己，小人求諸人。」（《衛靈公》第十五）"
-        ]
-    },
-       "liuguolun": {
-        title: "《六國論》",
-        author: "蘇洵",
-        folderId: "1MiCDqr7cdyPEB1dfeg4evcXMaRi_-xOn",
-        folder: "《六國論》",
-        totalPages: 29,
-        texts:[
-            "六國破滅，非兵不利，戰不善，弊在賂秦。",
-            "賂秦而力虧，破滅之道也。",
-            "或曰：「六國互喪，率賂秦耶？」",
-            "曰：「不賂者以賂者喪。蓋失強援，不能獨完。故曰弊在賂秦也。」",
-            "秦以攻取之外，小則獲邑，大則得城。",
-            "較秦之所得，與戰勝而得者，其實百倍；",
-            "諸侯之所亡，與戰敗而亡者，其實亦百倍。",
-            "則秦之所大欲，諸侯之所大患，固不在戰矣。",
-            "思厥先祖父，暴霜露，斬荊棘，以有尺寸之地。",
-            "子孫視之不甚惜，舉以予人，如棄草芥。",
-            "今日割五城，明日割十城，然後得一夕安寢。",
-            "起視四境，而秦兵又至矣。",
-            "然則諸侯之地有限，暴秦之欲無厭，奉之彌繁，侵之愈急。",
-            "故不戰而強弱勝負已判矣。",
-            "至於顛覆，理固宜然。",
-            "古人云：「以地事秦，猶抱薪救火，薪不盡，火不滅。」",
-            "此言得之。",
-            "齊人未嘗賂秦，終繼五國遷滅，何哉？",
-            "與嬴而不助五國也。五國既喪，齊亦不免矣。",
-            "燕趙之君，始有遠略，能守其土，義不賂秦。",
-            "是故燕雖小國而後亡，斯用兵之效也。",
-            "至丹以荊卿為計，始速禍焉。",
-            "趙嘗五戰於秦，二敗而三勝。",
-            "後秦擊趙者再，李牧連卻之。",
-            "洎牧以讒誅，邯鄲為郡，",
-            "惜其用武而不終也。",
-            "且燕趙處秦革滅殆盡之際，可謂智力孤危，戰敗而亡，誠不得已。",
-            "向使三國各愛其地，齊人勿附於秦，刺客不行，良將猶在，",
-            "則勝負之數，存亡之理，當與秦相較，或未易量。"
-        ]
-    },
-       "lianpolinxiangruliezhuan": {
-        title: "《廉頗藺相如列傳》",
-        author: "司馬遷",
-        folderId: "1tjB8ZHJ3kcoZq-QD7DapSHfynQRi5MFW",
-        folder: "《廉頗藺相如列傳》",
-        totalPages: 92,
-        texts:[
-            "廉頗者，趙之良將也。",
-            "趙惠文王十六年，廉頗為趙將，伐齊，大破之，",
-            "取陽晉，拜為上卿，以勇氣聞於諸侯。",
-            "藺相如者，趙人也。為趙宦者令繆賢舍人。",
-            "趙惠文王時，得楚和氏璧。秦昭王聞之，",
-            "使人遺趙王書，願以十五城請易璧。",
-            "趙王與大將軍廉頗諸大臣謀：欲予秦，秦城恐不可得，徒見欺；",
-            "欲勿予，即患秦兵之來。計未定，",
-            "求人可使報秦者，未得。",
-            "宦者令繆賢曰：「臣舍人藺相如可使。」王問：「何以知之？」",
-            "對曰：「臣嘗有罪，竊計欲亡走燕。臣舍人相如止臣曰：『君何以知燕王？』",
-            "臣語曰：『臣嘗從大王與燕王會境上，燕王私握臣手曰，「願結友」，以此知之，故欲往。』",
-            "相如謂臣曰：『夫趙彊而燕弱，而君幸於趙王，故燕王欲結於君。",
-            "今君乃亡趙走燕，燕畏趙，其勢必不敢留君，而束君歸趙矣。",
-            "君不如肉袒伏斧質請罪，則幸得脫矣。』",
-            "臣從其計，大王亦幸赦臣。臣竊以為其人勇士，有智謀，宜可使。」",
-            "於是王召見，問藺相如曰：「秦王以十五城請易寡人之璧，可予不？」",
-            "相如曰：「秦彊而趙弱，不可不許。」",
-            "王曰：「取吾璧，不予我城，柰何？」",
-            "相如曰：「秦以城求璧而趙不許，曲在趙；",
-            "趙予璧而秦不予趙城，曲在秦。",
-            "均之二策，寧許以負秦曲。」",
-            "王曰：「誰可使者？」",
-            "相如曰：「王必無人，臣願奉璧往使。",
-            "城入趙而璧留秦；城不入，臣請完璧歸趙。」",
-            "趙王於是遂遣相如奉璧西入秦。",
-            "秦王坐章臺見相如。相如奉璧奏秦王。",
-            "秦王大喜，傳以示美人及左右，左右皆呼萬歲。",
-            "相如視秦王無意償趙城，乃前曰：「璧有瑕，請指示王。」",
-            "王授璧。",
-            "相如因持璧卻立，倚柱，",
-            "怒髮上衝冠，謂秦王曰：「大王欲得璧，使人發書至趙王，",
-            "趙王悉召羣臣議，皆曰：『秦貪，負其彊，以空言求璧，償城恐不可得。』",
-            "議不欲予秦璧。臣以為布衣之交尚不相欺，況大國乎？",
-            "且以一璧之故逆彊秦之驩，不可。",
-            "於是趙王乃齋戒五日，使臣奉璧，拜送書於庭。",
-            "何者？嚴大國之威以修敬也。",
-            "今臣至，大王見臣列觀，禮節甚倨，",
-            "得璧，傳之美人，以戲弄臣。",
-            "臣觀大王無意償趙王城邑，故臣復取璧。",
-            "大王必欲急臣，臣頭今與璧俱碎於柱矣！」",
-            "相如持其璧睨柱，欲以擊柱。",
-            "秦王恐其破璧，乃辭謝，固請，",
-            "召有司案圖，指從此以往十五都予趙。",
-            "相如度秦王特以詐佯為予趙城，實不可得，",
-            "乃謂秦王曰：「和氏璧，天下所共傳寶也。趙王恐，不敢不獻。",
-            "趙王送璧時，齋戒五日。今大王亦宜齋戒五日，設九賓於廷，臣乃敢上璧。」",
-            "秦王度之，終不可彊奪，遂許齋五日，舍相如廣成傳。",
-            "相如度秦王雖齋，決負約不償城，",
-            "乃使其從者衣褐，懷其璧，從徑道亡，歸璧於趙。",
-            "秦王齋五日後，乃設九賓禮於廷，引趙使者藺相如。",
-            "相如至，謂秦王曰：「秦自繆公以來二十餘君，未嘗有堅明約束者也。",
-            "臣誠恐見欺於王而負趙，故令人持璧歸，閒至趙矣。",
-            "且秦彊而趙弱，大王遣一介之使至趙，趙立奉璧來。",
-            "今以秦之彊而先割十五都予趙，趙豈敢留璧而得罪於大王乎？",
-            "臣知欺大王之罪當誅，臣請就湯鑊。唯大王與羣臣孰計議之。」",
-            "秦王與羣臣相視而嘻。",
-            "左右或欲引相如去，",
-            "秦王因曰：「今殺相如，終不能得璧也，而絕秦趙之驩。",
-            "不如因而厚遇之，使歸趙。趙王豈以一璧之故欺秦邪？」",
-            "卒廷見相如，畢禮而歸之。",
-            "相如既歸，趙王以為賢大夫，使不辱於諸侯，拜相如為上大夫。",
-            "秦亦不以城予趙，趙亦終不予秦璧。",
-            "其後秦伐趙，拔石城。明年復攻趙，殺二萬人。",
-            "秦王使使者告趙王，欲與王為好，會於西河外澠池。趙王畏秦，欲毋行。",
-            "廉頗藺相如計曰：「王不行，示趙弱且怯也。」趙王遂行。相如從。",
-            "廉頗送至境，與王訣曰：「王行，度道里會遇之禮畢，還，不過三十日。",
-            "三十日不還，則請立太子為王，以絕秦望。」王許之。遂與秦王會澠池。",
-            "秦王飲酒酣，曰：「寡人竊聞趙王好音，請奏瑟。」",
-            "趙王鼓瑟。秦御史前書曰：「某年月日，秦王與趙王會飲，令趙王鼓瑟。」",
-            "藺相如前曰：「趙王竊聞秦王善為秦聲，請奏盆缻秦王，以相娛樂。」",
-            "秦王怒，不許。於是相如前進缻，因跪請秦王。",
-            "秦王不肯擊缻。相如曰：「五步之內，相如請得以頸血濺大王矣！」",
-            "左右欲刃相如，相如張目叱之，左右皆靡。",
-            "於是秦王不懌，為一擊缻。相如顧召趙御史書曰：「某年月日，秦王為趙王擊缻。」",
-            "秦之羣臣曰：「請以趙十五城為秦王壽。」藺相如亦曰：「請以秦之咸陽為趙王壽。」",
-            "秦王竟酒，終不能加勝於趙。趙亦盛設兵以待秦，秦不敢動。",
-            "既罷歸國，以相如功大，拜為上卿，位在廉頗之右。",
-            "廉頗曰：「我為趙將，有攻城野戰之大功，而藺相如徒以口舌為勞，而位居我上。",
-            "且相如素賤人，吾羞，不忍為之下。」宣言曰：「我見相如，必辱之。」",
-            "相如聞，不肯與會。相如每朝時，常稱病，不欲與廉頗爭列。",
-            "已而相如出，望見廉頗，相如引車避匿。",
-            "於是舍人相與諫曰：「臣所以去親戚而事君者，徒慕君之高義也。",
-            "今君與廉頗同列，廉君宣惡言，而君畏匿之，恐懼殊甚。",
-            "且庸人尚羞之，況於將相乎！臣等不肖，請辭去。」",
-            "藺相如固止之，曰：「公之視廉將軍孰與秦王？」曰：「不若也。」",
-            "相如曰：「夫以秦王之威，而相如廷叱之，辱其羣臣。相如雖駑，獨畏廉將軍哉？",
-            "顧吾念之，彊秦之所以不敢加兵於趙者，徒以吾兩人在也。",
-            "今兩虎共鬬，其勢不俱生。吾所以為此者，以先國家之急而後私讎也。」",
-            "廉頗聞之，肉袒負荊，因賓客至藺相如門謝罪，",
-            "曰：「鄙賤之人，不知將軍寬之至此也！」",
-            "卒相與驩，為刎頸之交。"
-        ]
-    },
-      "denglou": {
-        title: "《登樓》",
-        author: "杜甫",
-        genre: "shi", // 新增：詩
-        folderId: "1tTbHwbpcZRcU7UHmywr-UlF45da-F26B",
-        folder: "《登樓》",
-        totalPages: 8,
-        texts:[
-            "花近高樓傷客心，",
-            "萬方多難此登臨。",
-            "錦江春色來天地，",
-            "玉壘浮雲變古今。",
-            "北極朝廷終不改，",
-            "西山寇盜莫相侵。",
-            "可憐後主還祠廟，",
-            "日暮聊為《梁甫吟》。"
-        ]
-    },
-       "yuexiaduzhuo": {
-        title: "《月下獨酌》",
-        author: "李白",
-        genre: "shi", // 新增：詩
-        folderId: "13of9IGifBS8EHWQfFI4d5htg9WfAbzc8",
-        folder: "《月下獨酌》",
-        totalPages: 14,
-        texts:[
-            "花間一壺酒，",
-            "獨酌無相親。",
-            "舉杯邀明月，",
-            "對影成三人。",
-            "月既不解飲，",
-            "影徒隨我身。",
-            "暫伴月將影，",
-            "行樂須及春。",
-            "我歌月徘徊，",
-            "我舞影零亂。",
-            "醒時同交歡，",
-            "醉後各分散。",
-            "永結無情遊，",
-            "相期邈雲漢。"
-        ]
-    },
-       "shanjuqiuming": {
-        title: "《山居秋暝》",
-        author: "王維",
-        genre: "shi", // 新增：詩
-        folderId: "1svtWto6t8sKC4tpFZDYTjYWJlk7q3odH",
-        folder: "《山居秋暝》",
-        totalPages: 8,
-        texts:[
-            "空山新雨後，",
-            "天氣晚來秋。",
-            "明月松間照，",
-            "清泉石上流。",
-            "竹喧歸浣女，",
-            "蓮動下漁舟。",
-            "隨意春芳歇，",
-            "王孫自可留。"
-        ]
-    },
-       "qingyuan": {
-        title: "《青玉案·元夕》",
-        author: "辛棄疾",
-        genre: "ci", // 新增：詞
-        folderId: "1Bo5tYPis3NCc3Eo-JK-YbMkaBoTaAnq4",
-        folder: "《青玉案》",
-        totalPages: 12,
-        texts:[
-            "東風夜放花千樹。",
-            "更吹落、星如雨。",
-            "寶馬雕車香滿路。",
-            "鳳簫聲動，",
-            "玉壺光轉，",
-            "一夜魚龍舞。",
-            "蛾兒雪柳黃金縷，",
-            "笑語盈盈暗香去。",
-            "眾裏尋他千百度，",
-            "驀然回首，",
-            "那人卻在，",
-            "燈火闌珊處。"
-        ]
-    },
-       "niannujiao": {
-        title: "《念奴嬌》",
-        author: "蘇軾",
-        genre: "ci", // 新增：詞
-        folderId: "1dkEcbMNt2-zf33ZWAZ2sxjrEKYMxoHXq",
-        folder: "《念奴嬌》",
-        totalPages: 9,
-        texts:[
-            "大江東去，浪淘盡，千古風流人物。",
-            "故壘西邊，人道是，三國周郎赤壁。",
-            "亂石穿空，驚濤拍岸，",
-            "捲起千堆雪。",
-            "江山如畫，一時多少豪傑。",
-            "遙想公瑾當年，小喬初嫁了，雄姿英發。",
-            "羽扇綸巾，談笑間，強虜灰飛煙滅。",
-            "故國神遊，多情應笑我，早生華髮。",
-            "人生如夢，一尊還酹江月。"
-        ]
-    },
-       "shengshengman": {
-        title: "《聲聲慢》",
-        author: "李清照",
-        genre: "ci", // 新增：詞
-        folderId: "1QsqOAfE7vKOjw8uNHhJXDM8OjGYmYca6",
-        folder: "《聲聲慢》",
-        totalPages: 11,
-        texts:[
-            "尋尋覓覓，",                     
-            "冷冷清清，",                     
-            "淒淒慘慘戚戚。",                 
-            "乍煖還寒時候，最難將息。",       
-            "三杯兩盞淡酒，怎敵他、晚來風急？", 
-            "雁過也，正傷心，",               
-            "卻是舊時相識。",                 
-            "滿地黃花堆積，憔悴損，如今有誰堪摘？", 
-            "守著窗兒，獨自怎生得黑？",       
-            "梧桐更兼細雨，到黃昏、點點滴滴。", 
-            "這次第，怎一個愁字了得！"        
-        ]
-    }
-};
+        const comicDatabase = {
+            "chushibiao": {
+                title: "《出師表》", author: "諸葛亮", genre: "wen", folderId: "1AxZlN3nY_NkaJD3EBfrF1N31mYiK2pnx", folder: "《出師表》", totalPages: 36,
+                texts:[
+                    "先帝創業未半而中道崩殂，", "今天下三分，益州疲弊，此誠危急存亡之秋也。", "然侍衛之臣不懈於內，忠志之士忘身於外者，",
+                    "蓋追先帝之殊遇，欲報之於陛下也。", "誠宜開張聖聽，以光先帝遺德，恢弘志士之氣，", "不宜妄自菲薄，引喻失義，以塞忠諫之路也。",
+                    "宮中府中，俱為一體，陟罰臧否，不宜異同。", "若有作姦犯科及為忠善者，宜付有司論其刑賞，", "以昭陛下平明之理，不宜偏私，使內外異法也。",
+                    "侍中、侍郎郭攸之、費禕、董允等，此皆良實，志慮忠純，", "是以先帝簡拔以遺陛下。", "愚以為宮中之事，事無大小，悉以咨之，然後施行，",
+                    "必能裨補闕漏，有所廣益。", "將軍向寵，性行淑均，曉暢軍事，", "試用於昔日，先帝稱之曰能，是以眾議舉寵為督。",
+                    "愚以為營中之事，悉以咨之，必能使行陣和睦，", "優劣得所。", "親賢臣，遠小人，此先漢所以興隆也；親小人，遠賢臣，此後漢所以傾頹也。",
+                    "先帝在時，每與臣論此事，未嘗不歎息痛恨於桓、靈也。", "侍中、尚書、長史、參軍，此悉貞良死節之臣，", "願陛下親之信之，則漢室之隆，可計日而待也。",
+                    "臣本布衣，躬耕於南陽，苟全性命於亂世，不求聞達於諸侯。", "先帝不以臣卑鄙，猥自枉屈，三顧臣於草廬之中，", "咨臣以當世之事，由是感激，遂許先帝以驅馳。",
+                    "後值傾覆，受任於敗軍之際，", "奉命於危難之間，爾來二十有一年矣。", "先帝知臣謹慎，故臨崩寄臣以大事也。",
+                    "受命以來，夙夜憂歎，恐託付不效，以傷先帝之明，", "故五月渡瀘，深入不毛。今南方已定，兵甲已足，", "當獎率三軍，北定中原，庶竭駑鈍，攘除奸凶，",
+                    "興復漢室，還于舊都。此臣所以報先帝，而忠陛下之職分也。", "至於斟酌損益，進盡忠言，則攸之、禕、允之任也。", "願陛下託臣以討賊興復之效，不效則治臣之罪，以告先帝之靈。",
+                    "若無興德之言，則責攸之、禕、允等之慢，以彰其咎。", "陛下亦宜自謀，以咨諏善道，察納雅言，深追先帝遺詔。", "臣不勝受恩感激。今當遠離，臨表涕零，不知所言。"
+                ]
+            },
+            "xiaoyaoyou": { 
+                title: "《逍遙遊》", author: "《莊子》", genre: "wen", folderId: "11746a1sOL6Kr61HRKyuGPmsQU4tk2T-K", folder: "《逍遙遊》", totalPages: 29, 
+                texts:[
+                    "惠子謂莊子曰：「魏王貽我大瓠之種，", "我樹之成而實五石。", "以盛水漿，其堅不能自舉也。",
+                    "剖之以為瓢，則瓠落無所容。", "非不呺然大大也，吾為其無用而掊之。」", "莊子曰：「夫子固拙於用大矣。",
+                    "宋人有善為不龜手之藥者，世世以洴澼絖為事。", "客聞之，請買其方百金。", "聚族而謀曰：『我世世為洴澼絖，不過數金。",
+                    "今一朝而鬻技百金，請與之。』", "客得之，以說吳王。", "越有難，吳王使之將。冬，與越人水戰，大敗越人，",
+                    "裂地而封之。", "能不龜手一也，或以封，或不免於洴澼絖，則所用之異也。", "今子有五石之瓠，何不慮以為大樽而浮乎江湖，",
+                    "而憂其瓠落無所容？則夫子猶有蓬之心也夫！」", "惠子謂莊子曰：「吾有大樹，人謂之樗。", "其大本擁腫而不中繩墨，",
+                    "其小枝卷曲而不中規矩。", "立之塗，匠者不顧。", "今子之言，大而無用，眾所同棄也。」",
+                    "莊子曰：「子獨不見狸狌乎？卑身而伏，以候敖者；", "東西跳梁，不辟高下；中於機辟，死於罔罟。", "今夫斄牛，其大若垂天之雲。",
+                    "此能為大矣，而不能執鼠。", "今子有大樹，患其無用，何不樹之於無何有之鄉，廣莫之野，", "彷徨乎無為其側，逍遙乎寢臥其下。",
+                    "不夭斤斧，物無害者，", "無所可用，安所困苦哉！」"
+                ] 
+            },
+            "shishu": { 
+                title: "《師說》", author: "韓愈", genre: "wen", folderId: "1m0eXAjQ4tb_jivjcz_cVwzrRJIUeYWs7", folder: "《師說》", totalPages: 21, 
+                texts:[
+                    "古之學者必有師。師者，所以傳道受業解惑也。", "人非生而知之者，孰能無惑？惑而不從師，其為惑也，終不解矣。", 
+                    "生乎吾前，其聞道也固先乎吾，吾從而師之；", "生乎吾後，其聞道也亦先乎吾，吾從而師之。", 
+                    "吾師道也，夫庸知其年之先後生於吾乎？是故無貴無賤，無長無少，道之所存，師之所存也。", "嗟乎！師道之不傳也久矣！欲人之無惑也難矣！", 
+                    "古之聖人，其出人也遠矣，猶且從師而問焉；", "今之眾人，其下聖人也亦遠矣，而恥學於師。", 
+                    "是故聖益聖，愚益愚。聖人之所以為聖，愚人之所以為愚，其皆出於此乎？", "愛其子，擇師而教之；於其身也，則恥師焉，惑矣。", 
+                    "彼童子之師，授之書而習其句讀者，非吾所謂傳其道解其惑者也。", "句讀之不知，惑之不解，或師焉，或不焉，小學而大遺，吾未見其明也。", 
+                    "巫醫樂師百工之人，不恥相師。", "士大夫之族，曰師、曰弟子云者，則群聚而笑之。", 
+                    "問之，則曰：「彼與彼年相若也，道相似也。位卑則足羞，官盛則近諛。」", "嗚呼！師道之不復可知矣。巫醫樂師百工之人，君子不齒，今其智乃反不能及，其可怪也歟！", 
+                    "聖人無常師。孔子師郯子、萇弘、師襄、老聃。郯子之徒，其賢不及孔子。", "孔子曰：「三人行，則必有我師。」", 
+                    "是故弟子不必不如師，師不必賢於弟子，聞道有先後，術業有專攻，如是而已。", "李氏子蟠，年十七，好古文，六藝經傳皆通習之，", 
+                    "不拘於時，學於余。余嘉其能行古道，作《師說》以貽之。"
+                ] 
+            },
+            "xishanyanyouji": { 
+                title: "《始得西山宴遊記》", author: "柳宗元", genre: "wen", folderId: "1KSgikNxXETfe5R7IuymXom-4ODoGXcCS", folder: "《始得西山宴遊記》", totalPages: 21, 
+                texts:[
+                    "自余為僇人，居是州，恆惴慄。", "其隟也，則施施而行，漫漫而遊。日與其徒上高山，入深林，", "窮迴溪，幽泉怪石，無遠不到。", 
+                    "到則披草而坐，傾壺而醉。", "醉則更相枕以臥，臥而夢。", "意有所極，夢亦同趣。覺而起，起而歸。", 
+                    "以為凡是州之山水有異態者，皆我有也，而未始知西山之怪特。", "今年九月二十八日，因坐法華西亭，望西山，始指異之。", 
+                    "遂命僕人過湘江，緣染溪，斫榛莽，焚茅茷，窮山之高而止。", "攀援而登，箕踞而遨，則凡數州之土壤，皆在衽席之下。", 
+                    "其高下之勢，岈然窪然，若垤若穴，", "尺寸千里，攢蹙累積，莫得遯隱。", "縈青繚白，外與天際，四望如一。", 
+                    "然後知是山之特立，不與培塿為類。", "悠悠乎與顥氣俱，而莫得其涯；", "洋洋乎與造物者遊，而不知其所窮。", 
+                    "引觴滿酌，頹然就醉，不知日之入。", "蒼然暮色，自遠而至，至無所見，而猶不欲歸。", "心凝形釋，與萬化冥合。", 
+                    "然後知吾嚮之未始遊，遊於是乎始。故為之文以志。", "是歲，元和四年也。"
+                ] 
+            },
+            "yueyanglouji": { 
+                title: "《岳陽樓記》", author: "范仲淹", genre: "wen", folderId: "1ZIW5BsMvthRxr0ecWxXMrHXu6F2exV83", folder: "《岳陽樓記》", totalPages: 33, 
+                texts:[
+                    "慶曆四年春，滕子京謫守巴陵郡。", "越明年，政通人和，百廢具興。", "乃重修岳陽樓，增其舊制，", "刻唐賢今人詩賦於其上，", "屬予作文以記之。", 
+                    "予觀夫巴陵勝狀，在洞庭一湖。", "銜遠山，吞長江，浩浩湯湯，橫無際涯；", "朝暉夕陰，氣象萬千。", "此則岳陽樓之大觀也，前人之述備矣。", 
+                    "然則北通巫峽，南極瀟湘，", "遷客騷人，多會於此，", "覽物之情，得無異乎？", "若夫霪雨霏霏，連月不開；", "陰風怒號，濁浪排空；", 
+                    "日星隱曜，山岳潛形；", "商旅不行，檣傾楫摧；", "薄暮冥冥，虎嘯猿啼。", "登斯樓也，則有去國懷鄉，憂讒畏譏，", "滿目蕭然，感極而悲者矣。", 
+                    "至若春和景明，波瀾不驚，上下天光，一碧萬頃；", "沙鷗翔集，錦鱗游泳，", "岸芷汀蘭，郁郁青青。", "而或長煙一空，皓月千里，", 
+                    "浮光躍金，靜影沉璧；", "漁歌互答，此樂何極！", "登斯樓也，則有心曠神怡，寵辱皆忘，", "把酒臨風，其喜洋洋者矣。", 
+                    "嗟夫！予嘗求古仁人之心，或異二者之為。", "何哉？不以物喜，不以己悲。", "居廟堂之高，則憂其民；處江湖之遠，則憂其君。", 
+                    "是進亦憂，退亦憂，然則何時而樂耶？", "其必曰：「先天下之憂而憂，後天下之樂而樂」乎！", "噫！微斯人，吾誰與歸？"
+                ] 
+            },
+            "yuwosuoyuye": { 
+                title: "《魚我所欲也》", author: "《孟子》", genre: "wen", folderId: "1jLzHK1ibMoBcEURYj1RAZW-It5Vg5zpO", folder: "《魚我所欲也》", totalPages: 19, 
+                texts:[
+                    "魚，我所欲也；熊掌，亦我所欲也。二者不可得兼，舍魚而取熊掌者也。", "生，亦我所欲也；義，亦我所欲也。二者不可得兼，舍生而取義者也。", 
+                    "生亦我所欲，所欲有甚於生者，故不為苟得也；", "死亦我所惡，所惡有甚於死者，故患有所不辟也。", 
+                    "如使人之所欲莫甚於生，則凡可以得生者何不用也？", "使人之所惡莫甚於死者，則凡可以辟患者何不為也？", 
+                    "由是則生而有不用也，由是則可以辟患而有不為也。", "是故所欲有甚於生者，所惡有甚於死者。", 
+                    "非獨賢者有是心也，人皆有之，賢者能勿喪耳。", "一簞食，一豆羹，得之則生，弗得則死。", "嘑爾而與之，行道之人弗受；", 
+                    "蹴爾而與之，乞人不屑也。", "萬鍾則不辯禮義而受之，", "萬鍾於我何加焉！", "為宮室之美，妻妾之奉，所識窮乏者得我與？", 
+                    "鄉為身死而不受，今為宮室之美為之；", "鄉為身死而不受，今為妻妾之奉為之；", "鄉為身死而不受，今為所識窮乏者得我而為之：", 
+                    "是亦不可以已乎？此之謂失其本心。"
+                ] 
+            },
+            "quanxue": {
+                title: "《勸學》", author: "《荀子》", genre: "wen", folderId: "1v7HLwNI5adR3AZ_SFna92ZAbQGG-2dGh", folder: "《勸學》", totalPages: 20,
+                texts:[
+                    "君子曰：學不可以已。", "青，取之於藍，而青於藍；冰，水為之，而寒於水。", "木直中繩，輮以為輪，其曲中規；雖有槁暴，不復挺者，輮使之然也。", 
+                    "故木受繩則直，金就礪則利，", "君子博學而日參省乎己，則知明而行無過矣。", "吾嘗終日而思矣，不如須臾之所學也；", 
+                    "吾嘗跂而望矣，不如登高之博見也。", "登高而招，臂非加長也，而見者遠；", "順風而呼，聲非加疾也，而聞者彰。", 
+                    "假輿馬者，非利足也，而致千里；", "假舟楫者，非能水也，而絕江河。", "君子生非異也，善假於物也。", 
+                    "積土成山，風雨興焉；", "積水成淵，蛟龍生焉；", "積善成德，而神明自得，聖心備焉。", 
+                    "故不積跬步，無以至千里；不積小流，無以成江海。", "騏驥一躍，不能十步；駑馬十駕，功在不舍。", 
+                    "鍥而舍之，朽木不折；鍥而不舍，金石可鏤。", "蚓無爪牙之利，筋骨之強，上食埃土，下飲黃泉，用心一也。", 
+                    "蟹六跪而二螯，非蛇蟺之穴無可寄託者，用心躁也。"
+                ]
+            },
+            "lunrenlunxiaolunjunzi": {
+                title: "《論仁、論孝、論君子》", author: "《論語》", genre: "wen", folderId: "1oUsRn7RhHnapMRr9IQqUv2ocZ5FlKZIL", folder: "《論仁、論孝、論君子》", totalPages: 27,
+                texts:[
+                    "子曰：「不仁者，不可以久處約 ，不可以長處樂。仁者安仁，知者利仁 。」（《里仁》第四）",
+                    "子曰：「富與貴，是人之所欲也；不以其道得之，不處也 。", "貧與賤，是人之所惡也；不以其道得之 ，不去也。",
+                    "君子去仁，惡乎成名？", "君子無終食之間違仁 ，造次必於是 ，顛沛必於是。」（《里仁》第四）",
+                    "顏淵問仁。子曰：「克己復禮為仁 。", "一日克己復禮，天下歸仁焉。為仁由己，而由人乎哉 ？」",
+                    "顏淵曰：「請問其目 。」子曰：「非禮勿視，非禮勿聽，非禮勿言，非禮勿動 。」", "顏淵曰：「回雖不敏，請事斯語矣 。」（《顏淵》第十二）",
+                    "子曰：「志士仁人，無求生以害仁，有殺身以成仁 。」", "孟懿子問孝。子曰：「無違。」",
+                    "樊遲御 ，子告之曰：「孟孫問孝於我，我對曰，無違。」", "樊遲曰：「何謂也？」子曰：「生事之以禮；死葬之以禮，祭之以禮 。」（《為政》第二）",
+                    "子游問孝。子曰：「今之孝者，是謂能養。", "至於犬馬，皆能有養 ；不敬，何以別乎！」（《為政》第二）",
+                    "子曰：「事父母幾諫，見志不從，又敬不違，勞而不怨。」（《里仁》第四）", "子曰：「父母之年，不可不知也。一則以喜，一則以懼。」（《里仁》第四）",
+                    "子曰：「君子不重則不威；學則不固。", "主忠信。無友不如己者。過則勿憚改。」（《學而》第一）",
+                    "子曰：「君子坦蕩蕩，小人長戚戚。」（《述而》第七）", "司馬牛問君子。子曰：「君子不憂不懼。」",
+                    "曰：「不憂不懼，斯謂之君子矣乎？」子曰：「內省不疚，夫何憂何懼？」（《顏淵》第十二）",
+                    "子曰：「君子成人之美，不成人之惡。小人反是。」（《顏淵》第十二）", "子曰：「君子恥其言而過其行。」（《憲問》第十四）",
+                    "子曰：「君子義以為質，禮以行之，孫以出之，信以成之。君子哉！」（《衛靈公》第十五）", "子曰：「君子病無能焉，不病人之不己知也。」（《衛靈公》第十五）",
+                    "子曰：「君子求諸己，小人求諸人。」（《衛靈公》第十五）"
+                ]
+            },
+            "liuguolun": {
+                title: "《六國論》", author: "蘇洵", genre: "wen", folderId: "1MiCDqr7cdyPEB1dfeg4evcXMaRi_-xOn", folder: "《六國論》", totalPages: 29,
+                texts:[
+                    "六國破滅，非兵不利，戰不善，弊在賂秦。", "賂秦而力虧，破滅之道也。", "或曰：「六國互喪，率賂秦耶？」",
+                    "曰：「不賂者以賂者喪。蓋失強援，不能獨完。故曰弊在賂秦也。」", "秦以攻取之外，小則獲邑，大則得城。",
+                    "較秦之所得，與戰勝而得者，其實百倍；", "諸侯之所亡，與戰敗而亡者，其實亦百倍。", "則秦之所大欲，諸侯之所大患，固不在戰矣。",
+                    "思厥先祖父，暴霜露，斬荊棘，以有尺寸之地。", "子孫視之不甚惜，舉以予人，如棄草芥。", "今日割五城，明日割十城，然後得一夕安寢。",
+                    "起視四境，而秦兵又至矣。", "然則諸侯之地有限，暴秦之欲無厭，奉之彌繁，侵之愈急。", "故不戰而強弱勝負已判矣。",
+                    "至於顛覆，理固宜然。", "古人云：「以地事秦，猶抱薪救火，薪不盡，火不滅。」", "此言得之。",
+                    "齊人未嘗賂秦，終繼五國遷滅，何哉？", "與嬴而不助五國也。五國既喪，齊亦不免矣。", "燕趙之君，始有遠略，能守其土，義不賂秦。",
+                    "是故燕雖小國而後亡，斯用兵之效也。", "至丹以荊卿為計，始速禍焉。", "趙嘗五戰於秦，二敗而三勝。", "後秦擊趙者再，李牧連卻之。",
+                    "洎牧以讒誅，邯鄲為郡，", "惜其用武而不終也。", "且燕趙處秦革滅殆盡之際，可謂智力孤危，戰敗而亡，誠不得已。",
+                    "向使三國各愛其地，齊人勿附於秦，刺客不行，良將猶在，", "則勝負之數，存亡之理，當與秦相較，或未易量。"
+                ]
+            },
+            "lianpolinxiangruliezhuan": {
+                title: "《廉頗藺相如列傳》", author: "司馬遷", genre: "wen", folderId: "1tjB8ZHJ3kcoZq-QD7DapSHfynQRi5MFW", folder: "《廉頗藺相如列傳》", totalPages: 92,
+                texts:[
+                    "廉頗者，趙之良將也。", "趙惠文王十六年，廉頗為趙將，伐齊，大破之，", "取陽晉，拜為上卿，以勇氣聞於諸侯。",
+                    "藺相如者，趙人也。為趙宦者令繆賢舍人。", "趙惠文王時，得楚和氏璧。秦昭王聞之，", "使人遺趙王書，願以十五城請易璧。",
+                    "趙王與大將軍廉頗諸大臣謀：欲予秦，秦城恐不可得，徒見欺；", "欲勿予，即患秦兵之來。計未定，", "求人可使報秦者，未得。",
+                    "宦者令繆賢曰：「臣舍人藺相如可使。」王問：「何以知之？」", "對曰：「臣嘗有罪，竊計欲亡走燕。臣舍人相如止臣曰：『君何以知燕王？』",
+                    "臣語曰：『臣嘗從大王與燕王會境上，燕王私握臣手曰，「願結友」，以此知之，故欲往。』", "相如謂臣曰：『夫趙彊而燕弱，而君幸於趙王，故燕王欲結於君。",
+                    "今君乃亡趙走燕，燕畏趙，其勢必不敢留君，而束君歸趙矣。", "君不如肉袒伏斧質請罪，則幸得脫矣。』",
+                    "臣從其計，大王亦幸赦臣。臣竊以為其人勇士，有智謀，宜可使。」", "於是王召見，問藺相如曰：「秦王以十五城請易寡人之璧，可予不？」",
+                    "相如曰：「秦彊而趙弱，不可不許。」", "王曰：「取吾璧，不予我城，柰何？」", "相如曰：「秦以城求璧而趙不許，曲在趙；",
+                    "趙予璧而秦不予趙城，曲在秦。", "均之二策，寧許以負秦曲。」", "王曰：「誰可使者？」", "相如曰：「王必無人，臣願奉璧往使。",
+                    "城入趙而璧留秦；城不入，臣請完璧歸趙。」", "趙王於是遂遣相如奉璧西入秦。", "秦王坐章臺見相如。相如奉璧奏秦王。",
+                    "秦王大喜，傳以示美人及左右，左右皆呼萬歲。", "相如視秦王無意償趙城，乃前曰：「璧有瑕，請指示王。」", "王授璧。",
+                    "相如因持璧卻立，倚柱，", "怒髮上衝冠，謂秦王曰：「大王欲得璧，使人發書至趙王，", "趙王悉召羣臣議，皆曰：『秦貪，負其彊，以空言求璧，償城恐不可得。』",
+                    "議不欲予秦璧。臣以為布衣之交尚不相欺，況大國乎？", "且以一璧之故逆彊秦之驩，不可。", "於是趙王乃齋戒五日，使臣奉璧，拜送書於庭。",
+                    "何者？嚴大國之威以修敬也。", "今臣至，大王見臣列觀，禮節甚倨，", "得璧，傳之美人，以戲弄臣。",
+                    "臣觀大王無意償趙王城邑，故臣復取璧。", "大王必欲急臣，臣頭今與璧俱碎於柱矣！」", "相如持其璧睨柱，欲以擊柱。",
+                    "秦王恐其破璧，乃辭謝，固請，", "召有司案圖，指從此以往十五都予趙。", "相如度秦王特以詐佯為予趙城，實不可得，",
+                    "乃謂秦王曰：「和氏璧，天下所共傳寶也。趙王恐，不敢不獻。", "趙王送璧時，齋戒五日。今大王亦宜齋戒五日，設九賓於廷，臣乃敢上璧。」",
+                    "秦王度之，終不可彊奪，遂許齋五日，舍相如廣成傳。", "相如度秦王雖齋，決負約不償城，", "乃使其從者衣褐，懷其璧，從徑道亡，歸璧於趙。",
+                    "秦王齋五日後，乃設九賓禮於廷，引趙使者藺相如。", "相如至，謂秦王曰：「秦自繆公以來二十餘君，未嘗有堅明約束者也。",
+                    "臣誠恐見欺於王而負趙，故令人持璧歸，閒至趙矣。", "且秦彊而趙弱，大王遣一介之使至趙，趙立奉璧來。",
+                    "今以秦之彊而先割十五都予趙，趙豈敢留璧而得罪於大王乎？", "臣知欺大王之罪當誅，臣請就湯鑊。唯大王與羣臣孰計議之。」",
+                    "秦王與羣臣相視而嘻。", "左右或欲引相如去，", "秦王因曰：「今殺相如，終不能得璧也，而絕秦趙之驩。",
+                    "不如因而厚遇之，使歸趙。趙王豈以一璧之故欺秦邪？」", "卒廷見相如，畢禮而歸之。", "相如既歸，趙王以為賢大夫，使不辱於諸侯，拜相如為上大夫。",
+                    "秦亦不以城予趙，趙亦終不予秦璧。", "其後秦伐趙，拔石城。明年復攻趙，殺二萬人。", "秦王使使者告趙王，欲與王為好，會於西河外澠池。趙王畏秦，欲毋行。",
+                    "廉頗藺相如計曰：「王不行，示趙弱且怯也。」趙王遂行。相如從。", "廉頗送至境，與王訣曰：「王行，度道里會遇之禮畢，還，不過三十日。",
+                    "三十日不還，則請立太子為王，以絕秦望。」王許之。遂與秦王會澠池。", "秦王飲酒酣，曰：「寡人竊聞趙王好音，請奏瑟。」",
+                    "趙王鼓瑟。秦御史前書曰：「某年月日，秦王與趙王會飲，令趙王鼓瑟。」", "藺相如前曰：「趙王竊聞秦王善為秦聲，請奏盆缻秦王，以相娛樂。」",
+                    "秦王怒，不許。於是相如前進缻，因跪請秦王。", "秦王不肯擊缻。相如曰：「五步之內，相如請得以頸血濺大王矣！」",
+                    "左右欲刃相如，相如張目叱之，左右皆靡。", "於是秦王不懌，為一擊缻。相如顧召趙御史書曰：「某年月日，秦王為趙王擊缻。」",
+                    "秦之羣臣曰：「請以趙十五城為秦王壽。」藺相如亦曰：「請以秦之咸陽為趙王壽。」", "秦王竟酒，終不能加勝於趙。趙亦盛設兵以待秦，秦不敢動。",
+                    "既罷歸國，以相如功大，拜為上卿，位在廉頗之右。", "廉頗曰：「我為趙將，有攻城野戰之大功，而藺相如徒以口舌為勞，而位居我上。",
+                    "且相如素賤人，吾羞，不忍為之下。」宣言曰：「我見相如，必辱之。」", "相如聞，不肯與會。相如每朝時，常稱病，不欲與廉頗爭列。",
+                    "已而相如出，望見廉頗，相如引車避匿。", "於是舍人相與諫曰：「臣所以去親戚而事君者，徒慕君之高義也。",
+                    "今君與廉頗同列，廉君宣惡言，而君畏匿之，恐懼殊甚。", "且庸人尚羞之，況於將相乎！臣等不肖，請辭去。」",
+                    "藺相如固止之，曰：「公之視廉將軍孰與秦王？」曰：「不若也。」", "相如曰：「夫以秦王之威，而相如廷叱之，辱其羣臣。相如雖駑，獨畏廉將軍哉？",
+                    "顧吾念之，彊秦之所以不敢加兵於趙者，徒以吾兩人在也。", "今兩虎共鬬，其勢不俱生。吾所以為此者，以先國家之急而後私讎也。」",
+                    "廉頗聞之，肉袒負荊，因賓客至藺相如門謝罪，", "曰：「鄙賤之人，不知將軍寬之至此也！」", "卒相與驩，為刎頸之交。"
+                ]
+            },
+            "denglou": {
+                title: "《登樓》", author: "杜甫", genre: "shi", folderId: "1tTbHwbpcZRcU7UHmywr-UlF45da-F26B", folder: "《登樓》", totalPages: 8,
+                texts:[ "花近高樓傷客心，", "萬方多難此登臨。", "錦江春色來天地，", "玉壘浮經變古今。", "北極朝廷終不改，", "西山寇盜莫相侵。", "可憐後主還祠廟，", "日暮聊為《梁甫吟》。" ]
+            },
+            "yuexiaduzhuo": {
+                title: "《月下獨酌》", author: "李白", genre: "shi", folderId: "13of9IGifBS8EHWQfFI4d5htg9WfAbzc8", folder: "《月下獨酌》", totalPages: 14,
+                texts:[ "花間一壺酒，", "獨酌無相親。", "舉杯邀明月，", "對影成三人。", "月既不解飲，", "影徒隨我身。", "暫伴月將影，", "行樂須及春。", "我歌月徘徊，", "我舞影零亂。", "醒時同交歡，", "醉後各分散。", "永結無情遊，", "相期邈雲漢。" ]
+            },
+            "shanjuqiuming": {
+                title: "《山居秋暝》", author: "王維", genre: "shi", folderId: "1svtWto6t8sKC4tpFZDYTjYWJlk7q3odH", folder: "《山居秋暝》", totalPages: 8,
+                texts:[ "空山新雨後，", "天氣晚來秋。", "明月松間照，", "清泉石上流。", "竹喧歸浣女，", "蓮動下漁舟。", "隨意春芳歇，", "王孫自可留。" ]
+            },
+            "qingyuan": {
+                title: "《青玉案·元夕》", author: "辛棄疾", genre: "ci", folderId: "1Bo5tYPis3NCc3Eo-JK-YbMkaBoTaAnq4", folder: "《青玉案》", totalPages: 12,
+                texts:[ "東風夜放花千樹。", "更吹落、星如雨。", "寶馬雕車香滿路。", "鳳簫聲動，", "玉壺光轉，", "一夜魚龍舞。", "蛾兒雪柳黃金縷，", "笑語盈盈暗香去。", "眾裏尋他千百度，", "驀然回首，", "那人卻在，", "燈火闌珊處。" ]
+            },
+            "niannujiao": {
+                title: "《念奴嬌》", author: "蘇軾", genre: "ci", folderId: "1dkEcbMNt2-zf33ZWAZ2sxjrEKYMxoHXq", folder: "《念奴嬌》", totalPages: 9,
+                texts:[ "大江東去，浪淘盡，千古風流人物。", "故壘西邊，人道是，三國周郎赤壁。", "亂石穿空，驚濤拍岸，", "捲起千堆雪。", "江山如畫，一時多少豪傑。", "遙想公瑾當年，小喬初嫁了，雄姿英發。", "羽扇綸巾，談笑間，強虜灰飛煙滅。", "故國神遊，多情應笑我，早生華髮。", "人生如夢，一尊還酹江月。" ]
+            },
+            "shengshengman": {
+                title: "《聲聲慢》", author: "李清照", genre: "ci", folderId: "1QsqOAfE7vKOjw8uNHhJXDM8OjGYmYca6", folder: "《聲聲慢》", totalPages: 11,
+                texts:[ "尋尋覓覓，", "冷冷清清，", "淒淒慘慘戚戚。", "乍煖還寒時候，最難將息。", "三杯兩盞淡酒，怎敵他、晚來風急？", "雁過也，正傷心，", "卻是舊時相識。", "滿地黃花堆積，憔悴損，如今有誰堪摘？", "守著窗兒，獨自怎生得黑？", "梧桐更兼細雨，到黃昏、點點滴滴。", "這次第，怎一個愁字了得！" ]
+            }
+        };
 
         const placeholderImg = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E8%BC%89%E5%85%A5%E4%B8%AD...%3C%2Ftext%3E%3C%2Fsvg%3E";
         const errorImgSafe = "data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%25%22%20height%3D%22100%25%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23eee%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-size%3D%2220%22%20font-weight%3D%22bold%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20fill%3D%22%23555%22%3E%E5%9C%96%E7%89%87%E8%BC%89%E5%85%A5%E5%A4%B1%E6%95%97%3C%2Ftext%3E%3C%2Fsvg%3E";
 
         let pageFlip = null;
         let currentComicKey = null;
+        let currentComicData = null;
+        let currentFilesArray =[];
+        
+        let readMode = window.innerWidth <= 768 ? 'scroll' : 'flip';
+        let scrollObserver = null;
 
-       const catalogView = document.getElementById('catalog-view');
-const readerView = document.getElementById('reader-view');
-let bookElement = document.getElementById('book'); // <--- 把 const 改為 let
-        const btnBack = document.getElementById('btn-back');
+        const catalogView = document.getElementById('catalog-view');
+        const readerView = document.getElementById('reader-view');
+        let bookElement = document.getElementById('book');
+        const bookWrapper = document.getElementById('book-wrapper');
+        const scrollWrapper = document.getElementById('scroll-wrapper');
+        const controlsBottom = document.getElementById('controls-bottom');
+        const btnToggleMode = document.getElementById('btn-toggle-mode');
+        const modeIcon = document.getElementById('mode-icon');
+        const modeText = document.getElementById('mode-text');
+        const loading = document.getElementById('loading');
+        const readerTitle = document.getElementById('reader-title');
         const pageInput = document.getElementById('page-input');
         const totalPagesSpan = document.getElementById('total-pages');
-        const loading = document.getElementById('loading');
 
         // ==========================================
-        // 🌟 新增 A：IndexedDB 圖片快取系統 (永久緩存原圖)
+        // 2. IndexedDB 圖片快取系統
         // ==========================================
         const DB_NAME = "DSEComicDB";
         const STORE_NAME = "ImageCache";
-        const sessionBlobUrls = new Map(); // 防止記憶體溢出的 Session 緩存
+        const sessionBlobUrls = new Map();
 
         const dbPromise = new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, 1);
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    db.createObjectStore(STORE_NAME, { keyPath: "url" });
-                }
+                if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "url" });
             };
             request.onsuccess = (e) => resolve(e.target.result);
             request.onerror = (e) => reject(e.target.error);
@@ -869,17 +692,14 @@ let bookElement = document.getElementById('book'); // <--- 把 const 改為 let
 
         async function getCachedImageURL(url) {
             if (sessionBlobUrls.has(url)) return sessionBlobUrls.get(url);
-
             try {
                 const db = await dbPromise;
                 const tx = db.transaction(STORE_NAME, "readonly");
                 const store = tx.objectStore(STORE_NAME);
-                
-                // 1. 從 IndexedDB 尋找有無緩存的 Blob
-                const cached = await new Promise((resolve, reject) => {
+                const cached = await new Promise(resolve => {
                     const req = store.get(url);
                     req.onsuccess = () => resolve(req.result);
-                    req.onerror = () => reject(req.error);
+                    req.onerror = () => resolve(null);
                 });
 
                 if (cached && cached.blob) {
@@ -888,10 +708,7 @@ let bookElement = document.getElementById('book'); // <--- 把 const 改為 let
                     return objUrl;
                 }
 
-                // 2. 若無緩存，向 Google 請求圖片並轉換為 Blob 存入資料庫
-              // 2. 若無緩存，向 Google 請求圖片並轉換為 Blob 存入資料庫
-// 加入時間戳與 cache: 'no-store'，強制避開瀏覽器與 Google 的網路快取
-const response = await fetch(url, { mode: 'cors', cache: 'reload' });
+                const response = await fetch(url, { mode: 'cors', cache: 'reload' });
                 if (!response.ok) throw new Error("Network response not ok");
                 
                 const blob = await response.blob();
@@ -901,68 +718,94 @@ const response = await fetch(url, { mode: 'cors', cache: 'reload' });
                 const objUrl = URL.createObjectURL(blob);
                 sessionBlobUrls.set(url, objUrl);
                 return objUrl;
-
-            } catch (error) {
-                console.warn("使用原生 URL 載入:", url);
-                return url; // 如果跨域被阻擋或出錯，降級回傳原始網址，交給 img 標籤處理
-            }
+            } catch (error) { return url; }
         }
 
-        // ==========================================
-        // 🌟 新增 B：目錄快取機制 (實現秒開內頁)
-        // ==========================================
         async function getFileMap(folderId, folder) {
             const cacheKey = `dse_comic_map_${folderId || folder}`;
             const localData = localStorage.getItem(cacheKey);
             let parsedData = null;
-            
-            if (localData) {
-                try { parsedData = JSON.parse(localData); } catch(e){}
-            }
-
-            // 非同步背景更新 (Stale-while-revalidate)
+            if (localData) { try { parsedData = JSON.parse(localData); } catch(e){} }
             const fetchPromise = fetch(`${GAS_URL}?folderId=${encodeURIComponent(folderId || "")}&folder=${encodeURIComponent(folder || "")}`)
                 .then(res => res.json())
                 .then(fileMap => {
                     if (!fileMap.error) localStorage.setItem(cacheKey, JSON.stringify(fileMap));
                     return fileMap;
-                }).catch(e => { return { error: "Network error" }; });
-
-            // 若有快取則瞬間回傳，沒有就等待 Google 載入
+                }).catch(() => { return { error: "Network error" }; });
             return parsedData || await fetchPromise;
         }
 
         // ==========================================
-        // 3. 生成主頁目錄 UI
+        // 3. UI 渲染：重構漫畫書櫃 (分區展示)
         // ==========================================
         function renderCatalog() {
             catalogView.innerHTML = '';
-            for (const[key, data] of Object.entries(comicDatabase)) {
-                const isAvailable = data.totalPages > 0;
-               const card = document.createElement('div');
-// 讀取資料庫的 genre，如果沒有設定就預設為 'wen'
-const genreClass = data.genre ? `genre-${data.genre}` : 'genre-wen'; 
-card.className = `comic-card ${isAvailable ? '' : 'disabled'} ${genreClass}`;
-                
-                const badgeHtml = isAvailable ? `<div class="badge">${data.totalPages} 頁</div>` : `<div class="badge coming-soon">敬請期待</div>`;
-                const imgId = `cover-img-${key}`; 
+            
+            // 定義三大分類
+            const groups = {
+                'wen': { title: '散文與辭賦 (文)', items:[], color: 'var(--comic-yellow)', text: 'var(--comic-black)' },
+                'shi': { title: '唐詩 (詩)', items:[], color: 'var(--comic-blue)', text: 'var(--comic-white)' },
+                'ci': { title: '宋詞 (詞)', items:[], color: 'var(--comic-red)', text: 'var(--comic-white)' }
+            };
 
-                card.innerHTML = `
-                    ${badgeHtml}
-                    <div class="comic-cover">
-                        <img id="${imgId}" src="${placeholderImg}" alt="${data.title} 封面">
-                    </div>
-                    <div class="comic-info">
-                        <h3 class="comic-title">${data.title}</h3>
-                        <div class="comic-meta">${data.author}</div>
-                    </div>
-                `;
-
-                if (isAvailable) {
-                    card.onclick = () => loadComic(key);
-                    fetchCoverImage(data.folderId, data.folder, imgId);
+            // 將書本分配到對應的分類
+            for (const [key, data] of Object.entries(comicDatabase)) {
+                if (groups[data.genre]) {
+                    groups[data.genre].items.push({ key, data });
                 }
-                catalogView.appendChild(card);
+            }
+
+            // 渲染每一個分類
+            for (const [genreKey, group] of Object.entries(groups)) {
+                if (group.items.length === 0) continue;
+
+                const section = document.createElement('div');
+                section.className = 'genre-section';
+                
+                section.innerHTML = `
+                    <div class="genre-header">
+                        <h2 class="genre-title" style="background: ${group.color}; color: ${group.text};">${group.title}</h2>
+                    </div>
+                    <div class="genre-grid" id="grid-${genreKey}"></div>
+                `;
+                catalogView.appendChild(section);
+
+                const grid = section.querySelector('.genre-grid');
+
+                // 渲染書本到分類網格中
+                for (const item of group.items) {
+                    const { key, data } = item;
+                    const isAvailable = data.totalPages > 0;
+                    const genreClass = `genre-${data.genre}`; 
+
+                    const slot = document.createElement('div');
+                    slot.className = 'shelf-slot';
+
+                    const book = document.createElement('div');
+                    book.className = `comic-book ${isAvailable ? '' : 'disabled'}`;
+                    
+                    const badgeHtml = isAvailable ? `<div class="badge">${data.totalPages} 頁</div>` : `<div class="badge coming-soon">敬請期待</div>`;
+                    const imgId = `cover-img-${key}`; 
+
+                    // 100% 保留書本原始結構
+                    book.innerHTML = `
+                        <div class="comic-book-inner ${genreClass}">
+                            <div class="comic-spine"><span class="spine-text">${data.title}</span></div>
+                            <div class="comic-pages-top"></div>
+                            <img id="${imgId}" class="comic-cover-img" src="${placeholderImg}" alt="${data.title}">
+                            <div class="comic-pages-edge"></div>
+                            ${badgeHtml}
+                        </div>
+                    `;
+
+                    if (isAvailable) {
+                        book.onclick = () => loadComic(key);
+                        fetchCoverImage(data.folderId, data.folder, imgId);
+                    }
+                    
+                    slot.appendChild(book);
+                    grid.appendChild(slot);
+                }
             }
         }
 
@@ -970,210 +813,281 @@ card.className = `comic-card ${isAvailable ? '' : 'disabled'} ${genreClass}`;
             try {
                 const fileMap = await getFileMap(folderId, folder);
                 if (!fileMap.error) {
-                    const coverKey = Object.keys(fileMap).find(name => {
-                        const num = parseInt(name.match(/\d+/) || [-1], 10);
-                        return num === 0;
-                    });
-                    
+                    const coverKey = Object.keys(fileMap).find(name => parseInt(name.match(/\d+/) ||[-1], 10) === 0);
                     if (coverKey) {
-                        const coverId = fileMap[coverKey];
-                        const offset = parseInt(localStorage.getItem('dse_img_offset') || '0');
-// 🌟 讀取尺寸變數，讓 w600 變成 w601, w602... 強制 Google 重新生成最新縮圖
-const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
-const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + imgVer}`;
-                        // 🌟 使用 IndexedDB 緩存獲取封面
+                        const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
+                        const driveUrl = `https://drive.google.com/thumbnail?id=${fileMap[coverKey]}&sz=w${600 + imgVer}`;
                         const localUrl = await getCachedImageURL(driveUrl);
                         const imgEl = document.getElementById(imgId);
                         if(imgEl) imgEl.src = localUrl;
                     }
                 }
-            } catch (e) { console.warn("載入封面失敗:", e); }
+            } catch (e) {}
         }
 
-     function showCatalog() {
-    readerView.style.display = 'none';
-    btnBack.style.display = 'none';
-    catalogView.style.display = 'grid';
-    
-    if (pageFlip) { 
-        pageFlip.destroy(); 
-        pageFlip = null; 
-    }
-    
-    // 【核心修復】徹底重建書本容器，清除 PageFlip 殘留的 DOM 狀態
-    const bookWrapper = document.getElementById('book-wrapper');
-    bookWrapper.innerHTML = '<div id="book"></div>';
-    bookElement = document.getElementById('book'); // 更新變數參考
-    
-    currentComicKey = null;
-
-    // 清空並隱藏搜尋列與結果
-    const searchInputEl = document.getElementById('search-input');
-    const searchResultsEl = document.getElementById('search-results');
-    if (searchInputEl) searchInputEl.value = '';
-    if (searchResultsEl) searchResultsEl.style.display = 'none';
-}
-
-        btnBack.addEventListener('click', showCatalog);
-
-        function playFlipSound() {
-            const flipAudio = document.getElementById('flip-sound');
-            if (flipAudio) {
-                flipAudio.currentTime = 0; 
-                const playPromise = flipAudio.play();
-                if (playPromise !== undefined) playPromise.catch(() => {});
-            }
+        function showCatalog() {
+            readerView.style.display = 'none';
+            catalogView.style.display = 'flex';
+            if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+            bookWrapper.innerHTML = '<div id="book"></div>';
+            bookElement = document.getElementById('book');
+            scrollWrapper.innerHTML = '';
+            currentComicKey = null;
         }
 
+        document.getElementById('btn-back').addEventListener('click', showCatalog);
+
         // ==========================================
-        // 4. 動態生成與【懶加載】圖片
+        // 4. UI 渲染：漫畫內頁與進度系統
         // ==========================================
-     async function loadComic(comicKey) {
-            const data = comicDatabase[comicKey];
-            if (!data || data.totalPages === 0) return;
+        async function loadComic(comicKey) {
+            currentComicData = comicDatabase[comicKey];
+            if (!currentComicData || currentComicData.totalPages === 0) return;
 
             currentComicKey = comicKey;
             catalogView.style.display = 'none';
-            btnBack.style.display = 'block';
             readerView.style.display = 'flex';
             loading.style.display = 'block';
-            bookElement.style.display = 'none';
+            readerTitle.innerText = currentComicData.title;
 
             try {
-                // 利用快取瞬間獲取目錄結構
-                const fileMap = await getFileMap(data.folderId, data.folder);
+                const fileMap = await getFileMap(currentComicData.folderId, currentComicData.folder);
+                if (fileMap.error) throw new Error(fileMap.error);
 
-                if (fileMap.error) {
-                    alert("獲取檔案失敗：" + fileMap.error);
-                    showCatalog();
-                    loading.style.display = 'none';
-                    return;
-                }
-
-                let filesArray = Object.keys(fileMap)
+                currentFilesArray = Object.keys(fileMap)
                     .map(name => ({ name: name, id: fileMap[name] }))
-                    .filter(file => parseInt(file.name.match(/\d+/) || [-1], 10) !== 0);
+                    .filter(file => parseInt(file.name.match(/\d+/) || [-1], 10) !== 0)
+                    .sort((a, b) => parseInt(a.name.match(/\d+/) || [0], 10) - parseInt(b.name.match(/\d+/) ||[0], 10));
 
-                filesArray.sort((a, b) => parseInt(a.name.match(/\d+/) || [0], 10) - parseInt(b.name.match(/\d+/) ||[0], 10));
+                updateModeButtonUI();
 
-                let pagesHTML = '';
-                
-                // 🌟 核心修訂 1：精準偵測「直向螢幕」或手機尺寸
-                const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth <= 768;
-                window.panelsPerPage = isPortrait ? 2 : 1; 
-                const totalFlipPages = Math.ceil(data.totalPages / window.panelsPerPage);
-
-                for (let i = 0; i < totalFlipPages; i++) {
-                    let contentHTML = '';
-                    
-                    for (let j = 0; j < window.panelsPerPage; j++) {
-                        const actualPageIndex = i * window.panelsPerPage + j + 1;
-                        if (actualPageIndex > data.totalPages) break; // 超出總頁數則不渲染
-                        
-                        const imgId = `page-img-${comicKey}-${actualPageIndex}`;
-                        const pageText = (data.texts && data.texts[actualPageIndex - 1]) ? data.texts[actualPageIndex - 1] : '';
-                        const textDiv = pageText ? `<div class="page-text" style="transition: background-color 0.5s;">${pageText}</div>` : '';
-                        
-                        // 若為雙頁模式，且是上方分鏡，加入底部粗黑線區隔
-                        const borderStyle = (window.panelsPerPage > 1 && j === 0 && actualPageIndex < data.totalPages) 
-                            ? 'border-bottom: 4px solid var(--comic-black);' : '';
-
-                        // 內部每個分鏡強制平分高度 (flex: 1)
-                        contentHTML += `
-                            <div class="page-content" style="flex: 1; min-height: 0; width: 100%; ${borderStyle}">
-                                <img id="${imgId}" src="${placeholderImg}" alt="第${actualPageIndex}頁" 
-                                     onerror="this.onerror=null; this.src='${errorImgSafe}'" 
-                                     onclick="openLightbox(this.src)">
-                                ${textDiv}
-                            </div>
-                        `;
+                // 檢查是否有儲存的閱讀進度
+                let savedProgress = localStorage.getItem(`comic_progress_${comicKey}`);
+                if (savedProgress) {
+                    savedProgress = parseInt(savedProgress, 10);
+                    if (savedProgress > 1 && savedProgress <= currentComicData.totalPages) {
+                        loading.style.display = 'none';
+                        showResumeDialog(comicKey, savedProgress);
+                        return; // 等待用家回應
                     }
-
-                    // 🌟 核心修訂 2：利用內層 wrapper 防護 PageFlip 破壞 Flex 佈局
-                    pagesHTML += `
-                        <div class="page">
-                            <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
-                                ${contentHTML}
-                            </div>
-                        </div>
-                    `;
                 }
-                
-                bookElement.innerHTML = pagesHTML;
 
-                setTimeout(() => {
-                    initPageFlip();
-                    loading.style.display = 'none';
-                    bookElement.style.display = 'block';
-
-                    const activeKey = currentComicKey;
-                    for (let i = 1; i <= data.totalPages; i++) {
-                        const file = filesArray[i - 1]; 
-                        if (file && file.id) {
-                            const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
-                            const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + imgVer}`;
-                            getCachedImageURL(driveUrl).then(localUrl => {
-                                if (activeKey !== currentComicKey) return; 
-                                const imgEl = document.getElementById(`page-img-${comicKey}-${i}`);
-                                if (imgEl) imgEl.src = localUrl;
-                            });
-                        }
-                    }
-                }, 300);
+                startReading(comicKey, 1);
 
             } catch (error) {
-                console.error(error);
-                alert("無法連接伺服器或網絡中斷。");
+                alert("獲取漫畫資料失敗。");
                 showCatalog();
                 loading.style.display = 'none';
             }
         }
 
-        // ==========================================
-        // 5. PageFlip 初始化與控制
-        // ==========================================
-      function initPageFlip() {
-            // 讀取剛才在 loadComic 中設定的變數
-            const isPortrait = window.panelsPerPage === 2;
+        function showResumeDialog(comicKey, pageNum) {
+            document.getElementById('resume-page-num').innerText = pageNum;
+            const dialog = document.getElementById('resume-dialog');
+            dialog.style.display = 'flex';
             
-            pageFlip = new St.PageFlip(bookElement, {
-                width: 700, 
-                // 🌟 當雙分鏡模式時，高度設定為兩倍 (960)，以維持完美的比例
-                height: isPortrait ? 960 : 480, 
-                size: "stretch",         
-                minWidth: 300, 
-                maxWidth: 900, 
-                minHeight: 200, 
-                // 🌟 放寬最大高度，避免被壓縮
-                maxHeight: isPortrait ? 1500 : 700, 
-                maxShadowOpacity: 0.5, 
-                showCover: true, 
-                usePortrait: true,       
-                mobileScrollSupport: false, 
-                useMouseEvents: false    
-            });
-
-            const pages = document.querySelectorAll('.page');
-            pageFlip.loadFromHTML(pages);
-
-            pageFlip.on('flip', (e) => {
-                updatePageInfo(e.data);
-                playFlipSound();
-            });
-            updatePageInfo(0);
+            document.getElementById('btn-resume-yes').onclick = () => {
+                dialog.style.display = 'none';
+                loading.style.display = 'block';
+                setTimeout(() => startReading(comicKey, pageNum), 50);
+            };
+            document.getElementById('btn-resume-no').onclick = () => {
+                dialog.style.display = 'none';
+                loading.style.display = 'block';
+                setTimeout(() => startReading(comicKey, 1), 50);
+            };
         }
 
+        function startReading(comicKey, startPage) {
+            renderCurrentMode(startPage);
+            loading.style.display = 'none';
+        }
 
+        // --- 動態改變模式切換按鈕的顏色 ---
+        function updateModeButtonUI() {
+            btnToggleMode.classList.remove('btn-yellow', 'btn-green');
+            if (readMode === 'flip') {
+                btnToggleMode.classList.add('btn-yellow');
+                modeIcon.innerHTML = `<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/></svg>`;
+                modeText.innerText = "切換至捲動";
+            } else {
+                btnToggleMode.classList.add('btn-green');
+                modeIcon.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`;
+                modeText.innerText = "切換至翻頁";
+            }
+        }
 
-        
-      function updatePageInfo(currentPageIndex) {
+        btnToggleMode.addEventListener('click', () => {
+            readMode = readMode === 'flip' ? 'scroll' : 'flip';
+            updateModeButtonUI();
+            
+            // 模式切換時讀取最新進度，無縫接軌
+            let saved = localStorage.getItem(`comic_progress_${currentComicKey}`);
+            let currentStartPage = saved ? parseInt(saved, 10) : 1;
+            renderCurrentMode(currentStartPage);
+        });
+
+        function renderCurrentMode(startPage = 1) {
             if (!currentComicKey) return;
-            const currentComic = comicDatabase[currentComicKey];
+            if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+            bookWrapper.innerHTML = '<div id="book"></div>';
+            bookElement = document.getElementById('book');
+            scrollWrapper.innerHTML = '';
+
+            if (readMode === 'flip') {
+                bookWrapper.style.display = 'flex';
+                scrollWrapper.style.display = 'none';
+                controlsBottom.style.display = 'flex';
+                renderFlipMode(startPage);
+            } else {
+                bookWrapper.style.display = 'none';
+                scrollWrapper.style.display = 'flex';
+                controlsBottom.style.display = 'none';
+                renderScrollMode(startPage);
+            }
             
-            // 重新計算頁面總數 (因為 36 個分鏡在手機上會變成 18 頁實體翻頁)
-            const panelsPerPage = window.panelsPerPage || 1;
-            const totalFlipPages = Math.ceil(currentComic.totalPages / panelsPerPage);
+            // 修復捲動模式 Bug：若由第 1 頁開始，確保強制滾動至頁面頂部
+            if (startPage === 1) {
+                window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            }
+
+            loadImagesIntoDOM();
+        }
+
+        // --- 翻頁模式 ---
+        function renderFlipMode(startPage) {
+            let pagesHTML = '';
+            const isPortrait = window.innerHeight > window.innerWidth || window.innerWidth <= 768;
+            window.panelsPerPage = isPortrait ? 2 : 1; 
+            const totalFlipPages = Math.ceil(currentComicData.totalPages / window.panelsPerPage);
+
+            for (let i = 0; i < totalFlipPages; i++) {
+                let contentHTML = '';
+                for (let j = 0; j < window.panelsPerPage; j++) {
+                    const actualPageIndex = i * window.panelsPerPage + j + 1;
+                    if (actualPageIndex > currentComicData.totalPages) break;
+                    
+                    const imgId = `page-img-${currentComicKey}-${actualPageIndex}`;
+                    const pageText = (currentComicData.texts && currentComicData.texts[actualPageIndex - 1]) ? currentComicData.texts[actualPageIndex - 1] : '';
+                    const textDiv = pageText ? `<div class="page-text" style="transition: background-color 0.5s;">${pageText}</div>` : '';
+                    
+                    const borderStyle = (window.panelsPerPage > 1 && j === 0 && actualPageIndex < currentComicData.totalPages) 
+                        ? 'border-bottom: 4px solid var(--comic-black);' : '';
+
+                    contentHTML += `
+                        <div class="page-content" style="flex: 1; min-height: 0; width: 100%; ${borderStyle}">
+                            <img id="${imgId}" src="${placeholderImg}" alt="第${actualPageIndex}頁" onerror="this.onerror=null; this.src='${errorImgSafe}'" onclick="openLightbox(this.src)">
+                            ${textDiv}
+                        </div>
+                    `;
+                }
+                pagesHTML += `<div class="page"><div style="width: 100%; height: 100%; display: flex; flex-direction: column;">${contentHTML}</div></div>`;
+            }
+            bookElement.innerHTML = pagesHTML;
             
+            setTimeout(() => {
+                initPageFlip(startPage);
+                bookElement.style.display = 'block';
+            }, 300);
+        }
+
+        function initPageFlip(startPage) {
+            const isPortrait = window.panelsPerPage === 2;
+            pageFlip = new St.PageFlip(bookElement, {
+                width: 700, height: isPortrait ? 960 : 480, 
+                size: "stretch", minWidth: 300, maxWidth: 900, minHeight: 200, maxHeight: isPortrait ? 1500 : 700, 
+                maxShadowOpacity: 0.5, showCover: true, usePortrait: true, mobileScrollSupport: false, useMouseEvents: false    
+            });
+            pageFlip.loadFromHTML(document.querySelectorAll('.page'));
+            
+            let startFlipPage = 0;
+            if (startPage > 1) {
+                startFlipPage = Math.ceil(startPage / window.panelsPerPage) - 1;
+                // 即時跳轉至上次進度
+                pageFlip.turnToPage(startFlipPage);
+            }
+            
+            pageFlip.on('flip', (e) => { 
+                updatePageInfo(e.data); 
+                playFlipSound(); 
+                saveFlipProgress(e.data);
+            });
+            updatePageInfo(startFlipPage);
+        }
+
+        function saveFlipProgress(flipPageIndex) {
+            if (!currentComicKey) return;
+            const panelIndex = flipPageIndex * window.panelsPerPage + 1;
+            localStorage.setItem(`comic_progress_${currentComicKey}`, panelIndex);
+        }
+
+        // --- 捲動模式 (條漫) ---
+        function renderScrollMode(startPage) {
+            let html = '';
+            for (let i = 1; i <= currentComicData.totalPages; i++) {
+                const imgId = `page-img-${currentComicKey}-${i}`;
+                const pageText = (currentComicData.texts && currentComicData.texts[i - 1]) ? currentComicData.texts[i - 1] : '';
+                const textDiv = pageText ? `<div class="page-text" style="transition: background-color 0.5s;">${pageText}</div>` : '';
+                
+                html += `
+                    <div class="scroll-panel" id="scroll-panel-${currentComicKey}-${i}">
+                        <div class="page-content">
+                            <img id="${imgId}" src="${placeholderImg}" alt="第${i}圖" onerror="this.onerror=null; this.src='${errorImgSafe}'" onclick="openLightbox(this.src)">
+                            ${textDiv}
+                        </div>
+                    </div>
+                `;
+            }
+            scrollWrapper.innerHTML = html;
+
+            // 設置 Intersection Observer 監聽捲動進度
+            if (scrollObserver) scrollObserver.disconnect();
+            scrollObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const panelId = entry.target.id;
+                        const parts = panelId.split('-');
+                        const pageNum = parseInt(parts[parts.length - 1], 10);
+                        if (currentComicKey) {
+                            localStorage.setItem(`comic_progress_${currentComicKey}`, pageNum);
+                        }
+                    }
+                });
+            }, { threshold: 0.5 });
+            
+            document.querySelectorAll('.scroll-panel').forEach(panel => scrollObserver.observe(panel));
+
+            if (startPage > 1) {
+                setTimeout(() => {
+                    const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${startPage}`);
+                    if (targetEl) targetEl.scrollIntoView({ behavior: 'instant', block: 'start' });
+                }, 100);
+            }
+        }
+
+        function loadImagesIntoDOM() {
+            const activeKey = currentComicKey;
+            const imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0');
+            
+            for (let i = 1; i <= currentComicData.totalPages; i++) {
+                const file = currentFilesArray[i - 1]; 
+                if (file && file.id) {
+                    const driveUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w${1500 + imgVer}`;
+                    getCachedImageURL(driveUrl).then(localUrl => {
+                        if (activeKey !== currentComicKey) return; 
+                        const imgEl = document.getElementById(`page-img-${activeKey}-${i}`);
+                        if (imgEl) imgEl.src = localUrl;
+                    });
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. 播放器與雜項
+        // ==========================================
+        function updatePageInfo(currentPageIndex) {
+            if (!currentComicData) return;
+            const totalFlipPages = Math.ceil(currentComicData.totalPages / window.panelsPerPage);
             pageInput.value = currentPageIndex + 1;
             pageInput.max = totalFlipPages;
             totalPagesSpan.textContent = totalFlipPages;
@@ -1181,127 +1095,26 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + i
 
         document.getElementById('btn-prev').addEventListener('click', () => { if (pageFlip) pageFlip.flipPrev(); });
         document.getElementById('btn-next').addEventListener('click', () => { if (pageFlip) pageFlip.flipNext(); });
-
         pageInput.addEventListener('change', (e) => {
             if (!pageFlip) return;
-            let targetPage = parseInt(e.target.value, 10);
-            const maxPage = parseInt(pageInput.max, 10);
-            if (isNaN(targetPage) || targetPage < 1) targetPage = 1;
-            else if (targetPage > maxPage) targetPage = maxPage;
-            pageInput.value = targetPage;
-            pageFlip.flip(targetPage - 1);
+            let target = parseInt(e.target.value, 10);
+            if (target >= 1 && target <= pageInput.max) pageFlip.flip(target - 1);
         });
 
-        pageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') pageInput.blur(); });
-        pageInput.addEventListener('focus', () => { pageInput.select(); });
-
-        document.addEventListener('keydown', (e) => {
-            if (!pageFlip || catalogView.style.display === 'grid') return;
-            if (e.key === "ArrowLeft") pageFlip.flipPrev();
-            else if (e.key === "ArrowRight") pageFlip.flipNext();
-            else if (e.key === "Escape") closeLightbox();
-        });
-
-        let touchStartX = 0, touchEndX = 0, touchStartY = 0, touchEndY = 0;
-        const bookWrapperElement = document.getElementById('book-wrapper');
-
-        bookWrapperElement.addEventListener('touchstart', (e) => {
-            touchStartX = e.changedTouches[0].screenX;
-            touchStartY = e.changedTouches[0].screenY;
-        }, { passive: true });
-
-        bookWrapperElement.addEventListener('touchend', (e) => {
-            touchEndX = e.changedTouches[0].screenX;
-            touchEndY = e.changedTouches[0].screenY;
-            handleSwipe();
-        }, { passive: true });
-
-        function handleSwipe() {
-            if (!pageFlip) return;
-            const diffX = touchEndX - touchStartX;
-            const diffY = touchEndY - touchStartY;
-
-            if (Math.abs(diffX) > Math.abs(diffY)) {
-                if (diffX < -50) pageFlip.flipNext();
-                else if (diffX > 50) pageFlip.flipPrev();
-            }
+        function playFlipSound() {
+            const flipAudio = document.getElementById('flip-sound');
+            if (flipAudio) { flipAudio.currentTime = 0; flipAudio.play().catch(()=>{}); }
         }
 
-        // ==========================================
-        // 7. Lightbox 放大功能
-        // ==========================================
         function openLightbox(imgSrc) {
-            if(imgSrc.includes('data:image/svg+xml')) return; // 防止放大佔位圖
-            const lightbox = document.getElementById('lightbox');
+            if(imgSrc.includes('data:image/svg+xml')) return;
             document.getElementById('lightbox-img').src = imgSrc;
-            lightbox.style.display = 'flex';
+            document.getElementById('lightbox').style.display = 'flex';
         }
         function closeLightbox() { document.getElementById('lightbox').style.display = 'none'; }
 
-
-
-// ==========================================
-        // 手動更新按鍵功能 (清除所有快取並重載)
         // ==========================================
-         document.getElementById('btn-update').addEventListener('click', async () => {
-            const btn = document.getElementById('btn-update');
-            const originalText = btn.innerText;
-            btn.innerText = "清理中...";
-            btn.style.pointerEvents = "none";
-
-            try {
-                // 🌟 【終極破解】每次點擊更新時，讓圖片尺寸變數 +1 (最大到 50 後重置)
-                let imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0') + 1;
-                if (imgVer > 50) imgVer = 0;
-                localStorage.setItem('dse_img_ver', imgVer);
-
-                // 1. 清除 LocalStorage 中的目錄結構快取
-                // 1. 清除 LocalStorage 中的目錄結構快取
-                Object.keys(localStorage).forEach(key => {
-                    if (key.startsWith('dse_comic_map_')) {
-                        localStorage.removeItem(key);
-                    }
-                });
-
-                // 2. 【核心修訂】關閉連線並「徹底刪除」當前網頁的 IndexedDB 資料庫
-                const db = await dbPromise;
-                db.close(); // 必須先關閉當前網頁的資料庫連線
-                
-                await new Promise((resolve, reject) => {
-                    const req = indexedDB.deleteDatabase(DB_NAME);
-                    req.onsuccess = resolve;
-                    req.onerror = reject;
-                    req.onblocked = resolve; // 防止被其他分頁卡住
-                });
-
-                // 3. 清除記憶體快取
-                sessionBlobUrls.clear();
-
-                // 4. 清除瀏覽器 Cache API (如果有殘留)
-                if ('caches' in window) {
-                    const cacheNames = await caches.keys();
-                    for (let name of cacheNames) {
-                        await caches.delete(name);
-                    }
-                }
-
-                alert("資料已全面更新！即將重新載入最新漫畫。");
-                
-                // 5. 加上隨機時間戳重新載入，強制刷新網頁
-                window.location.href = window.location.pathname + "?_t=" + new Date().getTime();
-
-            } catch (error) {
-                console.error("更新快取失敗:", error);
-                alert("更新失敗，請稍後再試。");
-                btn.innerText = originalText;
-                btn.style.pointerEvents = "auto";
-            }
-        });
-
-
-
-// ==========================================
-        // 全文搜尋與跳轉功能 (適配 PageFlip 翻頁)
+        // 6. 全文搜尋系統
         // ==========================================
         const searchInput = document.getElementById('search-input');
         const searchResults = document.getElementById('search-results');
@@ -1309,17 +1122,14 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + i
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.trim().toLowerCase();
             searchResults.innerHTML = '';
-            if (!query) {
-                searchResults.style.display = 'none';
-                return;
-            }
+            if (!query) { searchResults.style.display = 'none'; return; }
             
-            let results = [];
+            let results =[];
             for (const [key, data] of Object.entries(comicDatabase)) {
                 if (!data.texts) continue;
                 data.texts.forEach((text, index) => {
                     if (text.toLowerCase().includes(query)) {
-                        results.push({ comicKey: key, comicTitle: data.title, page: index + 1, text: text });
+                        results.push({ comicKey: key, title: data.title, page: index + 1, text: text });
                     }
                 });
             }
@@ -1328,74 +1138,96 @@ const driveUrl = `https://drive.google.com/thumbnail?id=${coverId}&sz=w${600 + i
                 results.slice(0, 15).forEach(res => {
                     const div = document.createElement('div');
                     div.className = 'search-item';
-                    const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const highlightedText = res.text.replace(new RegExp(safeQuery, 'gi'), match => `<span class="highlight">${match}</span>`);
-                    
-                    div.innerHTML = `<strong>${res.comicTitle} (第 ${res.page} 頁)</strong>${highlightedText}`;
-                    div.onclick = () => {
-                        searchInput.value = '';
-                        searchResults.style.display = 'none';
-                        jumpToSearch(res.comicKey, res.page);
-                    };
+                    const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                    const highlighted = res.text.replace(regex, match => `<span class="highlight">${match}</span>`);
+                    div.innerHTML = `<strong>${res.title} (分鏡 ${res.page})</strong>${highlighted}`;
+                    div.onclick = () => { jumpToSearch(res.comicKey, res.page); searchResults.style.display = 'none'; searchInput.value = ''; };
                     searchResults.appendChild(div);
                 });
             } else {
-                searchResults.innerHTML = '<div class="search-item" style="cursor:default;">找不到相關內容...</div>';
+                searchResults.innerHTML = '<div class="search-item">找不到相關內容...</div>';
             }
             searchResults.style.display = 'block';
         });
 
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('#search-container')) {
-                searchResults.style.display = 'none';
-            }
-        });
+        document.addEventListener('click', (e) => { if (!e.target.closest('#search-container')) searchResults.style.display = 'none'; });
 
-       async function jumpToSearch(comicKey, actualPageNumber) {
-            if (currentComicKey !== comicKey || readerView.style.display === 'none') {
-                await loadComic(comicKey);
+        async function jumpToSearch(comicKey, panelIndex) {
+            if (currentComicKey !== comicKey) {
+                currentComicData = comicDatabase[comicKey];
+                currentComicKey = comicKey;
+                catalogView.style.display = 'none';
+                readerView.style.display = 'flex';
+                loading.style.display = 'block';
+                readerTitle.innerText = currentComicData.title;
+                
+                try {
+                    const fileMap = await getFileMap(currentComicData.folderId, currentComicData.folder);
+                    currentFilesArray = Object.keys(fileMap)
+                        .map(name => ({ name: name, id: fileMap[name] }))
+                        .filter(file => parseInt(file.name.match(/\d+/) || [-1], 10) !== 0)
+                        .sort((a, b) => parseInt(a.name.match(/\d+/) || [0], 10) - parseInt(b.name.match(/\d+/) ||[0], 10));
+                    updateModeButtonUI();
+                    
+                    // 搜尋跳轉直接略過詢問視窗
+                    startReading(comicKey, panelIndex);
+                } catch (e) {
+                    showCatalog();
+                }
+            } else {
+                navigateReaderTo(panelIndex);
             }
             
-            const checkPageFlip = setInterval(() => {
-                if (pageFlip && bookElement.style.display === 'block') {
-                    clearInterval(checkPageFlip);
-                    
-                    // 根據目前的分鏡數量，計算實際要翻到的那張紙的索引 (Index)
-                    const panelsPerPage = window.panelsPerPage || 1;
-                    const flipPageIndex = Math.ceil(actualPageNumber / panelsPerPage) - 1;
-                    
-                    pageFlip.flip(flipPageIndex);
-                    
-                    setTimeout(() => {
-                        // 透過特定的分鏡圖片 ID 找到精準的分鏡，不論它在雙頁的上方還是下方
-                        const targetImg = document.getElementById(`page-img-${comicKey}-${actualPageNumber}`);
-                        if (targetImg) {
-                            const textEl = targetImg.parentElement.querySelector('.page-text');
-                            if (textEl) {
-                                textEl.style.transition = 'background-color 0.2s';
-                                textEl.style.backgroundColor = 'var(--comic-yellow)';
-                                setTimeout(() => {
-                                    textEl.style.transition = 'background-color 2s';
-                                    textEl.style.backgroundColor = 'var(--comic-white)';
-                                }, 2500);
-                            }
-                        }
-                    }, 600);
+            // 處理搜尋結果高光特效
+            setTimeout(() => {
+                const imgEl = document.getElementById(`page-img-${comicKey}-${panelIndex}`);
+                if(imgEl) {
+                    const textEl = imgEl.parentElement.querySelector('.page-text');
+                    if(textEl) {
+                        textEl.style.transition = 'background-color 0.2s';
+                        textEl.style.backgroundColor = 'var(--comic-yellow)';
+                        setTimeout(() => {
+                            textEl.style.transition = 'background-color 2s';
+                            textEl.style.backgroundColor = 'var(--comic-white)';
+                        }, 2500);
+                    }
                 }
-            }, 100);
+            }, readMode === 'scroll' ? 500 : 800);
         }
-        
 
-        
-        // 啟動程式
-        window.addEventListener('DOMContentLoaded', () => { renderCatalog(); });
+        function navigateReaderTo(panelIndex) {
+            if (readMode === 'scroll') {
+                const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${panelIndex}`);
+                if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                if(pageFlip) {
+                    const flipPageIndex = Math.ceil(panelIndex / window.panelsPerPage) - 1;
+                    pageFlip.flip(flipPageIndex);
+                }
+            }
+        }
+
+        // ==========================================
+        // 7. 更新與清理功能
+        // ==========================================
+        document.getElementById('btn-update').addEventListener('click', async () => {
+            const btn = document.getElementById('btn-update');
+            btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.32-9.83l.98 2.26"/></svg>`;
+            btn.style.pointerEvents = "none";
+            btn.style.opacity = "0.5";
+
+            try {
+                let imgVer = parseInt(localStorage.getItem('dse_img_ver') || '0') + 1;
+                localStorage.setItem('dse_img_ver', imgVer > 50 ? 0 : imgVer);
+                Object.keys(localStorage).forEach(key => { if (key.startsWith('dse_comic_map_')) localStorage.removeItem(key); });
+                const db = await dbPromise; db.close();
+                await new Promise(res => { const req = indexedDB.deleteDatabase(DB_NAME); req.onsuccess = res; req.onerror = res; req.onblocked = res; });
+                window.location.reload();
+            } catch (error) { window.location.reload(); }
+        });
+
+        window.addEventListener('DOMContentLoaded', renderCatalog);
+
     </script>
-
-<footer class="copyright-footer">
-<p>Copyright © 2026 陳冠健. All rights reserved.</p>
-</footer>
-
-
-    
 </body>
 </html>
