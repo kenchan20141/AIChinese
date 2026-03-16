@@ -397,6 +397,33 @@
 
 
 #search-results { width: 100%; left: 0; transform: none; right: auto; top: 45px; box-sizing: border-box; }
+
+
+/* =========================================
+   默書模式 UI (保留標點，挖空填字)
+   ========================================= */
+.dictation-container { width: 100%; background: var(--comic-white); border-top: 3px solid var(--comic-black); padding: 15px; box-sizing: border-box; }
+.dict-sentence { 
+    line-height: 2.2; font-size: 20px; padding: 15px; 
+    background: #fdfdfd; border: 3px solid var(--comic-black); border-radius: 8px; margin-bottom: 10px;
+    box-shadow: inset 2px 2px 5px rgba(0,0,0,0.05);
+}
+.dict-chunk-input {
+    font-size: 20px; font-family: inherit; font-weight: bold; text-align: center; color: var(--comic-blue);
+    border: none; border-bottom: 3px dashed var(--comic-black); background: transparent;
+    outline: none; margin: 0 2px; padding: 0; transition: all 0.2s;
+}
+.dict-chunk-input:focus { border-bottom: 3px solid var(--comic-blue); background: #f0f8ff; }
+.dict-punc { font-size: 20px; font-weight: 900; color: var(--comic-black); margin: 0 2px; }
+
+.dictation-controls { display: flex; gap: 10px; margin-top: 10px; }
+.dictation-result { 
+    margin-top: 15px; padding: 15px; border: 3px dashed var(--comic-black); 
+    background: #fffdf0; font-size: 20px; font-weight: 900; line-height: 1.6; display: none; 
+}
+.char-correct { color: var(--comic-green); }
+.char-wrong { color: var(--comic-red); text-decoration: underline; text-decoration-style: wavy; }
+.char-missing { color: var(--comic-grey); text-decoration: underline; }
         
     </style>
 </head>
@@ -431,13 +458,17 @@
                 <!-- 返回目錄與切換模式放在同一行 -->
                 <div class="reader-actions">
                     <button class="btn" id="btn-back">
-                        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> 返回目錄
-                    </button>
-                    <!-- 切換按鈕，顏色由 JS 動態控制 -->
-                    <button class="btn btn-yellow" id="btn-toggle-mode">
-                        <span id="mode-icon"></span> 
-                        <span id="mode-text">切換模式</span>
-                    </button>
+    <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> 目錄
+</button>
+<!-- 加入這行默書按鈕 -->
+<button class="btn btn-red" id="btn-dictation" style="background-color: var(--comic-red); color: white;">
+    <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> 默書
+</button>
+<!-- 原有的切換按鈕保留 -->
+<button class="btn btn-yellow" id="btn-toggle-mode">
+    <span id="mode-icon"></span> 
+    <span id="mode-text">切換模式</span>
+</button>
                 </div>
             </div>
 
@@ -960,11 +991,11 @@
             if (readMode === 'flip') {
                 btnToggleMode.classList.add('btn-yellow');
                 modeIcon.innerHTML = `<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/></svg>`;
-                modeText.innerText = "切換至捲動";
+                modeText.innerText = "捲動";
             } else {
                 btnToggleMode.classList.add('btn-green');
                 modeIcon.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`;
-                modeText.innerText = "切換至翻頁";
+                modeText.innerText = "翻頁";
             }
         }
 
@@ -978,7 +1009,7 @@
             renderCurrentMode(currentStartPage);
         });
 
-       function renderCurrentMode(startPage = 1) {
+      function renderCurrentMode(startPage = 1) {
     if (!currentComicKey) return;
     if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
     bookWrapper.innerHTML = '<div id="book"></div>';
@@ -991,13 +1022,61 @@
         controlsBottom.style.display = 'flex';
         renderFlipMode(startPage);
     } else {
+        // scroll 或 dictation 模式都使用捲動版面
         bookWrapper.style.display = 'none';
         scrollWrapper.style.display = 'flex';
         controlsBottom.style.display = 'none';
-        renderScrollMode(startPage);
+        
+        if (readMode === 'dictation') {
+            renderDictationView(startPage); // 呼叫默書渲染
+        } else {
+            renderScrollMode(startPage);
+        }
     }
 
     loadImagesIntoDOM();
+}
+
+// 新增渲染默書版面的函數
+function renderDictationView(startPage) {
+    let html = '';
+    for (let i = 1; i <= currentComicData.totalPages; i++) {
+        const imgId = `page-img-${currentComicKey}-${i}`;
+        const pageText = (currentComicData.texts && currentComicData.texts[i - 1]) ? currentComicData.texts[i - 1] : '';
+        
+        // 呼叫 generateDictationUI 自動生成帶有標點與填空框的結構
+        const dictationUI = pageText ? `
+            <div class="dictation-container">
+                ${generateDictationUI(i, pageText)}
+                <div class="dictation-controls">
+                    <button class="btn btn-yellow" onclick="checkDictation(${i})">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 批改
+                    </button>
+                    <button class="btn" onclick="showDictationAnswer(${i})">答案</button>
+                </div>
+                <div class="dictation-result" id="dict-result-${i}"></div>
+            </div>
+        ` : `<div class="page-text" style="text-align:center; color:#888;">（此圖無對白）</div>`;
+
+        html += `
+            <div class="scroll-panel" id="scroll-panel-${currentComicKey}-${i}">
+                <div class="page-content">
+                    <img id="${imgId}" src="${placeholderImg}" alt="第${i}圖" onerror="this.onerror=null; this.src='${errorImgSafe}'" onclick="openLightbox(this.src)">
+                    ${dictationUI}
+                </div>
+            </div>
+        `;
+    }
+    scrollWrapper.innerHTML = html;
+
+    // 共用捲動進度紀錄邏輯
+    setTimeout(() => {
+        const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${startPage}`);
+        if (targetEl) {
+            const offsetPosition = targetEl.getBoundingClientRect().top + window.pageYOffset - 80;
+            window.scrollTo({ top: startPage <= 1 ? 0 : offsetPosition, behavior: 'instant' });
+        }
+    }, 150);
 }
         // --- 翻頁模式 ---
         function renderFlipMode(startPage) {
@@ -1347,7 +1426,105 @@ pageInput.addEventListener('change', (e) => {
             }
         }
 
-        
+        // --- 默書模式核心功能 ---
+// --- 默書模式核心功能 ---
+const btnDictation = document.getElementById('btn-dictation');
+
+btnDictation.addEventListener('click', () => {
+    readMode = readMode === 'dictation' ? 'scroll' : 'dictation';
+    if (readMode === 'dictation') {
+        btnDictation.innerHTML = `<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> 退出`;
+        btnDictation.style.backgroundColor = "var(--comic-grey)";
+        btnDictation.style.color = "var(--comic-black)";
+        btnToggleMode.style.display = 'none';
+    } else {
+        btnDictation.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> 默書`;
+        btnDictation.style.backgroundColor = "var(--comic-red)";
+        btnDictation.style.color = "white";
+        btnToggleMode.style.display = 'inline-flex'; 
+    }
+    let saved = localStorage.getItem(`comic_progress_${currentComicKey}`);
+    renderCurrentMode(saved ? parseInt(saved, 10) : 1);
+});
+
+// 自動拆分標點與文字，生成填空 UI
+function generateDictationUI(index, text) {
+    // 以外文、數字、中文字以外的符號作為分割點（即提取標點符號）
+    const parts = text.split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
+    let html = `<div class="dict-sentence" id="dict-sentence-${index}">`;
+    let chunkIndex = 0;
+
+    parts.forEach(part => {
+        if (!part) return;
+        if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) {
+            // 是標點符號，直接顯示
+            html += `<span class="dict-punc">${part}</span>`;
+        } else {
+            // 是文字，轉換為輸入框（根據字數決定寬度與最大輸入量）
+            const len = part.length;
+            html += `<input type="text" class="dict-chunk-input" id="dict-chunk-${index}-${chunkIndex}" data-answer="${part}" style="width: ${len * 1.2}em;" maxlength="${len}">`;
+            chunkIndex++;
+        }
+    });
+    html += `</div>`;
+    return html;
+}
+
+// 批改演算法 (逐格對比)
+window.checkDictation = function(index) {
+    const container = document.getElementById(`dict-sentence-${index}`);
+    if (!container) return;
+    
+    const inputs = container.querySelectorAll('.dict-chunk-input');
+    const resultEl = document.getElementById(`dict-result-${index}`);
+    const originalText = currentComicData.texts[index - 1];
+    const parts = originalText.split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
+    
+    let html = '';
+    let chunkIndex = 0;
+
+    parts.forEach(part => {
+        if (!part) return;
+        if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) {
+            html += `<span class="dict-punc">${part}</span>`;
+        } else {
+            const input = inputs[chunkIndex];
+            const expected = part;
+            const typed = input.value || "";
+            
+            // 逐字對比
+            for (let i = 0; i < expected.length; i++) {
+                const expChar = expected[i];
+                const typedChar = typed[i];
+                
+                if (typedChar === expChar) {
+                    html += `<span class="char-correct">${expChar}</span>`;
+                } else if (typedChar) {
+                    html += `<span class="char-wrong" title="你輸入了: ${typedChar}">${expChar}</span>`;
+                } else {
+                    html += `<span class="char-missing" title="漏字">${expChar}</span>`;
+                }
+            }
+            chunkIndex++;
+        }
+    });
+
+    resultEl.innerHTML = html;
+    resultEl.style.display = 'block';
+};
+
+// 直接看答案（將答案填入輸入框）
+window.showDictationAnswer = function(index) {
+    const container = document.getElementById(`dict-sentence-${index}`);
+    if (!container) return;
+    const inputs = container.querySelectorAll('.dict-chunk-input');
+    inputs.forEach(input => {
+        input.value = input.dataset.answer;
+        input.style.color = "var(--comic-green)";
+        input.style.borderBottomColor = "var(--comic-green)";
+    });
+    document.getElementById(`dict-result-${index}`).style.display = 'none';
+};
 
         window.addEventListener('DOMContentLoaded', renderCatalog);
 
