@@ -364,6 +364,45 @@
         .char-wrong { color: var(--comic-red); text-decoration: underline; text-decoration-style: wavy; }
         .char-missing { color: var(--comic-grey); text-decoration: underline; }
 
+
+        /* 默書計分板與多餘字樣式 */
+       .char-extra { color: var(--comic-red); text-decoration: line-through; opacity: 0.7; }
+
+
+/* 默書漫畫風表格與實時分數 */
+        .comic-table {
+            width: 100%; border-collapse: collapse; border: 4px solid var(--comic-black);
+            margin: 15px 0; background: var(--comic-white); text-align: center;
+        }
+        .comic-table th {
+            background: var(--comic-black); color: var(--comic-white);
+            padding: 10px; font-size: 18px; font-weight: 900; border: 2px solid var(--comic-black);
+        }
+        .comic-table td {
+            padding: 10px; font-size: 18px; font-weight: 900; border: 2px solid var(--comic-black);
+            color: var(--comic-black);
+        }
+        .comic-table tr:nth-child(even) td { background: #f0f0f0; }
+        
+        .score-realtime {
+            display: inline-block; background: var(--comic-cyan); border: 3px solid var(--comic-black);
+            padding: 6px 15px; font-size: 18px; font-weight: 900; margin-bottom: 15px;
+            box-shadow: 3px 3px 0 var(--comic-black); transform: rotate(-1deg);
+        }
+        .score-realtime span { color: var(--comic-red); font-size: 22px; }
+
+
+
+
+        
+        .dict-score-board {
+            margin-bottom: 20px; padding: 10px 20px; border: 3px solid var(--comic-black);
+            background: var(--comic-yellow); display: inline-block;
+            font-size: 26px; font-weight: 900; transform: rotate(-2deg);
+            box-shadow: 4px 4px 0 var(--comic-black);
+        }
+        .dict-score-board span { font-size: 16px; font-weight: bold; color: #555; margin-left: 10px; }
+
         /* =========================================
            響應式設計
            ========================================= */
@@ -475,6 +514,19 @@
                     <button class="btn" id="btn-back">
                         <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> 目錄
                     </button>
+
+
+
+
+  <!-- 新增的獨立全篇結算按鈕 -->
+                    <button class="btn btn-green" id="btn-submit-all" style="display: none; background-color: var(--comic-green); color: var(--comic-black);" onclick="checkAllDictation()">
+                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 全篇結算
+                    </button>
+                    
+                
+ 
+
+                  
                     <button class="btn btn-red" id="btn-dictation" style="background-color: var(--comic-red); color: white;">
                         <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> 默書
                     </button>
@@ -888,7 +940,8 @@
         }
 
         // --- 默書版面 ---
-       function renderDictationView(startPage) {
+    // --- 默書版面 ---
+        function renderDictationView(startPage) {
             let html = '';
             for (let i = 1; i <= currentComicData.totalPages; i++) {
                 const imgId = `page-img-${currentComicKey}-${i}`;
@@ -898,10 +951,10 @@
                     <div class="dictation-container">
                         ${generateDictationUI(i, pageText)}
                         <div class="dictation-controls">
-                            <button class="btn btn-yellow" onclick="checkDictation(${i})">
-                                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 批改
+                            <button class="btn btn-yellow" onclick="checkAllDictation()">
+                                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 全篇批改
                             </button>
-                            <button class="btn" onclick="showDictationAnswer(${i})">答案</button>
+                            <button class="btn" onclick="showAllDictationAnswers()">全篇答案</button>
                         </div>
                         <div class="dictation-result" id="dict-result-${i}"></div>
                     </div>
@@ -926,6 +979,25 @@
                     window.scrollTo({ top: startPage <= 1 ? 0 : offsetPosition, behavior: 'instant' });
                 }
             }, 150);
+        }
+ 
+        function generateDictationUI(index, text) {
+            const parts = text.split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
+            let html = `<div class="dict-sentence" id="dict-sentence-${index}">`;
+            let chunkIndex = 0;
+            parts.forEach(part => {
+                if (!part) return;
+                if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) {
+                    html += `<span class="dict-punc">${part}</span>`;
+                } else {
+                    const len = part.length;
+                    // 移除 maxlength 允許打多餘的字，並加入 data-answer 供比對用
+                    html += `<input type="text" class="dict-chunk-input" id="dict-chunk-${index}-${chunkIndex}" data-answer="${part}" style="width: ${Math.max(len * 1.2, 3)}em;">`;
+                    chunkIndex++;
+                }
+            });
+            html += `</div>`;
+            return html;
         }
 
         // --- 翻頁模式 ---
@@ -1328,7 +1400,9 @@
         // ==========================================
         // 默書模式核心功能與自動跳格
         // ==========================================
-        const btnDictation = document.getElementById('btn-dictation');
+       const btnDictation = document.getElementById('btn-dictation');
+        const btnSubmitAll = document.getElementById('btn-submit-all'); // 抓取全篇結算按鈕
+ 
         btnDictation.addEventListener('click', () => {
             readMode = readMode === 'dictation' ? 'scroll' : 'dictation';
             if (readMode === 'dictation') {
@@ -1336,33 +1410,20 @@
                 btnDictation.style.backgroundColor = "var(--comic-grey)";
                 btnDictation.style.color = "var(--comic-black)";
                 btnToggleMode.style.display = 'none';
+                btnSubmitAll.style.display = 'inline-flex'; // 顯示全篇結算
             } else {
                 btnDictation.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> 默書`;
                 btnDictation.style.backgroundColor = "var(--comic-red)";
                 btnDictation.style.color = "white";
-                btnToggleMode.style.display = 'inline-flex'; 
+                btnToggleMode.style.display = 'inline-flex';
+                btnSubmitAll.style.display = 'none'; // 隱藏全篇結算
+                gradedSentences.clear(); // 清空批改紀錄
             }
             let saved = localStorage.getItem(`comic_progress_${currentComicKey}`);
             renderCurrentMode(saved ? parseInt(saved, 10) : 1);
         });
 
-        function generateDictationUI(index, text) {
-            const parts = text.split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
-            let html = `<div class="dict-sentence" id="dict-sentence-${index}">`;
-            let chunkIndex = 0;
-            parts.forEach(part => {
-                if (!part) return;
-                if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) {
-                    html += `<span class="dict-punc">${part}</span>`;
-                } else {
-                    const len = part.length;
-                    html += `<input type="text" class="dict-chunk-input" id="dict-chunk-${index}-${chunkIndex}" data-answer="${part}" style="width: ${len * 1.2}em;" maxlength="${len}">`;
-                    chunkIndex++;
-                }
-            });
-            html += `</div>`;
-            return html;
-        }
+        
 
         // --- 默書輸入框「自動跳下一格」功能，支援 IME 拼字 ---
         let isComposing = false;
@@ -1376,9 +1437,11 @@
             if (!isComposing) checkAutoAdvance(e.target);
         });
 
-        function checkAutoAdvance(target) {
+       function checkAutoAdvance(target) {
             if (target && target.classList && target.classList.contains('dict-chunk-input')) {
-                if (target.value.length >= target.maxLength) {
+                const expectedLen = target.dataset.answer ? target.dataset.answer.length : 0;
+                // 使用 === 確保只有在剛好達到字數時跳格
+                if (expectedLen > 0 && target.value.length === expectedLen) {
                     const container = target.closest('.dict-sentence');
                     if(container) {
                         const inputs = Array.from(container.querySelectorAll('.dict-chunk-input'));
@@ -1391,36 +1454,156 @@
             }
         }
 
+     // ==========================================
+        // 全篇默書批改與答案顯示 (支援錯/漏/多字精準判定)
+        // ==========================================
+              // 記錄已經手動點擊過「批改」的句子 index
+        let gradedSentences = new Set();
+
+        // 動態規劃比對演算法 (核心)
+        function diffStrings(expected, typed) {
+            const m = expected.length, n = typed.length;
+            const dp = Array.from({length: m + 1}, () => Array(n + 1).fill(0));
+
+            for (let i = 0; i <= m; i++) dp[i][0] = i; 
+            for (let j = 0; j <= n; j++) dp[0][j] = j; 
+
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    if (expected[i - 1] === typed[j - 1]) dp[i][j] = dp[i - 1][j - 1];
+                    else dp[i][j] = Math.min( dp[i - 1][j - 1] + 1, dp[i - 1][j] + 1, dp[i][j - 1] + 1 );
+                }
+            }
+
+            let i = m, j = n, wCount = 0, mCount = 0, eCount = 0;
+            let path = [], resHtml = '';
+
+            while (i > 0 || j > 0) {
+                if (i > 0 && j > 0 && expected[i - 1] === typed[j - 1]) {
+                    path.unshift({ type: 'correct', char: expected[i - 1] }); i--; j--;
+                } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
+                    path.unshift({ type: 'wrong', exp: expected[i - 1], typ: typed[j - 1] }); wCount++; i--; j--;
+                } else if (i > 0 && dp[i][j] === dp[i - 1][j] + 1) {
+                    path.unshift({ type: 'missing', char: expected[i - 1] }); mCount++; i--;
+                } else if (j > 0 && dp[i][j] === dp[i][j - 1] + 1) {
+                    path.unshift({ type: 'extra', char: typed[j - 1] }); eCount++; j--;
+                }
+            }
+
+            path.forEach(p => {
+                if (p.type === 'correct') resHtml += `<span class="char-correct">${p.char}</span>`;
+                else if (p.type === 'wrong') resHtml += `<span class="char-wrong" title="輸入: ${p.typ}">${p.exp}</span>`;
+                else if (p.type === 'missing') resHtml += `<span class="char-missing" title="漏字">${p.char}</span>`;
+                else if (p.type === 'extra') resHtml += `<span class="char-extra" title="多字">${p.char}</span>`;
+            });
+
+            return { html: resHtml, wrong: wCount, missing: mCount, extra: eCount };
+        }
+
+        // 計算實時分數 (只計算有作答或已批改的部分)
+        function calculateRealtimeScore() {
+            let tWrong = 0, tMissing = 0, tExtra = 0;
+            for (let i = 1; i <= currentComicData.totalPages; i++) {
+                const container = document.getElementById(`dict-sentence-${i}`);
+                if (!container) continue;
+                
+                const inputs = container.querySelectorAll('.dict-chunk-input');
+                let hasInput = Array.from(inputs).some(input => input.value.trim() !== "");
+                
+                if (hasInput || gradedSentences.has(i)) {
+                    inputs.forEach(input => {
+                        const expected = input.dataset.answer || "";
+                        const typed = input.value || "";
+                        const diff = diffStrings(expected, typed);
+                        tWrong += diff.wrong; tMissing += diff.missing; tExtra += diff.extra;
+                    });
+                }
+            }
+            let score = 100 - (tWrong * 5 + tMissing * 5 + tExtra * 5);
+            return score < 0 ? 0 : score;
+        }
+
+        // --- 默書版面渲染 ---
+        function renderDictationView(startPage) {
+            let html = '';
+            for (let i = 1; i <= currentComicData.totalPages; i++) {
+                const imgId = `page-img-${currentComicKey}-${i}`;
+                const pageText = (currentComicData.texts && currentComicData.texts[i - 1]) ? currentComicData.texts[i - 1] : '';
+                
+                const dictationUI = pageText ? `
+                    <div class="dictation-container">
+                        ${generateDictationUI(i, pageText)}
+                        <div class="dictation-controls">
+                            <!-- 改回單句批改與單句答案 -->
+                            <button class="btn btn-yellow" onclick="checkDictation(${i})">
+                                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 批改本句
+                            </button>
+                            <button class="btn" onclick="showDictationAnswer(${i})">本句答案</button>
+                        </div>
+                        <div class="dictation-result" id="dict-result-${i}"></div>
+                    </div>
+                ` : `<div class="page-text" style="text-align:center; color:#888;">（此圖無對白）</div>`;
+
+                html += `
+                    <div class="scroll-panel" id="scroll-panel-${currentComicKey}-${i}">
+                        <div class="page-content">
+                            <div class="panel-number">${i}</div>
+                            <img id="${imgId}" src="${placeholderImg}" alt="第${i}圖" onerror="this.onerror=null; this.src='${errorImgSafe}'" onclick="openLightbox(this.src, ${i})">
+                            ${dictationUI}
+                        </div>
+                    </div>
+                `;
+            }
+            scrollWrapper.innerHTML = html;
+            setTimeout(() => {
+                const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${startPage}`);
+                if (targetEl) window.scrollTo({ top: startPage <= 1 ? 0 : targetEl.getBoundingClientRect().top + window.pageYOffset - 80, behavior: 'instant' });
+            }, 150);
+        }
+
+        function generateDictationUI(index, text) {
+            const parts = text.split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
+            let html = `<div class="dict-sentence" id="dict-sentence-${index}">`;
+            let chunkIndex = 0;
+            parts.forEach(part => {
+                if (!part) return;
+                if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) html += `<span class="dict-punc">${part}</span>`;
+                else {
+                    const len = part.length;
+                    html += `<input type="text" class="dict-chunk-input" id="dict-chunk-${index}-${chunkIndex}" data-answer="${part}" style="width: ${Math.max(len * 1.2, 3)}em;">`;
+                    chunkIndex++;
+                }
+            });
+            html += `</div>`; return html;
+        }
+
+        // 單句批改 (顯示實時分數)
         window.checkDictation = function(index) {
+            gradedSentences.add(index); // 標記為已批改
             const container = document.getElementById(`dict-sentence-${index}`);
             if (!container) return;
             
             const inputs = container.querySelectorAll('.dict-chunk-input');
             const resultEl = document.getElementById(`dict-result-${index}`);
-            const originalText = currentComicData.texts[index - 1];
-            const parts = originalText.split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
-            
             let html = '', chunkIndex = 0;
+
+            const parts = currentComicData.texts[index - 1].split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
             parts.forEach(part => {
                 if (!part) return;
-                if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) {
-                    html += `<span class="dict-punc">${part}</span>`;
-                } else {
+                if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) html += `<span class="dict-punc">${part}</span>`;
+                else {
                     const input = inputs[chunkIndex];
-                    const expected = part;
-                    const typed = input.value || "";
-                    
-                    for (let i = 0; i < expected.length; i++) {
-                        const expChar = expected[i], typedChar = typed[i];
-                        if (typedChar === expChar) html += `<span class="char-correct">${expChar}</span>`;
-                        else if (typedChar) html += `<span class="char-wrong" title="你輸入了: ${typedChar}">${expChar}</span>`;
-                        else html += `<span class="char-missing" title="漏字">${expChar}</span>`;
-                    }
+                    const diff = diffStrings(part, input ? (input.value || "") : "");
+                    html += diff.html;
                     chunkIndex++;
                 }
             });
 
-            resultEl.innerHTML = html;
+            // 取得當前實時總分並顯示
+            const currentScore = calculateRealtimeScore();
+            const scoreHtml = `<div class="score-realtime">實時總分：<span>${currentScore}</span> / 100</div><br>`;
+
+            resultEl.innerHTML = scoreHtml + html;
             resultEl.style.display = 'block';
         };
 
@@ -1434,6 +1617,87 @@
                 input.style.borderBottomColor = "var(--comic-green)";
             });
             document.getElementById(`dict-result-${index}`).style.display = 'none';
+        };
+
+        // 全篇批改與漫畫風結算表格
+        window.checkAllDictation = function() {
+            let tWrong = 0, tMissing = 0, tExtra = 0;
+
+            for (let i = 1; i <= currentComicData.totalPages; i++) {
+                const container = document.getElementById(`dict-sentence-${i}`);
+                if (!container) continue;
+                gradedSentences.add(i); // 強制全部標記為已批改
+                
+                const inputs = container.querySelectorAll('.dict-chunk-input');
+                const resultEl = document.getElementById(`dict-result-${i}`);
+                const parts = currentComicData.texts[i - 1].split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
+                let html = '', chunkIndex = 0;
+
+                parts.forEach(part => {
+                    if (!part) return;
+                    if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) html += `<span class="dict-punc">${part}</span>`;
+                    else {
+                        const input = inputs[chunkIndex];
+                        const diff = diffStrings(part, input ? (input.value || "") : "");
+                        html += diff.html;
+                        tWrong += diff.wrong; tMissing += diff.missing; tExtra += diff.extra;
+                        if (input) input.disabled = true; // 鎖定輸入框
+                        chunkIndex++;
+                    }
+                });
+
+                resultEl.innerHTML = html;
+                resultEl.style.display = 'block';
+            }
+
+            let score = 100 - (tWrong * 5 + tMissing * 5 + tExtra * 5);
+            if (score < 0) score = 0;
+
+            // 渲染無圖案的漫畫風表格
+            let existing = document.getElementById('global-score-dialog');
+            if (existing) existing.remove();
+
+            const dialogHTML = `
+            <div id="global-score-dialog" class="comic-dialog-overlay" style="display: flex;">
+                <div class="comic-dialog" style="transform: rotate(-1deg); max-width: 450px; width: 90%;">
+                    <div class="comic-dialog-title" style="background: var(--comic-red); font-size: 26px;">分數</div>
+                    <div class="comic-dialog-content" style="margin-bottom: 15px;">
+                        <div style="font-size: 24px; font-weight: 900; margin-bottom: 10px;">
+                            <span style="color: var(--comic-red); font-size: 42px;">${score}</span> / 100
+                        </div>
+                        <table class="comic-table">
+                            <thead>
+                                <tr>
+                                    <th>錯誤類型</th>
+                                    <th>數量</th>
+                                    <th>扣分</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>錯字</td>
+                                    <td>${tWrong}</td>
+                                    <td style="color: var(--comic-red);">- ${tWrong * 5}</td>
+                                </tr>
+                                <tr>
+                                    <td>漏字</td>
+                                    <td>${tMissing}</td>
+                                    <td style="color: var(--comic-red);">- ${tMissing * 5}</td>
+                                </tr>
+                                <tr>
+                                    <td>多字</td>
+                                    <td>${tExtra}</td>
+                                    <td style="color: var(--comic-red);">- ${tExtra * 5}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="comic-dialog-actions">
+                        <button class="btn btn-yellow" onclick="document.getElementById('global-score-dialog').remove()">朕知道了</button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', dialogHTML);
         };
 
         window.addEventListener('DOMContentLoaded', renderCatalog);
