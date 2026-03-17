@@ -519,9 +519,10 @@
 
 
   <!-- 新增的獨立全篇結算按鈕 -->
-                    <button class="btn btn-green" id="btn-submit-all" style="display: none; background-color: var(--comic-green); color: var(--comic-black);" onclick="checkAllDictation()">
-                        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 全篇結算
-                    </button>
+                   <!-- 將原本的按鈕替換為以下這行 -->
+<button class="btn btn-green" id="btn-submit-all" style="display: none; background-color: var(--comic-green); color: var(--comic-black);" onclick="confirmSubmitAll()">
+    <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 呈交
+</button>
                     
                 
  
@@ -1536,9 +1537,9 @@
                         <div class="dictation-controls">
                             <!-- 改回單句批改與單句答案 -->
                             <button class="btn btn-yellow" onclick="checkDictation(${i})">
-                                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 批改本句
+                                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> 批改
                             </button>
-                            <button class="btn" onclick="showDictationAnswer(${i})">本句答案</button>
+                            <button class="btn" onclick="showDictationAnswer(${i})">答案</button>
                         </div>
                         <div class="dictation-result" id="dict-result-${i}"></div>
                     </div>
@@ -1699,6 +1700,187 @@
             </div>`;
             document.body.insertAdjacentHTML('beforeend', dialogHTML);
         };
+
+
+
+
+
+// ==========================================
+        // 跨標點連續刪除 (Backspace) 支援
+        // ==========================================
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace') {
+                const target = e.target;
+                // 確保當前焦點在默書輸入框上
+                if (target && target.classList && target.classList.contains('dict-chunk-input')) {
+                    // 當輸入框為空，或者游標已經在最前面時
+                    if (target.selectionStart === 0 && target.selectionEnd === 0) {
+                        e.preventDefault(); // 阻止預設行為
+                        
+                        // 取得畫面上所有尚未被鎖定的輸入框（跨句查詢）
+                        const allInputs = Array.from(document.querySelectorAll('.dict-chunk-input:not(:disabled)'));
+                        const currentIndex = allInputs.indexOf(target);
+                        
+                        if (currentIndex > 0) {
+                            const prevInput = allInputs[currentIndex - 1];
+                            prevInput.focus();
+                            
+                            // 刪除前一個輸入框的最後一個字 (若有)
+                            if (prevInput.value.length > 0) {
+                                prevInput.value = prevInput.value.slice(0, -1);
+                                // 觸發 input 事件以確保系統邏輯（例如自動跳格等）正常運作
+                                prevInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            
+                            // 將游標設定到前一個輸入框的最後面，以利連續長按刪除
+                            const len = prevInput.value.length;
+                            prevInput.setSelectionRange(len, len);
+                        }
+                    }
+                }
+            }
+        });
+ 
+        // ==========================================
+        // 呈交前的漫畫風確認視窗
+        // ==========================================
+        window.confirmSubmitAll = function() {
+            let existing = document.getElementById('confirm-submit-dialog');
+            if (existing) existing.remove();
+ 
+            const dialogHTML = `
+            <div id="confirm-submit-dialog" class="comic-dialog-overlay" style="display: flex;">
+                <div class="comic-dialog" style="transform: rotate(-2deg); max-width: 400px; width: 90%;">
+                    <div class="comic-dialog-title" style="background: var(--comic-yellow); color: var(--comic-black);">確認呈交？</div>
+                    <div class="comic-dialog-content" style="margin-bottom: 20px;">
+                        確定要呈交全篇默書並進行批改嗎？<br>呈交後將鎖定輸入並顯示成績！
+                    </div>
+                    <div class="comic-dialog-actions">
+                        <button class="btn" onclick="document.getElementById('confirm-submit-dialog').remove()">稍後再交</button>
+                        <button class="btn btn-green" onclick="document.getElementById('confirm-submit-dialog').remove(); checkAllDictation();">確定呈交</button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', dialogHTML);
+        };
+ 
+       // ==========================================
+        // 全篇批改與答案顯示 (修訂版：隱藏按鈕 + 遞減實時總分)
+        // ==========================================
+        window.checkAllDictation = function() {
+            let tWrong = 0, tMissing = 0, tExtra = 0;
+            let realtimeScore = 100; // 從 100 分開始遞減
+ 
+            for (let i = 1; i <= currentComicData.totalPages; i++) {
+                const container = document.getElementById(`dict-sentence-${i}`);
+                if (!container) continue;
+                
+                // 強制全部標記為已批改
+                gradedSentences.add(i);
+                
+                // 隱藏該句的「批改本句」與「本句答案」按鈕區域
+                const controlsDiv = container.parentElement.querySelector('.dictation-controls');
+                if (controlsDiv) {
+                    controlsDiv.style.display = 'none';
+                }
+ 
+                const inputs = container.querySelectorAll('.dict-chunk-input');
+                const resultEl = document.getElementById(`dict-result-${i}`);
+                const parts = currentComicData.texts[i - 1].split(/([^\u4e00-\u9fa5a-zA-Z0-9]+)/);
+                
+                let html = '', chunkIndex = 0;
+                let sentenceWrong = 0, sentenceMissing = 0, sentenceExtra = 0; // 記錄本句的錯誤數
+ 
+                parts.forEach(part => {
+                    if (!part) return;
+                    if (/^[^\u4e00-\u9fa5a-zA-Z0-9]+$/.test(part)) {
+                        html += `<span class="dict-punc">${part}</span>`;
+                    } else {
+                        const input = inputs[chunkIndex];
+                        const diff = diffStrings(part, input ? (input.value || "") : "");
+                        html += diff.html;
+                        
+                        // 累計本句錯誤
+                        sentenceWrong += diff.wrong;
+                        sentenceMissing += diff.missing;
+                        sentenceExtra += diff.extra;
+                        
+                        if (input) input.disabled = true; // 鎖定輸入框
+                        chunkIndex++;
+                    }
+                });
+ 
+                // 將本句錯誤累加至全篇總錯誤數
+                tWrong += sentenceWrong;
+                tMissing += sentenceMissing;
+                tExtra += sentenceExtra;
+ 
+                // 計算扣分，並更新實時總分
+                let sentenceDeduction = (sentenceWrong + sentenceMissing + sentenceExtra) * 5;
+                realtimeScore -= sentenceDeduction;
+                if (realtimeScore < 0) realtimeScore = 0; // 分數最低扣至 0 分
+ 
+                // 顯示當下剩餘的實時總分
+                const scoreHtml = `<div class="score-realtime">實時總分：<span>${realtimeScore}</span> / 100</div><br>`;
+ 
+                resultEl.innerHTML = scoreHtml + html;
+                resultEl.style.display = 'block';
+            }
+ 
+            // 渲染無圖案的漫畫風全篇結算表格
+            let existing = document.getElementById('global-score-dialog');
+            if (existing) existing.remove();
+ 
+            const dialogHTML = `
+            <div id="global-score-dialog" class="comic-dialog-overlay" style="display: flex;">
+                <div class="comic-dialog" style="transform: rotate(-1deg); max-width: 450px; width: 90%;">
+                    <div class="comic-dialog-title" style="background: var(--comic-red); font-size: 26px;">分數結算</div>
+                    <div class="comic-dialog-content" style="margin-bottom: 15px;">
+                        <div style="font-size: 24px; font-weight: 900; margin-bottom: 10px;">
+                            <span style="color: var(--comic-red); font-size: 42px;">${realtimeScore}</span> / 100
+                        </div>
+                        <table class="comic-table">
+                            <thead>
+                                <tr>
+                                    <th>錯誤類型</th>
+                                    <th>數量</th>
+                                    <th>扣分</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>錯字</td>
+                                    <td>${tWrong}</td>
+                                    <td style="color: var(--comic-red);">- ${tWrong * 5}</td>
+                                </tr>
+                                <tr>
+                                    <td>漏字</td>
+                                    <td>${tMissing}</td>
+                                    <td style="color: var(--comic-red);">- ${tMissing * 5}</td>
+                                </tr>
+                                <tr>
+                                    <td>多字</td>
+                                    <td>${tExtra}</td>
+                                    <td style="color: var(--comic-red);">- ${tExtra * 5}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="comic-dialog-actions">
+                        <button class="btn btn-yellow" onclick="document.getElementById('global-score-dialog').remove()">朕知道了</button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', dialogHTML);
+        };
+
+
+
+
+
+
+
+        
 
         window.addEventListener('DOMContentLoaded', renderCatalog);
 
