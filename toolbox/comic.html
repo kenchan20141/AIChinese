@@ -1167,21 +1167,57 @@
    // ==========================================
         // 放大鏡與左右滑動切換圖片 (支援原文顯示及手機/電腦完美滑動)
         // ==========================================
+       // ==========================================
+        // 放大鏡與左右滑動切換圖片 (支援原文顯示、雙指/滾輪縮放、單指拖曳/翻頁)
+        // ==========================================
         let currentLightboxIndex = 1;
         const lightbox = document.getElementById('lightbox');
         const lbImg = document.getElementById('lightbox-img');
         const lbNum = document.getElementById('lightbox-number');
         const lbText = document.getElementById('lightbox-text');
-        // 加上 touchAction 避免手機瀏覽器預設的滑動返回/整理行為干擾我們的手勢
+        // 必須設定 touch-action: none 才能阻止瀏覽器原生行為干擾我們自定義的雙指縮放
         lightbox.style.touchAction = "none";
+ 
+        // 縮放與拖曳狀態變數
+        let lbScale = 1;
+        let lbTranslateX = 0;
+        let lbTranslateY = 0;
+        
+        let lbIsAnimating = false;
+ 
+        // 單指/滑鼠拖曳與翻頁狀態
+        let lbIsDragging = false;
+        let lbStartX = 0, lbStartY = 0;
+        let lbLastDragX = 0, lbLastDragY = 0;
+        let lbHasMoved = false; // 用於判斷是單純點擊還是滑動
+ 
+        // 雙指縮放狀態
+        let lbInitialPinchDist = null;
+        let lbInitialScale = 1;
+ 
+        // 更新圖片變形狀態
+        function updateLightboxTransform() {
+            // 如果正在動畫中(換頁)，不套用手動的 transform
+            if (lbIsAnimating) return;
+            lbImg.style.transform = `translate(${lbTranslateX}px, ${lbTranslateY}px) scale(${lbScale})`;
+        }
+ 
+        // 重置為預設狀態
+        function resetLightboxTransform() {
+            lbScale = 1;
+            lbTranslateX = 0;
+            lbTranslateY = 0;
+            updateLightboxTransform();
+        }
  
         function openLightbox(imgSrc, index) {
             if(imgSrc.includes('data:image/svg+xml')) return;
             currentLightboxIndex = index;
+            lbIsAnimating = false;
             
             // 重置動畫與樣式
             lbImg.className = '';
-            lbImg.style.transform = 'translateX(0)';
+            resetLightboxTransform();
             lbImg.style.opacity = '1';
             
             lbImg.src = imgSrc;
@@ -1198,51 +1234,165 @@
         }
         function closeLightbox() {
             lightbox.style.display = 'none';
-        }
-        let lbStartX = 0, lbStartY = 0, lbIsSwiping = false, lbIsAnimating = false;
- 
-        // 統一處理滑動開始
-        function handleLightboxStart(clientX, clientY) {
-            if (lbIsAnimating) return;
-            lbStartX = clientX;
-            lbStartY = clientY;
-            lbIsSwiping = false;
+            resetLightboxTransform();
         }
  
-        // 統一處理滑動結束與判定
-        function handleLightboxEnd(clientX, clientY) {
+        // 計算兩點距離 (用於雙指縮放)
+        function getDistance(touches) {
+            return Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
+        }
+ 
+        // --- 滑鼠與滾輪事件 (電腦版) ---
+        lightbox.addEventListener('wheel', (e) => {
+            e.preventDefault(); // 防止滾動網頁
             if (lbIsAnimating) return;
-            const deltaX = clientX - lbStartX;
-            const deltaY = clientY - lbStartY;
-            // 判斷是否為有效滑動 (水平移動大於 50px 且大於垂直移動)
-            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
-                lbIsSwiping = true;
-                if (deltaX > 0) navigateLightbox(-1); // 往右撥 -> 上一圖
-                else navigateLightbox(1);             // 往左撥 -> 下一圖
-                
-                setTimeout(() => lbIsSwiping = false, 300);
+ 
+            // 調整縮放比例 (向上滾放大，向下滾縮小)
+            const zoomDirection = e.deltaY < 0 ? 1 : -1;
+            lbScale += zoomDirection * 0.15;
+            
+            // 限制縮放範圍 1x ~ 5x
+            if (lbScale < 1) {
+                lbScale = 1;
+                lbTranslateX = 0; // 縮回 1x 時位置歸零
+                lbTranslateY = 0;
             }
-        }
-        // 手機版觸控事件
-        lightbox.addEventListener('touchstart', e => {
-            handleLightboxStart(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-        }, { passive: true });
-        lightbox.addEventListener('touchend', e => {
-            handleLightboxEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-        }, { passive: true });
+            if (lbScale > 5) lbScale = 5;
  
-        // 電腦版滑鼠事件
-        lightbox.addEventListener('mousedown', e => {
-            handleLightboxStart(e.clientX, e.clientY);
+            updateLightboxTransform();
+        }, { passive: false });
+ 
+        lightbox.addEventListener('mousedown', (e) => {
+            if (lbIsAnimating) return;
+            lbIsDragging = true;
+            lbHasMoved = false;
+            lbStartX = e.clientX;
+            lbStartY = e.clientY;
+            lbLastDragX = e.clientX;
+            lbLastDragY = e.clientY;
         });
  
-        lightbox.addEventListener('mouseup', e => {
-            handleLightboxEnd(e.clientX, e.clientY);
+        lightbox.addEventListener('mousemove', (e) => {
+            if (!lbIsDragging || lbIsAnimating) return;
+            lbHasMoved = true;
+ 
+            // 如果圖片有放大，則進行拖曳 (Pan)
+            if (lbScale > 1) {
+                const deltaX = e.clientX - lbLastDragX;
+                const deltaY = e.clientY - lbLastDragY;
+                lbTranslateX += deltaX;
+                lbTranslateY += deltaY;
+                lbLastDragX = e.clientX;
+                lbLastDragY = e.clientY;
+                updateLightboxTransform();
+            }
         });
-        // 點擊關閉邏輯 (若非滑動且非動畫中，則關閉)
-        lightbox.addEventListener('click', (e) => {
-            if (!lbIsSwiping && !lbIsAnimating) closeLightbox();
+ 
+        lightbox.addEventListener('mouseup', (e) => {
+            if (!lbIsDragging || lbIsAnimating) return;
+            lbIsDragging = false;
+            
+            // 如果沒放大，且為水平大幅滑動，則觸發翻頁
+            if (lbScale === 1) {
+                const deltaX = e.clientX - lbStartX;
+                const MathAbsX = Math.abs(deltaX);
+                const MathAbsY = Math.abs(e.clientY - lbStartY);
+ 
+                if (MathAbsX > 50 && MathAbsX > MathAbsY) {
+                    if (deltaX > 0) navigateLightbox(-1); // 往右撥
+                    else navigateLightbox(1);             // 往左撥
+                } else if (!lbHasMoved) {
+                    // 單純點擊且沒滑動則關閉
+                    closeLightbox();
+                }
+            } else if (!lbHasMoved) {
+                // 若放大狀態下單純點擊，則重置為 1x
+                resetLightboxTransform();
+            }
         });
+ 
+        // --- 觸控事件 (手機/平板) ---
+        lightbox.addEventListener('touchstart', (e) => {
+            if (lbIsAnimating) return;
+            lbHasMoved = false;
+ 
+            if (e.touches.length === 1) {
+                // 單指：準備滑動翻頁或拖曳
+                lbIsDragging = true;
+                lbStartX = e.touches[0].clientX;
+                lbStartY = e.touches[0].clientY;
+                lbLastDragX = e.touches[0].clientX;
+                lbLastDragY = e.touches[0].clientY;
+            } else if (e.touches.length === 2) {
+                // 雙指：準備縮放
+                lbIsDragging = false; // 停止拖曳
+                lbInitialPinchDist = getDistance(e.touches);
+                lbInitialScale = lbScale;
+            }
+        }, { passive: false });
+ 
+        lightbox.addEventListener('touchmove', (e) => {
+            if (lbIsAnimating) return;
+            e.preventDefault(); // 重要：防止畫面滾動及下拉更新
+            lbHasMoved = true;
+ 
+            if (e.touches.length === 1 && lbIsDragging) {
+                // 單指且有放大時：進行拖曳
+                if (lbScale > 1) {
+                    const deltaX = e.touches[0].clientX - lbLastDragX;
+                    const deltaY = e.touches[0].clientY - lbLastDragY;
+                    lbTranslateX += deltaX;
+                    lbTranslateY += deltaY;
+                    lbLastDragX = e.touches[0].clientX;
+                    lbLastDragY = e.touches[0].clientY;
+                    updateLightboxTransform();
+                }
+            } else if (e.touches.length === 2) {
+                // 雙指：計算縮放比例
+                const currentPinchDist = getDistance(e.touches);
+                lbScale = lbInitialScale * (currentPinchDist / lbInitialPinchDist);
+ 
+                // 限制縮放範圍 1x ~ 5x
+                if (lbScale < 1) {
+                    lbScale = 1;
+                    lbTranslateX = 0; // 縮回 1x 時位置歸零
+                    lbTranslateY = 0;
+                }
+                if (lbScale > 5) lbScale = 5;
+ 
+                updateLightboxTransform();
+            }
+        }, { passive: false });
+ 
+        lightbox.addEventListener('touchend', (e) => {
+            if (lbIsAnimating) return;
+ 
+            // 當手指全部放開時判斷
+            if (e.touches.length === 0) {
+                if (lbScale === 1 && lbIsDragging) {
+                    const deltaX = lbLastDragX - lbStartX;
+                    const MathAbsX = Math.abs(deltaX);
+                    const MathAbsY = Math.abs(lbLastDragY - lbStartY);
+ 
+                    if (MathAbsX > 50 && MathAbsX > MathAbsY) {
+                        if (deltaX > 0) navigateLightbox(-1); // 往右撥
+                        else navigateLightbox(1);             // 往左撥
+                    } else if (!lbHasMoved) {
+                        // 單純點擊關閉
+                        closeLightbox();
+                    }
+                } else if (lbScale > 1 && !lbHasMoved && lbIsDragging) {
+                    // 若放大時單點，將其復原為 1x
+                    resetLightboxTransform();
+                }
+ 
+                // 重置狀態
+                lbIsDragging = false;
+                lbInitialPinchDist = null;
+            }
+        });
+ 
+        // --- 換圖動畫邏輯 ---
         function navigateLightbox(direction) {
             let targetIndex = currentLightboxIndex + direction;
             if (targetIndex < 1 || targetIndex > currentComicData.totalPages) return;
@@ -1250,6 +1400,9 @@
             const targetImg = document.getElementById(`page-img-${currentComicKey}-${targetIndex}`);
             if (targetImg && !targetImg.src.includes('data:image/svg+xml')) {
                 lbIsAnimating = true;
+                
+                // 換圖前先將 transform 歸零，否則會跟 CSS 動畫衝突
+                lbImg.style.transform = '';
                 const outClass = direction === 1 ? 'lb-anim-out-left' : 'lb-anim-out-right';
                 const inClass  = direction === 1 ? 'lb-anim-in-right' : 'lb-anim-in-left';
                 lbImg.className = outClass;
@@ -1271,7 +1424,7 @@
                     lbText.style.opacity = '1'; // 文字淡入
                     setTimeout(() => {
                         lbImg.className = '';
-                        lbImg.style.transform = 'translateX(0)';
+                        resetLightboxTransform(); // 動畫完畢，確保變數與樣式乾淨歸零
                         lbImg.style.opacity = '1';
                         lbIsAnimating = false;
                     }, 200);
