@@ -392,6 +392,23 @@
             .controls { padding: 10px; gap: 10px; width: 100%; box-sizing: border-box; }
             .copyright-footer p { font-size: 12px; }
         }
+
+
+/* =========================================
+           放大鏡滑動動畫特效
+           ========================================= */
+        .lb-anim-out-left { animation: lbOutLeft 0.2s forwards ease-in; }
+        .lb-anim-in-right { animation: lbInRight 0.2s forwards ease-out; }
+        .lb-anim-out-right { animation: lbOutRight 0.2s forwards ease-in; }
+        .lb-anim-in-left { animation: lbInLeft 0.2s forwards ease-out; }
+ 
+        @keyframes lbOutLeft { to { transform: translateX(-100vw); opacity: 0; } }
+        @keyframes lbInRight { from { transform: translateX(100vw); opacity: 0; } to { transform: scale(1) translateX(0); opacity: 1; } }
+        @keyframes lbOutRight { to { transform: translateX(100vw); opacity: 0; } }
+        @keyframes lbInLeft { from { transform: translateX(-100vw); opacity: 0; } to { transform: scale(1) translateX(0); opacity: 1; } }
+
+
+        
     </style>
 </head>
 <body>
@@ -475,9 +492,10 @@
         </div>
     </div>
 
- <div id="lightbox">
-        <div id="lightbox-number" class="panel-number" style="top: 20px; left: 20px; font-size: 24px; position: absolute; background: var(--comic-white); color: var(--comic-black);"></div>
-        <img id="lightbox-img" src="" alt="放大觀看">
+<div id="lightbox">
+        <div id="lightbox-number" class="panel-number" style="top: 20px; left: 20px; font-size: 24px; position: absolute; background: var(--comic-white); color: var(--comic-black); z-index: 10001;"></div>
+        <!-- 加入 draggable="false" 防止電腦版滑鼠拖曳圖片時出現重影 -->
+        <img id="lightbox-img" src="" alt="放大觀看" draggable="false">
     </div>
 
     <footer class="copyright-footer">
@@ -1038,40 +1056,49 @@
             if (flipAudio) { flipAudio.currentTime = 0; flipAudio.play().catch(()=>{}); }
         }
 
-       // ==========================================
-        // 放大鏡與左右滑動切換圖片
+     // ==========================================
+        // 放大鏡與左右滑動切換圖片 (支援手機與電腦版 + 動畫特效)
         // ==========================================
         let currentLightboxIndex = 1;
+        const lightbox = document.getElementById('lightbox');
+        const lbImg = document.getElementById('lightbox-img');
+        const lbNum = document.getElementById('lightbox-number');
  
         function openLightbox(imgSrc, index) {
             if(imgSrc.includes('data:image/svg+xml')) return;
             currentLightboxIndex = index;
-            document.getElementById('lightbox-img').src = imgSrc;
-            document.getElementById('lightbox-number').innerText = index;
-            document.getElementById('lightbox').style.display = 'flex';
+            
+            // 重置動畫與樣式
+            lbImg.className = '';
+            lbImg.style.transform = 'translateX(0)';
+            lbImg.style.opacity = '1';
+            
+            lbImg.src = imgSrc;
+            lbNum.innerText = index;
+            lightbox.style.display = 'flex';
         }
  
         function closeLightbox() {
-            document.getElementById('lightbox').style.display = 'none';
+            lightbox.style.display = 'none';
         }
  
-        const lightbox = document.getElementById('lightbox');
-        let lbTouchStartX = 0, lbTouchStartY = 0, lbIsSwiping = false;
+        let lbStartX = 0, lbStartY = 0, lbIsSwiping = false, lbIsAnimating = false;
  
-        lightbox.addEventListener('touchstart', e => {
-            lbTouchStartX = e.changedTouches[0].screenX;
-            lbTouchStartY = e.changedTouches[0].screenY;
+        // 使用 pointerdown / pointerup 支援手機觸控與電腦滑鼠
+        lightbox.addEventListener('pointerdown', e => {
+            if (lbIsAnimating) return; // 動畫播放中禁止操作
+            lbStartX = e.clientX;
+            lbStartY = e.clientY;
             lbIsSwiping = false;
-        }, { passive: true });
+        });
  
-        lightbox.addEventListener('touchend', e => {
-            const touchEndX = e.changedTouches[0].screenX;
-            const touchEndY = e.changedTouches[0].screenY;
-            const deltaX = touchEndX - lbTouchStartX;
-            const deltaY = touchEndY - lbTouchStartY;
+        lightbox.addEventListener('pointerup', e => {
+            if (lbIsAnimating) return;
+            const deltaX = e.clientX - lbStartX;
+            const deltaY = e.clientY - lbStartY;
  
-            // 如果 X 軸滑動距離超過 40px，且大於 Y 軸滑動，判定為左右滑動
-            if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY)) {
+            // X 軸滑動距離超過 50px，判定為左右滑動
+            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
                 lbIsSwiping = true;
                 if (deltaX > 0) navigateLightbox(-1); // 往右撥 -> 顯示上一圖
                 else navigateLightbox(1);             // 往左撥 -> 顯示下一圖
@@ -1079,11 +1106,11 @@
                 // 延遲解除滑動狀態，防止觸發 click 導致誤關閉
                 setTimeout(() => lbIsSwiping = false, 300);
             }
-        }, { passive: true });
+        });
  
-        // 用 click 事件關閉放大鏡（滑動時不觸發關閉）
+        // 點擊關閉
         lightbox.addEventListener('click', (e) => {
-            if (!lbIsSwiping) closeLightbox();
+            if (!lbIsSwiping && !lbIsAnimating) closeLightbox();
         });
  
         function navigateLightbox(direction) {
@@ -1091,12 +1118,34 @@
             // 防止超過頁數範圍
             if (targetIndex < 1 || targetIndex > currentComicData.totalPages) return;
             
-            // 直接抓取畫面上已經存在的目標圖片
+            // 抓取目標圖片
             const targetImg = document.getElementById(`page-img-${currentComicKey}-${targetIndex}`);
             if (targetImg && !targetImg.src.includes('data:image/svg+xml')) {
-                currentLightboxIndex = targetIndex;
-                document.getElementById('lightbox-img').src = targetImg.src;
-                document.getElementById('lightbox-number').innerText = targetIndex;
+                lbIsAnimating = true;
+ 
+                // 決定滑出與滑入的動畫 Class
+                const outClass = direction === 1 ? 'lb-anim-out-left' : 'lb-anim-out-right';
+                const inClass  = direction === 1 ? 'lb-anim-in-right' : 'lb-anim-in-left';
+ 
+                // 1. 執行舊圖滑出動畫
+                lbImg.className = outClass;
+ 
+                // 2. 等待滑出結束後，替換圖片並執行新圖滑入動畫
+                setTimeout(() => {
+                    currentLightboxIndex = targetIndex;
+                    lbImg.src = targetImg.src;
+                    lbNum.innerText = targetIndex;
+                    lbImg.className = inClass;
+ 
+                    // 3. 等待滑入結束後，解除鎖定狀態
+                    setTimeout(() => {
+                        lbImg.className = '';
+                        lbImg.style.transform = 'translateX(0)';
+                        lbImg.style.opacity = '1';
+                        lbIsAnimating = false;
+                    }, 200); // 這裡的 200 對應 CSS 的 0.2s 動畫時間
+ 
+                }, 200); // 對應滑出動畫時間
             }
         }
         // 全文搜尋
