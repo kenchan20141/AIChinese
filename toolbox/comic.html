@@ -448,16 +448,16 @@
 
 
 /* =========================================
-           放大鏡原文顯示區塊
+           放大鏡原文顯示區塊 (修訂版適配手機底部工具列)
            ========================================= */
         .lightbox-text {
             position: absolute;
-            bottom: 30px;
+            bottom: calc(30px + env(safe-area-inset-bottom)); /* 避開手機底部安全區域 */
             left: 50%;
             transform: translateX(-50%);
             width: 90%;
             max-width: 800px;
-            background: rgba(253, 253, 253, 0.95); /* 半透明白底 */
+            background: rgba(253, 253, 253, 0.95);
             color: var(--comic-blue);
             border: 3px solid var(--comic-black);
             padding: 15px 20px;
@@ -468,15 +468,18 @@
             box-shadow: 4px 4px 0 var(--comic-blue);
             z-index: 10002;
             box-sizing: border-box;
-            display: none; /* 預設隱藏，有文字才顯示 */
-            pointer-events: none; /* 讓手指碰到文字框也能觸發滑動翻頁 */
+            display: none;
+            pointer-events: auto; /* 允許文字區域內部滑動 */
+            max-height: 25vh; /* 避免文字過多佔滿畫面 */
+            overflow-y: auto;
         }
         @media (max-width: 768px) {
             .lightbox-text {
-                bottom: 20px;
+                bottom: calc(20px + env(safe-area-inset-bottom));
                 font-size: 16px;
                 padding: 10px 15px;
                 width: 95%;
+                max-height: 35vh; /* 手機版給多一點高度 */
             }
         }
 
@@ -1164,50 +1167,36 @@
             if (flipAudio) { flipAudio.currentTime = 0; flipAudio.play().catch(()=>{}); }
         }
 
-   // ==========================================
-        // 放大鏡與左右滑動切換圖片 (支援原文顯示及手機/電腦完美滑動)
-        // ==========================================
-       // ==========================================
-        // 放大鏡與左右滑動切換圖片 (支援原文顯示、雙指/滾輪縮放、單指拖曳/翻頁)
+  // ==========================================
+        // 放大鏡與左右滑動切換圖片 (終極防卡死、完美手勢版)
         // ==========================================
         let currentLightboxIndex = 1;
         const lightbox = document.getElementById('lightbox');
         const lbImg = document.getElementById('lightbox-img');
         const lbNum = document.getElementById('lightbox-number');
         const lbText = document.getElementById('lightbox-text');
-        // 必須設定 touch-action: none 才能阻止瀏覽器原生行為干擾我們自定義的雙指縮放
-        lightbox.style.touchAction = "none";
+        lightbox.style.touchAction = "none"; // 徹底封鎖瀏覽器原生干擾
  
-        // 縮放與拖曳狀態變數
-        let lbScale = 1;
-        let lbTranslateX = 0;
-        let lbTranslateY = 0;
-        
+        // 圖片變換狀態
+        let lbScale = 1, lbTx = 0, lbTy = 0;
         let lbIsAnimating = false;
  
-        // 單指/滑鼠拖曳與翻頁狀態
-        let lbIsDragging = false;
-        let lbStartX = 0, lbStartY = 0;
-        let lbLastDragX = 0, lbLastDragY = 0;
-        let lbHasMoved = false; // 用於判斷是單純點擊還是滑動
+        // 手勢判斷變數
+        let isDragging = false, isPinching = false;
+        let startX = 0, startY = 0;
+        let currentX = 0, currentY = 0;
+        let initialPinchDist = 0, initialScale = 1;
  
-        // 雙指縮放狀態
-        let lbInitialPinchDist = null;
-        let lbInitialScale = 1;
- 
-        // 更新圖片變形狀態
-        function updateLightboxTransform() {
-            // 如果正在動畫中(換頁)，不套用手動的 transform
+        // 套用 CSS Transform
+        function applyTransform() {
             if (lbIsAnimating) return;
-            lbImg.style.transform = `translate(${lbTranslateX}px, ${lbTranslateY}px) scale(${lbScale})`;
+            lbImg.style.transform = `translate(${lbTx}px, ${lbTy}px) scale(${lbScale})`;
         }
  
-        // 重置為預設狀態
-        function resetLightboxTransform() {
-            lbScale = 1;
-            lbTranslateX = 0;
-            lbTranslateY = 0;
-            updateLightboxTransform();
+        // 重置圖片狀態
+        function resetTransform() {
+            lbScale = 1; lbTx = 0; lbTy = 0;
+            applyTransform();
         }
  
         function openLightbox(imgSrc, index) {
@@ -1215,14 +1204,11 @@
             currentLightboxIndex = index;
             lbIsAnimating = false;
             
-            // 重置動畫與樣式
             lbImg.className = '';
-            resetLightboxTransform();
+            resetTransform();
             lbImg.style.opacity = '1';
-            
             lbImg.src = imgSrc;
             lbNum.innerText = index;
-            // 抓取原文並顯示
             const textStr = (currentComicData.texts && currentComicData.texts[index - 1]) ? currentComicData.texts[index - 1] : '';
             if (textStr) {
                 lbText.innerHTML = textStr;
@@ -1234,165 +1220,107 @@
         }
         function closeLightbox() {
             lightbox.style.display = 'none';
-            resetLightboxTransform();
+            resetTransform();
         }
  
-        // 計算兩點距離 (用於雙指縮放)
-        function getDistance(touches) {
-            return Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
-        }
- 
-        // --- 滑鼠與滾輪事件 (電腦版) ---
+        // ==================== 電腦版滑鼠與滾輪 ====================
         lightbox.addEventListener('wheel', (e) => {
-            e.preventDefault(); // 防止滾動網頁
+            e.preventDefault();
             if (lbIsAnimating) return;
- 
-            // 調整縮放比例 (向上滾放大，向下滾縮小)
-            const zoomDirection = e.deltaY < 0 ? 1 : -1;
-            lbScale += zoomDirection * 0.15;
-            
-            // 限制縮放範圍 1x ~ 5x
-            if (lbScale < 1) {
-                lbScale = 1;
-                lbTranslateX = 0; // 縮回 1x 時位置歸零
-                lbTranslateY = 0;
-            }
+            lbScale += (e.deltaY < 0 ? 1 : -1) * 0.15;
+            if (lbScale <= 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
             if (lbScale > 5) lbScale = 5;
- 
-            updateLightboxTransform();
+            applyTransform();
         }, { passive: false });
  
         lightbox.addEventListener('mousedown', (e) => {
-            if (lbIsAnimating) return;
-            lbIsDragging = true;
-            lbHasMoved = false;
-            lbStartX = e.clientX;
-            lbStartY = e.clientY;
-            lbLastDragX = e.clientX;
-            lbLastDragY = e.clientY;
+            if (lbIsAnimating || e.target === lbText) return;
+            isDragging = true;
+            startX = e.clientX; startY = e.clientY;
+            currentX = startX; currentY = startY;
         });
  
         lightbox.addEventListener('mousemove', (e) => {
-            if (!lbIsDragging || lbIsAnimating) return;
-            lbHasMoved = true;
- 
-            // 如果圖片有放大，則進行拖曳 (Pan)
+            if (!isDragging || lbIsAnimating) return;
             if (lbScale > 1) {
-                const deltaX = e.clientX - lbLastDragX;
-                const deltaY = e.clientY - lbLastDragY;
-                lbTranslateX += deltaX;
-                lbTranslateY += deltaY;
-                lbLastDragX = e.clientX;
-                lbLastDragY = e.clientY;
-                updateLightboxTransform();
+                lbTx += (e.clientX - currentX);
+                lbTy += (e.clientY - currentY);
+                currentX = e.clientX; currentY = e.clientY;
+                applyTransform();
+            } else {
+                currentX = e.clientX; currentY = e.clientY;
             }
         });
  
         lightbox.addEventListener('mouseup', (e) => {
-            if (!lbIsDragging || lbIsAnimating) return;
-            lbIsDragging = false;
-            
-            // 如果沒放大，且為水平大幅滑動，則觸發翻頁
-            if (lbScale === 1) {
-                const deltaX = e.clientX - lbStartX;
-                const MathAbsX = Math.abs(deltaX);
-                const MathAbsY = Math.abs(e.clientY - lbStartY);
- 
-                if (MathAbsX > 50 && MathAbsX > MathAbsY) {
-                    if (deltaX > 0) navigateLightbox(-1); // 往右撥
-                    else navigateLightbox(1);             // 往左撥
-                } else if (!lbHasMoved) {
-                    // 單純點擊且沒滑動則關閉
-                    closeLightbox();
-                }
-            } else if (!lbHasMoved) {
-                // 若放大狀態下單純點擊，則重置為 1x
-                resetLightboxTransform();
-            }
+            if (!isDragging || lbIsAnimating) return;
+            isDragging = false;
+            handleGestureEnd();
         });
  
-        // --- 觸控事件 (手機/平板) ---
+        // ==================== 手機/平板觸控手勢 ====================
         lightbox.addEventListener('touchstart', (e) => {
-            if (lbIsAnimating) return;
-            lbHasMoved = false;
- 
+            if (lbIsAnimating || e.target === lbText) return; // 點到文字框內部不觸發全螢幕手勢
+            
             if (e.touches.length === 1) {
-                // 單指：準備滑動翻頁或拖曳
-                lbIsDragging = true;
-                lbStartX = e.touches[0].clientX;
-                lbStartY = e.touches[0].clientY;
-                lbLastDragX = e.touches[0].clientX;
-                lbLastDragY = e.touches[0].clientY;
+                isDragging = true; isPinching = false;
+                startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+                currentX = startX; currentY = startY;
             } else if (e.touches.length === 2) {
-                // 雙指：準備縮放
-                lbIsDragging = false; // 停止拖曳
-                lbInitialPinchDist = getDistance(e.touches);
-                lbInitialScale = lbScale;
+                isPinching = true; isDragging = false;
+                initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                initialScale = lbScale;
             }
         }, { passive: false });
  
         lightbox.addEventListener('touchmove', (e) => {
             if (lbIsAnimating) return;
-            e.preventDefault(); // 重要：防止畫面滾動及下拉更新
-            lbHasMoved = true;
+            if (e.target !== lbText) e.preventDefault(); // 阻擋網頁滾動，但容許文字框內部滑動
  
-            if (e.touches.length === 1 && lbIsDragging) {
-                // 單指且有放大時：進行拖曳
+            if (isDragging && e.touches.length === 1) {
                 if (lbScale > 1) {
-                    const deltaX = e.touches[0].clientX - lbLastDragX;
-                    const deltaY = e.touches[0].clientY - lbLastDragY;
-                    lbTranslateX += deltaX;
-                    lbTranslateY += deltaY;
-                    lbLastDragX = e.touches[0].clientX;
-                    lbLastDragY = e.touches[0].clientY;
-                    updateLightboxTransform();
+                    lbTx += (e.touches[0].clientX - currentX);
+                    lbTy += (e.touches[0].clientY - currentY);
+                    applyTransform();
                 }
-            } else if (e.touches.length === 2) {
-                // 雙指：計算縮放比例
-                const currentPinchDist = getDistance(e.touches);
-                lbScale = lbInitialScale * (currentPinchDist / lbInitialPinchDist);
- 
-                // 限制縮放範圍 1x ~ 5x
-                if (lbScale < 1) {
-                    lbScale = 1;
-                    lbTranslateX = 0; // 縮回 1x 時位置歸零
-                    lbTranslateY = 0;
-                }
+                currentX = e.touches[0].clientX; currentY = e.touches[0].clientY;
+            } else if (isPinching && e.touches.length === 2) {
+                const currentPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                lbScale = initialScale * (currentPinchDist / initialPinchDist);
+                if (lbScale <= 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
                 if (lbScale > 5) lbScale = 5;
- 
-                updateLightboxTransform();
+                applyTransform();
             }
         }, { passive: false });
  
         lightbox.addEventListener('touchend', (e) => {
             if (lbIsAnimating) return;
- 
-            // 當手指全部放開時判斷
             if (e.touches.length === 0) {
-                if (lbScale === 1 && lbIsDragging) {
-                    const deltaX = lbLastDragX - lbStartX;
-                    const MathAbsX = Math.abs(deltaX);
-                    const MathAbsY = Math.abs(lbLastDragY - lbStartY);
- 
-                    if (MathAbsX > 50 && MathAbsX > MathAbsY) {
-                        if (deltaX > 0) navigateLightbox(-1); // 往右撥
-                        else navigateLightbox(1);             // 往左撥
-                    } else if (!lbHasMoved) {
-                        // 單純點擊關閉
-                        closeLightbox();
-                    }
-                } else if (lbScale > 1 && !lbHasMoved && lbIsDragging) {
-                    // 若放大時單點，將其復原為 1x
-                    resetLightboxTransform();
-                }
- 
-                // 重置狀態
-                lbIsDragging = false;
-                lbInitialPinchDist = null;
+                if (isDragging) handleGestureEnd();
+                isDragging = false; isPinching = false;
             }
         });
  
-        // --- 換圖動畫邏輯 ---
+        // ==================== 手勢結束判定 (翻頁、關閉、縮回) ====================
+        function handleGestureEnd() {
+            const diffX = currentX - startX;
+            const diffY = currentY - startY;
+            const absX = Math.abs(diffX);
+            const absY = Math.abs(diffY);
+ 
+            // 1. 若倍率為1x，且水平滑動距離 > 40px，觸發翻頁
+            if (lbScale === 1 && absX > 40 && absX > absY) {
+                if (diffX > 0) navigateLightbox(-1); // 往右撥：上一張
+                else navigateLightbox(1);            // 往左撥：下一張
+            }
+            // 2. 若為單純點擊 (滑動距離 < 10px)
+            else if (absX < 10 && absY < 10) {
+                if (lbScale > 1) resetTransform(); // 放大時點擊：縮回原始大小
+                else closeLightbox();              // 原始大小時點擊：關閉
+            }
+        }
+ 
+        // ==================== 換圖動畫 ====================
         function navigateLightbox(direction) {
             let targetIndex = currentLightboxIndex + direction;
             if (targetIndex < 1 || targetIndex > currentComicData.totalPages) return;
@@ -1401,18 +1329,16 @@
             if (targetImg && !targetImg.src.includes('data:image/svg+xml')) {
                 lbIsAnimating = true;
                 
-                // 換圖前先將 transform 歸零，否則會跟 CSS 動畫衝突
                 lbImg.style.transform = '';
                 const outClass = direction === 1 ? 'lb-anim-out-left' : 'lb-anim-out-right';
                 const inClass  = direction === 1 ? 'lb-anim-in-right' : 'lb-anim-in-left';
                 lbImg.className = outClass;
-                lbText.style.opacity = '0'; // 換圖時文字先淡出
+                lbText.style.opacity = '0';
                 setTimeout(() => {
                     currentLightboxIndex = targetIndex;
                     lbImg.src = targetImg.src;
                     lbNum.innerText = targetIndex;
                     
-                    // 更新原文
                     const textStr = (currentComicData.texts && currentComicData.texts[targetIndex - 1]) ? currentComicData.texts[targetIndex - 1] : '';
                     if (textStr) {
                         lbText.innerHTML = textStr;
@@ -1421,14 +1347,17 @@
                         lbText.style.display = 'none';
                     }
                     lbImg.className = inClass;
-                    lbText.style.opacity = '1'; // 文字淡入
+                    lbText.style.opacity = '1';
                     setTimeout(() => {
                         lbImg.className = '';
-                        resetLightboxTransform(); // 動畫完畢，確保變數與樣式乾淨歸零
+                        resetTransform();
                         lbImg.style.opacity = '1';
-                        lbIsAnimating = false;
-                    }, 200);
+                        lbIsAnimating = false; // 動畫結束，解開鎖定
+                    }, 250);
                 }, 200);
+ 
+                // 防卡死機制：不管發生什麼事，600毫秒後強制解除鎖定
+                setTimeout(() => { lbIsAnimating = false; }, 600);
             }
         }
         // 全文搜尋
