@@ -1164,14 +1164,16 @@
             if (flipAudio) { flipAudio.currentTime = 0; flipAudio.play().catch(()=>{}); }
         }
 
-    // ==========================================
-        // 放大鏡與左右滑動切換圖片 (支援原文顯示)
+   // ==========================================
+        // 放大鏡與左右滑動切換圖片 (支援原文顯示及手機/電腦完美滑動)
         // ==========================================
         let currentLightboxIndex = 1;
         const lightbox = document.getElementById('lightbox');
         const lbImg = document.getElementById('lightbox-img');
         const lbNum = document.getElementById('lightbox-number');
         const lbText = document.getElementById('lightbox-text');
+        // 加上 touchAction 避免手機瀏覽器預設的滑動返回/整理行為干擾我們的手勢
+        lightbox.style.touchAction = "none";
  
         function openLightbox(imgSrc, index) {
             if(imgSrc.includes('data:image/svg+xml')) return;
@@ -1184,7 +1186,6 @@
             
             lbImg.src = imgSrc;
             lbNum.innerText = index;
- 
             // 抓取原文並顯示
             const textStr = (currentComicData.texts && currentComicData.texts[index - 1]) ? currentComicData.texts[index - 1] : '';
             if (textStr) {
@@ -1193,28 +1194,27 @@
             } else {
                 lbText.style.display = 'none';
             }
- 
             lightbox.style.display = 'flex';
         }
- 
         function closeLightbox() {
             lightbox.style.display = 'none';
         }
- 
         let lbStartX = 0, lbStartY = 0, lbIsSwiping = false, lbIsAnimating = false;
  
-        lightbox.addEventListener('pointerdown', e => {
+        // 統一處理滑動開始
+        function handleLightboxStart(clientX, clientY) {
             if (lbIsAnimating) return;
-            lbStartX = e.clientX;
-            lbStartY = e.clientY;
+            lbStartX = clientX;
+            lbStartY = clientY;
             lbIsSwiping = false;
-        });
+        }
  
-        lightbox.addEventListener('pointerup', e => {
+        // 統一處理滑動結束與判定
+        function handleLightboxEnd(clientX, clientY) {
             if (lbIsAnimating) return;
-            const deltaX = e.clientX - lbStartX;
-            const deltaY = e.clientY - lbStartY;
- 
+            const deltaX = clientX - lbStartX;
+            const deltaY = clientY - lbStartY;
+            // 判斷是否為有效滑動 (水平移動大於 50px 且大於垂直移動)
             if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
                 lbIsSwiping = true;
                 if (deltaX > 0) navigateLightbox(-1); // 往右撥 -> 上一圖
@@ -1222,12 +1222,27 @@
                 
                 setTimeout(() => lbIsSwiping = false, 300);
             }
+        }
+        // 手機版觸控事件
+        lightbox.addEventListener('touchstart', e => {
+            handleLightboxStart(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+        }, { passive: true });
+        lightbox.addEventListener('touchend', e => {
+            handleLightboxEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+        }, { passive: true });
+ 
+        // 電腦版滑鼠事件
+        lightbox.addEventListener('mousedown', e => {
+            handleLightboxStart(e.clientX, e.clientY);
         });
  
+        lightbox.addEventListener('mouseup', e => {
+            handleLightboxEnd(e.clientX, e.clientY);
+        });
+        // 點擊關閉邏輯 (若非滑動且非動畫中，則關閉)
         lightbox.addEventListener('click', (e) => {
             if (!lbIsSwiping && !lbIsAnimating) closeLightbox();
         });
- 
         function navigateLightbox(direction) {
             let targetIndex = currentLightboxIndex + direction;
             if (targetIndex < 1 || targetIndex > currentComicData.totalPages) return;
@@ -1235,13 +1250,10 @@
             const targetImg = document.getElementById(`page-img-${currentComicKey}-${targetIndex}`);
             if (targetImg && !targetImg.src.includes('data:image/svg+xml')) {
                 lbIsAnimating = true;
- 
                 const outClass = direction === 1 ? 'lb-anim-out-left' : 'lb-anim-out-right';
                 const inClass  = direction === 1 ? 'lb-anim-in-right' : 'lb-anim-in-left';
- 
                 lbImg.className = outClass;
                 lbText.style.opacity = '0'; // 換圖時文字先淡出
- 
                 setTimeout(() => {
                     currentLightboxIndex = targetIndex;
                     lbImg.src = targetImg.src;
@@ -1255,17 +1267,14 @@
                     } else {
                         lbText.style.display = 'none';
                     }
- 
                     lbImg.className = inClass;
                     lbText.style.opacity = '1'; // 文字淡入
- 
                     setTimeout(() => {
                         lbImg.className = '';
                         lbImg.style.transform = 'translateX(0)';
                         lbImg.style.opacity = '1';
                         lbIsAnimating = false;
                     }, 200);
- 
                 }, 200);
             }
         }
