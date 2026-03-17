@@ -327,9 +327,33 @@
         .comic-dialog-content { font-size: 18px; font-weight: bold; margin-bottom: 30px; line-height: 1.6; }
         .comic-dialog-actions { display: flex; justify-content: center; gap: 15px; }
 
-        #lightbox { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.85); z-index: 9999; justify-content: center; align-items: center; cursor: zoom-out; }
-        #lightbox img { max-width: 95%; max-height: 95%; object-fit: contain; border: 5px solid var(--comic-white); box-shadow: 0 0 20px rgba(0,0,0,0.8); background: white; }
-
+       /* =========================================
+           放大鏡容器與圖片 (加入 dvh 動態高度修正)
+           ========================================= */
+        #lightbox {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh; /* 舊版瀏覽器備用 */
+            height: 100dvh; /* 動態視口高度，精準避開手機底部工具列與網址列 */
+            background-color: rgba(0, 0, 0, 0.85);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            cursor: zoom-out;
+            overflow: hidden;
+        }
+ 
+        #lightbox img {
+            max-width: 95%;
+            max-height: 85%; /* 稍微縮小圖片最大高度，留更多空間給下方文字 */
+            object-fit: contain;
+            border: 5px solid var(--comic-white);
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            background: white;
+        }
         #loading {
             position: fixed; font-size: 24px; font-weight: bold; background: var(--comic-yellow); border: var(--comic-border);
             padding: 20px 40px; box-shadow: var(--comic-shadow); z-index: 1000; display: none; transform: rotate(-3deg); top: 30%; left: 50%; margin-left: -120px;
@@ -447,12 +471,13 @@
         @keyframes lbInLeft { from { transform: translateX(-100vw); opacity: 0; } to { transform: scale(1) translateX(0); opacity: 1; } }
 
 
-/* =========================================
-           放大鏡原文顯示區塊 (修訂版適配手機底部工具列)
+  /* =========================================
+           放大鏡原文顯示區塊 (雙重防遮擋機制)
            ========================================= */
         .lightbox-text {
             position: absolute;
-            bottom: calc(30px + env(safe-area-inset-bottom)); /* 避開手機底部安全區域 */
+            /* 電腦版/平板：基礎距離 + 安全區域 */
+            bottom: max(40px, env(safe-area-inset-bottom) + 20px);
             left: 50%;
             transform: translateX(-50%);
             width: 90%;
@@ -469,17 +494,19 @@
             z-index: 10002;
             box-sizing: border-box;
             display: none;
-            pointer-events: auto; /* 允許文字區域內部滑動 */
-            max-height: 25vh; /* 避免文字過多佔滿畫面 */
+            pointer-events: auto; /* 允許文字區域內部上下滑動 */
+            max-height: 25vh;
             overflow-y: auto;
         }
+ 
         @media (max-width: 768px) {
             .lightbox-text {
-                bottom: calc(20px + env(safe-area-inset-bottom));
+                /* 手機版：大幅提高底部距離，強勢跨越 Android 虛擬按鍵的高度 (通常為 48~60px) */
+                bottom: max(65px, env(safe-area-inset-bottom) + 25px);
                 font-size: 16px;
-                padding: 10px 15px;
-                width: 95%;
-                max-height: 35vh; /* 手機版給多一點高度 */
+                padding: 12px 15px;
+                width: 92%;
+                max-height: 30vh;
             }
         }
 
