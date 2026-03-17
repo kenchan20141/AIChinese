@@ -1195,7 +1195,7 @@
         }
 
 // ==========================================
-        // 放大鏡與左右滑動切換圖片 (修復點擊關閉、滑動衝突、原文捲動)
+        // 放大鏡與左右滑動切換圖片 (終極修復：精準點擊判定與防鬼影事件)
         // ==========================================
         let currentLightboxIndex = 1;
         const lightbox = document.getElementById('lightbox');
@@ -1214,8 +1214,7 @@
         let currentX = 0, currentY = 0;
         let initialPinchDist = 0, initialScale = 1;
         
-        // 核心變數：區分「純點擊(Click)」還是「滑動(Swipe/Drag)」
-        let hasGestureMoved = false;
+        let isTouchMode = false; // 區分觸控與滑鼠，防瀏覽器鬼影事件
  
         function applyTransform() {
             if (lbIsAnimating) return;
@@ -1231,7 +1230,8 @@
             if(imgSrc.includes('data:image/svg+xml')) return;
             currentLightboxIndex = index;
             lbIsAnimating = false;
-            hasGestureMoved = false; // 重置狀態
+            isDragging = false;
+            isPinching = false;
             
             lbImg.className = '';
             resetTransform();
@@ -1252,29 +1252,10 @@
             resetTransform();
         }
  
-        // ==================== 原生 Click 事件 (處理所有點擊關閉) ====================
-        lightbox.addEventListener('click', (e) => {
-            if (lbIsAnimating) return;
-            
-            // 如果剛才發生過「滑動/拖曳/縮放」，則本次點擊無效 (防止誤關閉)
-            if (hasGestureMoved) {
-                hasGestureMoved = false; // 消耗掉標記，準備下一次操作
-                return;
-            }
-            
-            // 單純點擊的判定：關閉或縮回
-            if (lbScale > 1) {
-                resetTransform(); // 放大的時候點擊 -> 縮回 1 倍
-            } else {
-                closeLightbox();  // 1 倍的時候點擊 -> 關閉放大鏡
-            }
-        });
- 
         // ==================== 電腦版滑鼠與滾輪 ====================
         lightbox.addEventListener('wheel', (e) => {
             if (lbIsAnimating) return;
-            // 如果滾輪在文字框內，允許文字滾動，不縮放圖片
-            if (e.target.closest('#lightbox-text')) return;
+            if (e.target.closest('#lightbox-text')) return; // 容許文字框內自由滾動
  
             e.preventDefault();
             lbScale += (e.deltaY < 0 ? 1 : -1) * 0.15;
@@ -1284,23 +1265,16 @@
         }, { passive: false });
  
         lightbox.addEventListener('mousedown', (e) => {
-            if (lbIsAnimating) return;
+            // 如果是觸控設備、動畫中，或點擊在文字上，則不處理滑鼠事件
+            if (isTouchMode || lbIsAnimating || e.target.closest('#lightbox-text')) return;
             isDragging = true;
-            hasGestureMoved = false;
             startX = e.clientX; startY = e.clientY;
             currentX = startX; currentY = startY;
         });
  
         lightbox.addEventListener('mousemove', (e) => {
-            if (!isDragging || lbIsAnimating) return;
-            
-            // 判斷是否真正產生了「滑動」(距離大於 5px)
-            if (Math.abs(e.clientX - startX) > 5 || Math.abs(e.clientY - startY) > 5) {
-                hasGestureMoved = true;
-            }
- 
-            // 只有在放大且有滑動時，才拖曳圖片
-            if (lbScale > 1 && hasGestureMoved) {
+            if (isTouchMode || !isDragging || lbIsAnimating) return;
+            if (lbScale > 1) {
                 lbTx += (e.clientX - currentX);
                 lbTy += (e.clientY - currentY);
                 applyTransform();
@@ -1309,16 +1283,15 @@
         });
  
         lightbox.addEventListener('mouseup', (e) => {
-            if (!isDragging || lbIsAnimating) return;
+            if (isTouchMode || !isDragging || lbIsAnimating) return;
             isDragging = false;
             handleGestureEnd();
-            // 注意：這裡不重置 hasGestureMoved，留給接下來自動觸發的 click 事件去擋掉
         });
  
         // ==================== 手機/平板觸控手勢 ====================
         lightbox.addEventListener('touchstart', (e) => {
-            if (lbIsAnimating) return;
-            hasGestureMoved = false; // 每次觸控開始先預設為「未滑動」
+            isTouchMode = true; // 標記為觸控模式，永久隔離滑鼠事件
+            if (lbIsAnimating || e.target.closest('#lightbox-text')) return;
             
             if (e.touches.length === 1) {
                 isDragging = true; isPinching = false;
@@ -1326,7 +1299,6 @@
                 currentX = startX; currentY = startY;
             } else if (e.touches.length === 2) {
                 isPinching = true; isDragging = false;
-                hasGestureMoved = true; // 雙指一定視為已操作，不算是點擊
                 initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
                 initialScale = lbScale;
             }
@@ -1334,26 +1306,16 @@
  
         lightbox.addEventListener('touchmove', (e) => {
             if (lbIsAnimating) return;
-            
-            // 若不是在文字框內部滑動，則阻止原生畫面亂滾
-            if (!e.target.closest('#lightbox-text')) {
-                e.preventDefault();
-            }
+            if (!e.target.closest('#lightbox-text')) e.preventDefault(); // 防止背景跟著亂滾
  
             if (isDragging && e.touches.length === 1) {
-                // 滑動距離超過 10px 才算滑動 (防手抖誤判)
-                if (Math.abs(e.touches[0].clientX - startX) > 10 || Math.abs(e.touches[0].clientY - startY) > 10) {
-                    hasGestureMoved = true;
-                }
- 
-                if (lbScale > 1 && hasGestureMoved) {
+                if (lbScale > 1) {
                     lbTx += (e.touches[0].clientX - currentX);
                     lbTy += (e.touches[0].clientY - currentY);
                     applyTransform();
                 }
                 currentX = e.touches[0].clientX; currentY = e.touches[0].clientY;
             } else if (isPinching && e.touches.length === 2) {
-                hasGestureMoved = true;
                 const currentPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
                 lbScale = initialScale * (currentPinchDist / initialPinchDist);
                 if (lbScale <= 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
@@ -1370,20 +1332,24 @@
             }
         });
  
-        // ==================== 滑動結束判定 (僅處理翻頁) ====================
+        // ==================== 智能判定 (點擊、翻頁、拖曳) ====================
         function handleGestureEnd() {
-            if (!hasGestureMoved) return; // 沒滑動交給 click 事件處理就好
- 
             const diffX = currentX - startX;
             const diffY = currentY - startY;
             const absX = Math.abs(diffX);
             const absY = Math.abs(diffY);
  
-            // 1x 狀態下，水平滑動大於 40px 觸發翻頁
-            if (lbScale === 1 && absX > 40 && absX > absY) {
+            // 1. 若滑動距離極小 (小於 10px)，系統視為「單純點擊 (Tap)」
+            if (absX < 10 && absY < 10) {
+                if (lbScale > 1) resetTransform(); // 放大狀態下點擊：自動縮回 1x，不關閉
+                else closeLightbox();              // 1x 狀態下點擊：直接關閉放大鏡
+            }
+            // 2. 若為 1x 狀態，且水平滑動距離大於 40px，視為「翻頁 (Swipe)」
+            else if (lbScale === 1 && absX > 40 && absX > absY) {
                 if (diffX > 0) navigateLightbox(-1); // 往右撥：上一張
                 else navigateLightbox(1);            // 往左撥：下一張
             }
+            // 3. 放大狀態下滑動大於 10px，視為拖曳看圖，放開後不做任何事
         }
  
         // ==================== 換圖動畫 ====================
@@ -1419,7 +1385,6 @@
                         resetTransform();
                         lbImg.style.opacity = '1';
                         lbIsAnimating = false; // 解鎖
-                        hasGestureMoved = false; // 重置
                     }, 250);
                 }, 200);
  
