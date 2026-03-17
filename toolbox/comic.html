@@ -1246,10 +1246,15 @@
             }
             lightbox.style.display = 'flex';
         }
-        function closeLightbox() {
-            lightbox.style.display = 'none';
-            resetTransform();
-        }
+       function closeLightbox() {
+    // 【關鍵修正】關閉前，強制將底層視圖同步到放大鏡目前觀看的頁數
+    // 這樣 IntersectionObserver 就會儲存正確的新進度，不會被舊畫面覆蓋
+    navigateReaderTo(currentLightboxIndex, true);
+    
+    // 關閉放大鏡
+    lightbox.style.display = 'none';
+    resetTransform();
+}
  
         // ==================== 統一的手勢結算邏輯 ====================
         function evaluateGesture() {
@@ -1493,17 +1498,26 @@
             }, readMode === 'scroll' ? 500 : 800);
         }
 
-        function navigateReaderTo(panelIndex) {
-            if (readMode === 'scroll') {
-                const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${panelIndex}`);
-                if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        function navigateReaderTo(panelIndex, isInstant = false) {
+    // 兼容捲動模式與默書模式
+    if (readMode === 'scroll' || readMode === 'dictation') {
+        const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${panelIndex}`);
+        if (targetEl) {
+            // 若 isInstant 為 true，則瞬間跳轉 (auto)；否則平滑捲動 (smooth)
+            targetEl.scrollIntoView({ behavior: isInstant ? 'auto' : 'smooth', block: 'center' });
+        }
+    } else {
+        // 翻頁模式
+        if(pageFlip) {
+            const flipPageIndex = Math.ceil(panelIndex / window.panelsPerPage) - 1;
+            if (isInstant) {
+                pageFlip.turnToPage(flipPageIndex); // 瞬間跳轉，不播翻頁動畫
             } else {
-                if(pageFlip) {
-                    const flipPageIndex = Math.ceil(panelIndex / window.panelsPerPage) - 1;
-                    pageFlip.flip(flipPageIndex);
-                }
+                pageFlip.flip(flipPageIndex); // 平滑翻頁
             }
         }
+    }
+}
 
         document.getElementById('btn-update').addEventListener('click', async () => {
             const btn = document.getElementById('btn-update');
