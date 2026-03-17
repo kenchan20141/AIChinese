@@ -1248,22 +1248,28 @@
             lightbox.style.display = 'flex';
         }
  
-       function closeLightbox() {
-            lightbox.style.display = 'none';
-            resetTransform();
-            
-            // 新增：關閉放大鏡時，讓底層閱讀器（無論是翻頁還是捲動）同步跳轉到當前這張圖
+     function closeLightbox() {
+            // 1. 同步背景進度（無論是翻頁還是捲動，都立刻跳到這張圖）
             if (typeof navigateReaderTo === 'function') {
                 navigateReaderTo(currentLightboxIndex);
             }
+            
+            // 2. 防鬼影點擊：關閉瞬間先阻擋點擊，延遲 100ms 再消失，徹底吃掉穿透的事件
+            lightbox.style.pointerEvents = "none";
+            setTimeout(() => {
+                lightbox.style.display = 'none';
+                lightbox.style.pointerEvents = "auto";
+                resetTransform();
+            }, 100);
         }
  
         function getPinchDist(touches) {
             return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
         }
  
-        // ==================== 手機/平板觸控手勢 ====================
+       // ==================== 手機/平板觸控手勢 ====================
         lightbox.addEventListener('touchstart', (e) => {
+            e.stopPropagation(); // 阻擋事件穿透到背景
             if (lbIsAnimating) return;
             isTextTarget = !!e.target.closest('#lightbox-text');
             activeTouches = e.touches.length;
@@ -1281,8 +1287,9 @@
         }, { passive: false });
  
         lightbox.addEventListener('touchmove', (e) => {
+            e.stopPropagation(); // 阻擋事件穿透到背景
             if (lbIsAnimating) return;
-            if (!isTextTarget) e.preventDefault(); // 防止畫面被原生滾動
+            if (!isTextTarget) e.preventDefault();
  
             activeTouches = e.touches.length;
  
@@ -1519,26 +1526,18 @@
             }, readMode === 'scroll' ? 500 : 800);
         }
 
-        function navigateReaderTo(panelIndex, isInstant = false) {
-    // 兼容捲動模式與默書模式
-    if (readMode === 'scroll' || readMode === 'dictation') {
-        const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${panelIndex}`);
-        if (targetEl) {
-            // 若 isInstant 為 true，則瞬間跳轉 (auto)；否則平滑捲動 (smooth)
-            targetEl.scrollIntoView({ behavior: isInstant ? 'auto' : 'smooth', block: 'center' });
-        }
-    } else {
-        // 翻頁模式
-        if(pageFlip) {
-            const flipPageIndex = Math.ceil(panelIndex / window.panelsPerPage) - 1;
-            if (isInstant) {
-                pageFlip.turnToPage(flipPageIndex); // 瞬間跳轉，不播翻頁動畫
+       function navigateReaderTo(panelIndex) {
+            if (readMode === 'scroll') {
+                const targetEl = document.getElementById(`scroll-panel-${currentComicKey}-${panelIndex}`);
+                if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             } else {
-                pageFlip.flip(flipPageIndex); // 平滑翻頁
+                if(pageFlip) {
+                    const flipPageIndex = Math.ceil(panelIndex / window.panelsPerPage) - 1;
+                    // 【關鍵修正】原本是 pageFlip.flip()，改為 turnToPage() 才能瞬間跨頁跳轉，不被動畫卡死
+                    pageFlip.turnToPage(flipPageIndex);
+                }
             }
         }
-    }
-}
 
         document.getElementById('btn-update').addEventListener('click', async () => {
             const btn = document.getElementById('btn-update');
