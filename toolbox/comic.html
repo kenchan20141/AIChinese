@@ -1195,27 +1195,28 @@
         }
 
 // ==========================================
-        // 放大鏡與左右滑動切換圖片 (終極防衝突：精準時間與距離判定)
+        // 放大鏡與左右滑動切換圖片 (重構防衝突版本)
         // ==========================================
         let currentLightboxIndex = 1;
         const lightbox = document.getElementById('lightbox');
         const lbImg = document.getElementById('lightbox-img');
         const lbNum = document.getElementById('lightbox-number');
         const lbText = document.getElementById('lightbox-text');
-        lightbox.style.touchAction = "none"; // 徹底防止原生縮放干擾
+        lightbox.style.touchAction = "none"; 
  
         // 狀態變數
         let lbScale = 1, lbTx = 0, lbTy = 0;
         let lbIsAnimating = false;
-        let isTouchMode = false; // 區分觸控與滑鼠，防瀏覽器鬼影點擊
  
-        // 核心手勢追蹤變數
+        // 手勢追蹤變數
         let pointerStartX = 0, pointerStartY = 0;
-        let pointerCurrentX = 0, pointerCurrentY = 0;
-        let pointerStartTime = 0;
-        let isMultiTouch = false; // 記錄是否曾使用雙指
-        let isTextTarget = false; // 記錄是否點在文字框內
-        let initialPinchDist = 0, initialScale = 1;
+        let lastPointerX = 0, lastPointerY = 0;
+        let initialPinchDist = 0;
+        let touchStartScale = 1;
+        let activeTouches = 0;
+        let hasMoved = false; 
+        let isTextTarget = false;
+        let isMouseMode = false;
  
         function applyTransform() {
             if (lbIsAnimating) return;
@@ -1246,87 +1247,66 @@
             }
             lightbox.style.display = 'flex';
         }
-       function closeLightbox() {
-    // 【關鍵修正】關閉前，強制將底層視圖同步到放大鏡目前觀看的頁數
-    // 這樣 IntersectionObserver 就會儲存正確的新進度，不會被舊畫面覆蓋
-    navigateReaderTo(currentLightboxIndex, true);
-    
-    // 關閉放大鏡
-    lightbox.style.display = 'none';
-    resetTransform();
-}
  
-        // ==================== 統一的手勢結算邏輯 ====================
-        function evaluateGesture() {
-            // 如果剛才有用雙指縮放，放開時絕不判定為點擊或翻頁
-            if (isMultiTouch) return;
+        function closeLightbox() {
+            lightbox.style.display = 'none';
+            resetTransform();
+        }
  
-            const diffX = pointerCurrentX - pointerStartX;
-            const diffY = pointerCurrentY - pointerStartY;
-            const absX = Math.abs(diffX);
-            const absY = Math.abs(diffY);
-            const duration = Date.now() - pointerStartTime;
- 
-            // 1. 精準點擊判定 (Tap)：時間短(<300ms) 且 位移極小(<15px)
-            if (duration < 300 && absX < 15 && absY < 15) {
-                if (lbScale > 1) {
-                    resetTransform(); // 放大時點擊：縮回原始大小
-                } else {
-                    closeLightbox();  // 原始大小時點擊：關閉放大鏡
-                }
-                return; // 執行完點擊就結束
-            }
- 
-            // 2. 翻頁判定 (Swipe)：1x 大小、非文字框、水平位移夠大(>40px)
-            if (lbScale === 1 && !isTextTarget && absX > 40 && absX > absY) {
-                if (diffX > 0) navigateLightbox(-1); // 往右撥：上一張
-                else navigateLightbox(1);            // 往左撥：下一張
-            }
+        function getPinchDist(touches) {
+            return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
         }
  
         // ==================== 手機/平板觸控手勢 ====================
         lightbox.addEventListener('touchstart', (e) => {
-            isTouchMode = true;
             if (lbIsAnimating) return;
- 
-            // 記錄起始狀態
             isTextTarget = !!e.target.closest('#lightbox-text');
-            pointerStartTime = Date.now();
-            isMultiTouch = e.touches.length > 1;
+            activeTouches = e.touches.length;
+            hasMoved = false;
  
-            if (e.touches.length === 1) {
+            if (activeTouches === 1) {
                 pointerStartX = e.touches[0].clientX;
                 pointerStartY = e.touches[0].clientY;
-                pointerCurrentX = pointerStartX;
-                pointerCurrentY = pointerStartY;
-            } else if (e.touches.length === 2) {
-                initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                initialScale = lbScale;
+                lastPointerX = pointerStartX;
+                lastPointerY = pointerStartY;
+            } else if (activeTouches === 2) {
+                initialPinchDist = getPinchDist(e.touches);
+                touchStartScale = lbScale;
             }
         }, { passive: false });
  
         lightbox.addEventListener('touchmove', (e) => {
             if (lbIsAnimating) return;
-            
-            // 如果不是在文字框內滑動，阻止畫面亂滾
-            if (!isTextTarget) {
-                e.preventDefault();
-            }
+            if (!isTextTarget) e.preventDefault(); // 防止畫面被原生滾動
  
-            if (e.touches.length === 1 && !isMultiTouch) {
-                // 放大狀態且未點擊文字框時，允許單指拖曳看圖
-                if (lbScale > 1 && !isTextTarget) {
-                    lbTx += (e.touches[0].clientX - pointerCurrentX);
-                    lbTy += (e.touches[0].clientY - pointerCurrentY);
+            activeTouches = e.touches.length;
+ 
+            if (activeTouches === 1) {
+                const currentX = e.touches[0].clientX;
+                const currentY = e.touches[0].clientY;
+                
+                // 超過 10px 視為移動，取消點擊判定
+                if (Math.hypot(currentX - pointerStartX, currentY - pointerStartY) > 10) {
+                    hasMoved = true;
+                }
+ 
+                // 其二延伸：只有放大時才允許單指拖曳看圖 (Panning)
+                if (hasMoved && lbScale > 1 && !isTextTarget) {
+                    lbTx += (currentX - lastPointerX);
+                    lbTy += (currentY - lastPointerY);
                     applyTransform();
                 }
-                pointerCurrentX = e.touches[0].clientX;
-                pointerCurrentY = e.touches[0].clientY;
-            } else if (e.touches.length === 2) {
-                // 雙指縮放
-                const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                lbScale = initialScale * (currentDist / initialPinchDist);
-                if (lbScale <= 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
+                
+                lastPointerX = currentX;
+                lastPointerY = currentY;
+ 
+            } else if (activeTouches === 2) {
+                hasMoved = true; // 雙指操作一定不是點擊
+                
+                // 其二：雙指縮放
+                const currentDist = getPinchDist(e.touches);
+                lbScale = touchStartScale * (currentDist / initialPinchDist);
+                if (lbScale < 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
                 if (lbScale > 5) lbScale = 5;
                 applyTransform();
             }
@@ -1334,50 +1314,85 @@
  
         lightbox.addEventListener('touchend', (e) => {
             if (lbIsAnimating) return;
- 
-            // 當所有手指離開螢幕時，結算手勢
+            
+            // 當所有手指離開螢幕時結算手勢
             if (e.touches.length === 0) {
-                evaluateGesture();
-                isMultiTouch = false; // 重置狀態供下次使用
+                if (!hasMoved) {
+                    // 其一：只要沒有移動，一律視為「點擊關閉」
+                    closeLightbox();
+                } 
+                else if (lbScale === 1 && !isTextTarget) {
+                    // 其三：只有原始大小時向左向右滑動 -> 換頁
+                    const diffX = lastPointerX - pointerStartX;
+                    const diffY = lastPointerY - pointerStartY;
+                    
+                    if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+                        if (diffX > 0) navigateLightbox(-1); 
+                        else navigateLightbox(1);            
+                    }
+                }
+                
+                // 重置狀態
+                activeTouches = 0;
+                hasMoved = false;
             }
         });
  
         // ==================== 電腦版滑鼠與滾輪 ====================
+        lightbox.addEventListener('mousedown', (e) => {
+            if (lbIsAnimating || activeTouches > 0) return; // 避免與觸控事件打架
+            isMouseMode = true;
+            hasMoved = false;
+            isTextTarget = !!e.target.closest('#lightbox-text');
+            pointerStartX = e.clientX;
+            pointerStartY = e.clientY;
+            lastPointerX = pointerStartX;
+            lastPointerY = pointerStartY;
+        });
+ 
+        lightbox.addEventListener('mousemove', (e) => {
+            if (!isMouseMode || lbIsAnimating || activeTouches > 0) return;
+            
+            const currentX = e.clientX;
+            const currentY = e.clientY;
+            
+            if (Math.hypot(currentX - pointerStartX, currentY - pointerStartY) > 5) {
+                hasMoved = true;
+            }
+ 
+            if (hasMoved && lbScale > 1 && !isTextTarget) {
+                lbTx += (currentX - lastPointerX);
+                lbTy += (currentY - lastPointerY);
+                applyTransform();
+            }
+            lastPointerX = currentX;
+            lastPointerY = currentY;
+        });
+ 
+        lightbox.addEventListener('mouseup', (e) => {
+            if (!isMouseMode || activeTouches > 0) return;
+            isMouseMode = false;
+ 
+            if (!hasMoved) {
+                closeLightbox(); // 滑鼠點擊同樣直接關閉
+            } else if (lbScale === 1 && !isTextTarget) {
+                const diffX = lastPointerX - pointerStartX;
+                const diffY = lastPointerY - pointerStartY;
+                if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+                    if (diffX > 0) navigateLightbox(-1);
+                    else navigateLightbox(1);
+                }
+            }
+        });
+ 
         lightbox.addEventListener('wheel', (e) => {
             if (lbIsAnimating || e.target.closest('#lightbox-text')) return;
             e.preventDefault();
             lbScale += (e.deltaY < 0 ? 1 : -1) * 0.15;
-            if (lbScale <= 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
+            if (lbScale < 1) { lbScale = 1; lbTx = 0; lbTy = 0; }
             if (lbScale > 5) lbScale = 5;
             applyTransform();
         }, { passive: false });
- 
-        lightbox.addEventListener('mousedown', (e) => {
-            if (isTouchMode || lbIsAnimating) return;
-            
-            isTextTarget = !!e.target.closest('#lightbox-text');
-            pointerStartTime = Date.now();
-            isMultiTouch = false;
-            pointerStartX = e.clientX; pointerStartY = e.clientY;
-            pointerCurrentX = pointerStartX; pointerCurrentY = pointerStartY;
-        });
- 
-        lightbox.addEventListener('mousemove', (e) => {
-            if (isTouchMode || lbIsAnimating || pointerStartTime === 0) return;
- 
-            if (lbScale > 1 && !isTextTarget) {
-                lbTx += (e.clientX - pointerCurrentX);
-                lbTy += (e.clientY - pointerCurrentY);
-                applyTransform();
-            }
-            pointerCurrentX = e.clientX; pointerCurrentY = e.clientY;
-        });
- 
-        lightbox.addEventListener('mouseup', (e) => {
-            if (isTouchMode || lbIsAnimating || pointerStartTime === 0) return;
-            evaluateGesture();
-            pointerStartTime = 0; // 滑鼠專用的重置
-        });
  
         // ==================== 換圖動畫 ====================
         function navigateLightbox(direction) {
@@ -1411,13 +1426,14 @@
                         lbImg.className = '';
                         resetTransform();
                         lbImg.style.opacity = '1';
-                        lbIsAnimating = false; // 解鎖
+                        lbIsAnimating = false; 
                     }, 250);
                 }, 200);
  
-                setTimeout(() => { lbIsAnimating = false; }, 600); // 絕對防卡死
+                setTimeout(() => { lbIsAnimating = false; }, 600);
             }
         }
+ 
 
 
 
