@@ -3515,105 +3515,112 @@ function parseChoiceResponse(response, count) {
     const lines = cleanResponse.split('\n').filter(line => line.trim() !== '');
     
     const parsed = [];
-    
-    for (let i = 1; i <= count; i++) {
-        let question = '';
-        let options = [];
-        let answer = '';
-        let steps = '';
-        
-        let questionFound = false;
-        let optionsFound = false;
-        let answerFound = false;
-        let stepsFound = false;
-        
-        // 【新增】：用來追蹤目前正在讀取哪一個區塊，以便將多行的內容接合起來
-        let currentSection = ''; 
-        
-        for (let j = 0; j < lines.length; j++) {
-            const line = lines[j].trim();
-            
-            // 解析題目
-            if (line.startsWith(`題目${i}：`)) {
-                question = line.replace(`題目${i}：`, '').trim();
-                questionFound = true;
-                currentSection = 'question';
-                continue;
-            }
-            
-            // 解析選項容器
-            if (line === '選擇題選項容器：' && questionFound && !optionsFound) {
-                currentSection = 'options';
-                let k = j + 1;
-                options = [];
-                while (k < lines.length) {
-                    const optionLine = lines[k].trim();
-                    if (optionLine.match(/^[A-D]\.\s/)) {
-                        options.push(optionLine);
-                        k++;
-                    } else {
-                        break;
-                    }
-                }
-                optionsFound = true;
-                j = k - 1;
-                continue;
-            }
-            
-            // 解析答案
-            if (line.startsWith(`答案${i}：`) && questionFound) {
-                answer = line.replace(`答案${i}：`, '').trim();
-                answerFound = true;
-                currentSection = 'answer';
-                continue;
-            }
-            
-            // 解析步驟
-            if (line.startsWith(`步驟${i}：`) && questionFound) {
-                steps = line.replace(`步驟${i}：`, '').trim();
-                stepsFound = true;
-                currentSection = 'steps';
-                continue;
-            }
+    let currentItem = null;
+    let currentSection = '';
 
-            // 【重點修訂】：如果沒有碰到新的標籤，就把換行的內容接回目前的區塊中
-            if (currentSection === 'question' && line !== '') {
-                question += '<br>' + line; // 將 (1)、(2) 等換行陳述接回題目
-            } else if (currentSection === 'answer' && line !== '') {
-                answer += '<br>' + line;   // 確保多行答案不會遺失
-            } else if (currentSection === 'steps' && line !== '') {
-                steps += '<br>' + line;    // 確保多行步驟不會遺失
+    // 單次掃描每一行，自動判斷現在屬於哪一題、哪一個區塊
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+
+        // 1. 偵測新題目開頭 (支援 "題目1：" 或 "題目 1:" 等格式)
+        const questionMatch = line.match(/^題目\s*\d+\s*[：:]\s*(.*)/);
+        if (questionMatch) {
+            // 如果已經有上一題，先把它推入陣列保存
+            if (currentItem) {
+                parsed.push(currentItem);
             }
+            // 建立新的一題
+            currentItem = {
+                question: questionMatch[1],
+                options: [],
+                answer: '',
+                steps: ''
+            };
+            currentSection = 'question';
+            continue;
         }
+
+        // 如果還沒找到第一題開頭，就跳過前面的 AI 廢話
+        if (!currentItem) continue;
+
+        // 2. 偵測選項容器
+        if (line.includes('選擇題選項容器')) {
+            currentSection = 'options';
+            continue;
+        }
+
+        // 3. 偵測選項 (抓取 A. / B. / C. / D.)
+        if (currentSection === 'options' && /^[A-D][.、．]\s/.test(line)) {
+            currentItem.options.push(line);
+            continue;
+        }
+
+        // 4. 偵測答案
+        const answerMatch = line.match(/^答案\s*\d+\s*[：:]\s*(.*)/);
+        if (answerMatch) {
+            currentItem.answer = answerMatch[1];
+            currentSection = 'answer';
+            continue;
+        }
+
+        // 5. 偵測步驟
+        const stepsMatch = line.match(/^步驟\s*\d+\s*[：:]\s*(.*)/);
+        if (stepsMatch) {
+            currentItem.steps = stepsMatch[1];
+            currentSection = 'steps';
+            continue;
+        }
+
+        // 6. 處理跨行內容（把換行的文字接回正確的區塊）
+        if (currentSection === 'question') {
+            currentItem.question += '<br>' + line;
+        } else if (currentSection === 'answer') {
+            currentItem.answer += '<br>' + line;
+        } else if (currentSection === 'steps') {
+            currentItem.steps += '<br>' + line;
+        }
+    }
+
+    // 把最後一題推進陣列
+    if (currentItem) {
+        parsed.push(currentItem);
+    }
+
+    // 確保回傳數量符合要求，並組裝成最終顯示格式
+    const finalParsed = [];
+    for (let i = 0; i < count; i++) {
+        let item = parsed[i];
         
-        // 防呆錯誤處理
-        if (!questionFound || !question.trim()) {
-            question = `選擇題${i}題目`;
+        // 防呆處理：如果 AI 漏生了某題
+        if (!item) {
+            item = {
+                question: `選擇題${i + 1}生成失敗，請檢查網路連接並重試`,
+                options: ['A. 選項A', 'B. 選項B', 'C. 選項C', 'D. 選項D'],
+                answer: `A 選項A`,
+                steps: `請分析題目要求，逐一檢視各選項內容，找出最符合題意的答案。`
+            };
+        } else {
+            // 防呆處理：補齊缺失的欄位
+            if (!item.question) item.question = `選擇題${i + 1}題目`;
+            if (item.options.length < 4) item.options = ['A. 選項A', 'B. 選項B', 'C. 選項C', 'D. 選項D'];
+            if (!item.answer) item.answer = '未生成答案';
+            if (!item.steps) item.steps = '未生成步驟';
         }
-        if (!optionsFound || options.length < 4) {
-            options = [`A. 選項A`, `B. 選項B`, `C. 選項C`, `D. 選項D`];
+
+        // 組合完整題目 (題目本文 + 選項)
+        let fullQuestion = item.question;
+        if (item.options.length > 0) {
+            fullQuestion += '<br><br>選項：<br>' + item.options.join('<br>');
         }
-        if (!answerFound || !answer.trim()) {
-            answer = `A 選項A`;
-        }
-        if (!stepsFound || !steps.trim()) {
-            steps = `請分析題目要求，逐一檢視各選項內容，找出最符合題意的答案。`;
-        }
-        
-        // 構建完整的題目內容：題目 + 選項
-        let fullQuestion = question;
-        if (options.length > 0) {
-            fullQuestion += '<br><br>選項：<br>' + options.join('<br>');
-        }
-        
-        parsed.push({ 
-            question: fullQuestion, 
-            answer, 
-            steps 
+
+        finalParsed.push({
+            question: fullQuestion,
+            answer: item.answer,
+            steps: item.steps
         });
     }
-    
-    return parsed;
+
+    return finalParsed;
 }
 
 
