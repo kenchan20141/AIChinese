@@ -3512,93 +3512,109 @@ async function generateQuestionsForText(questionType, textContent, textId, textT
 
 
 function parseChoiceResponse(response, count) {
-	const cleanResponse = removeThinkingTags(response);
-	const lines = cleanResponse.split('\n').filter(line => line.trim() !== '');
-	
-	const parsed = [];
-	
-	for (let i = 1; i <= count; i++) {
-		let question = '';
-		let options = [];
-		let answer = '';
-		let steps = '';
-		
-		let questionFound = false;
-		let optionsFound = false;
-		let answerFound = false;
-		let stepsFound = false;
-		
-		for (let j = 0; j < lines.length; j++) {
-			const line = lines[j].trim();
-			
-			// 解析題目
-			if (line.startsWith(`題目${i}：`)) {
-				question = line.replace(`題目${i}：`, '').trim();
-				questionFound = true;
-				continue;
-			}
-			
-			// 解析選項容器
-			if (line === '選擇題選項容器：' && questionFound && !optionsFound) {
-				let k = j + 1;
-				options = [];
-				while (k < lines.length) {
-					const optionLine = lines[k].trim();
-					if (optionLine.match(/^[A-D]\.\s/)) {
-						options.push(optionLine);
-						k++;
-					} else {
-						break;
-					}
-				}
-				optionsFound = true;
-				j = k - 1;
-				continue;
-			}
-			
-			// 解析答案
-			if (line.startsWith(`答案${i}：`) && questionFound) {
-				answer = line.replace(`答案${i}：`, '').trim();
-				answerFound = true;
-				continue;
-			}
-			
-			// 解析步驟
-			if (line.startsWith(`步驟${i}：`) && questionFound) {
-				steps = line.replace(`步驟${i}：`, '').trim();
-				stepsFound = true;
-				continue;
-			}
-		}
-		
-		// 修訂處：改為更寬鬆的錯誤處理
-		if (!questionFound || !question.trim()) {
-			question = `選擇題${i}題目`;
-		}
-		if (!optionsFound || options.length < 4) {
-			options = [`A. 選項A`, `B. 選項B`, `C. 選項C`, `D. 選項D`];
-		}
-		if (!answerFound || !answer.trim()) {
-			answer = `A 選項A`;
-		}
-		if (!stepsFound || !steps.trim()) {
-			steps = `請分析題目要求，逐一檢視各選項內容，找出最符合題意的答案。`;
-		}
-		
-		// 構建完整的題目內容：題目 + 選項
-		let fullQuestion = question;
-		if (options.length > 0) {
-			fullQuestion += '\n\n選項：\n' + options.join('\n');
-		}
-		
-		parsed.push({ 
-			question: fullQuestion, 
-			answer, 
-			steps 
-		});
-	}
-	
-	return parsed;
+    const cleanResponse = removeThinkingTags(response);
+    const lines = cleanResponse.split('\n').filter(line => line.trim() !== '');
+    
+    const parsed = [];
+    
+    for (let i = 1; i <= count; i++) {
+        let question = '';
+        let options = [];
+        let answer = '';
+        let steps = '';
+        
+        let questionFound = false;
+        let optionsFound = false;
+        let answerFound = false;
+        let stepsFound = false;
+        
+        // 【新增】：用來追蹤目前正在讀取哪一個區塊，以便將多行的內容接合起來
+        let currentSection = ''; 
+        
+        for (let j = 0; j < lines.length; j++) {
+            const line = lines[j].trim();
+            
+            // 解析題目
+            if (line.startsWith(`題目${i}：`)) {
+                question = line.replace(`題目${i}：`, '').trim();
+                questionFound = true;
+                currentSection = 'question';
+                continue;
+            }
+            
+            // 解析選項容器
+            if (line === '選擇題選項容器：' && questionFound && !optionsFound) {
+                currentSection = 'options';
+                let k = j + 1;
+                options = [];
+                while (k < lines.length) {
+                    const optionLine = lines[k].trim();
+                    if (optionLine.match(/^[A-D]\.\s/)) {
+                        options.push(optionLine);
+                        k++;
+                    } else {
+                        break;
+                    }
+                }
+                optionsFound = true;
+                j = k - 1;
+                continue;
+            }
+            
+            // 解析答案
+            if (line.startsWith(`答案${i}：`) && questionFound) {
+                answer = line.replace(`答案${i}：`, '').trim();
+                answerFound = true;
+                currentSection = 'answer';
+                continue;
+            }
+            
+            // 解析步驟
+            if (line.startsWith(`步驟${i}：`) && questionFound) {
+                steps = line.replace(`步驟${i}：`, '').trim();
+                stepsFound = true;
+                currentSection = 'steps';
+                continue;
+            }
+
+            // 【重點修訂】：如果沒有碰到新的標籤，就把換行的內容接回目前的區塊中
+            if (currentSection === 'question' && line !== '') {
+                question += '<br>' + line; // 將 (1)、(2) 等換行陳述接回題目
+            } else if (currentSection === 'answer' && line !== '') {
+                answer += '<br>' + line;   // 確保多行答案不會遺失
+            } else if (currentSection === 'steps' && line !== '') {
+                steps += '<br>' + line;    // 確保多行步驟不會遺失
+            }
+        }
+        
+        // 防呆錯誤處理
+        if (!questionFound || !question.trim()) {
+            question = `選擇題${i}題目`;
+        }
+        if (!optionsFound || options.length < 4) {
+            options = [`A. 選項A`, `B. 選項B`, `C. 選項C`, `D. 選項D`];
+        }
+        if (!answerFound || !answer.trim()) {
+            answer = `A 選項A`;
+        }
+        if (!stepsFound || !steps.trim()) {
+            steps = `請分析題目要求，逐一檢視各選項內容，找出最符合題意的答案。`;
+        }
+        
+        // 構建完整的題目內容：題目 + 選項
+        let fullQuestion = question;
+        if (options.length > 0) {
+            fullQuestion += '<br><br>選項：<br>' + options.join('<br>');
+        }
+        
+        parsed.push({ 
+            question: fullQuestion, 
+            answer, 
+            steps 
+        });
+    }
+    
+    return parsed;
 }
 
 
