@@ -170,6 +170,8 @@
     .article-box {
       margin-bottom: 60px; padding-bottom: 50px;
       position: relative;
+      scroll-margin-top: 40px; /* 給予平滑跳轉時上方緩衝空間 */
+      border-radius: 4px;
     }
     /* 復古分隔線 */
     .article-box::after {
@@ -200,6 +202,45 @@
     }
     .bookmark-btn.saved svg { fill: currentColor; }
 
+    /* ================= 剪報精緻 CSS 動畫 ================= */
+    /* 主體：紙張下壓 -> 懸浮傾斜 -> 歸位 */
+    @keyframes paperLiftEffect {
+      0% { transform: scale(1) translateY(0); box-shadow: none; filter: brightness(1); }
+      15% { transform: scale(0.99) translateY(2px); filter: brightness(0.97); }
+      50% { transform: scale(1.02) translateY(-6px) rotate(-0.5deg); box-shadow: 0 15px 35px rgba(0,0,0,0.08), 0 5px 15px rgba(0,0,0,0.04); filter: brightness(1.02); }
+      80% { transform: scale(1) translateY(1px) rotate(0.2deg); box-shadow: 0 5px 10px rgba(0,0,0,0.03); }
+      100% { transform: scale(1) translateY(0) rotate(0); box-shadow: none; filter: brightness(1); }
+    }
+    /* 裁切軌跡：虛線框瞬間畫出並消散 */
+    @keyframes scissorCutTrace {
+      0% { clip-path: inset(0 100% 0 0); opacity: 0; }
+      20% { clip-path: inset(0 0 0 0); opacity: 1; }
+      70% { opacity: 1; transform: scale(1.01); }
+      100% { opacity: 0; transform: scale(1.04); }
+    }
+    .clip-anim {
+      animation: paperLiftEffect 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+      z-index: 10;
+    }
+    .clip-anim::after {
+      content: ''; position: absolute;
+      top: -10px; left: -10px; right: -10px; bottom: -10px;
+      border: 2px dashed var(--color-2); border-radius: 4px;
+      pointer-events: none; opacity: 0;
+      animation: scissorCutTrace 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+      z-index: 11;
+    }
+
+    /* 從列表跳轉時的高光閃動特效 */
+    @keyframes highlightFlash {
+      0% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
+      20% { background-color: #EFEBE0; box-shadow: 0 0 0 15px #EFEBE0; }
+      100% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
+    }
+    .highlight-flash {
+      animation: highlightFlash 1.5s ease-out forwards;
+    }
+
     .article-header { margin-bottom: 25px; }
     
     .article-tag { 
@@ -224,7 +265,7 @@
     }
     .article-img:hover { filter: sepia(0) contrast(1); }
 
-    /* ==== 還原：探討主題與擬題區塊 ==== */
+    /* ==== 探討主題與擬題區塊 ==== */
     .theme-bar {
       font-family: var(--font-serif); font-weight: bold; font-size: 16px;
       padding: 12px 18px; margin-bottom: 20px; border-left: 6px solid;
@@ -260,6 +301,65 @@
     .archive-empty { color: var(--text-gray); font-style: italic; font-size: 16px; text-align: center; margin-top: 60px; letter-spacing: 1px;}
     .hidden { display: none !important; }
 
+    /* ================= 頁底素材清單區塊 (基礎佈局) ================= */
+    .recommend-section {
+      margin-top: 60px;
+      border-top: var(--border-double);
+      padding-top: 40px;
+      display: none; /* 預設隱藏，由 JS 控制顯示 */
+    }
+    .recommend-header {
+      font-family: var(--font-serif);
+      font-size: 24px;
+      font-weight: 900;
+      margin-bottom: 25px;
+      letter-spacing: 4px;
+      text-align: center;
+      transition: color 0.3s ease;
+    }
+    .recommend-list {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .recommend-item {
+      padding: 20px;
+      border: 1px solid;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      display: block;
+      position: relative;
+    }
+    .recommend-item-meta {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-gray);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .recommend-item-title {
+      font-family: var(--font-serif);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    /* ======== 莫蘭迪雙色系：昨日 vs 今日 ======== */
+    /* 1. 昨日素材 (莫蘭迪灰藍色調 - 沉穩、過去) */
+    .theme-yesterday .recommend-header { color: #5A6B6E; }
+    .theme-yesterday .recommend-item { background: #F0F3F4; border-color: #D5DCDD; }
+    .theme-yesterday .recommend-item:hover { background: #E2E8E9; border-color: #889CA0; transform: translateX(5px); }
+
+    /* 2. 今日素材 (莫蘭迪暖褐粉調 - 溫暖、當下) */
+    .theme-today .recommend-header { color: #8A6B66; }
+    .theme-today .recommend-item { background: #F8F2F1; border-color: #E2D5D3; }
+    .theme-today .recommend-item:hover { background: #EBE0DE; border-color: #A48581; transform: translateX(5px); }
+
     /* RWD 響應式 */
     @media (max-width: 768px) {
       .container { padding: 40px 25px; margin: 0; border: none; box-shadow: none; }
@@ -272,10 +372,13 @@
       .article-title { font-size: 26px; }
       .question-box { font-size: 19px; padding: 15px; }
       .content-body { font-size: 16px; line-height: 1.9;}
+      .recommend-item-title { font-size: 18px; }
     }
 
-    .copyright-footer { text-align: center; padding: 20px; margin-top: 20px; }
-    .copyright-footer p { margin: 0; font-size: 12px; font-family: var(--font-sans); color: #999; letter-spacing: 1px;}
+    /* 用戶指定的 Footer 樣式 */
+    .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: #f1f1f1; z-index: 1000; }
+    .copyright-footer p { margin: 0; font-size: 14px; }
+    @media (max-width: 600px) { .copyright-footer p { font-size: 12px; } }
   </style>
 </head>
 <body>
@@ -284,7 +387,7 @@
     <header class="masthead">
       <div class="masthead-date">
         <span id="display-date">DAILY EDITION</span>
-        <span>HONG KONG</span>
+        <span>SANSI</span>
       </div>
       <h1>素材日報</h1>
       <div class="subtitle">每日更新 · 議論典故 · 抒情選材</div>
@@ -295,7 +398,7 @@
       <div class="tab-container" id="tabs">
         <button class="tab-btn active" id="tab-議論" onclick="switchTab('議論')">議論文</button>
         <button class="tab-btn" id="tab-抒情" onclick="switchTab('抒情')">敘事抒情</button>
-        <button class="tab-btn" id="tab-收藏" onclick="switchTab('收藏')">我的書房</button>
+        <button class="tab-btn" id="tab-收藏" onclick="switchTab('收藏')">我的剪報</button>
       </div>
 
       <div class="tools-container">
@@ -331,11 +434,17 @@
 
     <div id="content-area" class="hidden">
       <main id="main-content"></main>
+      
+      <!-- 頁底推薦閱讀區塊 (昨日/今日素材列表) -->
+      <div id="recommend-section" class="recommend-section">
+        <div id="recommend-header" class="recommend-header">昨日素材</div>
+        <div id="recommend-list" class="recommend-list"></div>
+      </div>
     </div>
   </div>
 
   <footer class="copyright-footer">
-    <p>Copyright © 2025 陳冠健. All rights reserved.</p>
+    <p>Copyright © 2026 陳冠健. All rights reserved.</p>
   </footer>
 
   <script>
@@ -352,14 +461,27 @@
     let searchTimeout = null; 
     let progressInterval = null;
     
+    // 用於記錄資料庫中最新(今日)與次新(昨日)的實質日期字串
+    let dbTodayStr = "";
+    let dbYesterdayStr = "";
+    
     let savedRecords = JSON.parse(localStorage.getItem('dse_bookmarks')) || [];
 
+    // 取得日曆所需的格式
+    function getLocalDateStr(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     window.onload = function() {
-      // 設置今日日期
-      const today = new Date();
-      document.getElementById('date-picker').max = today.toISOString().split('T')[0];
+      // 解除昨日限制：現在用戶可以自由在日曆上點選真正的「今日」
+      const todayDate = new Date();
+      document.getElementById('date-picker').max = getLocalDateStr(todayDate);
+
       const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
-      document.getElementById('display-date').innerText = today.toLocaleDateString('zh-HK', options);
+      document.getElementById('display-date').innerText = todayDate.toLocaleDateString('zh-HK', options);
 
       updateStatus("主編正在排版中...");
       startProgress();
@@ -458,6 +580,13 @@
     function initData(records, keyword) {
       allRecords = records;
       
+      // 動態抓取資料庫中真實存在的日期
+      if (allRecords.length > 0) {
+        const availableDates = [...new Set(allRecords.map(r => r[0]))].sort((a,b) => b.localeCompare(a));
+        dbTodayStr = availableDates[0] || "";
+        dbYesterdayStr = availableDates[1] || availableDates[0] || ""; 
+      }
+      
       finishProgress();
       updateStatus(""); 
       document.getElementById('content-area').classList.remove('hidden');
@@ -467,8 +596,8 @@
         document.getElementById('date-picker').value = '';
       } else if (allRecords.length > 0) {
         if (!currentDateFilter) {
-          currentDateFilter = allRecords[0][0]; 
-          document.getElementById('date-picker').value = currentDateFilter;
+          currentDateFilter = dbTodayStr; 
+          document.getElementById('date-picker').value = dbTodayStr; // 預設顯示真正的最新日期
         } else {
           document.getElementById('date-picker').value = currentDateFilter;
         }
@@ -493,6 +622,7 @@
       renderMain();
     }
 
+    // 日期過濾
     function filterByDate(dateVal) {
       currentDateFilter = dateVal;
 
@@ -515,19 +645,65 @@
       }
     }
 
-    function toggleBookmark(encodedId) {
+    // 點擊清單跳轉到特定日子的素材，並平滑捲動到該文章位置
+    function viewSpecificDate(dateStr, category, targetId) {
+      document.getElementById('date-picker').value = dateStr;
+      currentDateFilter = dateStr;
+      
+      // 切換分頁 (switchTab 內部會自動呼叫 renderMain)
+      if (category) {
+        switchTab(category); 
+      } else {
+        renderMain();
+      }
+      
+      // 確保 DOM 渲染完畢後，執行平滑捲動與高光效果
+      if (targetId) {
+        setTimeout(() => {
+          const targetEl = document.getElementById(`article-${targetId}`);
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // 添加高光閃動效果
+            targetEl.classList.add('highlight-flash');
+            setTimeout(() => {
+              targetEl.classList.remove('highlight-flash');
+            }, 1500);
+          }
+        }, 100);
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    // 收藏/移除，並觸發「剪報」動畫
+    function toggleBookmark(encodedId, btnElement) {
       const rawId = decodeURIComponent(encodedId);
       const savedIndex = savedRecords.findIndex(r => (r[0] + r[1]) === rawId);
       
       if (savedIndex > -1) {
         savedRecords.splice(savedIndex, 1);
+        localStorage.setItem('dse_bookmarks', JSON.stringify(savedRecords));
+        renderMain();
       } else {
         const record = allRecords.find(r => (r[0] + r[1]) === rawId);
-        if (record) savedRecords.push(record);
+        if (record) {
+          savedRecords.push(record);
+          localStorage.setItem('dse_bookmarks', JSON.stringify(savedRecords));
+          
+          if (btnElement) {
+            const articleBox = btnElement.closest('.article-box');
+            if (articleBox) {
+              articleBox.classList.add('clip-anim');
+              // 等待剪報動畫結束後再重新渲染頁面 (更新按鈕的書籤實心狀態)
+              setTimeout(() => {
+                renderMain(); 
+              }, 950); 
+              return; 
+            }
+          }
+          renderMain();
+        }
       }
-      
-      localStorage.setItem('dse_bookmarks', JSON.stringify(savedRecords));
-      renderMain();
     }
 
     function parseAIText(rawText) {
@@ -545,17 +721,16 @@
       return { theme, question, paragraph };
     }
 
-    // 提取第一個有效文字作為 Drop Cap (避開引號等標點符號)
+    // 提取第一個有效文字作為 Drop Cap
     function generateDropCapHtml(text, color) {
       if(!text) return "";
       let firstChar = "";
       let remainingText = "";
       
-      // 找出第一個非空白、非標點符號的中文字或英文字母
       const match = text.match(/^[\s\S]*?([\u4e00-\u9fa5a-zA-Z])/);
       if(match){
         const index = text.indexOf(match[1]);
-        firstChar = text.substring(0, index + 1); // 包含可能在前面的引號
+        firstChar = text.substring(0, index + 1); 
         remainingText = text.substring(index + 1);
         return `<span class="drop-cap" style="color:${color}">${firstChar}</span>${remainingText}`;
       }
@@ -570,7 +745,6 @@
 
       if (currentSearchKeyword) {
         displayRecords = allRecords; 
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       } else if (currentCategory === '收藏') {
         displayRecords = savedRecords;
         if (currentDateFilter) {
@@ -583,73 +757,140 @@
         }
       }
 
+      // 文章區域渲染
       if (displayRecords.length === 0) {
         let emptyMsg = `今日報刊尚無此類文章。`;
         if (currentSearchKeyword) emptyMsg = `檔案室查無「${currentSearchKeyword}」相關卷宗。`;
-        else if (currentCategory === '收藏') emptyMsg = '📜 你的書房目前空空如也，點擊文章右上角書籤加入收藏。';
+        else if (currentCategory === '收藏') emptyMsg = '✂️ 你的剪報目前空空如也，點擊文章右上角書籤加入收藏。';
         
         container.innerHTML = `<p class="archive-empty">${emptyMsg}</p>`;
-        return;
+      } else {
+        displayRecords.forEach((row, index) => {
+          const [date, rawTitle, link, aiText, imgUrl, cat] = row;
+          const color = accentColors[index % accentColors.length]; 
+          const { theme, question, paragraph } = parseAIText(aiText);
+
+          const uniqueId = date + rawTitle;
+          const encodedId = encodeURIComponent(uniqueId);
+          const isSaved = savedRecords.some(r => (r[0] + r[1]) === uniqueId);
+
+          let tag = cat === '議論' ? '觀點' : '素材';
+          let title = rawTitle;
+          const tagMatch = rawTitle.match(/^【(.*?)】/);
+          if (tagMatch) { tag = tagMatch[1]; title = rawTitle.replace(/^【.*?】/, '').trim(); }
+
+          const fallbackImg = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/600px-No_image_available.svg.png';
+          const imgHtml = imgUrl 
+            ? `<img src="${imgUrl}" class="article-img" onerror="this.onerror=null; this.src='${fallbackImg}';">` 
+            : '';
+
+          let formattedParagraph = paragraph.replace(/\n+/g, '<br><br>');
+          const dropCapHtml = generateDropCapHtml(formattedParagraph, color);
+            
+          const sectionLabel = cat === '議論' ? '【論述示例】' : '【選材轉化建議】';
+
+          const html = `
+            <div class="article-box" id="article-${encodedId}">
+              <div class="article-meta-row">
+                <span>採集日期：${date} ｜ 專欄：${cat}</span>
+                <button class="bookmark-btn ${isSaved ? 'saved' : ''}" onclick="toggleBookmark('${encodedId}', this)" title="${isSaved ? '移除剪報' : '加入剪報'}">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                </button>
+              </div>
+              
+              <div class="article-header">
+                <span class="article-tag" style="border-color:${color}; color:${color}">${tag}</span>
+                <a href="${link}" target="_blank" class="article-title">${title}</a>
+              </div>
+              
+              ${imgHtml}
+              
+              <div class="theme-bar" style="border-left-color:${color}; color:${color}">
+                ${theme}
+              </div>
+              
+              <div class="question-box">${question}</div>
+              
+              <div class="content-body">
+                <span class="content-label" style="color:${color}">${sectionLabel}</span>
+                ${dropCapHtml}
+              </div>
+            </div>
+          `;
+          container.innerHTML += html;
+        });
       }
 
-      displayRecords.forEach((row, index) => {
-        const [date, rawTitle, link, aiText, imgUrl, cat] = row;
-        const color = accentColors[index % accentColors.length]; 
-        const { theme, question, paragraph } = parseAIText(aiText);
+      // -----------------------------------------------------------
+      // 處理頁底的推薦閱讀清單 (昨日/今日素材) 搭配莫蘭迪色系
+      // -----------------------------------------------------------
+      const recommendSection = document.getElementById('recommend-section');
+      const recommendHeader = document.getElementById('recommend-header');
+      const recommendList = document.getElementById('recommend-list');
 
-        const uniqueId = date + rawTitle;
-        const encodedId = encodeURIComponent(uniqueId);
-        const isSaved = savedRecords.some(r => (r[0] + r[1]) === uniqueId);
+      // 搜尋狀態或是收藏分頁時，隱藏推薦區塊
+      if (currentSearchKeyword !== "" || currentCategory === '收藏') {
+        recommendSection.style.display = 'none';
+      } else {
+        recommendSection.style.display = 'block';
+        let targetDate = "";
+        let headerText = "";
 
-        let tag = cat === '議論' ? '觀點' : '素材';
-        let title = rawTitle;
-        const tagMatch = rawTitle.match(/^【(.*?)】/);
-        if (tagMatch) { tag = tagMatch[1]; title = rawTitle.replace(/^【.*?】/, '').trim(); }
+        // 判斷當前是今日還是其他日子
+        const isToday = (!currentDateFilter || currentDateFilter === dbTodayStr);
 
-        // 修復：改回穩定不含雙引號的維基百科預設圖，防止 onerror 屬性被截斷報錯
-        const fallbackImg = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/600px-No_image_available.svg.png';
-        const imgHtml = imgUrl 
-          ? `<img src="${imgUrl}" class="article-img" onerror="this.onerror=null; this.src='${fallbackImg}';">` 
-          : '';
+        // 賦予不同的莫蘭迪色系 Class
+        if (isToday) {
+          targetDate = dbYesterdayStr;
+          headerText = "昨日素材";
+          recommendSection.className = "recommend-section theme-yesterday";
+        } else {
+          targetDate = dbTodayStr;
+          headerText = "今日素材";
+          recommendSection.className = "recommend-section theme-today";
+        }
 
-        let formattedParagraph = paragraph.replace(/\n+/g, '<br><br>');
-        const dropCapHtml = generateDropCapHtml(formattedParagraph, color);
+        if (targetDate) {
+          recommendHeader.innerText = headerText;
           
-        const sectionLabel = cat === '議論' ? '【論述示例】' : '【選材轉化建議】';
+          // 篩選出目標日期的所有文章
+          const recRecords = allRecords.filter(r => r[0] === targetDate);
 
-        const html = `
-          <div class="article-box">
-            <div class="article-meta-row">
-              <span>採集日期：${date} ｜ 專欄：${cat}</span>
-              <button class="bookmark-btn ${isSaved ? 'saved' : ''}" onclick="toggleBookmark('${encodedId}')" title="${isSaved ? '移除收藏' : '加入書房'}">
-                <svg viewBox="0 0 24 24">
-                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-                </svg>
-              </button>
-            </div>
-            
-            <div class="article-header">
-              <span class="article-tag" style="border-color:${color}; color:${color}">${tag}</span>
-              <a href="${link}" target="_blank" class="article-title">${title}</a>
-            </div>
-            
-            ${imgHtml}
-            
-            <!-- 完美還原：原汁原味的左側色條主題與外框擬題 -->
-            <div class="theme-bar" style="border-left-color:${color}; color:${color}">
-              ${theme}
-            </div>
-            
-            <div class="question-box">${question}</div>
-            
-            <div class="content-body">
-              <span class="content-label" style="color:${color}">${sectionLabel}</span>
-              ${dropCapHtml}
-            </div>
-          </div>
-        `;
-        container.innerHTML += html;
-      });
+          if (recRecords.length > 0) {
+            let recHtml = '';
+            recRecords.forEach((row, index) => {
+              const [date, rawTitle, link, aiText, imgUrl, cat] = row;
+              let tag = cat === '議論' ? '觀點' : '素材';
+              let title = rawTitle;
+              const tagMatch = rawTitle.match(/^【(.*?)】/);
+              if (tagMatch) { tag = tagMatch[1]; title = rawTitle.replace(/^【.*?】/, '').trim(); }
+              const color = accentColors[index % accentColors.length];
+              
+              // 取得文章專屬 ID
+              const uniqueId = date + rawTitle;
+              const encodedId = encodeURIComponent(uniqueId);
+
+              // 點擊事件：跳轉日期、切換標籤並平滑捲動到該文章 ID 位置
+              recHtml += `
+                <div class="recommend-item" onclick="viewSpecificDate('${targetDate}', '${cat}', '${encodedId}')">
+                  <div class="recommend-item-meta">
+                     <span class="article-tag" style="border-color:${color}; color:${color}; padding: 1px 6px; font-size: 11px; margin-bottom: 0;">${tag}</span>
+                     <span>｜ 專欄：${cat}</span>
+                  </div>
+                  <h3 class="recommend-item-title">${title}</h3>
+                </div>
+              `;
+            });
+            recommendList.innerHTML = recHtml;
+          } else {
+            recommendList.innerHTML = `<p style="text-align:center; color: var(--text-gray); font-size: 15px; font-style: italic;">該日暫無素材。</p>`;
+          }
+        } else {
+          recommendSection.style.display = 'none';
+        }
+      }
     }
   </script>
 </body>
