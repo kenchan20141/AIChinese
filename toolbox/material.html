@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- 【關鍵新增】：Content Security Policy (CSP) 防護與跨域允許 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; img-src * data:;">
+  
   <title>DSE 寫作素材報</title>
   <style>
     :root {
@@ -137,11 +141,11 @@
     </header>
 
     <div class="tab-container" id="tabs">
-      <button class="tab-btn active" onclick="switchTab('議論')">卷二：議論文區</button>
-      <button class="tab-btn" onclick="switchTab('抒情')">卷二：敘事抒情區</button>
+      <button class="tab-btn active" onclick="switchTab('議論')">議論文</button>
+      <button class="tab-btn" onclick="switchTab('抒情')">敘事抒情</button>
     </div>
 
-    <div id="loading-area" class="loading">資料加載中，請稍候...</div>
+    <div id="loading-area" class="loading">資料加載中，正在連接伺服器...</div>
 
     <div id="content-area" class="layout-grid hidden">
       <main id="main-content"></main>
@@ -156,7 +160,8 @@
   <script>
     // ==========================================
     // 【極度重要設定】
-    // 請將你剛才部署 Google Apps Script 後取得的「網頁應用程式 URL」貼在下方引號內：
+    // 確保你的網址結尾是 /exec，絕對不能是 /edit！
+    // 每次更新 Code.gs 必須點擊「新增部署作業」！
     // ==========================================
     const API_URL = "請將你的 Google Apps Script 網頁應用程式 URL 貼在這裡";
 
@@ -169,16 +174,22 @@
       const today = new Date().toISOString().split('T')[0];
       document.getElementById('date-picker').max = today;
 
-      // 使用 Fetch API 呼叫 Apps Script 取代原本的 google.script.run
-      fetch(API_URL)
-        .then(response => {
-          if (!response.ok) throw new Error("網路請求失敗，請確認 API URL 是否正確填寫並已公開佈署。");
-          return response.json();
-        })
-        .then(data => initData(data))
-        .catch(error => {
-          document.getElementById('loading-area').innerText = '載入失敗：' + error.message;
-        });
+      // 使用 Fetch API，並加入 redirect: 'follow' 來處理 GAS 的跨域轉址
+      fetch(API_URL, {
+        method: 'GET',
+        redirect: 'follow'
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`伺服器回應錯誤 (狀態碼: ${response.status})。請確認 API_URL 結尾為 /exec，且部署權限設為「所有人」。`);
+        }
+        return response.json();
+      })
+      .then(data => initData(data))
+      .catch(error => {
+        console.error("Fetch Error:", error);
+        document.getElementById('loading-area').innerHTML = `<span style="color:red;">載入失敗：${error.message}</span><br><br><small>開發者提示：如果你看到 404，代表網址錯誤；如果看到 CORS 錯誤，代表 GAS 未開放「所有人」權限。</small>`;
+      });
     };
 
     function initData(records) {
@@ -260,55 +271,9 @@
           ? `<span class="drop-cap" style="color:${color}">${paragraph.charAt(0)}</span>${paragraph.slice(1)}`
           : paragraph;
           
-        const sectionLabel = cat === '議論' ? '《論述示範》' : '《選材轉化建議》';
+        const sectionLabel = cat === '議論' ? '論述示範' : '選材轉化建議';
 
         const html = `
           <div class="article-box">
             <div class="article-meta">${date} 採集</div>
-            <span class="article-tag" style="background:${color}">${tag}</span>
-            <a href="${link}" target="_blank" class="article-title">${title}</a>
-            ${imgHtml}
-            
-            <div class="theme-bar" style="border-color:${color}; color:${color}">
-              ${cat === '議論' ? '核心價值：' : '適用情感：'} ${theme}
-            </div>
-            
-            <div class="question-box">${question}</div>
-            
-            <div class="content-body">
-              <span class="content-label" style="color:${color}">${sectionLabel}</span>
-              ${dropCapHtml}
-            </div>
-          </div>
-        `;
-        container.innerHTML += html;
-      });
-    }
-
-    function renderArchiveList() {
-      const container = document.getElementById('archive-results');
-      container.innerHTML = '';
-
-      if (!currentDateFilter) return;
-
-      const filtered = allRecords.filter(r => r[0] === currentDateFilter);
-      if (filtered.length === 0) {
-        container.innerHTML = '<div class="archive-empty">該日無存檔。</div>';
-        return;
-      }
-
-      filtered.forEach(row => {
-        const [date, rawTitle, link, aiText, imgUrl, cat] = row;
-        let title = rawTitle.replace(/^【.*?】/, '').trim();
-        
-        container.innerHTML += `
-          <div class="archive-item">
-            <span class="archive-cat">${cat}</span>
-            <a href="${link}" target="_blank" class="archive-title">${title}</a>
-          </div>
-        `;
-      });
-    }
-  </script>
-</body>
-</html>
+            <span class="article-tag" style="background
