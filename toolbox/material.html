@@ -393,7 +393,7 @@
     <p>Copyright © 2026 陳冠健. All rights reserved.</p>
   </footer>
 
-  <script>
+<script>
     const API_URL = "https://script.google.com/macros/s/AKfycbzzzXgxRR2lVa2qknKHSTX9DRNpk-xtPCit9yZHFBLGvF2g1ClRiLPoHVQ2HgmO8eDF/exec";
 
     const accentColors = ['var(--color-1)', 'var(--color-2)', 'var(--color-3)', 'var(--color-4)'];
@@ -424,7 +424,7 @@
 
       updateStatus("主編正在排版中...");
       startProgress();
-      fetchData(""); 
+      fetchData(""); // 初始載入：不帶關鍵字與日期，後端會自動回傳最新兩天
     };
 
     function toggleSearch() {
@@ -461,7 +461,7 @@
       clearTimeout(searchTimeout);
 
       if (keyword === "") {
-        updateStatus(""); hideProgress(); currentDateFilter = null; 
+        updateStatus(""); hideProgress(); currentDateFilter = null; document.getElementById('date-picker').value = dbTodayStr;
         switchTab(currentCategory); document.getElementById('content-area').classList.add('hidden');
         startProgress(); fetchData(""); return;
       }
@@ -472,73 +472,37 @@
       searchTimeout = setTimeout(() => { fetchData(keyword); }, 800);
     }
 
-    function fetchData(keyword) {
-      const targetUrl = keyword ? API_URL + "?keyword=" + encodeURIComponent(keyword) : API_URL;
-      fetch(targetUrl, { method: 'GET', redirect: 'follow' })
+    // 核心修改：加入 date 參數向後端請求特定日期的資料
+    function fetchData(keyword = "", targetDate = "") {
+      let url = API_URL;
+      if (keyword) {
+        url += "?keyword=" + encodeURIComponent(keyword);
+      } else if (targetDate) {
+        url += "?date=" + encodeURIComponent(targetDate);
+      }
+
+      fetch(url, { method: 'GET', redirect: 'follow' })
       .then(response => { if (!response.ok) throw new Error(`伺服器回應錯誤`); return response.json(); })
-      .then(data => initData(data.data || data, keyword)) 
+      .then(data => initData(data.data || data, keyword, targetDate)) 
       .catch(error => { hideProgress(); updateStatus(`<span style="color:red;">印刷中斷：${error.message}</span>`); });
     }
 
-  function initData(records, keyword) {
-      allRecords = records.map(r => {
-        if (r[0]) {
-          let str = String(r[0]).trim();
-          
-          // 情況 A：如果是 Google API 傳回的 UTC 時間戳 (含有 T)
-          if (str.includes('T')) {
-            let d = new Date(str);
-            if (!isNaN(d.getTime())) {
-              r[0] = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-              return r;
-            }
-          }
+    function initData(records, keyword, targetDate) {
+      allRecords = records;
 
-          // 情況 B：無差別提取數字重組 (破解 DD/MM/YYYY 或 2026/3/24 等所有格式)
-          let nums = str.match(/\d+/g);
-          if (nums && nums.length >= 3) {
-            let yy, mm, dd;
-            
-            if (nums[0].length === 4) {
-              // 格式為 YYYY-MM-DD 或 YYYY/M/D
-              yy = nums[0]; mm = nums[1]; dd = nums[2];
-            } else if (nums[2].length === 4) {
-              // 香港常見格式 DD/MM/YYYY
-              yy = nums[2]; mm = nums[1]; dd = nums[0]; 
-            } else {
-              // 備用
-              yy = nums[0]; mm = nums[1]; dd = nums[2];
-            }
-            // 強制重組並補零
-            r[0] = `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
-          }
-        }
-        return r;
-      });
-
-      // 建立可用日期清單
-      if (allRecords.length > 0) {
+      // 只有在「首頁載入」時，才更新系統認定的「今日」和「昨日」
+      if (!keyword && !targetDate && allRecords.length > 0) {
         const availableDates = [...new Set(allRecords.map(r => r[0]))].sort((a,b) => b.localeCompare(a));
         dbTodayStr = availableDates[0] || "";
         dbYesterdayStr = availableDates[1] || availableDates[0] || ""; 
-        
-        // 【隱藏除錯工具】如果你按 F12 打開開發者工具的 Console，可以看到系統到底讀到了哪些日期
-        console.log("📊 系統成功載入的日期庫：", availableDates);
+        document.getElementById('date-picker').value = dbTodayStr;
+        currentDateFilter = dbTodayStr;
       }
-      
+
       finishProgress(); updateStatus(""); document.getElementById('content-area').classList.remove('hidden');
-      
-      if (keyword) {
-        currentDateFilter = null; document.getElementById('date-picker').value = '';
-      } else if (allRecords.length > 0) {
-        if (!currentDateFilter) {
-          currentDateFilter = dbTodayStr; document.getElementById('date-picker').value = dbTodayStr; 
-        } else {
-          document.getElementById('date-picker').value = currentDateFilter;
-        }
-      }
       renderMain();
     }
+
     function switchTab(category) {
       currentCategory = category;
       currentSearchKeyword = document.getElementById('search-input').value.trim();
@@ -546,24 +510,40 @@
       const activeBtn = document.getElementById('tab-' + category);
       if(activeBtn) activeBtn.classList.add('active');
       
-      if (category === '收藏') { currentDateFilter = null; document.getElementById('date-picker').value = ''; }
-      renderMain();
+      if (category === '收藏') { 
+         // 進入收藏時清空日期限制
+         currentDateFilter = null; document.getElementById('date-picker').value = ''; 
+         renderMain();
+      } else { 
+         // 如果回到正常報刊，且如果當前沒有選擇特定日期，重新載入首頁
+         if (!currentDateFilter) {
+            document.getElementById('content-area').classList.add('hidden');
+            startProgress(); fetchData("");
+         } else {
+            renderMain();
+         }
+      }
     }
 
+    // 核心修改：點擊日曆時，直接向後端要那天的資料
     function filterByDate(dateVal) {
       currentDateFilter = dateVal;
-      if (currentSearchKeyword !== "") {
-        document.getElementById('search-input').value = ""; currentSearchKeyword = ""; currentCategory = '議論'; 
-        document.getElementById('content-area').classList.add('hidden'); startProgress();
-        updateStatus("正在調閱該日報刊..."); fetchData(""); return;
-      }
-      if (currentCategory === '收藏') { switchTab('議論'); } else { renderMain(); }
+      currentSearchKeyword = ""; 
+      document.getElementById('search-input').value = ""; 
+
+      if (currentCategory === '收藏') { switchTab('議論'); }
+      
+      document.getElementById('content-area').classList.add('hidden'); 
+      startProgress();
+      updateStatus(`正在調閱 ${dateVal} 的檔案...`); 
+      fetchData("", dateVal); 
     }
 
     function viewSpecificDate(dateStr, category, targetId) {
       document.getElementById('date-picker').value = dateStr;
       currentDateFilter = dateStr;
-      if (category) { switchTab(category); } else { renderMain(); }
+      
+      if (category) { switchTab(category); } 
       
       if (targetId) {
         setTimeout(() => {
@@ -573,7 +553,7 @@
             targetEl.classList.add('highlight-flash');
             setTimeout(() => { targetEl.classList.remove('highlight-flash'); }, 1500);
           }
-        }, 100);
+        }, 300); // 稍微延遲確保渲染完成
       } else { window.scrollTo({ top: 0, behavior: 'smooth' }); }
     }
 
@@ -678,12 +658,12 @@
         displayRecords = savedRecords;
         if (currentDateFilter) displayRecords = displayRecords.filter(r => r[0] === currentDateFilter);
       } else {
+        // 因為後端已經幫我們過濾好了，直接顯示全部 allRecords 中符合分類的即可
         displayRecords = allRecords.filter(r => r[5] === currentCategory);
-        if (currentDateFilter) displayRecords = displayRecords.filter(r => r[0] === currentDateFilter);
       }
 
       if (displayRecords.length === 0) {
-        let emptyMsg = `今日報刊尚無此類文章。`;
+        let emptyMsg = `此日報刊尚無此類文章。`;
         if (currentSearchKeyword) emptyMsg = `檔案室查無「${currentSearchKeyword}」相關卷宗。`;
         else if (currentCategory === '收藏') emptyMsg = '✂️ 你的剪報目前空空如也，點擊文章右上角書籤加入收藏。';
         container.innerHTML = `<p class="archive-empty">${emptyMsg}</p>`;
@@ -709,7 +689,6 @@
           const dropCapHtml = generateDropCapHtml(formattedParagraph, color);
           const sectionLabel = cat === '議論' ? '【論述示例】' : '【選材轉化建議】';
 
-          // 新版純淨拍紙簿留言板 HTML
           let commentsHtml = '';
           if (commentsList && commentsList.length > 0) {
             let listHtml = commentsList.map(c => `
@@ -768,20 +747,17 @@
       const recommendHeader = document.getElementById('recommend-header');
       const recommendList = document.getElementById('recommend-list');
 
-      if (currentSearchKeyword !== "" || currentCategory === '收藏') {
+      // 隱藏推薦區塊的條件：1. 搜尋狀態  2. 收藏狀態  3. 正在回看「非今日」的舊報刊
+      if (currentSearchKeyword !== "" || currentCategory === '收藏' || (currentDateFilter && currentDateFilter !== dbTodayStr)) {
         recommendSection.style.display = 'none';
       } else {
         recommendSection.style.display = 'block';
         let targetDate = ""; let headerText = "";
-        const isToday = (!currentDateFilter || currentDateFilter === dbTodayStr);
-
-        if (isToday) {
-          targetDate = dbYesterdayStr; headerText = "昨日素材";
-          recommendSection.className = "recommend-section theme-yesterday";
-        } else {
-          targetDate = dbTodayStr; headerText = "今日素材";
-          recommendSection.className = "recommend-section theme-today";
-        }
+        
+        // 既然能顯示，代表是在看首頁 (dbTodayStr)，所以推薦區塊一律顯示「昨日素材」
+        targetDate = dbYesterdayStr; 
+        headerText = "昨日素材";
+        recommendSection.className = "recommend-section theme-yesterday";
 
         if (targetDate) {
           recommendHeader.innerText = headerText;
