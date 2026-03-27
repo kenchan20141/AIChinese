@@ -480,13 +480,52 @@
       .catch(error => { hideProgress(); updateStatus(`<span style="color:red;">印刷中斷：${error.message}</span>`); });
     }
 
-    function initData(records, keyword) {
-      allRecords = records;
+  function initData(records, keyword) {
+      allRecords = records.map(r => {
+        if (r[0]) {
+          let str = String(r[0]).trim();
+          
+          // 情況 A：如果是 Google API 傳回的 UTC 時間戳 (含有 T)
+          if (str.includes('T')) {
+            let d = new Date(str);
+            if (!isNaN(d.getTime())) {
+              r[0] = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+              return r;
+            }
+          }
+
+          // 情況 B：無差別提取數字重組 (破解 DD/MM/YYYY 或 2026/3/24 等所有格式)
+          let nums = str.match(/\d+/g);
+          if (nums && nums.length >= 3) {
+            let yy, mm, dd;
+            
+            if (nums[0].length === 4) {
+              // 格式為 YYYY-MM-DD 或 YYYY/M/D
+              yy = nums[0]; mm = nums[1]; dd = nums[2];
+            } else if (nums[2].length === 4) {
+              // 香港常見格式 DD/MM/YYYY
+              yy = nums[2]; mm = nums[1]; dd = nums[0]; 
+            } else {
+              // 備用
+              yy = nums[0]; mm = nums[1]; dd = nums[2];
+            }
+            // 強制重組並補零
+            r[0] = `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+          }
+        }
+        return r;
+      });
+
+      // 建立可用日期清單
       if (allRecords.length > 0) {
         const availableDates = [...new Set(allRecords.map(r => r[0]))].sort((a,b) => b.localeCompare(a));
         dbTodayStr = availableDates[0] || "";
         dbYesterdayStr = availableDates[1] || availableDates[0] || ""; 
+        
+        // 【隱藏除錯工具】如果你按 F12 打開開發者工具的 Console，可以看到系統到底讀到了哪些日期
+        console.log("📊 系統成功載入的日期庫：", availableDates);
       }
+      
       finishProgress(); updateStatus(""); document.getElementById('content-area').classList.remove('hidden');
       
       if (keyword) {
@@ -500,7 +539,6 @@
       }
       renderMain();
     }
-
     function switchTab(category) {
       currentCategory = category;
       currentSearchKeyword = document.getElementById('search-input').value.trim();
