@@ -698,14 +698,28 @@
     let pressTimer;
     let isLongPress = false;
 
-    const startPress = (e) => {
+   const startPress = (e) => {
         if (e.type === 'touchstart' && e.touches.length > 1) return; // 忽略多指觸控
         isLongPress = false;
         // 設定長按 500 毫秒觸發
-        pressTimer = setTimeout(() => {
+        pressTimer = setTimeout(async () => {
             isLongPress = true;
-            const imgSrc = document.getElementById(imgId).src;
-            openLightbox(imgSrc, 'cover'); // 傳入 'cover' 開啟封面燈箱
+            const imgEl = document.getElementById(imgId);
+            openLightbox(imgEl.src, 'cover'); // 傳入 'cover' 開啟封面燈箱，先顯示縮圖
+            
+            // 嘗試獲取高清原圖
+            const fileId = imgEl.dataset.fileId;
+            if (fileId) {
+                const imgVer = parseInt(localStorage.getItem('sutra_img_ver') || '0');
+                // 這裡將寬度參數設為 w2000 以獲取高清圖
+                const highResUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w${2000 + imgVer}`;
+                const localHighResUrl = await getCachedImageURL(highResUrl);
+                
+                // 如果燈箱還是開著，且仍然顯示封面，則將圖片無縫替換為高清版
+                if (currentLightboxIndex === 'cover' && document.getElementById('lightbox').style.display === 'flex') {
+                    document.getElementById('lightbox-img').src = localHighResUrl;
+                }
+            }
         }, 500); 
     };
 
@@ -784,11 +798,15 @@
                 if (!fileMap.error) {
                     const coverKey = Object.keys(fileMap).find(name => parseInt(name.match(/\d+/) ||[-1], 10) === 0);
                     if (coverKey) {
+                        const fileId = fileMap[coverKey];
                         const imgVer = parseInt(localStorage.getItem('sutra_img_ver') || '0');
-                        const driveUrl = `https://drive.google.com/thumbnail?id=${fileMap[coverKey]}&sz=w${600 + imgVer}`;
+                        const driveUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w${600 + imgVer}`;
                         const localUrl = await getCachedImageURL(driveUrl);
                         const imgEl = document.getElementById(imgId);
-                        if(imgEl) imgEl.src = localUrl;
+                        if(imgEl) {
+                            imgEl.src = localUrl;
+                            imgEl.dataset.fileId = fileId; // 記錄 fileId 以供長按獲取高清圖使用
+                        }
                     }
                 }
             } catch (e) {}
