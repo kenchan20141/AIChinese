@@ -419,7 +419,21 @@
         @keyframes lbInRight { from { transform: translateX(100vw); opacity: 0; } to { transform: scale(1) translateX(0); opacity: 1; } }
         @keyframes lbOutRight { to { transform: translateX(100vw); opacity: 0; } }
         @keyframes lbInLeft { from { transform: translateX(-100vw); opacity: 0; } to { transform: scale(1) translateX(0); opacity: 1; } }
+
+
+.comic-book { 
+    position: relative; z-index: 5; cursor: pointer; perspective: 1200px; margin: 0 15px; max-width: 85%; 
+    /* 增加下面這兩行 */
+    -webkit-touch-callout: none;
+    user-select: none;
+}
+
+
+
+        
     </style>
+
+    
 </head>
 <body>
 
@@ -662,8 +676,43 @@
                         </div>
                     `;
 
-                  if (isAvailable) {
-                        book.onclick = (e) => {
+                if (isAvailable) {
+    // 【新增】長按計時器變數
+    let pressTimer;
+    let isLongPress = false;
+
+    const startPress = (e) => {
+        if (e.type === 'touchstart' && e.touches.length > 1) return; // 忽略多指觸控
+        isLongPress = false;
+        // 設定長按 500 毫秒觸發
+        pressTimer = setTimeout(() => {
+            isLongPress = true;
+            const imgSrc = document.getElementById(imgId).src;
+            openLightbox(imgSrc, 'cover'); // 傳入 'cover' 開啟封面燈箱
+        }, 500); 
+    };
+
+    const cancelPress = () => { clearTimeout(pressTimer); };
+
+    // 綁定滑鼠與觸控事件
+    book.addEventListener('mousedown', startPress);
+    book.addEventListener('touchstart', startPress, { passive: true });
+    
+    book.addEventListener('mouseup', cancelPress);
+    book.addEventListener('mouseleave', cancelPress);
+    book.addEventListener('touchend', cancelPress);
+    book.addEventListener('touchmove', cancelPress, { passive: true }); // 滑動時取消長按
+    
+    // 阻擋手機預設的長按選單
+    book.addEventListener('contextmenu', (e) => { if (isLongPress) e.preventDefault(); });
+
+    // 【修改】原本的 onclick
+    book.onclick = (e) => {
+        // 如果剛才觸發了長按，則取消這次的點擊事件（不要進入內頁）
+        if (isLongPress) {
+            e.preventDefault();
+            return;
+        }
                             const rect = book.getBoundingClientRect();
                             const clone = book.cloneNode(true);
                             
@@ -1036,30 +1085,39 @@
             applyTransform();
         }
  
-        function openLightbox(imgSrc, index) {
-            if(imgSrc.includes('data:image/svg+xml')) return;
-            currentLightboxIndex = index;
-            lbIsAnimating = false;
-            
-            lbImg.className = '';
-            resetTransform();
-            lbImg.style.opacity = '1';
-            lbImg.src = imgSrc;
-            lbNum.innerText = index;
-            lightbox.style.display = 'flex';
-        }
- 
-        function closeLightbox() {
-            if (typeof navigateReaderTo === 'function') {
-                navigateReaderTo(currentLightboxIndex);
-            }
-            lightbox.style.pointerEvents = "none";
-            setTimeout(() => {
-                lightbox.style.display = 'none';
-                lightbox.style.pointerEvents = "auto";
-                resetTransform();
-            }, 100);
-        }
+      function openLightbox(imgSrc, index) {
+    if(imgSrc.includes('data:image/svg+xml')) return;
+    currentLightboxIndex = index;
+    lbIsAnimating = false;
+    
+    lbImg.className = '';
+    resetTransform();
+    lbImg.style.opacity = '1';
+    lbImg.src = imgSrc;
+
+    // 【新增】判斷如果是封面，隱藏序號；反之顯示
+    if (index === 'cover') {
+        lbNum.style.display = 'none';
+    } else {
+        lbNum.style.display = 'block';
+        lbNum.innerText = index;
+    }
+    
+    lightbox.style.display = 'flex';
+}
+
+function closeLightbox() {
+    // 【修改】如果是封面，不要執行跳轉邏輯
+    if (currentLightboxIndex !== 'cover' && typeof navigateReaderTo === 'function') {
+        navigateReaderTo(currentLightboxIndex);
+    }
+    lightbox.style.pointerEvents = "none";
+    setTimeout(() => {
+        lightbox.style.display = 'none';
+        lightbox.style.pointerEvents = "auto";
+        resetTransform();
+    }, 100);
+}
  
         function getPinchDist(touches) {
             return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
@@ -1196,8 +1254,11 @@
         }, { passive: false });
  
         // ==================== 換圖動畫 ====================
-        function navigateLightbox(direction) {
-            let targetIndex = currentLightboxIndex + direction;
+       function navigateLightbox(direction) {
+    // 【新增】如果是封面，禁止左右滑動換圖
+    if (currentLightboxIndex === 'cover') return; 
+
+    let targetIndex = currentLightboxIndex + direction;;
             if (targetIndex < 1 || targetIndex > currentComicData.totalPages) return;
             
             const targetImg = document.getElementById(`page-img-${currentComicKey}-${targetIndex}`);
