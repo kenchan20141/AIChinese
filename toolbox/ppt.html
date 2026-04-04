@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AURA</title>
+    <!-- 引入 PptxGenJS 引擎 -->
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+    <!-- 引入美學字體 -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Noto+Serif+TC:wght@300;400;500;600&family=Inter:wght@200;300;400&display=swap" rel="stylesheet">
+    <style>
+        /* --- 全域網頁 UI 變數 --- */
+        :root {
+            --ui-bg: #f5f5f7;
+            --ui-surface: #ffffff;
+            --ui-text: #111111;
+            --ui-muted: #888888;
+            --ui-border: #eaeaea;
+            --bg-opacity: 0.08; 
+            --feature-img-opacity: 0.75; 
+            --ui-icon: #888888;
+            --ui-hl: #D97706;
+        }
+
+        /* --- 簡報風格變數 --- */
+        .presentation-wrapper, .slide[data-theme="classic"] {
+            --slide-bg: #ffffff; --slide-glass: rgba(255, 255, 255, 0.85);
+            --slide-text: #111111; --slide-muted: #666666;
+            --slide-border: #eaeaea; --slide-border-dark: rgba(0, 0, 0, 0.4);
+            --slide-hl: #D97706; --slide-frame: #ffffff;
+            --slide-edit-bg: rgba(0, 0, 0, 0.04);
+        }
+        .presentation-wrapper[data-theme="midnight"], .slide[data-theme="midnight"] {
+            --slide-bg: #121212; --slide-glass: rgba(30, 30, 30, 0.85);
+            --slide-text: #f5f5f5; --slide-muted: #a0a0a0;
+            --slide-border: #333333; --slide-border-dark: rgba(255,255,255,0.3);
+            --slide-hl: #4ade80; --slide-frame: #2a2a2a;
+            --slide-edit-bg: rgba(255, 255, 255, 0.08);
+        }
+        .presentation-wrapper[data-theme="earth"], .slide[data-theme="earth"] {
+            --slide-bg: #e4dccc; --slide-glass: rgba(214, 203, 184, 0.9);
+            --slide-text: #3e362e; --slide-muted: #6b5e51;
+            --slide-border: #c8bca7; --slide-border-dark: rgba(62, 54, 46, 0.5);
+            --slide-hl: #c05c3b; --slide-frame: #efeae1;
+            --slide-edit-bg: rgba(0, 0, 0, 0.04);
+        }
+        .presentation-wrapper[data-theme="ocean"], .slide[data-theme="ocean"] {
+            --slide-bg: #0b132b; --slide-glass: rgba(28, 37, 65, 0.85);
+            --slide-text: #f0f8ff; --slide-muted: #6fffe9;
+            --slide-border: #3a506b; --slide-border-dark: rgba(111,255,233,0.3);
+            --slide-hl: #fca311; --slide-frame: #111827;
+            --slide-edit-bg: rgba(255, 255, 255, 0.08);
+        }
+        .presentation-wrapper[data-theme="morandi"], .slide[data-theme="morandi"] {
+            --slide-bg: #8c9b90; --slide-glass: rgba(242, 244, 241, 0.95);
+            --slide-text: #2f3631; --slide-muted: #647067;
+            --slide-border: #bcc5be; --slide-border-dark: rgba(47, 54, 49, 0.3);
+            --slide-hl: #d49a89; --slide-frame: #ffffff;
+            --slide-edit-bg: rgba(0, 0, 0, 0.04);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', 'Noto Serif TC', serif;
+            background-color: var(--ui-bg); color: var(--ui-text);
+            height: 100vh; display: flex; overflow: hidden;
+        }
+
+        .sidebar {
+            width: 30%; min-width: 340px; background: var(--ui-surface);
+            border-right: 1px solid var(--ui-border); display: flex; flex-direction: column; padding: 4rem 3rem; z-index: 10;
+        }
+
+        .brand { 
+            font-family: 'Cinzel', serif; font-size: 2.2rem; font-weight: 500; 
+            letter-spacing: 12px; margin-bottom: 2rem; color: var(--ui-text); text-align: center;
+            position: relative; padding-bottom: 1.5rem;
+        }
+        .brand::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 40px; height: 1px; background-color: var(--ui-border); }
+
+        .theme-selector { display: flex; justify-content: center; gap: 12px; margin-bottom: 1rem; }
+        .theme-btn {
+            width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: none; outline: none;
+            background: linear-gradient(135deg, var(--c1) 50%, var(--c2) 50%);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15); transition: transform 0.3s, box-shadow 0.3s; position: relative;
+        }
+        .theme-btn.btn-mix { background: conic-gradient(#ffffff 0 72deg, #121212 72deg 144deg, #e4dccc 144deg 216deg, #0b132b 216deg 288deg, #8c9b90 288deg 360deg); }
+        .theme-btn::after { content: ''; position: absolute; top: -5px; left: -5px; right: -5px; bottom: -5px; border-radius: 50%; border: 1.5px solid transparent; transition: border-color 0.3s; }
+        .theme-btn:hover { transform: scale(1.15); }
+        .theme-btn.active::after { border-color: var(--ui-text); }
+
+        .mix-options { display: none; justify-content: center; gap: 10px; margin-bottom: 2rem; opacity: 0; transition: opacity 0.3s; }
+        .mix-options.show { display: flex; opacity: 1; }
+        .mix-toggle { 
+            width: 14px; height: 14px; border-radius: 50%; cursor: pointer; 
+            border: 1.4px solid #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); 
+            opacity: 0.3; transition: 0.3s; transform: scale(0.9); 
+        }
+        .mix-toggle:hover { opacity: 0.7; }
+        .mix-toggle.active { opacity: 1; transform: scale(1.2); border-color: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+
+        .toolbar { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 1rem; height: 36px;}
+        .icon-toggle { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; background: transparent; border: 1px solid transparent; transition: all 0.3s ease; color: var(--ui-icon); }
+        .icon-toggle:hover { color: var(--ui-text); background: var(--ui-bg); }
+        .icon-toggle.active-mode { color: var(--ui-text); background: var(--ui-border); border-color: var(--ui-border); }
+        .icon-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+        #highlightToggle.active-mode { color: var(--ui-hl); background: transparent; border-color: var(--ui-hl); }
+        #highlightToggle svg path.hl-line { transition: opacity 0.3s; opacity: 0; }
+        #highlightToggle.active-mode svg path.hl-line { opacity: 0.8; stroke: var(--ui-hl); }
+
+        .keyword-input-wrapper { margin-bottom: 1.5rem; transition: opacity 0.3s, height 0.3s; }
+        .keyword-input-wrapper input { width: 100%; padding: 0.8rem 0; font-family: 'Noto Serif TC', serif; font-size: 0.95rem; color: var(--ui-text); background: transparent; border: none; border-bottom: 1px solid var(--ui-border); outline: none; transition: 0.3s; }
+        .keyword-input-wrapper input:focus { border-bottom-color: var(--ui-text); }
+        .keyword-input-wrapper input::placeholder { color: var(--ui-muted); font-weight: 300; font-family: 'Inter', sans-serif; letter-spacing: 1px; }
+
+        .editor-wrapper { flex: 1; position: relative; display: flex; flex-direction: column; margin-bottom: 2rem; overflow: hidden; min-height: 150px;}
+        #promptInput { flex: 1; font-size: 1.1rem; line-height: 2.2; color: var(--ui-text); background: transparent; outline: none; font-weight: 300; font-family: 'Inter', 'Noto Serif TC', serif; overflow-y: auto; padding-right: 10px; }
+        #promptInput:empty::before { content: attr(data-placeholder); color: var(--ui-muted); opacity:0.6; font-family: 'Inter', sans-serif; font-weight: 200; letter-spacing: 2px; pointer-events: none; }
+        #promptInput::-webkit-scrollbar { width: 4px; }
+        #promptInput::-webkit-scrollbar-thumb { background: var(--ui-border); border-radius: 4px; }
+
+        .page-break-line { display: flex; align-items: center; justify-content: center; margin: 25px 0; gap: 15px; color: var(--ui-muted); font-family: 'Cinzel', serif; font-size: 0.75rem; letter-spacing: 4px; user-select: none; }
+        .page-break-line::before, .page-break-line::after { content: ''; flex: 1; height: 1px; background: var(--ui-border); }
+        .page-break-line span { font-size: 0.6rem; opacity: 0.5; }
+
+        .btn { background: var(--ui-text); color: var(--ui-surface); border: 1px solid var(--ui-text); padding: 1.2rem; font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 500; letter-spacing: 6px; cursor: pointer; transition: all 0.4s; border-radius: 2px; flex-shrink: 0; }
+        .btn:hover { background: transparent; color: var(--ui-text); }
+        .btn:disabled { background: var(--ui-border); color: var(--ui-muted); border-color: var(--ui-border); cursor: not-allowed; }
+
+        /* --- 簡報主區 --- */
+        .main-content { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+
+        .presentation-wrapper {
+            width: 85%; max-width: 1280px; aspect-ratio: 16 / 9; background: var(--slide-bg);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.08); 
+            border: 1px solid var(--slide-border); position: relative; overflow: hidden;
+            container-type: inline-size; transition: background-color 0.5s, border-color 0.5s;
+        }
+
+        .slide { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; display: grid; grid-template-columns: repeat(12, 1fr); grid-template-rows: repeat(12, 1fr); gap: 2cqw; padding: 3cqw; box-sizing: border-box; overflow: hidden; background: var(--slide-bg); }
+        .slide.active { opacity: 1; pointer-events: auto; z-index: 5; }
+
+        .slide > .bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: var(--bg-opacity); z-index: 1; pointer-events: none; filter: grayscale(100%); transition: opacity 0.3s; }
+
+        .text-content-wrapper {
+            position: relative; z-index: 3; display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+            background: var(--slide-glass); backdrop-filter: blur(15px);
+            border: 1px solid var(--slide-border); padding: 3cqw 3.5cqw;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.06); border-radius: 2px; transition: background 0.5s, border-color 0.5s;
+            height: fit-content; max-height: 100%; align-self: center;
+        }
+        .text-content-wrapper::before, .text-content-wrapper::after { content: ''; position: absolute; width: 1.5cqw; height: 1.5cqw; border: 1.5px solid var(--slide-border-dark); pointer-events: none; transition: border-color 0.5s;}
+        .text-content-wrapper::before { top: 1cqw; left: 1cqw; border-right: none; border-bottom: none; }
+        .text-content-wrapper::after { bottom: 1cqw; right: 1cqw; border-left: none; border-top: none; }
+
+        .text-inner-scroll { overflow: hidden; width: 100%; max-height: 100%; display: flex; flex-direction: column; --text-scale: 1; }
+        span[data-hl="true"] { transition: color 0.3s ease, font-weight 0.3s; color: inherit; font-weight: inherit; }
+        body.show-highlight span[data-hl="true"] { color: var(--slide-hl); font-weight: 600; }
+
+        .text-inner-scroll h1, .text-inner-scroll h2, .text-inner-scroll p, .text-inner-scroll ul { text-align: left; word-break: break-word; overflow-wrap: break-word; transition: color 0.5s; }
+        .text-inner-scroll h1 { font-size: calc(clamp(2.8rem, 5cqw, 4rem) * var(--text-scale)); line-height: 1.2; font-weight: 500; color: var(--slide-text); margin-bottom: 0.5rem;}
+        .text-inner-scroll h2 { font-size: calc(clamp(1.8rem, 3.1cqw, 2.5rem) * var(--text-scale)); font-weight: 400; color: var(--slide-muted); letter-spacing: 4px;}
+        .text-inner-scroll p, .text-inner-scroll ul { font-size: calc(clamp(1.3rem, 2.25cqw, 1.8rem) * var(--text-scale)); line-height: 2.1; color: var(--slide-text); margin-top: 1rem; font-weight: 300; letter-spacing: 1px; opacity: 0.9;}
+        .text-inner-scroll:not(:has(h1)):not(:has(h2)) p { margin-top: 0; margin-bottom: 0; }
+
+        .text-inner-scroll [contenteditable="true"] { outline: none; border-radius: 4px; padding: 0 4px; margin-left: -4px; transition: background 0.3s; }
+        .text-inner-scroll [contenteditable="true"]:focus { background: var(--slide-edit-bg); cursor: text; }
+
+        /* 一般版式 */
+        .feature-img-wrapper { 
+            position: relative; z-index: 2; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; 
+            opacity: var(--feature-img-opacity); filter: contrast(1.05) saturate(0.85); transition: opacity 0.3s, transform 0.5s, filter 0.5s;
+        }
+        
+        .art-frame { position: relative; padding: 0.8cqw; background: var(--slide-frame); border: 1px solid var(--slide-border); box-shadow: 0 15px 45px rgba(0,0,0,0.1); max-width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: background 0.5s, border-color 0.5s;}
+        .art-frame::before { content: ''; position: absolute; inset: 0.4cqw; border: 1px solid var(--slide-border-dark); opacity: 0.3; pointer-events: none; z-index: 5; transition: border-color 0.5s;}
+        .art-frame img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: filter 0.3s, transform 0.3s; }
+        .art-frame:not(.no-hover):hover img { filter: brightness(0.7); transform: scale(0.995); }
+        .art-frame img.reloading { filter: blur(8px) grayscale(50%); transform: scale(0.98); pointer-events: none; }
+
+        .layout-img-left .feature-img-wrapper { grid-area: 2 / 1 / 12 / 6; transform: translateY(4%); } 
+        .layout-img-left .text-content-wrapper { grid-area: 3 / 6 / 11 / 13; }
+        
+        .layout-img-right .text-content-wrapper { grid-area: 3 / 1 / 11 / 8; } 
+        .layout-img-right .feature-img-wrapper { grid-area: 2 / 8 / 12 / 13; transform: translateY(-4%); }
+        
+        .layout-overlap-left .feature-img-wrapper { grid-area: 1 / 4 / 13 / 13; transform: translateY(2%); -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,1) 45%); mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,1) 45%);} 
+        .layout-overlap-left .text-content-wrapper { grid-area: 4 / 1 / 10 / 7; z-index: 4; }
+        
+        .layout-overlap-right .feature-img-wrapper { grid-area: 1 / 1 / 13 / 10; transform: translateY(-2%); -webkit-mask-image: linear-gradient(to left, transparent 0%, rgba(0,0,0,1) 45%); mask-image: linear-gradient(to left, transparent 0%, rgba(0,0,0,1) 45%);} 
+        .layout-overlap-right .text-content-wrapper { grid-area: 5 / 7 / 11 / 13; z-index: 4; }
+        
+        .layout-center .text-content-wrapper { grid-area: 3 / 2 / 11 / 12; align-items: flex-start; justify-content: center;} .layout-center .feature-img-wrapper { display: none; }
+        
+        .layout-bottom-text .feature-img-wrapper { grid-area: 1 / 3 / 8 / 11; transform: translateY(3%); } 
+        .layout-bottom-text .text-content-wrapper { grid-area: 8 / 2 / 13 / 12; flex-direction: column; align-items: flex-start; justify-content: center; padding: 2cqw 4cqw;}
+        .layout-bottom-text .text-inner-scroll p { margin-top: 0; }
+
+        /* =======================================================
+           抽象幾何裝飾模式 (模式 1 & 2 共用佈局)
+           ======================================================= */
+        body.use-geometric .slide .feature-img-wrapper {
+            filter: grayscale(30%) sepia(10%) contrast(1.1);
+            -webkit-mask-image: none !important; mask-image: none !important;
+            z-index: 2; 
+        }
+        
+        body.use-geometric .slide .art-frame {
+            border: none; background: transparent; padding: 0; 
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15); 
+            width: 100%; height: 100%;
+            border-radius: var(--geo-shape, 0); 
+        }
+        body.use-geometric .slide .art-frame::before { display: none; }
+        body.use-geometric .slide .art-frame img { 
+            object-fit: cover; width: 100%; height: 100%; 
+            border-radius: var(--geo-shape, 0); 
+        }
+
+        body.use-geometric .slide .text-content-wrapper {
+            grid-area: 3 / 2 / 11 / 12 !important;
+            z-index: 10; background: var(--slide-glass);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.08); backdrop-filter: blur(20px);
+            align-items: flex-start; text-align: left;
+        }
+
+        body.use-geometric .layout-img-left .feature-img-wrapper { 
+            grid-area: 1 / 1 / 10 / 5 !important; 
+            transform: translate(-5%, 8%) !important; 
+            --geo-shape: 0 50vw 50vw 0; 
+        }
+        body.use-geometric .layout-img-right .feature-img-wrapper { 
+            grid-area: 4 / 9 / 13 / 13 !important; 
+            transform: translate(5%, -10%) !important; 
+            --geo-shape: 50vw 0 0 50vw; 
+        }
+        body.use-geometric .layout-overlap-left .feature-img-wrapper { 
+            grid-area: 6 / 2 / 12 / 6 !important; 
+            transform: translate(15%, 15%) !important; 
+            --geo-shape: 50%; 
+        }
+        body.use-geometric .layout-overlap-right .feature-img-wrapper { 
+            grid-area: 1 / 8 / 6 / 12 !important; 
+            transform: translate(-10%, -15%) !important; 
+            --geo-shape: 0 0 50vw 50vw; 
+        }
+        body.use-geometric .layout-bottom-text .feature-img-wrapper { 
+            grid-area: 1 / 6 / 8 / 10 !important; 
+            transform: translate(15%, -10%) !important; 
+            --geo-shape: 50vw 50vw 0 0; 
+        }
+
+        .slide-number-indicator { position: absolute; bottom: 2cqw; right: 3cqw; font-size: 1.2cqw; font-family: 'Cinzel', serif; color: var(--slide-muted); letter-spacing: 0.2cqw; z-index: 5; pointer-events: none; transition: color 0.5s;}
+
+        .controls-container { position: absolute; bottom: 2.5rem; display: flex; align-items: center; gap: 2rem; }
+        .icon-btn { background: transparent; border: none; width: 40px; height: 40px; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s; color: var(--ui-icon); }
+        .icon-btn:hover { color: var(--ui-text); }
+        .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1; }
+        .slide-counter { font-size: 0.8rem; font-family: 'Inter', sans-serif; font-weight: 300; color: var(--ui-muted); font-variant-numeric: tabular-nums; letter-spacing: 1px; transition: color 0.5s;}
+        
+        .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; justify-content: center; align-items: center; opacity: 0.15; transition: opacity 0.5s;}
+        .empty-state svg { width: 100px; height: 100px; stroke: var(--ui-text); stroke-width: 0.5; fill: none; animation: breathe 4s infinite ease-in-out; }
+        
+        .action-bar { position: absolute; top: 2rem; right: 2.5rem; display: flex; align-items: center; gap: 15px; z-index: 20;}
+
+        .sub-keyword-group { display: flex; align-items: center; border-bottom: 1px solid var(--ui-border); margin-right: 10px; padding-bottom: 2px; transition: 0.3s; }
+        .sub-keyword-group:focus-within { border-bottom-color: var(--ui-text); }
+        .sub-keyword-group input { border: none; background: transparent; outline: none; font-family: 'Noto Serif TC', serif; font-size: 0.85rem; color: var(--ui-text); width: 150px; }
+        .sub-keyword-group input::placeholder { color: var(--ui-muted); font-family: 'Inter', sans-serif; letter-spacing: 0.5px; opacity:0.6;}
+        .btn-refresh-img { background: none; border: none; cursor: pointer; color: var(--ui-icon); display: flex; align-items: center; justify-content: center; padding: 2px; margin-left: 5px; transition: 0.2s; }
+        .btn-refresh-img:hover { color: var(--ui-text); transform: rotate(180deg); }
+
+        .btn-export { background: transparent; border: 1px solid var(--ui-border); padding: 6px 12px; font-size: 0.75rem; font-family: 'Cinzel', serif; letter-spacing: 2px; cursor: pointer; transition: 0.2s; color: var(--ui-text); border-radius: 4px; }
+        .btn-export:hover { border-color: var(--ui-text); background: var(--ui-text); color: var(--ui-surface); }
+        
+        .opacity-control { display: flex; align-items: center; gap: 8px; border-right: 1px solid var(--ui-border); padding-right: 15px; transition: border-color 0.5s;}
+        .opacity-control svg { width: 16px; height: 16px; color: var(--ui-icon); }
+        input[type=range] { -webkit-appearance: none; width: 60px; background: transparent; cursor: pointer; }
+        input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--ui-border); border-radius: 2px; transition: background 0.5s; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 10px; width: 10px; border-radius: 50%; background: var(--ui-muted); margin-top: -4px; transition: 0.2s; }
+        input[type=range]:hover::-webkit-slider-thumb { background: var(--ui-text); transform: scale(1.2); }
+
+        .mobile-back-btn { display: none; margin-right: auto; }
+
+        .fullscreen-loader { position: fixed; inset: 0; z-index: 9999; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2rem; opacity: 0; visibility: hidden; transition: opacity 0.8s, visibility 0.8s; }
+        .fullscreen-loader.active { opacity: 1; visibility: visible; }
+        .cinematic-ring { width: 60px; height: 60px; border: 1px solid var(--ui-border); border-top: 1px solid var(--ui-text); border-radius: 50%; animation: slowSpin 1.5s infinite; }
+        .loading-text-stage { font-family: 'Noto Serif TC', serif; font-size: 1.2rem; font-weight: 300; letter-spacing: 4px; color: var(--ui-text); animation: pulseText 2s infinite; }
+        @keyframes slowSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes pulseText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+        .export-loader-overlay {
+            position: fixed; inset: 0; z-index: 100000; background: var(--ui-bg); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center;
+            opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s;
+        }
+        .export-loader-overlay.active { opacity: 1; visibility: visible; }
+        .minimal-progress-track { width: 25vw; min-width: 150px; max-width: 300px; height: 1px; background: var(--ui-border); position: relative; overflow: hidden; }
+        .minimal-progress-fill { position: absolute; top: 0; left: 0; height: 100%; width: 0%; background: var(--ui-text); transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+
+        .custom-modal-overlay { position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, 0.3); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: 0.3s ease; }
+        .custom-modal-overlay.active { opacity: 1; visibility: visible; }
+        .custom-modal-box { background: var(--ui-surface); padding: 2.5rem 2rem; width: 90%; max-width: 380px; box-shadow: 0 20px 50px rgba(0,0,0,0.15); text-align: center; border: 1px solid var(--ui-border); transform: translateY(20px); transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .custom-modal-overlay.active .custom-modal-box { transform: translateY(0); }
+        .custom-modal-text { font-size: 1.1rem; color: var(--ui-text); font-weight: 400; letter-spacing: 1px; margin-bottom: 2rem; line-height: 1.6; }
+        .custom-modal-text span { display: block; font-size: 0.85rem; color: var(--ui-muted); font-weight: 300; margin-top: 8px; }
+        .custom-modal-actions { display: flex; gap: 12px; }
+        .custom-modal-btn { flex: 1; padding: 0.9rem; border: none; font-family: 'Cinzel', 'Inter', sans-serif; letter-spacing: 2px; font-size: 0.8rem; cursor: pointer; transition: 0.3s; border-radius: 2px; }
+        .custom-modal-btn-cancel { background: transparent; color: var(--ui-muted); border: 1px solid var(--ui-border); }
+        .custom-modal-btn-cancel:hover { color: var(--ui-text); border-color: var(--ui-text); }
+        .custom-modal-btn-confirm { background: var(--ui-text); color: var(--ui-surface); border: 1px solid var(--ui-text); }
+        .custom-modal-btn-confirm:hover { background: transparent; color: var(--ui-text); }
+
+        @media (max-width: 1024px) {
+            body { flex-direction: column; height: 100dvh; overflow: hidden; }
+            .sidebar { width: 100%; height: 100dvh; max-height: 100dvh; padding: 2rem; border-right: none; overflow-y: auto; flex: none; transition: transform 0.4s cubic-bezier(0.25,0.8,0.25,1); }
+            
+            .main-content { 
+                position: fixed; top: 0; left: 0; width: 100%; height: 100dvh; background: var(--ui-bg); z-index: 50;
+                transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.25,0.8,0.25,1);
+                padding: 5rem 1rem 4rem 1rem; justify-content: center;
+            }
+            
+            body.preview-mode .sidebar { transform: translateX(-30%); opacity: 0; pointer-events: none; }
+            body.preview-mode .main-content { transform: translateX(0); }
+
+            .presentation-wrapper { width: 100%; max-width: 100%; }
+            .action-bar { top: 1rem; left: 1rem; right: 1rem; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+            .mobile-back-btn { display: flex; } 
+            .controls-container { bottom: 1rem; }
+            .mix-options { margin-bottom: 1.5rem; }
+
+            body.use-geometric .slide .feature-img-wrapper { 
+                display: block !important; position: absolute;
+                width: 180px; height: 180px; z-index: 1;
+                grid-area: auto !important; transform: none !important;
+            }
+            body.use-geometric .slide .text-content-wrapper { position: relative; z-index: 5; padding: 2rem !important; }
+            body.use-geometric .layout-img-left .feature-img-wrapper { top: 5%; left: -30px; --geo-shape: 50%; }
+            body.use-geometric .layout-img-right .feature-img-wrapper { bottom: 5%; right: -30px; --geo-shape: 50%; }
+            body.use-geometric .layout-overlap-left .feature-img-wrapper { top: 40%; left: -50px; --geo-shape: 50%; }
+            body.use-geometric .layout-overlap-right .feature-img-wrapper { top: 20%; right: -50px; --geo-shape: 50%; }
+            body.use-geometric .layout-bottom-text .feature-img-wrapper { bottom: -30px; left: 50%; transform: translateX(-50%) !important; width: 250px; height: 100px; --geo-shape: 50vw 50vw 0 0; }
+        }
+
+        .copyright-footer {
+            position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 10px; text-align: center;
+            background-color: var(--ui-bg); color: var(--ui-muted); border-top: 1px solid var(--ui-border);
+            z-index: 999; transition: all 0.3s ease; box-shadow: 0 -2px 10px rgba(0,0,0,0.03);
+        }
+        .copyright-footer p {
+            margin: 0; font-size: 11px; font-family: 'Cinzel', serif; letter-spacing: 0.8px; 
+            font-weight: 400; text-transform: uppercase; opacity: 0.6; white-space: nowrap; 
+            overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
+        body.preview-mode .copyright-footer { opacity: 0; visibility: hidden; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div class="custom-modal-overlay" id="backModal">
+        <div class="custom-modal-box">
+            <div class="custom-modal-text">確定要返回編輯器嗎？<span>當前的預覽將會被保留，隨時可再次切換觀看。</span></div>
+            <div class="custom-modal-actions">
+                <button class="custom-modal-btn custom-modal-btn-cancel" id="btnCancelBack">取消</button>
+                <button class="custom-modal-btn custom-modal-btn-confirm" id="btnConfirmBack">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="export-loader-overlay" id="exportLoader">
+        <div class="minimal-progress-track">
+            <div class="minimal-progress-fill" id="exportProgressFill"></div>
+        </div>
+    </div>
+
+    <div class="fullscreen-loader" id="fullscreenLoader">
+        <div class="cinematic-ring"></div>
+        <div class="loading-text-stage" id="loadingStageText">正在自動分頁...</div>
+    </div>
+
+    <div class="sidebar">
+        <div class="brand">AURA</div>
+
+        <div class="theme-selector" id="themeSelector">
+            <button class="theme-btn active" data-theme="classic" style="--c1: #ffffff; --c2: #111111;" title="經典留白"></button>
+            <button class="theme-btn" data-theme="midnight" style="--c1: #1e1e1e; --c2: #f5f5f5;" title="深夜影院"></button>
+            <button class="theme-btn" data-theme="earth" style="--c1: #e4dccc; --c2: #3e362e;" title="自然地質"></button>
+            <button class="theme-btn" data-theme="ocean" style="--c1: #0b132b; --c2: #f0f8ff;" title="極淺灰藍"></button>
+            <button class="theme-btn" data-theme="morandi" style="--c1: #8c9b90; --c2: #f2f4f1;" title="莫蘭迪綠"></button>
+            <button class="theme-btn btn-mix" data-theme="mix" title="混搭風格"></button>
+        </div>
+
+        <div class="mix-options" id="mixOptions">
+            <div class="mix-toggle active" data-mix="classic" style="background: #ffffff;"></div>
+            <div class="mix-toggle active" data-mix="midnight" style="background: #1e1e1e;"></div>
+            <div class="mix-toggle active" data-mix="earth" style="background: #e4dccc;"></div>
+            <div class="mix-toggle active" data-mix="ocean" style="background: #0b132b;"></div>
+            <div class="mix-toggle active" data-mix="morandi" style="background: #8c9b90;"></div>
+        </div>
+
+        <div class="toolbar">
+            <div class="icon-toggle" id="highlightToggle" title="開啟/關閉自動畫重點 (Highlight)">
+                <svg viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path><path d="M3 21h18" stroke-width="2.5" class="hl-line"></path></svg>
+            </div>
+            <div class="icon-toggle" id="pageBreakBtn" title="插入強制分頁標記"><svg viewBox="0 0 24 24"><path d="M5 12h14M8 7l-3 5 3 5m8-10l3 5-3 5" stroke-width="2"></path></svg></div>
+            
+            <div class="icon-toggle" id="layoutModeToggle" title="切換排版模式 (標準Bing / 幾何Bing / 幾何Picsum)">
+                <svg id="icon-layout-std" viewBox="0 0 24 24" style="display: block;">
+                    <rect x="3" y="3" width="8" height="18" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/>
+                    <rect x="13" y="3" width="8" height="8" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/>
+                    <rect x="13" y="13" width="8" height="8" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/>
+                </svg>
+                <svg id="icon-layout-geo-bing" viewBox="0 0 24 24" style="display: none;">
+                    <circle cx="9" cy="9" r="5" stroke="var(--ui-hl)" fill="none" stroke-width="1.5"></circle>
+                    <rect x="11" y="11" width="8" height="8" rx="4" stroke="currentColor" fill="none" stroke-width="1.5"></rect>
+                    <path d="M19 3v4M17 5h4" stroke="var(--ui-hl)" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <svg id="icon-layout-geo-pic" viewBox="0 0 24 24" style="display: none;">
+                    <circle cx="9" cy="9" r="5" stroke="currentColor" fill="none" stroke-width="1.5"></circle>
+                    <rect x="11" y="11" width="8" height="8" rx="4" stroke="currentColor" fill="none" stroke-width="1.5"></rect>
+                </svg>
+            </div>
+
+            <div class="icon-toggle" id="titleToggle" style="display: flex;" title="開啟/關閉自動標題">
+                <svg id="icon-title-on" viewBox="0 0 24 24" style="display: none;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="7" y1="8" x2="17" y2="8" stroke-width="2.5"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+                <svg id="icon-title-off" viewBox="0 0 24 24" style="display: block;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+            </div>
+            <div class="icon-toggle" id="modeToggle" title="切換 AI排版 / 嚴格一字不易">
+                <svg id="icon-magic" viewBox="0 0 24 24" style="display:none;"><path d="M21 16.052v-.004A9.965 9.965 0 0022 12c0-5.523-4.477-10-10-10S2 6.477 2 12s4.477 10 10 10c1.72 0 3.336-.434 4.757-1.189l4.53 1.51-1.34-4.269zM12 7v10M7 12h10"/></svg>
+                <svg id="icon-lock" viewBox="0 0 24 24" style="display:block;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </div>
+        </div>
+        
+        <div class="keyword-input-wrapper"><input type="text" id="mainKeywordInput" placeholder="全域插圖關鍵詞"></div>
+        <div class="editor-wrapper"><div id="promptInput" contenteditable="true" data-placeholder="輸入需排版的原文或段落..."></div></div>
+        <button id="generateBtn" class="btn">GENERATE</button>
+    </div>
+
+    <div class="main-content">
+        <div class="action-bar" id="actionBar" style="display: none;">
+            <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器">
+                <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke-width="2"></line><polyline points="12 19 5 12 12 5" stroke-width="2"></polyline></svg>
+            </button>
+            <div class="sub-keyword-group" id="subKeywordGroup" title="自訂此頁子關鍵詞並重整圖片">
+                <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
+                <button class="btn-refresh-img" id="btnRefreshImg" title="依此關鍵詞重新生成"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.63-6.37L21 8"></path></svg></button>
+            </div>
+            <div class="opacity-control" title="調整背景濃度">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20v-20z" fill="currentColor" opacity="0.3"/></svg>
+                <input type="range" id="opacitySlider" min="0" max="100" value="20">
+            </div>
+            <div class="opacity-control" title="調整主圖透明度">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <input type="range" id="imgOpacitySlider" min="10" max="100" value="75">
+            </div>
+            <button id="btnExportHtml" class="btn-export">HTML</button>
+            <button id="btnExportPptx" class="btn-export">PPTX</button>
+        </div>
+
+        <div class="presentation-wrapper" id="presentationBoard">
+            <div class="empty-state"><svg viewBox="0 0 100 100"><rect x="15" y="25" width="70" height="50" rx="1" ry="1"></rect><line x1="25" y1="40" x2="60" y2="40"></line><line x1="25" y1="50" x2="75" y2="50"></line><line x1="25" y1="60" x2="50" y2="60"></line></svg></div>
+        </div>
+
+        <div class="controls-container" id="controls" style="display: none;">
+            <button class="icon-btn" id="prevBtn"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+            <div class="slide-counter"><span id="currentSlideNum">0</span> / <span id="totalSlideNum">0</span></div>
+            <button class="icon-btn" id="nextBtn"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+        </div>
+    </div>
+
+    <script>
+        const API_KEYS = ["pk_eFlNmo9v1lXOC6Zw"];
+        const API_URL = "https://gen.pollinations.ai/v1/chat/completions";
+        const MODEL = "gemini-search";
+
+        const generateBtn = document.getElementById('generateBtn');
+        const promptInput = document.getElementById('promptInput');
+        const mainKeywordInput = document.getElementById('mainKeywordInput');
+        const subKeywordInput = document.getElementById('subKeywordInput');
+        const subKeywordGroup = document.getElementById('subKeywordGroup');
+        const btnRefreshImg = document.getElementById('btnRefreshImg');
+        const presentationBoard = document.getElementById('presentationBoard');
+        const controls = document.getElementById('controls');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const currentSlideNum = document.getElementById('currentSlideNum');
+        const totalSlideNum = document.getElementById('totalSlideNum');
+        const actionBar = document.getElementById('actionBar');
+        
+        const opacitySlider = document.getElementById('opacitySlider');
+        const imgOpacitySlider = document.getElementById('imgOpacitySlider');
+        
+        const pageBreakBtn = document.getElementById('pageBreakBtn');
+        const loaderScreen = document.getElementById('fullscreenLoader');
+        const loaderStageText = document.getElementById('loadingStageText');
+        const themeBtns = document.querySelectorAll('.theme-btn');
+        const mixOptionsPanel = document.getElementById('mixOptions');
+        const mixToggles = document.querySelectorAll('.mix-toggle');
+        
+        const backModal = document.getElementById('backModal');
+        const mobileBackBtn = document.getElementById('mobileBackBtn');
+        const btnCancelBack = document.getElementById('btnCancelBack');
+        const btnConfirmBack = document.getElementById('btnConfirmBack');
+
+        let currentLayoutMode = 0; 
+        
+        let isAiMode = false, useTitleInStrict = false, isHighlightMode = false;
+        let slides = [], currentIndex = 0;
+        let globalMainKeyword = "藝術排版";
+        let currentThemeId = 'classic';
+        
+        const themePptxColors = {
+            classic: { bg: 'F5F5F7', textMain: '111111', textMuted: '666666', hl: 'D97706', shapeFill: 'FFFFFF', line: '444444', shapeOpac: 10 },
+            midnight: { bg: '121212', textMain: 'F5F5F5', textMuted: 'A0A0A0', hl: '4ADE80', shapeFill: '1E1E1E', line: '888888', shapeOpac: 15 },
+            earth: { bg: 'E4DCCC', textMain: '3E362E', textMuted: '6B5E51', hl: 'C05C3B', shapeFill: 'D6CBB8', line: '6B5E51', shapeOpac: 10 },
+            ocean: { bg: '0B132B', textMain: 'F0F8FF', textMuted: '6FFFE9', hl: 'FCA311', shapeFill: '1C2541', line: '6FFFE9', shapeOpac: 15 },
+            morandi: { bg: '8C9B90', textMain: '2F3631', textMuted: '647067', hl: 'D49A89', shapeFill: 'F2F4F1', line: 'BCC5BE', shapeOpac: 5 }
+        };
+
+        const stopWords = new Set(["的","了","和","是","就","都","而","及","與","著","或","一個","沒有","我們","你們","他們","這個","那個","因為","所以","雖然","但是","如果","那麼","可以","就是","這","那","哪","啊","呢","嗎","吧","也","很","在","從","到","讓","被","對","會","能","要","去","有","把","給","什麼","怎麼","自己","開始","需要","進行","產生","使用","這種","那些","以及","為了","這樣","the","and","that","this","with","for","not","are","but","from","you","your","what","how"]);
+
+        function updateSlideThemes() {
+            if (slides.length === 0) return;
+            if (currentThemeId === 'mix') {
+                let pool = Array.from(document.querySelectorAll('.mix-toggle.active')).map(el => el.getAttribute('data-mix'));
+                if (pool.length === 0) pool = ['classic']; 
+                slides.forEach((slide, index) => { slide.setAttribute('data-theme', pool[index % pool.length]); });
+                presentationBoard.removeAttribute('data-theme');
+            } else {
+                presentationBoard.setAttribute('data-theme', currentThemeId);
+                slides.forEach(slide => slide.removeAttribute('data-theme'));
+            }
+        }
+
+        themeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                themeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentThemeId = btn.getAttribute('data-theme');
+                if (currentThemeId === 'mix') mixOptionsPanel.classList.add('show');
+                else mixOptionsPanel.classList.remove('show');
+                updateSlideThemes();
+            });
+        });
+
+        mixToggles.forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                toggle.classList.toggle('active');
+                if(document.querySelectorAll('.mix-toggle.active').length === 0) toggle.classList.add('active');
+                updateSlideThemes();
+            });
+        });
+
+        mobileBackBtn.addEventListener('click', () => { backModal.classList.add('active'); });
+        btnCancelBack.addEventListener('click', () => { backModal.classList.remove('active'); });
+        btnConfirmBack.addEventListener('click', () => { backModal.classList.remove('active'); document.body.classList.remove('preview-mode'); });
+
+        opacitySlider.addEventListener('input', (e) => document.documentElement.style.setProperty('--bg-opacity', (0.02 + (e.target.value / 100) * 0.23).toFixed(3)));
+        imgOpacitySlider.addEventListener('input', (e) => document.documentElement.style.setProperty('--feature-img-opacity', (e.target.value / 100).toFixed(2)));
+        
+        document.getElementById('modeToggle').addEventListener('click', function() { isAiMode = !isAiMode; document.getElementById('icon-magic').style.display = isAiMode ? "block" : "none"; document.getElementById('icon-lock').style.display = isAiMode ? "none" : "block"; isAiMode ? this.classList.add('active-mode') : this.classList.remove('active-mode'); });
+        
+        document.getElementById('titleToggle').addEventListener('click', function() { 
+            useTitleInStrict = !useTitleInStrict; 
+            document.getElementById('icon-title-on').style.display = useTitleInStrict ? "block" : "none"; 
+            document.getElementById('icon-title-off').style.display = useTitleInStrict ? "none" : "block"; 
+            useTitleInStrict ? this.classList.add('active-mode') : this.classList.remove('active-mode'); 
+        });
+
+        document.getElementById('highlightToggle').addEventListener('click', function() { isHighlightMode = !isHighlightMode; this.classList.toggle('active-mode', isHighlightMode); document.body.classList.toggle('show-highlight', isHighlightMode); });
+        
+        document.getElementById('layoutModeToggle').addEventListener('click', function() {
+            currentLayoutMode = (currentLayoutMode + 1) % 3;
+            document.getElementById('icon-layout-std').style.display = currentLayoutMode === 0 ? 'block' : 'none';
+            document.getElementById('icon-layout-geo-bing').style.display = currentLayoutMode === 1 ? 'block' : 'none';
+            document.getElementById('icon-layout-geo-pic').style.display = currentLayoutMode === 2 ? 'block' : 'none';
+            this.classList.toggle('active-mode', currentLayoutMode !== 0);
+            document.body.classList.toggle('use-geometric', currentLayoutMode !== 0);
+            mainKeywordInput.parentElement.style.display = currentLayoutMode === 2 ? 'none' : 'block';
+            updateSlides();
+        });
+
+        pageBreakBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        pageBreakBtn.addEventListener('click', () => {
+            promptInput.focus(); const selection = window.getSelection();
+            if (selection.rangeCount > 0 && promptInput.contains(selection.anchorNode)) {
+                const range = selection.getRangeAt(0); range.deleteContents();
+                const markerDiv = document.createElement('div'); markerDiv.className = 'page-break-line'; markerDiv.contentEditable = 'false'; markerDiv.innerHTML = '<span>✦</span> 分頁標記 <span>✦</span>';
+                const brDiv = document.createElement('div'); brDiv.innerHTML = '<br>';
+                range.insertNode(brDiv); range.insertNode(markerDiv); range.setStart(brDiv, 0); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); markerDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else { promptInput.insertAdjacentHTML('beforeend', `<div class="page-break-line" contenteditable="false"><span>✦</span> 分頁標記 <span>✦</span></div><div><br></div>`); promptInput.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        });
+
+        function splitIntoChunks(text, maxLength = 95) {
+            const sentences = text.split(/([。！？.!?\n])/); let merged = [];
+            for (let i = 0; i < sentences.length; i += 2) { let s = sentences[i], punc = sentences[i + 1] || ""; if (s + punc) merged.push(s + punc); }
+            let chunks = [], cur = "";
+            for (let s of merged) { s = s.trim(); if (!s) continue; if (cur.length + s.length <= maxLength) cur += (cur ? " " : "") + s; else { if (cur) chunks.push(cur); cur = s; } }
+            if (cur) chunks.push(cur); return chunks;
+        }
+
+        function extractKeywords(text) { let topWords = getTopKeywords(text, 1); return topWords.length > 0 ? topWords[0] : ""; }
+
+        function getTopKeywords(text, count = 3) {
+            if (!text) return []; let cleanText = text.replace(/[0-9０-９]/g, '');
+            const isDatePattern = (str) => /^[一二三四五六七八九十百千萬億兆零〇年月日號]+$/.test(str) && /[年月日號]/.test(str);
+            let words = [];
+            if (typeof Intl.Segmenter === 'function') {
+                const segmenter = new Intl.Segmenter(['zh-TW', 'en'], { granularity: 'word' });
+                words = [...segmenter.segment(cleanText)].filter(s => s.isWordLike).map(s => s.segment.trim()).filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w) && w.length >= 2);
+            } else {
+                let enWords = cleanText.match(/[a-zA-Z]{2,}/g) || []; let chText = cleanText.replace(/[^\u4e00-\u9fa5]/g, ''); let chWords = [];
+                for (let i = 0; i < chText.length - 1; i++) chWords.push(chText.substring(i, i + 2));
+                words = [...enWords, ...chWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w));
+            }
+            const frequency = {}; words.forEach(w => { frequency[w.toLowerCase()] = (frequency[w.toLowerCase()] || 0) + 1; });
+            return Object.keys(frequency).sort((a, b) => frequency[b] - frequency[a]).slice(0, count).map(lw => words.find(w => w.toLowerCase() === lw)).filter(Boolean);
+        }
+
+        function getImageUrl(mainKw, subKw, index) {
+            let baseQuery = mainKw || "設計"; if (subKw && !baseQuery.includes(subKw)) baseQuery = `${baseQuery} ${subKw}`;
+            return `https://tse${(index % 4) + 1}.mm.bing.net/th?q=${encodeURIComponent(baseQuery.trim())}&w=1600&h=1600&c=7&rs=1&qlt=100&pid=Api&mkt=zh-TW&nocache=${Date.now() + index}`;
+        }
+
+        let manualRefreshIndex = 100; 
+        function refreshImage(imgEl) {
+            if(imgEl.classList.contains('reloading') || currentLayoutMode === 2) return; 
+            imgEl.classList.add('reloading');
+            manualRefreshIndex++; let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex);
+            let tempImg = new Image(); tempImg.crossOrigin = "anonymous";
+            tempImg.onload = () => { imgEl.src = newSrc; imgEl.classList.remove('reloading'); };
+            tempImg.onerror = () => { imgEl.classList.remove('reloading'); }; tempImg.src = newSrc;
+        }
+
+        function triggerCurrentSlideRefresh() {
+            if (slides.length === 0 || currentLayoutMode === 2) return; 
+            let imgEl = slides[currentIndex].querySelector('.art-frame img');
+            if (imgEl) { imgEl.setAttribute('data-sub', subKeywordInput.value.trim()); refreshImage(imgEl); }
+        }
+        
+        btnRefreshImg.addEventListener('click', triggerCurrentSlideRefresh);
+        subKeywordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); triggerCurrentSlideRefresh(); } });
+
+        function autoFitText() {
+            document.querySelectorAll('.text-inner-scroll').forEach(wrapper => {
+                let scale = 1.0; wrapper.style.setProperty('--text-scale', scale);
+                while (wrapper.scrollHeight > wrapper.clientHeight && scale > 0.4) { scale -= 0.05; wrapper.style.setProperty('--text-scale', scale); }
+            });
+        }
+        window.addEventListener('resize', () => { if (slides.length > 0) autoFitText(); });
+
+        function showLoader(text) { loaderStageText.innerText = text; loaderScreen.classList.add('active'); }
+        function hideLoader() { loaderScreen.classList.remove('active'); }
+
+        generateBtn.addEventListener('click', async () => {
+            const rawHTML = promptInput.innerHTML.trim(); if (!promptInput.innerText.trim() && !rawHTML) return;
+            generateBtn.disabled = true; showLoader("正在自動分頁..."); controls.style.display = "none"; actionBar.style.display = "none";
+            sessionStorage.clear(); await new Promise(r => setTimeout(r, 600));
+
+            try {
+                let finalHtml = "", chunks = [];
+                if (rawHTML.includes('page-break-line')) {
+                    const parts = rawHTML.split(/<div class="page-break-line".*?<\/div>/gi);
+                    const temp = document.createElement('div');
+                    parts.forEach(p => { temp.innerHTML = p.replace(/<br\s*\/?>/gi, '\n'); let t = temp.innerText.trim(); if (t) chunks.push(...splitIntoChunks(t, 95)); });
+                } else chunks = splitIntoChunks(promptInput.innerText.trim(), 95);
+
+                let userMainInput = mainKeywordInput.value.trim();
+                globalMainKeyword = userMainInput ? userMainInput : (chunks.length > 0 ? extractKeywords(chunks[0]) || "視覺藝術" : "視覺藝術");
+
+                if (!isAiMode) {
+                    if (!useTitleInStrict) { finalHtml = chunks.map(c => `<div class="slide"><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n"); } 
+                    else {
+                        showLoader("正在排版...");
+                        try {
+                            const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `為以下段落產生繁體中文短標題(不超過8個字)。只輸出JSON陣列，如:["標一","標二"]` }, { role: "user", content: chunks.map((c,i)=>`[段${i+1}] ${c}`).join("\n") } ] }) });
+                            let titles = JSON.parse((await res.json()).choices[0].message.content.replace(/```json/gi, '').replace(/```/gi, '').trim());
+                            while(titles.length < chunks.length) titles.push(globalMainKeyword);
+                            finalHtml = chunks.map((c, i) => `<div class="slide"><h2>${titles[i]}</h2><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n");
+                        } catch(e) { finalHtml = chunks.map((c, i) => `<div class="slide"><h2>章節 ${i+1}</h2><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n"); }
+                    }
+                } else {
+                    showLoader("AI 網格重組...");
+                    let tempDiv = document.createElement('div'); tempDiv.innerHTML = promptInput.innerHTML;
+                    tempDiv.querySelectorAll('.page-break-line').forEach(el => el.innerText = '\n\n[MANUAL_PAGE_BREAK]\n\n');
+                    const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `You are a designer. Output HTML. RULES: 1. Traditional Chinese 2. Start slide at [MANUAL_PAGE_BREAK]. 3. Format: <div class="slide"><h2>[Sub]</h2><p>[Text]</p></div>` }, { role: "user", content: tempDiv.innerText } ] }) });
+                    finalHtml = (await res.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
+                }
+
+                if (isHighlightMode) {
+                    showLoader("正在間劃重點...");
+                    try {
+                        const hlRes = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `為提供的 HTML 加入重點標記。找出每個 <div class="slide"> 內 2~4 個重要短句用 <span data-hl="true"> </span> 包圍。不要改變結構，只輸出完整HTML。` }, { role: "user", content: finalHtml } ] }) });
+                        finalHtml = (await hlRes.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
+                    } catch(e) {}
+                }
+
+                showLoader("正在加載圖片..."); 
+                renderPresentation(finalHtml);
+                
+                const newImages = Array.from(presentationBoard.querySelectorAll('img'));
+                await Promise.all(newImages.map(img => {
+                    if (img.complete) return Promise.resolve();
+                    return new Promise(resolve => { img.onload = resolve; img.onerror = resolve; });
+                }));
+
+                setTimeout(autoFitText, 100);
+                if (window.innerWidth <= 1024) { document.body.classList.add('preview-mode'); }
+
+            } catch (error) { 
+                presentationBoard.innerHTML = `<div class="empty-state"><p>發生錯誤，請稍後再試</p></div>`; 
+            } finally { 
+                hideLoader(); 
+                generateBtn.disabled = false; 
+            }
+        });
+
+        const layouts = ['layout-img-right', 'layout-overlap-left', 'layout-center', 'layout-img-left', 'layout-bottom-text', 'layout-overlap-right'];
+
+        function renderPresentation(htmlContent) {
+            const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlContent; presentationBoard.innerHTML = '';
+            tempDiv.querySelectorAll('.slide').forEach((slide, index) => {
+                const newSlide = document.createElement('div'), assignedLayout = layouts[index % layouts.length];
+                newSlide.className = `slide ${assignedLayout}`;
+                
+                const bgImg = document.createElement('img'); bgImg.className = 'bg-img';
+                bgImg.crossOrigin = "Anonymous"; bgImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/1600/900`;
+                newSlide.appendChild(bgImg);
+
+                const textWrapper = document.createElement('div'); textWrapper.className = 'text-content-wrapper';
+                const scrollArea = document.createElement('div'); scrollArea.className = 'text-inner-scroll';
+                
+                ['h1', 'h2', 'p', 'ul'].forEach(tag => { 
+                    const el = slide.querySelector(tag); 
+                    if(el) {
+                        let cloned = el.cloneNode(true);
+                        cloned.contentEditable = "true"; cloned.spellcheck = false;
+                        cloned.addEventListener('input', () => autoFitText()); 
+                        scrollArea.appendChild(cloned);
+                    } 
+                });
+                textWrapper.appendChild(scrollArea); newSlide.appendChild(textWrapper);
+
+                if (assignedLayout !== 'layout-center') {
+                    const p = slide.querySelector('p'), imgWrapper = document.createElement('div'); imgWrapper.className = 'feature-img-wrapper';
+                    const artFrame = document.createElement('div'); artFrame.className = 'art-frame';
+                    const featureImg = document.createElement('img'); featureImg.crossOrigin = "anonymous";
+                    
+                    if (currentLayoutMode === 2) { 
+                        featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
+                        artFrame.classList.add('no-hover'); 
+                    } else { 
+                        let initialSub = p && p.innerText ? extractKeywords(p.innerText) : "";
+                        featureImg.src = getImageUrl(globalMainKeyword, initialSub, index);
+                        featureImg.setAttribute('data-main', globalMainKeyword); 
+                        featureImg.setAttribute('data-sub', initialSub);
+                        
+                        featureImg.addEventListener('click', function() {
+                            if (this.classList.contains('reloading') || currentLayoutMode === 2) return; 
+                            this.classList.add('reloading');
+                            let currentP = newSlide.querySelector('p');
+                            let slideText = currentP ? currentP.innerText : ""; 
+                            if (!slideText.trim()) { this.classList.remove('reloading'); return; }
+
+                            let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]"), currentSub = this.getAttribute('data-sub');
+                            if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                            let potentialKws = getTopKeywords(slideText, 20), newSub = potentialKws.find(kw => !usedKws.includes(kw));
+                            if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; }
+                            if (newSub) { usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; }
+                            this.classList.remove('reloading'); refreshImage(this);
+                        });
+                    }
+
+                    artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper);
+                }
+                const pageNum = document.createElement('div'); pageNum.className = 'slide-number-indicator'; pageNum.innerText = String(index + 1).padStart(2, '0');
+                newSlide.appendChild(pageNum); presentationBoard.appendChild(newSlide);
+            });
+            slides = document.querySelectorAll('.slide'); if (slides.length === 0) return;
+            
+            updateSlideThemes();
+            
+            if(currentIndex >= slides.length) currentIndex = 0;
+            updateSlides(); controls.style.display = "flex"; actionBar.style.display = "flex"; totalSlideNum.innerText = slides.length;
+        }
+
+        function updateSlides() { 
+            slides.forEach((s, i) => s.classList.toggle('active', i === currentIndex)); currentSlideNum.innerText = currentIndex + 1; 
+            
+            if (currentLayoutMode === 2) { 
+                subKeywordGroup.style.display = 'none';
+            } else {
+                let img = slides[currentIndex].querySelector('.art-frame img');
+                if (img) { subKeywordGroup.style.display = 'flex'; subKeywordInput.value = img.getAttribute('data-sub') || ""; } 
+                else { subKeywordGroup.style.display = 'none'; subKeywordInput.value = ""; }
+            }
+        }
+
+        prevBtn.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateSlides(); } });
+        nextBtn.addEventListener('click', () => { if (currentIndex < slides.length - 1) { currentIndex++; updateSlides(); } });
+        
+        document.addEventListener('keydown', (e) => { 
+            if (slides.length === 0) return;
+            if (document.activeElement && document.activeElement.isContentEditable) return; 
+            if ([subKeywordInput, mainKeywordInput, promptInput].includes(document.activeElement)) return;
+            if (e.key === 'ArrowRight' && currentIndex < slides.length - 1) { currentIndex++; updateSlides(); } 
+            if (e.key === 'ArrowLeft' && currentIndex > 0) { currentIndex--; updateSlides(); } 
+        });
+
+        document.getElementById('btnExportHtml').addEventListener('click', () => {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = Array.from(slides).map(s => s.outerHTML).join('\n');
+            
+            tempDiv.querySelectorAll('.art-frame img').forEach(img => { 
+                img.removeAttribute('title'); img.removeAttribute('data-main'); img.removeAttribute('data-sub'); img.style.cursor = 'default'; 
+            });
+            tempDiv.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+
+            const slideHtml = tempDiv.innerHTML;
+            let bodyClasses = [];
+            if(isHighlightMode) bodyClasses.push('show-highlight');
+            if(currentLayoutMode !== 0) bodyClasses.push('use-geometric');
+            const classAttr = bodyClasses.length > 0 ? `class="${bodyClasses.join(' ')}"` : '';
+            
+            const styles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
+            const wrapperThemeAttr = currentThemeId === 'mix' ? '' : `data-theme="${currentThemeId}"`;
+
+            const exportHtml = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AURA Presentation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500&family=Noto+Serif+TC:wght@300;400;500;600&family=Inter:wght@200;300;400&display=swap" rel="stylesheet">
+    <style>
+        ${styles} 
+        body { 
+            margin: 0; padding: 0; display: flex; 
+            justify-content: center; align-items: center; 
+            height: 100vh; background: #111; overflow: hidden; cursor: pointer;
+        } 
+        .presentation-wrapper { 
+            width: 100vw; height: 56.25vw; 
+            max-height: 100vh; max-width: 177.78vh; 
+            position: relative; container-type: inline-size; overflow: hidden; margin: auto; 
+        }
+        .slide { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; }
+        .slide.active { opacity: 1; pointer-events: auto; }
+    </style>
+</head>
+<body ${classAttr}>
+    <div class="presentation-wrapper" id="board" ${wrapperThemeAttr}>
+        ${slideHtml}
+    </div>
+    <script>
+        const slides = document.querySelectorAll('.slide'); let c = 0; 
+        function update() { slides.forEach((s, i) => s.classList.toggle('active', i === c)); } 
+        if(slides.length > 0) update(); 
+        
+        document.addEventListener('keydown', (e) => { 
+            if(e.key === 'ArrowRight' && c < slides.length - 1) { c++; update(); } 
+            if(e.key === 'ArrowLeft' && c > 0) { c--; update(); }
+        }); 
+
+        document.addEventListener('click', (e) => {
+            if (window.getSelection().toString().length > 0) return; 
+            if (e.clientX < window.innerWidth / 2) { if(c > 0) { c--; update(); } } 
+            else { if(c < slides.length - 1) { c++; update(); } }
+        });
+        
+        function autoFit() { 
+            document.querySelectorAll('.text-inner-scroll').forEach(w => { 
+                let s = 1.0; w.style.setProperty('--text-scale', s); 
+                while (w.scrollHeight > w.clientHeight && s > 0.4) { s -= 0.05; w.style.setProperty('--text-scale', s); } 
+            }); 
+        } 
+        setTimeout(autoFit, 100); window.addEventListener('resize', autoFit);
+    <\/script>
+</body>
+</html>`;
+
+            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportHtml], { type: 'text/html' })); 
+            a.download = 'AURA_Presentation.html'; a.click();
+        });
+
+        function parseHtmlToPptxTextRuns(htmlElement, defaultColor, hlColor, font) {
+            let runs = [];
+            htmlElement.childNodes.forEach(node => {
+                if (node.nodeType === 3 && node.textContent) runs.push({ text: node.textContent, options: { color: defaultColor, fontFace: font } });
+                else if (node.nodeName === 'BR') runs.push({ text: '\n' });
+                else if (node.nodeName === 'SPAN' && node.dataset.hl) runs.push({ text: node.innerText, options: { color: isHighlightMode ? hlColor : defaultColor, bold: isHighlightMode, fontFace: font } });
+                else runs.push({ text: node.innerText || node.textContent, options: { color: defaultColor, fontFace: font } });
+            });
+            return runs.length > 0 ? runs : [{ text: htmlElement.innerText, options: { color: defaultColor, fontFace: font } }];
+        }
+
+        // =======================================================================
+        // 核心修正：利用離線 Canvas 將圖片物理裁切為具有透明背景的完美圓形 Base64
+        // 以徹底繞開 PptxGenJS 原生不支援任意形狀遮罩的缺陷
+        // =======================================================================
+        function cropImageToCircleBase64(imgEl) {
+            try {
+                let natW = imgEl.naturalWidth || 800;
+                let natH = imgEl.naturalHeight || 800;
+                let minSide = Math.min(natW, natH);
+                
+                // 限制最高解析度以確保 PPTX 檔案大小不會失控
+                let size = Math.min(minSide, 800); 
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = size; canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                
+                // 1. 繪製並裁切出完美圓形遮罩
+                ctx.beginPath();
+                ctx.arc(size/2, size/2, size/2, 0, 2*Math.PI);
+                ctx.closePath();
+                ctx.clip();
+                
+                // 2. 注入等同於 UI 的美學濾鏡設定
+                ctx.filter = 'grayscale(30%) sepia(10%) contrast(1.1)';
+                
+                // 3. 執行 Object-fit: cover 置中裁切演算法
+                let sw = natW, sh = natH;
+                let sx = 0, sy = 0;
+                if (sw > sh) { sx = (sw - sh) / 2; sw = sh; }
+                else { sy = (sh - sw) / 2; sh = sw; }
+                
+                // 4. 將圖片寫入畫布
+                ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, size, size);
+                return canvas.toDataURL('image/png'); // 必須是 PNG 以保留透明區域
+            } catch(e) {
+                console.warn("Canvas crop failed, fallback to original", e);
+                return imgEl.src;
+            }
+        }
+
+        document.getElementById('btnExportPptx').addEventListener('click', async () => {
+            if(typeof PptxGenJS === 'undefined') { alert("PPT 引擎載入中，請稍後再試。"); return; }
+            
+            const exportLoader = document.getElementById('exportLoader');
+            const progressFill = document.getElementById('exportProgressFill');
+            exportLoader.classList.add('active'); progressFill.style.width = '0%';
+
+            let progress = 0; const progressInterval = setInterval(() => { progress += (85 - progress) * 0.08; progressFill.style.width = `${progress}%`; }, 150);
+            await new Promise(r => setTimeout(r, 400));
+
+            try {
+                let pres = new PptxGenJS(); pres.layout = 'LAYOUT_16x9';
+                const font = 'Noto Serif TC';
+                const pptxBgTransparency = 100 - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bg-opacity').trim()) * 100);
+                const pptxImgOpacity = 100 - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--feature-img-opacity').trim()) * 100);
+                const isGeometricLayout = currentLayoutMode !== 0;
+
+                slides.forEach((slide, index) => {
+                    let pptSlide = pres.addSlide();
+                    
+                    let slideThemeId = slide.getAttribute('data-theme') || currentThemeId;
+                    if (slideThemeId === 'mix') slideThemeId = 'classic';
+                    const cTheme = themePptxColors[slideThemeId];
+
+                    pptSlide.bkgd = cTheme.bg; pptSlide.transition = { type: 'fade', speed: 'med' };
+
+                    let bgImg = slide.querySelector('.bg-img');
+                    if (bgImg) pptSlide.addImage({ path: bgImg.src, x: 0, y: 0, w: '100%', h: '100%', transparency: pptxBgTransparency }); 
+                    
+                    let cList = slide.classList;
+                    let boxX=0, boxY=0, boxW=0, boxH=0, imgX=0, imgY=0, imgW=0, imgH=0, hasImg = !cList.contains('layout-center');
+                    
+                    if (isGeometricLayout) {
+                        boxX = 1.5; boxY = 1.5; boxW = 7.0; boxH = 2.6;
+                        
+                        // 幾何模式下：我們刻意宣告「完美的滿版正圓 (寬度=高度)」，並利用座標位移將它偏移出 Slide 邊界外
+                        // PowerPoint 在播放時會自動將畫面外的區域裁切掉，這完美達成 UI 中 border-radius: 50vw 的視覺效果！
+                        if (cList.contains('layout-img-left')) { 
+                            imgW = 5.5; imgH = 5.5; imgX = -2.75; imgY = 0.0625; 
+                        }
+                        else if (cList.contains('layout-img-right')) { 
+                            imgW = 5.5; imgH = 5.5; imgX = 7.25; imgY = 0.0625; 
+                        }
+                        else if (cList.contains('layout-overlap-left')) { 
+                            imgW = 4.5; imgH = 4.5; imgX = -1.0; imgY = 1.5; 
+                        }
+                        else if (cList.contains('layout-overlap-right')) { 
+                            imgW = 5.5; imgH = 5.5; imgX = 6.0; imgY = -2.75; 
+                        }
+                        else if (cList.contains('layout-bottom-text')) { 
+                            imgW = 5.5; imgH = 5.5; imgX = 2.25; imgY = 2.875; 
+                            boxY = 0.8;
+                        }
+                    } else {
+                        if (cList.contains('layout-img-left')) { imgX=0.5; imgY=0.6; imgW=3.5; imgH=4.4; boxX=4.5; boxY=1.0; boxW=5.0; boxH=3.6; } 
+                        else if (cList.contains('layout-img-right')) { boxX=0.5; boxY=1.0; boxW=5.0; boxH=3.6; imgX=6.0; imgY=0.6; imgW=3.5; imgH=4.4; } 
+                        else if (cList.contains('layout-overlap-left')) { imgX=2.8; imgY=0.3; imgW=6.9; imgH=5.0; boxX=0.5; boxY=1.5; boxW=4.5; boxH=2.6; } 
+                        else if (cList.contains('layout-overlap-right')) { imgX=0.3; imgY=0.3; imgW=6.9; imgH=5.0; boxX=5.0; boxY=2.0; boxW=4.5; boxH=2.6; } 
+                        else if (cList.contains('layout-bottom-text')) { imgX=2.0; imgY=0.3; imgW=6.0; imgH=3.2; boxX=1.0; boxY=3.8; boxW=8.0; boxH=1.5; } 
+                        else if (cList.contains('layout-center')) { boxX=2.0; boxY=1.5; boxW=6.0; boxH=2.6; } 
+                    }
+
+                    let h1 = slide.querySelector('h1'), h2 = slide.querySelector('h2'), p = slide.querySelector('p');
+
+                    let totalReqH = 0.7;
+                    if (h1) totalReqH += 0.65;
+                    if (h2) totalReqH += 0.45;
+                    
+                    if (p) {
+                        let pText = p.innerText || "";
+                        let charsPerLine = Math.floor((boxW - 0.7) / 0.24); 
+                        if (charsPerLine < 10) charsPerLine = 10;
+                        let explicitLines = (pText.match(/\n/g) || []).length;
+                        let estimatedLines = Math.ceil(pText.length / charsPerLine) + explicitLines;
+                        totalReqH += (estimatedLines * 0.35);
+                    }
+
+                    let defaultBoxH = boxH;
+                    if (totalReqH > defaultBoxH) {
+                        let heightDiff = totalReqH - defaultBoxH; boxH = totalReqH;
+                        if (!isGeometricLayout && cList.contains('layout-bottom-text')) boxY -= heightDiff; else boxY -= (heightDiff / 2);
+                        if (boxY < 0.2) boxY = 0.2;
+                        if (boxY + boxH > 5.4) boxH = 5.4 - boxY;
+                    } else if (totalReqH < defaultBoxH) {
+                        let newBoxH = Math.max(totalReqH, 1.5); let heightDiff = defaultBoxH - newBoxH; boxH = newBoxH;
+                        if (!isGeometricLayout && cList.contains('layout-bottom-text')) boxY += heightDiff; else boxY += (heightDiff / 2);
+                    }
+
+                    // 渲染主配圖
+                    if (hasImg) {
+                        let featureImg = slide.querySelector('.feature-img-wrapper img');
+                        if (featureImg) {
+                            try { 
+                                if (isGeometricLayout) {
+                                    // 關鍵修正：透過 Canvas 將原圖物理性裁減為完美去背圓形的 Base64 資料流
+                                    let circleBase64 = cropImageToCircleBase64(featureImg);
+                                    
+                                    pptSlide.addImage({ 
+                                        data: circleBase64, 
+                                        x: imgX, y: imgY, w: imgW, h: imgH, 
+                                        transparency: pptxImgOpacity,
+                                        // 由於影像是去背圓形 PNG，PPT 的陰影會自動精準貼合圓形外輪廓！
+                                        shadow: { type: 'outer', opacity: 0.15, blur: 8 }
+                                    }); 
+                                } else {
+                                    pptSlide.addShape(pres.ShapeType.rect, { x: imgX, y: imgY, w: imgW, h: imgH, fill: { color: cTheme.shapeFill }, shadow: { type: 'outer', opacity: 0.15, blur: 5 }});
+                                    pptSlide.addImage({ 
+                                        path: featureImg.src, 
+                                        x: imgX + 0.1, y: imgY + 0.1, 
+                                        sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 },
+                                        transparency: pptxImgOpacity
+                                    }); 
+                                }
+                            } catch(e) { console.error(e); }
+                        }
+                    }
+
+                    pptSlide.addShape(pres.ShapeType.rect, { x: boxX, y: boxY, w: boxW, h: boxH, fill: { color: cTheme.shapeFill, transparency: cTheme.shapeOpac }, shadow: { type: 'outer', opacity: 0.08, blur: 10 } });
+                    let cLen = 0.2; 
+                    pptSlide.addShape(pres.ShapeType.line, { x: boxX+0.15, y: boxY+0.15, w: cLen, h: 0, line: { color: cTheme.line, width: 1.5 } }); 
+                    pptSlide.addShape(pres.ShapeType.line, { x: boxX+0.15, y: boxY+0.15, w: 0, h: cLen, line: { color: cTheme.line, width: 1.5 } }); 
+                    pptSlide.addShape(pres.ShapeType.line, { x: boxX+boxW-0.15-cLen, y: boxY+boxH-0.15, w: cLen, h: 0, line: { color: cTheme.line, width: 1.5 } }); 
+                    pptSlide.addShape(pres.ShapeType.line, { x: boxX+boxW-0.15, y: boxY+boxH-0.15-cLen, w: 0, h: cLen, line: { color: cTheme.line, width: 1.5 } }); 
+
+                    let curY = boxY + 0.35, txtW = boxW - 0.7, txtX = boxX + 0.35;
+                    
+                    if(h1) { pptSlide.addText(h1.innerText, { x: txtX, y: curY, w: txtW, h: 0.6, align: 'left', fontFace: font, fontSize: 32, color: cTheme.textMain, fit: 'shrink' }); curY += 0.65; }
+                    if(h2) { pptSlide.addText(h2.innerText, { x: txtX, y: curY, w: txtW, h: 0.4, align: 'left', fontFace: font, fontSize: 20, color: cTheme.textMuted, fit: 'shrink' }); curY += 0.45; }
+                    if(p) { 
+                        let textRuns = parseHtmlToPptxTextRuns(p, cTheme.textMain, cTheme.hl, font);
+                        let finalPHeight = (boxY + boxH) - curY - 0.35; if(finalPHeight < 0.5) finalPHeight = 0.5;
+                        pptSlide.addText(textRuns, { x: txtX, y: curY, w: txtW, h: finalPHeight, align: 'left', valign: 'top', fontFace: font, fontSize: 16, lineSpacing: 25, fit: 'shrink', wrap: true }); 
+                    }
+
+                    pptSlide.slideNumber = { x: 9.0, y: 5.1, w: 0.8, h: 0.4, align: 'right', fontFace: 'Cinzel', fontSize: 16, color: cTheme.textMuted };
+                });
+
+                await pres.writeFile({ fileName: "AURA_Presentation.pptx" });
+                clearInterval(progressInterval); progressFill.style.width = '100%';
+                setTimeout(() => { exportLoader.classList.remove('active'); setTimeout(() => { progressFill.style.width = '0%'; }, 500); }, 600);
+
+            } catch(err) { console.error(err); clearInterval(progressInterval); exportLoader.classList.remove('active'); alert("匯出過程發生錯誤，請稍後重試。"); }
+        });
+    </script>
+    <footer class="copyright-footer"><p>© 2026 AURA • Chan Kwun Kin. All rights reserved.</p></footer>
+</body>
+</html>
