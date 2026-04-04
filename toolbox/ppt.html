@@ -155,14 +155,15 @@
         .text-content-wrapper::before { top: 1cqw; left: 1cqw; border-right: none; border-bottom: none; }
         .text-content-wrapper::after { bottom: 1cqw; right: 1cqw; border-left: none; border-top: none; }
 
+        /* 文字縮放核心，使用 cqw 並解除強制底限 */
         .text-inner-scroll { overflow: hidden; width: 100%; max-height: 100%; display: flex; flex-direction: column; --text-scale: 1; }
         span[data-hl="true"] { transition: color 0.3s ease, font-weight 0.3s; color: inherit; font-weight: inherit; }
         body.show-highlight span[data-hl="true"] { color: var(--slide-hl); font-weight: 600; }
 
         .text-inner-scroll h1, .text-inner-scroll h2, .text-inner-scroll p, .text-inner-scroll ul { text-align: left; word-break: break-word; overflow-wrap: break-word; transition: color 0.5s; }
-        .text-inner-scroll h1 { font-size: calc(clamp(2.8rem, 5cqw, 4rem) * var(--text-scale)); line-height: 1.2; font-weight: 500; color: var(--slide-text); margin-bottom: 0.5rem;}
-        .text-inner-scroll h2 { font-size: calc(clamp(1.8rem, 3.1cqw, 2.5rem) * var(--text-scale)); font-weight: 400; color: var(--slide-muted); letter-spacing: 4px;}
-        .text-inner-scroll p, .text-inner-scroll ul { font-size: calc(clamp(1.3rem, 2.25cqw, 1.8rem) * var(--text-scale)); line-height: 2.1; color: var(--slide-text); margin-top: 1rem; font-weight: 300; letter-spacing: 1px; opacity: 0.9;}
+        .text-inner-scroll h1 { font-size: calc(clamp(12px, 5cqw, 4rem) * var(--text-scale)); line-height: 1.2; font-weight: 500; color: var(--slide-text); margin-bottom: 1cqw;}
+        .text-inner-scroll h2 { font-size: calc(clamp(10px, 3.1cqw, 2.5rem) * var(--text-scale)); font-weight: 400; color: var(--slide-muted); letter-spacing: 0.5cqw;}
+        .text-inner-scroll p, .text-inner-scroll ul { font-size: calc(clamp(8px, 2.25cqw, 1.8rem) * var(--text-scale)); line-height: 1.95; color: var(--slide-text); margin-top: 1.5cqw; font-weight: 300; letter-spacing: 0.1cqw; opacity: 0.9;}
         .text-inner-scroll:not(:has(h1)):not(:has(h2)) p { margin-top: 0; margin-bottom: 0; }
 
         .text-inner-scroll [contenteditable="true"] { outline: none; border-radius: 4px; padding: 0 4px; margin-left: -4px; transition: background 0.3s; }
@@ -734,13 +735,29 @@
         btnRefreshImg.addEventListener('click', triggerCurrentSlideRefresh);
         subKeywordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); triggerCurrentSlideRefresh(); } });
 
+        // -- 深層收縮演算法，保證無論如何都能將文字塞入容器 --
         function autoFitText() {
             document.querySelectorAll('.text-inner-scroll').forEach(wrapper => {
-                let scale = 1.0; wrapper.style.setProperty('--text-scale', scale);
-                while (wrapper.scrollHeight > wrapper.clientHeight && scale > 0.4) { scale -= 0.05; wrapper.style.setProperty('--text-scale', scale); }
+                let scale = 1.0; 
+                wrapper.style.setProperty('--text-scale', scale);
+                wrapper.offsetHeight; // 強制重繪DOM，確保讀取到最正確的高度
+                // 放寬下限到 0.15，讓演算法有足夠的彈性壓縮極端排版
+                while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { 
+                    scale -= 0.02; // 細膩的步進收縮
+                    wrapper.style.setProperty('--text-scale', scale); 
+                    wrapper.offsetHeight; 
+                }
             });
         }
+        
         window.addEventListener('resize', () => { if (slides.length > 0) autoFitText(); });
+        
+        // 綁定字體加載完成事件，確保文字渲染完全後再計算高度
+        if (document.fonts) {
+            document.fonts.ready.then(() => {
+                if (slides.length > 0) autoFitText();
+            });
+        }
 
         function showLoader(text) { loaderStageText.innerText = text; loaderScreen.classList.add('active'); }
         function hideLoader() { loaderScreen.classList.remove('active'); }
@@ -798,6 +815,7 @@
                 }));
 
                 setTimeout(autoFitText, 100);
+                setTimeout(autoFitText, 500); // 雙重保險
                 if (window.innerWidth <= 1024) { document.body.classList.add('preview-mode'); }
 
             } catch (error) { 
@@ -994,13 +1012,20 @@
             else { if(c < slides.length - 1) { c++; update(); } }
         });
         
-        function autoFit() { 
-            document.querySelectorAll('.text-inner-scroll').forEach(w => { 
-                let s = 1.0; w.style.setProperty('--text-scale', s); 
-                while (w.scrollHeight > w.clientHeight && s > 0.4) { s -= 0.05; w.style.setProperty('--text-scale', s); } 
-            }); 
-        } 
-        setTimeout(autoFit, 100); window.addEventListener('resize', autoFit);
+        function autoFitText() {
+            document.querySelectorAll('.text-inner-scroll').forEach(wrapper => {
+                let scale = 1.0; 
+                wrapper.style.setProperty('--text-scale', scale);
+                wrapper.offsetHeight; 
+                while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { 
+                    scale -= 0.02; 
+                    wrapper.style.setProperty('--text-scale', scale); 
+                    wrapper.offsetHeight; 
+                }
+            });
+        }
+        setTimeout(autoFitText, 100); window.addEventListener('resize', autoFitText);
+        if (document.fonts) { document.fonts.ready.then(autoFitText); }
     <\/script>
 </body>
 </html>`;
