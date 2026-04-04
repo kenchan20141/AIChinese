@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -444,9 +445,188 @@
         }
         body.preview-mode .copyright-footer { opacity: 0; visibility: hidden; pointer-events: none; }
     </style>
+
+    <!-- ==========================================
+         Landing Page 保護性樣式注入 (帶有 lp- 前綴保證不衝突)
+         ========================================== -->
+    <style id="landing-page-styles">
+        #landingPageWrapper {
+            --lp-hl: #D97706;
+            --lp-slide-shadow: 0 20px 50px rgba(0,0,0,0.08);
+            position: fixed; inset: 0; z-index: 999999;
+            background-color: var(--ui-bg);
+            color: var(--ui-text);
+            font-family: 'Inter', 'Noto Serif TC', serif;
+            display: flex; justify-content: center; align-items: center; overflow: hidden;
+            background-image: linear-gradient(var(--ui-border) 1px, transparent 1px), linear-gradient(90deg, var(--ui-border) 1px, transparent 1px);
+            background-size: 40px 40px; background-position: center center;
+            
+            /* 【修改這裡】增加電影感的平滑過渡設定 */
+            transition: opacity 1.2s cubic-bezier(0.25, 1, 0.5, 1), 
+                        visibility 1.2s,
+                        transform 1.2s cubic-bezier(0.25, 1, 0.5, 1),
+                        filter 1s ease-in;
+        }
+
+        /* 2. 修改隱藏狀態：加入放大與模糊 (製造鏡頭穿透感) */
+        #landingPageWrapper.hidden {
+            opacity: 0; 
+            visibility: hidden; 
+            pointer-events: none;
+            /* 【新增】藝術感核心：放大並模糊化淡出 */
+            transform: scale(1.15); 
+            filter: blur(15px);
+        }
+
+        /* 3. 【新增】底層編輯器的浮現動畫 (掛載在 body 上) */
+        body.studio-reveal .sidebar {
+            animation: cinematicReveal 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
+        body.studio-reveal .main-content {
+            /* 電腦版：主畫面比側邊欄晚一點點到位，製造層次感 */
+            animation: cinematicReveal 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
+
+        /* 電腦版預設動畫 (帶有位移與縮放) */
+        @keyframes cinematicReveal {
+            0% { opacity: 0; transform: scale(0.96) translateY(20px); filter: blur(8px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+        }
+
+        /* 【修復手機版專用動畫】：只做模糊與淡入，不改變 transform，保護原有的左右滑動邏輯 */
+        @keyframes cinematicRevealMobile {
+            0% { opacity: 0; filter: blur(8px); }
+            100% { opacity: 1; filter: blur(0); }
+        }
+
+        /* 手機與平板尺寸下的動畫覆蓋 */
+        @media (max-width: 1024px) {
+            body.studio-reveal .sidebar {
+                animation: cinematicRevealMobile 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            }
+            body.studio-reveal .main-content {
+                /* 手機版的主畫面一開始躲在右側，我們直接取消它的出場動畫，避免它跑回中間蓋住畫面 */
+                animation: none !important;
+            }
+        }
+        #landingPageWrapper::before {
+            content: ''; position: absolute; inset: 0;
+            background: radial-gradient(circle, transparent 20%, var(--ui-bg) 80%);
+            z-index: 0; pointer-events: none;
+        }
+
+        .lp-presentation-demo {
+            position: relative; width: 85vw; max-width: 1100px; aspect-ratio: 16 / 9; max-height: 80vh;
+            background: var(--ui-surface); box-shadow: var(--lp-slide-shadow);
+            border: 1px solid var(--ui-border); z-index: 1; overflow: hidden; display: block;
+            container-type: inline-size;
+        }
+        .lp-presentation-demo::after {
+            content: ''; position: absolute; inset: 3cqw; border: 1px solid rgba(0,0,0,0.04); pointer-events: none;
+        }
+        .lp-wf-visual { position: absolute; background: #e0e0e0; overflow: hidden; transition: all 1.5s cubic-bezier(0.77, 0, 0.175, 1); animation: lpEngineVisual 16s infinite; }
+        .lp-wf-visual::before, .lp-wf-visual::after { content: ''; position: absolute; background: rgba(0,0,0,0.05); }
+        .lp-wf-visual::before { width: 200%; height: 1px; top: 50%; left: -50%; transform: rotate(45deg); }
+        .lp-wf-visual::after { width: 200%; height: 1px; top: 50%; left: -50%; transform: rotate(-45deg); }
+        .lp-wf-text-group { position: absolute; display: flex; flex-direction: column; gap: 1.5cqw; transition: all 1.5s cubic-bezier(0.77, 0, 0.175, 1); animation: lpEngineText 16s infinite; z-index: 2; }
+        .lp-wf-line { height: 1.2cqw; background: var(--ui-text); opacity: 0.8; border-radius: 1px; }
+        .lp-wf-line.h1 { height: 3.5cqw; width: 80%; margin-bottom: 0.8cqw; opacity: 1; }
+        .lp-wf-line.h2 { height: 1.8cqw; width: 50%; background: var(--ui-muted); margin-bottom: 2cqw; }
+        .lp-wf-line.p1 { width: 100%; opacity: 0.4; }
+        .lp-wf-line.p2 { width: 95%; opacity: 0.4; }
+        .lp-wf-line.p3 { width: 70%; opacity: 0.4; }
+
+        @keyframes lpEngineVisual {
+            0%, 20% { top: 50%; left: 50%; width: 0; height: 0; border-radius: 0; opacity: 0; }
+            25%, 45% { top: 10%; left: 5%; width: 35%; height: 80%; border-radius: 2px; opacity: 1; }
+            50%, 70% { top: 0%; left: 45%; width: 55%; height: 100%; border-radius: 100cqw 0 0 100cqw; opacity: 1; }
+            75%, 95% { top: 5%; left: 15%; width: 70%; height: 50%; border-radius: 2px; opacity: 1; }
+            100% { top: 50%; left: 50%; width: 0; height: 0; opacity: 0; }
+        }
+        @keyframes lpEngineText {
+            0%, 20% { top: 35%; left: 20%; width: 60%; align-items: center; background: transparent; padding: 0; border: none; backdrop-filter: none; }
+            25%, 45% { top: 30%; left: 45%; width: 45%; align-items: flex-start; background: transparent; padding: 0; border: none; backdrop-filter: none;}
+            50%, 70% { top: 35%; left: 10%; width: 45%; align-items: flex-start; background: rgba(255,255,255,0.85); padding: 4cqw; border: 1px solid var(--ui-border); box-shadow: 0 15px 35px rgba(0,0,0,0.05); backdrop-filter: blur(15px); }
+            75%, 95% { top: 65%; left: 25%; width: 50%; align-items: flex-start; background: transparent; padding: 0; border: none; box-shadow: none; backdrop-filter: none;}
+            100% { top: 35%; left: 20%; width: 60%; align-items: center; }
+        }
+        @keyframes lpAlignLines { 0%, 20% { margin-left: auto; margin-right: auto; } 25%, 100% { margin-left: 0; margin-right: 0; } }
+        .lp-wf-line.h1, .lp-wf-line.h2, .lp-wf-line.p1, .lp-wf-line.p2, .lp-wf-line.p3 { animation: lpAlignLines 16s infinite; }
+        
+        .lp-slide-progress { position: absolute; bottom: 0; left: 0; height: 3px; background: var(--ui-text); animation: lpProgressBar 16s infinite linear; }
+        @keyframes lpProgressBar { 0% { width: 0%; } 100% { width: 100%; } }
+
+        .lp-overlay-ui { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; background: radial-gradient(circle, rgba(245,245,247,0.3) 0%, rgba(245,245,247,0.8) 100%); }
+        .lp-brand-logo { font-family: 'Cinzel', serif; font-size: clamp(3rem, 6vw, 5rem); font-weight: 500; letter-spacing: 1.5vw; color: var(--ui-text); margin-right: -1.5vw; margin-bottom: 3rem; position: relative; }
+        .lp-brand-logo::after { content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 40px; height: 1px; background-color: var(--ui-text); }
+        
+        .lp-btn-launch { pointer-events: auto; background: var(--ui-text); color: var(--ui-surface); border: 1px solid var(--ui-text); padding: 1.2rem 3.5rem; font-family: 'Cinzel', serif; font-size: 0.9rem; font-weight: 500; letter-spacing: 6px; cursor: pointer; transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1); border-radius: 2px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .lp-btn-launch:hover { background: transparent; color: var(--ui-text); transform: translateY(-2px); box-shadow: 0 15px 40px rgba(0,0,0,0.05); }
+        .lp-btn-launch:active { transform: translateY(1px); }
+
+        .lp-corner-mark { position: absolute; font-family: 'Inter', sans-serif; font-size: 0.65rem; letter-spacing: 2px; color: var(--ui-muted); text-transform: uppercase; }
+        .lp-mark-br { bottom: 2rem; right: 3rem; font-family: 'Cinzel', serif; letter-spacing: 4px;}
+
+        .lp-layout-indicator { position: absolute; top: 2rem; right: 3rem; display: flex; gap: 8px; }
+        .lp-layout-dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--ui-muted); animation: lpDotSync 16s infinite; }
+        @keyframes lpDotSync {
+            0%, 20%   { background: transparent; }
+            21%, 25%  { background: var(--ui-text); border-color: var(--ui-text); }
+            26%, 45%  { background: var(--ui-text); }
+            46%, 50%  { background: transparent; }
+            51%, 70%  { background: var(--lp-hl); border-color: var(--lp-hl); }
+            71%, 75%  { background: transparent; }
+            76%, 95%  { background: var(--ui-text); border-color: var(--ui-text); }
+            96%, 100% { background: transparent; }
+        }
+        .lp-layout-dot:nth-child(1) { animation-delay: -16s; }
+        .lp-layout-dot:nth-child(2) { animation-delay: -12s; }
+        .lp-layout-dot:nth-child(3) { animation-delay: -8s; }
+        .lp-layout-dot:nth-child(4) { animation-delay: -4s; }
+
+        @media (max-width: 768px) {
+            .lp-presentation-demo { width: 95vw; max-height: 85vh; }
+            .lp-brand-logo { font-size: 3rem; margin-bottom: 2rem; letter-spacing: 0.8rem; margin-right: -0.8rem; }
+            .lp-btn-launch { padding: 1rem 2rem; font-size: 0.8rem; letter-spacing: 4px; }
+            .lp-layout-indicator { top: 1.5rem; right: 1.5rem; }
+            .lp-mark-br { bottom: 1.5rem; right: 1.5rem; font-size: 0.5rem; }
+        }
+    </style>
 </head>
 <body>
 
+    <!-- ==========================================
+         Landing Page 覆蓋層 (合併進來的內容)
+         ========================================== -->
+    <div id="landingPageWrapper">
+        <div class="lp-corner-mark lp-mark-br">The Art of Presentation</div>
+        <div class="lp-layout-indicator">
+            <div class="lp-layout-dot" style="animation: none; background: var(--ui-text); border-color:var(--ui-text);"></div>
+            <div class="lp-layout-dot" style="animation: none;"></div>
+            <div class="lp-layout-dot" style="animation: none;"></div>
+            <div class="lp-layout-dot" style="animation: none;"></div>
+        </div>
+        <div class="lp-presentation-demo">
+            <div class="lp-wf-visual"></div>
+            <div class="lp-wf-text-group">
+                <div class="lp-wf-line h1"></div>
+                <div class="lp-wf-line h2"></div>
+                <div class="lp-wf-line p1"></div>
+                <div class="lp-wf-line p2"></div>
+                <div class="lp-wf-line p3"></div>
+            </div>
+            <div class="lp-slide-progress"></div>
+        </div>
+        <div class="lp-overlay-ui">
+            <div class="lp-brand-logo">AURA</div>
+            <button id="lpBtnLaunch" class="lp-btn-launch">LAUNCH STUDIO</button>
+        </div>
+    </div>
+
+
+    <!-- ==========================================
+         以下為您原本 100% 受保護的系統原始碼
+         ========================================== -->
     <div class="custom-modal-overlay" id="backModal">
         <div class="custom-modal-box">
             <div class="custom-modal-text">確定要返回編輯器嗎？</div>
@@ -611,6 +791,40 @@
     <input type="file" id="localImageUploader" accept="image/*" style="display: none;">
 
     <script>
+        // ==========================================
+        // Landing Page JS (按鈕淡出與動畫同步)
+        // ==========================================
+        const lpDots = document.querySelectorAll('.lp-layout-dot');
+        let lpCurrentPhase = 0;
+        
+        let lpInterval = setInterval(() => {
+            lpDots.forEach(dot => { dot.style.background = 'transparent'; dot.style.borderColor = 'var(--ui-muted)'; });
+            
+            if(lpCurrentPhase === 2) {
+                lpDots[lpCurrentPhase].style.background = 'var(--lp-hl)';
+                lpDots[lpCurrentPhase].style.borderColor = 'var(--lp-hl)';
+            } else {
+                lpDots[lpCurrentPhase].style.background = 'var(--ui-text)';
+                lpDots[lpCurrentPhase].style.borderColor = 'var(--ui-text)';
+            }
+            lpCurrentPhase = (lpCurrentPhase + 1) % 4;
+        }, 4000); 
+
+       document.getElementById('lpBtnLaunch').addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // 1. 讓 Landing Page 執行景深穿透淡出
+            document.getElementById('landingPageWrapper').classList.add('hidden');
+            
+            // 2. 【新增】為 body 加上 class，讓底下的編輯器優雅地浮現
+            document.body.classList.add('studio-reveal');
+
+            // 3. 延遲清理定時器 (配合新的 1.2 秒動畫時間)
+            setTimeout(() => { clearInterval(lpInterval); }, 1200); 
+        });
+        // ==========================================
+        // 以下為原本受保護的編輯器與渲染邏輯
+        // ==========================================
         const API_KEYS = ["pk_eFlNmo9v1lXOC6Zw"];
         const API_URL = "https://gen.pollinations.ai/v1/chat/completions";
         const MODEL = "gemini-search";
