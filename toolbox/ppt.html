@@ -176,8 +176,10 @@
         
         .art-frame { position: relative; padding: 0.8cqw; background: var(--slide-frame); border: 1px solid var(--slide-border); box-shadow: 0 15px 45px rgba(0,0,0,0.1); max-width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: background 0.5s, border-color 0.5s;}
         .art-frame::before { content: ''; position: absolute; inset: 0.4cqw; border: 1px solid var(--slide-border-dark); opacity: 0.3; pointer-events: none; z-index: 5; transition: border-color 0.5s;}
-        .art-frame img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: filter 0.3s, transform 0.3s; }
+        /* 提升手機點擊體驗 */
+        .art-frame img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: filter 0.3s, transform 0.3s; -webkit-tap-highlight-color: transparent; }
         .art-frame:not(.no-hover):hover img { filter: brightness(0.7); transform: scale(0.995); }
+        .art-frame:not(.no-hover) img:active { filter: brightness(0.5); transform: scale(0.96); } /* 手機專用觸控回饋 */
         .art-frame img.reloading { filter: blur(8px) grayscale(50%); transform: scale(0.98); pointer-events: none; }
 
         .layout-img-left .feature-img-wrapper { grid-area: 2 / 1 / 12 / 6; transform: translateY(4%); } 
@@ -263,7 +265,7 @@
         .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; justify-content: center; align-items: center; opacity: 0.15; transition: opacity 0.5s;}
         .empty-state svg { width: 100px; height: 100px; stroke: var(--ui-text); stroke-width: 0.5; fill: none; animation: breathe 4s infinite ease-in-out; }
         
-        /* === Action Bar 設計更新 (支援雙行響應式) === */
+        /* === Action Bar 設計 === */
         .action-bar { position: absolute; top: 2rem; right: 2.5rem; display: flex; align-items: center; gap: 15px; z-index: 20;}
         .action-row { display: flex; align-items: center; gap: 15px; }
 
@@ -330,7 +332,6 @@
 
             .presentation-wrapper { width: 100%; max-width: 100%; }
             
-            /* 手機端 Action Bar 重新佈局: 雙列且不折行 */
             .action-bar { 
                 top: 1rem; left: 1rem; right: 1rem; 
                 flex-direction: column; gap: 10px; 
@@ -340,7 +341,6 @@
             
             .opacity-control { padding-right: 0; gap: 4px; border-right: none; }
             .opacity-control svg { width: 14px; height: 14px; flex-shrink: 0;}
-            /* 強制縮小滑桿長度以塞入單行 */
             input[type=range] { width: clamp(35px, 8vw, 60px); }
             .btn-export { padding: 4px 6px; font-size: 0.65rem; letter-spacing: 1px; flex-shrink: 0;}
             
@@ -355,7 +355,9 @@
                 width: 180px; height: 180px; z-index: 1;
                 grid-area: auto !important; transform: none !important;
             }
-            body.use-geometric .slide .text-content-wrapper { position: relative; z-index: 5; padding: 2rem !important; }
+            body.use-geometric .slide .text-content-wrapper { position: relative; z-index: 5; padding: 2rem !important; pointer-events: none; }
+            body.use-geometric .slide .text-inner-scroll { pointer-events: auto; }
+            
             body.use-geometric .layout-img-left .feature-img-wrapper { top: 5%; left: -30px; --geo-shape: 50%; }
             body.use-geometric .layout-img-right .feature-img-wrapper { bottom: 5%; right: -30px; --geo-shape: 50%; }
             body.use-geometric .layout-overlap-left .feature-img-wrapper { top: 40%; left: -50px; --geo-shape: 50%; }
@@ -458,7 +460,6 @@
     </div>
 
     <div class="main-content">
-        <!-- Action Bar 改為雙列巢狀結構，以解決手機端擠行問題 -->
         <div class="action-bar" id="actionBar" style="display: none;">
             <div class="action-row top-row">
                 <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器">
@@ -626,23 +627,42 @@
             if (cur) chunks.push(cur); return chunks;
         }
 
-        function extractKeywords(text) { let topWords = getTopKeywords(text, 1); return topWords.length > 0 ? topWords[0] : ""; }
-
+        // ✅ 終極修復：解決手機端(特別是 Android V8 引擎) Intl.Segmenter 閹割了中文詞典導致全變單字的問題
         function getTopKeywords(text, count = 3) {
-            if (!text) return []; let cleanText = text.replace(/[0-9０-９]/g, '');
+            if (!text) return []; 
+            let cleanText = text.replace(/[0-9０-９]/g, '');
             const isDatePattern = (str) => /^[一二三四五六七八九十百千萬億兆零〇年月日號]+$/.test(str) && /[年月日號]/.test(str);
+            
+            // 備用方案：傳統 Bi-gram (雙字元配對)，專門對付手機引擎缺詞典的情況
+            let chText = cleanText.replace(/[^\u4e00-\u9fa5]/g, ''); 
+            let fallbackChWords = [];
+            for (let i = 0; i < chText.length - 1; i++) fallbackChWords.push(chText.substring(i, i + 2));
+            let enWords = cleanText.match(/[a-zA-Z]{2,}/g) || [];
+            
             let words = [];
             if (typeof Intl.Segmenter === 'function') {
                 const segmenter = new Intl.Segmenter(['zh-TW', 'en'], { granularity: 'word' });
-                words = [...segmenter.segment(cleanText)].filter(s => s.isWordLike).map(s => s.segment.trim()).filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w) && w.length >= 2);
+                let segWords = [...segmenter.segment(cleanText)].filter(s => s.isWordLike).map(s => s.segment.trim());
+                
+                // 檢查是否成功切出超過 2 個字的「中文詞彙」(如果手機引擎被閹割，這裡通常全是 1 個字的單字)
+                let hasValidChineseWord = segWords.some(w => w.length >= 2 && /[\u4e00-\u9fa5]/.test(w));
+                
+                if (hasValidChineseWord) {
+                    words = segWords.filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w) && w.length >= 2);
+                } else {
+                    // 如果判斷是閹割版，強制啟用備用方案
+                    words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w));
+                }
             } else {
-                let enWords = cleanText.match(/[a-zA-Z]{2,}/g) || []; let chText = cleanText.replace(/[^\u4e00-\u9fa5]/g, ''); let chWords = [];
-                for (let i = 0; i < chText.length - 1; i++) chWords.push(chText.substring(i, i + 2));
-                words = [...enWords, ...chWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w));
+                words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w));
             }
-            const frequency = {}; words.forEach(w => { frequency[w.toLowerCase()] = (frequency[w.toLowerCase()] || 0) + 1; });
+            
+            const frequency = {}; 
+            words.forEach(w => { frequency[w.toLowerCase()] = (frequency[w.toLowerCase()] || 0) + 1; });
             return Object.keys(frequency).sort((a, b) => frequency[b] - frequency[a]).slice(0, count).map(lw => words.find(w => w.toLowerCase() === lw)).filter(Boolean);
         }
+
+        function extractKeywords(text) { let topWords = getTopKeywords(text, 1); return topWords.length > 0 ? topWords[0] : ""; }
 
         function getImageUrl(mainKw, subKw, index) {
             let baseQuery = mainKw || "設計"; if (subKw && !baseQuery.includes(subKw)) baseQuery = `${baseQuery} ${subKw}`;
@@ -777,27 +797,47 @@
                         featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
                         artFrame.classList.add('no-hover'); 
                     } else { 
-                        // ✅ 關鍵修正：將 innerText 改為 textContent，解決手機端未渲染 DOM 無法抓取文字的 Bug
                         let initialSub = p && p.textContent ? extractKeywords(p.textContent) : "";
                         featureImg.src = getImageUrl(globalMainKeyword, initialSub, index);
                         featureImg.setAttribute('data-main', globalMainKeyword); 
                         featureImg.setAttribute('data-sub', initialSub);
                         
-                        featureImg.addEventListener('click', function() {
+                        // ✅ 加入 setTimeout 與強化的容錯機制，確保點擊在任何極端狀況下都能觸發視覺回饋並生成新圖
+                        featureImg.addEventListener('click', function(e) {
+                            e.preventDefault();
                             if (this.classList.contains('reloading') || currentLayoutMode === 2) return; 
                             this.classList.add('reloading');
-                            let currentP = newSlide.querySelector('p');
                             
-                            // ✅ 同步修正這裡的 innerText，確保點擊圖片時能正常獲取文字並變更關鍵詞
-                            let slideText = currentP ? currentP.textContent : ""; 
-                            if (!slideText.trim()) { this.classList.remove('reloading'); return; }
-
-                            let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]"), currentSub = this.getAttribute('data-sub');
-                            if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
-                            let potentialKws = getTopKeywords(slideText, 20), newSub = potentialKws.find(kw => !usedKws.includes(kw));
-                            if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; }
-                            if (newSub) { usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; }
-                            this.classList.remove('reloading'); refreshImage(this);
+                            // 利用延遲確保 UI 渲染出 reloading 模糊效果，再執行沉重的 JS
+                            setTimeout(() => {
+                                let currentP = newSlide.querySelector('p');
+                                let slideText = currentP ? currentP.textContent : ""; 
+                                
+                                let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+                                let currentSub = this.getAttribute('data-sub') || "";
+                                if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                                
+                                let newSub = "";
+                                if (slideText.trim()) {
+                                    let potentialKws = getTopKeywords(slideText, 20);
+                                    newSub = potentialKws.find(kw => !usedKws.includes(kw));
+                                    
+                                    if (!newSub && potentialKws.length > 0) { 
+                                        usedKws = [currentSub].filter(Boolean); // 重設紀錄
+                                        newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; 
+                                    }
+                                }
+                                
+                                // 終極防呆：若不管怎樣都抓不到新詞，強制退回主關鍵詞或任意字，確保持續換圖
+                                if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
+                                
+                                usedKws.push(newSub); 
+                                sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); 
+                                this.setAttribute('data-sub', newSub); 
+                                if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
+                                
+                                refreshImage(this); // reloading 樣式的移除會交給圖片載入完成的 Callback 處理
+                            }, 50);
                         });
                     }
 
