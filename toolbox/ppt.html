@@ -496,6 +496,9 @@
         </div>
     </div>
 
+    <!-- 隱藏的本機圖片上傳器 -->
+    <input type="file" id="localImageUploader" accept="image/*" style="display: none;">
+
     <script>
         const API_KEYS = ["pk_eFlNmo9v1lXOC6Zw"];
         const API_URL = "https://gen.pollinations.ai/v1/chat/completions";
@@ -529,6 +532,8 @@
         const mobileBackBtn = document.getElementById('mobileBackBtn');
         const btnCancelBack = document.getElementById('btnCancelBack');
         const btnConfirmBack = document.getElementById('btnConfirmBack');
+        
+        const localImageUploader = document.getElementById('localImageUploader');
 
         let currentLayoutMode = 0; 
         
@@ -536,6 +541,9 @@
         let slides = [], currentIndex = 0;
         let globalMainKeyword = "藝術排版";
         let currentThemeId = 'classic';
+
+        let targetImgForUpload = null;
+        let isLongPress = false; // 記錄是否剛觸發過 contextmenu，防止點擊事件衝突
         
         const themePptxColors = {
             classic: { bg: 'F5F5F7', textMain: '111111', textMuted: '666666', hl: 'D97706', shapeFill: 'FFFFFF', line: '444444', shapeOpac: 10 },
@@ -546,6 +554,21 @@
         };
 
         const stopWords = new Set(["的","了","和","是","就","都","而","及","與","著","或","一個","沒有","我們","你們","他們","這個","那個","因為","所以","雖然","但是","如果","那麼","可以","就是","這","那","哪","啊","呢","嗎","吧","也","很","在","從","到","讓","被","對","會","能","要","去","有","把","給","什麼","怎麼","自己","開始","需要","進行","產生","使用","這種","那些","以及","為了","這樣","the","and","that","this","with","for","not","are","but","from","you","your","what","how"]);
+
+        // --- 本機圖片上傳邏輯 ---
+        localImageUploader.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file && targetImgForUpload) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    targetImgForUpload.src = event.target.result;
+                    targetImgForUpload.setAttribute('data-custom', 'true'); // 標記為使用者上傳圖片
+                    targetImgForUpload.classList.remove('reloading');
+                }
+                reader.readAsDataURL(file);
+            }
+            this.value = ''; // 清空選擇，允許重複選擇同一檔案
+        });
 
         function updateSlideThemes() {
             if (slides.length === 0) return;
@@ -627,7 +650,6 @@
             if (cur) chunks.push(cur); return chunks;
         }
 
-        // 電腦與手機平板雙重適配分詞演算法
         function getTopKeywords(text, count = 3) {
             if (!text) return []; 
             let cleanText = text.replace(/[0-9０-９]/g, '');
@@ -668,14 +690,12 @@
 
         let manualRefreshIndex = 100; 
         function refreshImage(imgEl) {
-            // 防呆機制：避免多次重複加載或在純預設圖片模式下執行
             if(imgEl.classList.contains('reloading') || currentLayoutMode === 2) return; 
             
             imgEl.classList.add('reloading'); 
             manualRefreshIndex++; 
             let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex);
             
-            // 使用一個綁定在元素上的 Image 物件以防止被垃圾回收(GC)，確保 onload 必定觸發
             let tempLoader = new Image();
             tempLoader.crossOrigin = "anonymous";
             imgEl._tempLoader = tempLoader; 
@@ -686,13 +706,11 @@
                 delete imgEl._tempLoader;
             };
             tempLoader.onerror = function() { 
-                // 若被 CORS 阻擋等原因報錯，仍強制切換圖片並移除加載狀態
                 imgEl.src = newSrc; 
                 imgEl.classList.remove('reloading'); 
                 delete imgEl._tempLoader;
             }; 
             
-            // 安全機制：若由於網路等未知原因導致 onload/onerror 完全未觸發，6秒後強制解除鎖定
             setTimeout(() => {
                 if(imgEl.classList.contains('reloading')) {
                     imgEl.classList.remove('reloading');
@@ -706,7 +724,11 @@
         function triggerCurrentSlideRefresh() {
             if (slides.length === 0 || currentLayoutMode === 2) return; 
             let imgEl = slides[currentIndex].querySelector('.art-frame img');
-            if (imgEl) { imgEl.setAttribute('data-sub', subKeywordInput.value.trim()); refreshImage(imgEl); }
+            if (imgEl) { 
+                imgEl.removeAttribute('data-custom'); // 強制解除自訂圖片狀態，允許 AI 重刷
+                imgEl.setAttribute('data-sub', subKeywordInput.value.trim()); 
+                refreshImage(imgEl); 
+            }
         }
         
         btnRefreshImg.addEventListener('click', triggerCurrentSlideRefresh);
@@ -816,6 +838,7 @@
                     const p = slide.querySelector('p'), imgWrapper = document.createElement('div'); imgWrapper.className = 'feature-img-wrapper';
                     const artFrame = document.createElement('div'); artFrame.className = 'art-frame';
                     const featureImg = document.createElement('img'); featureImg.crossOrigin = "anonymous";
+                    featureImg.title = "點擊更換 AI 圖片 / 電腦右鍵或手機長按上傳自訂圖片";
                     
                     if (currentLayoutMode === 2) { 
                         featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
@@ -825,42 +848,54 @@
                         featureImg.src = getImageUrl(globalMainKeyword, initialSub, index);
                         featureImg.setAttribute('data-main', globalMainKeyword); 
                         featureImg.setAttribute('data-sub', initialSub);
-                        
-                        // 交給全域邏輯執行，避免事件或類別殘留導致的假死
-                        featureImg.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            if (this.classList.contains('reloading') || currentLayoutMode === 2) return; 
-                            
-                            let currentP = newSlide.querySelector('p');
-                            let slideText = currentP ? currentP.textContent : ""; 
-                            
-                            let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
-                            let currentSub = this.getAttribute('data-sub') || "";
-                            if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
-                            
-                            let newSub = "";
-                            if (slideText.trim()) {
-                                let potentialKws = getTopKeywords(slideText, 20);
-                                newSub = potentialKws.find(kw => !usedKws.includes(kw));
-                                
-                                if (!newSub && potentialKws.length > 0) { 
-                                    usedKws = [currentSub].filter(Boolean);
-                                    newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; 
-                                }
-                            }
-                            
-                            if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
-                            
-                            usedKws.push(newSub); 
-                            sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); 
-                            this.setAttribute('data-sub', newSub); 
-                            
-                            // 同步更新上方的子關鍵詞輸入框，確保所見即所得
-                            if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
-                            
-                            refreshImage(this); 
-                        });
                     }
+                    
+                    // -- 完全依賴原生 contextmenu 處理相簿喚醒，解決雙重彈出 --
+                    featureImg.addEventListener('contextmenu', function(e) {
+                        e.preventDefault(); // 阻擋原生右鍵/長按儲存圖片選單
+                        isLongPress = true; // 上鎖，避免接下來手指放開觸發 click
+                        setTimeout(() => isLongPress = false, 500); // 0.5 秒後自動解鎖
+                        targetImgForUpload = this;
+                        localImageUploader.click();
+                    });
+
+                    // -- 左鍵/點擊觸發重刷 AI 圖片 --
+                    featureImg.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        if (isLongPress) return; // 如果這個點擊是長按放開造成的，直接略過
+                        if (this.classList.contains('reloading') || currentLayoutMode === 2) return; 
+                        
+                        // 移除自訂標記，恢復為系統自動抓圖模式
+                        this.removeAttribute('data-custom'); 
+                        
+                        let currentP = newSlide.querySelector('p');
+                        let slideText = currentP ? currentP.textContent : ""; 
+                        
+                        let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+                        let currentSub = this.getAttribute('data-sub') || "";
+                        if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                        
+                        let newSub = "";
+                        if (slideText.trim()) {
+                            let potentialKws = getTopKeywords(slideText, 20);
+                            newSub = potentialKws.find(kw => !usedKws.includes(kw));
+                            
+                            if (!newSub && potentialKws.length > 0) { 
+                                usedKws = [currentSub].filter(Boolean);
+                                newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; 
+                            }
+                        }
+                        
+                        if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
+                        
+                        usedKws.push(newSub); 
+                        sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); 
+                        this.setAttribute('data-sub', newSub); 
+                        
+                        if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
+                        
+                        refreshImage(this); 
+                    });
 
                     artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper);
                 }
@@ -1097,8 +1132,13 @@
                                     let circleBase64 = cropImageToCircleBase64(featureImg);
                                     pptSlide.addImage({ data: circleBase64, x: imgX, y: imgY, w: imgW, h: imgH, transparency: pptxImgOpacity, shadow: { type: 'outer', opacity: 0.15, blur: 8 }}); 
                                 } else {
+                                    let isCustomBase64 = featureImg.src.startsWith('data:image');
                                     pptSlide.addShape(pres.ShapeType.rect, { x: imgX, y: imgY, w: imgW, h: imgH, fill: { color: cTheme.shapeFill }, shadow: { type: 'outer', opacity: 0.15, blur: 5 }});
-                                    pptSlide.addImage({ path: featureImg.src, x: imgX + 0.1, y: imgY + 0.1, sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 }, transparency: pptxImgOpacity}); 
+                                    if (isCustomBase64) {
+                                        pptSlide.addImage({ data: featureImg.src, x: imgX + 0.1, y: imgY + 0.1, sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 }, transparency: pptxImgOpacity}); 
+                                    } else {
+                                        pptSlide.addImage({ path: featureImg.src, x: imgX + 0.1, y: imgY + 0.1, sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 }, transparency: pptxImgOpacity}); 
+                                    }
                                 }
                             } catch(e) { console.error(e); }
                         }
