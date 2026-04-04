@@ -1068,12 +1068,41 @@
                     finalHtml = (await res.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
                 }
 
-                if (isHighlightMode) {
-                    showLoader("正在間劃重點...");
+              if (isHighlightMode) {
+                    showLoader("正在分析並畫重點...");
                     try {
-                        const hlRes = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `為提供的 HTML 加入重點標記。找出每個 <div class="slide"> 內 2~4 個重要短句用 <span data-hl="true"> </span> 包圍。不要改變結構，只輸出完整HTML。` }, { role: "user", content: finalHtml } ] }) });
-                        finalHtml = (await hlRes.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
-                    } catch(e) {}
+                        // 準確計算第一階段產生了多少個 slide，用來強制約束 AI
+                        const slideCount = (finalHtml.match(/<div class="slide"/gi) || []).length;
+                        
+                        const hlRes = await fetch(API_URL, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, 
+                            body: JSON.stringify({ 
+                                model: MODEL, 
+                                messages: [ 
+                                    { 
+                                        role: "system", 
+                                        content: `你是一個嚴格的 HTML 結構處理程式。
+任務：為提供的 HTML 中的「每一頁」加入重點標記。
+規則：
+1. 原封不動保留結構：提供的 HTML 總共有 ${slideCount} 個 <div class="slide">。你輸出的 HTML 【必須完整保留這 ${slideCount} 個 slide】，絕對禁止刪減、縮寫或合併任何內容！
+2. 每一頁都必須標記：你【必須】在「每一個」 <div class="slide"> 的內文（<p> 標籤內部），精準挑選 1~2 個最核心的詞彙或短句，用 <span data-hl="true"> 和 </span> 包圍起來。
+3. 強制條件（非常重要）：請逐頁檢查，絕對不允許任何一頁缺少 <span data-hl="true"> 標記！
+4. 絕不改變原始文字與既有的 HTML 結構，只能插入 span 標籤。只輸出純 HTML 代碼，不要包含 markdown 語法。` 
+                                    }, 
+                                    { role: "user", content: finalHtml } 
+                                ] 
+                            }) 
+                        });
+                        
+                        let hlOutput = (await hlRes.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
+                        // 防呆機制：確保 AI 沒有擅自把 HTML 截斷或破壞才覆蓋
+                        if(hlOutput.includes('<div class="slide"')) {
+                            finalHtml = hlOutput;
+                        }
+                    } catch(e) {
+                        console.error("Highlighting failed:", e);
+                    }
                 }
 
                 if (addCoverPage) { let coverHtml = `<div class="slide layout-cover"><h1>主標題 (點擊修改)</h1><h2>副標題 / 演講者 (點擊修改)</h2></div>\n`; finalHtml = coverHtml + finalHtml; }
