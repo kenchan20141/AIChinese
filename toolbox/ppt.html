@@ -176,10 +176,10 @@
         
         .art-frame { position: relative; padding: 0.8cqw; background: var(--slide-frame); border: 1px solid var(--slide-border); box-shadow: 0 15px 45px rgba(0,0,0,0.1); max-width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: background 0.5s, border-color 0.5s;}
         .art-frame::before { content: ''; position: absolute; inset: 0.4cqw; border: 1px solid var(--slide-border-dark); opacity: 0.3; pointer-events: none; z-index: 5; transition: border-color 0.5s;}
-        /* 提升手機點擊體驗 */
+        
         .art-frame img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: filter 0.3s, transform 0.3s; -webkit-tap-highlight-color: transparent; }
         .art-frame:not(.no-hover):hover img { filter: brightness(0.7); transform: scale(0.995); }
-        .art-frame:not(.no-hover) img:active { filter: brightness(0.5); transform: scale(0.96); } /* 手機專用觸控回饋 */
+        .art-frame:not(.no-hover) img:active { filter: brightness(0.5); transform: scale(0.96); } 
         .art-frame img.reloading { filter: blur(8px) grayscale(50%); transform: scale(0.98); pointer-events: none; }
 
         .layout-img-left .feature-img-wrapper { grid-area: 2 / 1 / 12 / 6; transform: translateY(4%); } 
@@ -627,13 +627,12 @@
             if (cur) chunks.push(cur); return chunks;
         }
 
-        // ✅ 終極修復：解決手機端(特別是 Android V8 引擎) Intl.Segmenter 閹割了中文詞典導致全變單字的問題
+        // 電腦與手機平板雙重適配分詞演算法
         function getTopKeywords(text, count = 3) {
             if (!text) return []; 
             let cleanText = text.replace(/[0-9０-９]/g, '');
             const isDatePattern = (str) => /^[一二三四五六七八九十百千萬億兆零〇年月日號]+$/.test(str) && /[年月日號]/.test(str);
             
-            // 備用方案：傳統 Bi-gram (雙字元配對)，專門對付手機引擎缺詞典的情況
             let chText = cleanText.replace(/[^\u4e00-\u9fa5]/g, ''); 
             let fallbackChWords = [];
             for (let i = 0; i < chText.length - 1; i++) fallbackChWords.push(chText.substring(i, i + 2));
@@ -644,13 +643,11 @@
                 const segmenter = new Intl.Segmenter(['zh-TW', 'en'], { granularity: 'word' });
                 let segWords = [...segmenter.segment(cleanText)].filter(s => s.isWordLike).map(s => s.segment.trim());
                 
-                // 檢查是否成功切出超過 2 個字的「中文詞彙」(如果手機引擎被閹割，這裡通常全是 1 個字的單字)
                 let hasValidChineseWord = segWords.some(w => w.length >= 2 && /[\u4e00-\u9fa5]/.test(w));
                 
                 if (hasValidChineseWord) {
                     words = segWords.filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w) && w.length >= 2);
                 } else {
-                    // 如果判斷是閹割版，強制啟用備用方案
                     words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w));
                 }
             } else {
@@ -671,12 +668,39 @@
 
         let manualRefreshIndex = 100; 
         function refreshImage(imgEl) {
+            // 防呆機制：避免多次重複加載或在純預設圖片模式下執行
             if(imgEl.classList.contains('reloading') || currentLayoutMode === 2) return; 
-            imgEl.classList.add('reloading');
-            manualRefreshIndex++; let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex);
-            let tempImg = new Image(); tempImg.crossOrigin = "anonymous";
-            tempImg.onload = () => { imgEl.src = newSrc; imgEl.classList.remove('reloading'); };
-            tempImg.onerror = () => { imgEl.classList.remove('reloading'); }; tempImg.src = newSrc;
+            
+            imgEl.classList.add('reloading'); 
+            manualRefreshIndex++; 
+            let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex);
+            
+            // 使用一個綁定在元素上的 Image 物件以防止被垃圾回收(GC)，確保 onload 必定觸發
+            let tempLoader = new Image();
+            tempLoader.crossOrigin = "anonymous";
+            imgEl._tempLoader = tempLoader; 
+
+            tempLoader.onload = function() { 
+                imgEl.src = newSrc; 
+                imgEl.classList.remove('reloading'); 
+                delete imgEl._tempLoader;
+            };
+            tempLoader.onerror = function() { 
+                // 若被 CORS 阻擋等原因報錯，仍強制切換圖片並移除加載狀態
+                imgEl.src = newSrc; 
+                imgEl.classList.remove('reloading'); 
+                delete imgEl._tempLoader;
+            }; 
+            
+            // 安全機制：若由於網路等未知原因導致 onload/onerror 完全未觸發，6秒後強制解除鎖定
+            setTimeout(() => {
+                if(imgEl.classList.contains('reloading')) {
+                    imgEl.classList.remove('reloading');
+                    delete imgEl._tempLoader;
+                }
+            }, 6000);
+
+            tempLoader.src = newSrc;
         }
 
         function triggerCurrentSlideRefresh() {
@@ -802,42 +826,39 @@
                         featureImg.setAttribute('data-main', globalMainKeyword); 
                         featureImg.setAttribute('data-sub', initialSub);
                         
-                        // ✅ 加入 setTimeout 與強化的容錯機制，確保點擊在任何極端狀況下都能觸發視覺回饋並生成新圖
+                        // 交給全域邏輯執行，避免事件或類別殘留導致的假死
                         featureImg.addEventListener('click', function(e) {
                             e.preventDefault();
                             if (this.classList.contains('reloading') || currentLayoutMode === 2) return; 
-                            this.classList.add('reloading');
                             
-                            // 利用延遲確保 UI 渲染出 reloading 模糊效果，再執行沉重的 JS
-                            setTimeout(() => {
-                                let currentP = newSlide.querySelector('p');
-                                let slideText = currentP ? currentP.textContent : ""; 
+                            let currentP = newSlide.querySelector('p');
+                            let slideText = currentP ? currentP.textContent : ""; 
+                            
+                            let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+                            let currentSub = this.getAttribute('data-sub') || "";
+                            if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                            
+                            let newSub = "";
+                            if (slideText.trim()) {
+                                let potentialKws = getTopKeywords(slideText, 20);
+                                newSub = potentialKws.find(kw => !usedKws.includes(kw));
                                 
-                                let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
-                                let currentSub = this.getAttribute('data-sub') || "";
-                                if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
-                                
-                                let newSub = "";
-                                if (slideText.trim()) {
-                                    let potentialKws = getTopKeywords(slideText, 20);
-                                    newSub = potentialKws.find(kw => !usedKws.includes(kw));
-                                    
-                                    if (!newSub && potentialKws.length > 0) { 
-                                        usedKws = [currentSub].filter(Boolean); // 重設紀錄
-                                        newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; 
-                                    }
+                                if (!newSub && potentialKws.length > 0) { 
+                                    usedKws = [currentSub].filter(Boolean);
+                                    newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; 
                                 }
-                                
-                                // 終極防呆：若不管怎樣都抓不到新詞，強制退回主關鍵詞或任意字，確保持續換圖
-                                if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
-                                
-                                usedKws.push(newSub); 
-                                sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); 
-                                this.setAttribute('data-sub', newSub); 
-                                if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
-                                
-                                refreshImage(this); // reloading 樣式的移除會交給圖片載入完成的 Callback 處理
-                            }, 50);
+                            }
+                            
+                            if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
+                            
+                            usedKws.push(newSub); 
+                            sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); 
+                            this.setAttribute('data-sub', newSub); 
+                            
+                            // 同步更新上方的子關鍵詞輸入框，確保所見即所得
+                            if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
+                            
+                            refreshImage(this); 
                         });
                     }
 
