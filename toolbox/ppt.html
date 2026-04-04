@@ -263,9 +263,11 @@
         .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; justify-content: center; align-items: center; opacity: 0.15; transition: opacity 0.5s;}
         .empty-state svg { width: 100px; height: 100px; stroke: var(--ui-text); stroke-width: 0.5; fill: none; animation: breathe 4s infinite ease-in-out; }
         
+        /* === Action Bar 設計更新 (支援雙行響應式) === */
         .action-bar { position: absolute; top: 2rem; right: 2.5rem; display: flex; align-items: center; gap: 15px; z-index: 20;}
+        .action-row { display: flex; align-items: center; gap: 15px; }
 
-        .sub-keyword-group { display: flex; align-items: center; border-bottom: 1px solid var(--ui-border); margin-right: 10px; padding-bottom: 2px; transition: 0.3s; }
+        .sub-keyword-group { display: flex; align-items: center; border-bottom: 1px solid var(--ui-border); padding-bottom: 2px; transition: 0.3s; }
         .sub-keyword-group:focus-within { border-bottom-color: var(--ui-text); }
         .sub-keyword-group input { border: none; background: transparent; outline: none; font-family: 'Noto Serif TC', serif; font-size: 0.85rem; color: var(--ui-text); width: 150px; }
         .sub-keyword-group input::placeholder { color: var(--ui-muted); font-family: 'Inter', sans-serif; letter-spacing: 0.5px; opacity:0.6;}
@@ -312,6 +314,7 @@
         .custom-modal-btn-confirm { background: var(--ui-text); color: var(--ui-surface); border: 1px solid var(--ui-text); }
         .custom-modal-btn-confirm:hover { background: transparent; color: var(--ui-text); }
 
+        /* === 手機端響應式更新 === */
         @media (max-width: 1024px) {
             body { flex-direction: column; height: 100dvh; overflow: hidden; }
             .sidebar { width: 100%; height: 100dvh; max-height: 100dvh; padding: 2rem; border-right: none; overflow-y: auto; flex: none; transition: transform 0.4s cubic-bezier(0.25,0.8,0.25,1); }
@@ -326,8 +329,24 @@
             body.preview-mode .main-content { transform: translateX(0); }
 
             .presentation-wrapper { width: 100%; max-width: 100%; }
-            .action-bar { top: 1rem; left: 1rem; right: 1rem; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+            
+            /* 手機端 Action Bar 重新佈局: 雙列且不折行 */
+            .action-bar { 
+                top: 1rem; left: 1rem; right: 1rem; 
+                flex-direction: column; gap: 10px; 
+            }
+            .action-row.top-row { width: 100%; justify-content: space-between; }
+            .action-row.bottom-row { width: 100%; justify-content: flex-end; gap: 8px; flex-wrap: nowrap; overflow-x: auto; }
+            
+            .opacity-control { padding-right: 0; gap: 4px; border-right: none; }
+            .opacity-control svg { width: 14px; height: 14px; flex-shrink: 0;}
+            /* 強制縮小滑桿長度以塞入單行 */
+            input[type=range] { width: clamp(35px, 8vw, 60px); }
+            .btn-export { padding: 4px 6px; font-size: 0.65rem; letter-spacing: 1px; flex-shrink: 0;}
+            
+            .sub-keyword-group input { width: 120px; }
             .mobile-back-btn { display: flex; } 
+
             .controls-container { bottom: 1rem; }
             .mix-options { margin-bottom: 1.5rem; }
 
@@ -439,24 +458,30 @@
     </div>
 
     <div class="main-content">
+        <!-- Action Bar 改為雙列巢狀結構，以解決手機端擠行問題 -->
         <div class="action-bar" id="actionBar" style="display: none;">
-            <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器">
-                <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke-width="2"></line><polyline points="12 19 5 12 12 5" stroke-width="2"></polyline></svg>
-            </button>
-            <div class="sub-keyword-group" id="subKeywordGroup" title="自訂此頁子關鍵詞並重整圖片">
-                <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
-                <button class="btn-refresh-img" id="btnRefreshImg" title="依此關鍵詞重新生成"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.63-6.37L21 8"></path></svg></button>
+            <div class="action-row top-row">
+                <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器">
+                    <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke-width="2"></line><polyline points="12 19 5 12 12 5" stroke-width="2"></polyline></svg>
+                </button>
+                <div class="sub-keyword-group" id="subKeywordGroup" title="自訂此頁子關鍵詞並重整圖片">
+                    <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
+                    <button class="btn-refresh-img" id="btnRefreshImg" title="依此關鍵詞重新生成"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.63-6.37L21 8"></path></svg></button>
+                </div>
             </div>
-            <div class="opacity-control" title="調整背景濃度">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20v-20z" fill="currentColor" opacity="0.3"/></svg>
-                <input type="range" id="opacitySlider" min="0" max="100" value="20">
+            
+            <div class="action-row bottom-row">
+                <div class="opacity-control" title="調整背景濃度">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20v-20z" fill="currentColor" opacity="0.3"/></svg>
+                    <input type="range" id="opacitySlider" min="0" max="100" value="20">
+                </div>
+                <div class="opacity-control" title="調整主圖透明度">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <input type="range" id="imgOpacitySlider" min="10" max="100" value="75">
+                </div>
+                <button id="btnExportHtml" class="btn-export">HTML</button>
+                <button id="btnExportPptx" class="btn-export">PPTX</button>
             </div>
-            <div class="opacity-control" title="調整主圖透明度">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                <input type="range" id="imgOpacitySlider" min="10" max="100" value="75">
-            </div>
-            <button id="btnExportHtml" class="btn-export">HTML</button>
-            <button id="btnExportPptx" class="btn-export">PPTX</button>
         </div>
 
         <div class="presentation-wrapper" id="presentationBoard">
@@ -752,7 +777,8 @@
                         featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
                         artFrame.classList.add('no-hover'); 
                     } else { 
-                        let initialSub = p && p.innerText ? extractKeywords(p.innerText) : "";
+                        // ✅ 關鍵修正：將 innerText 改為 textContent，解決手機端未渲染 DOM 無法抓取文字的 Bug
+                        let initialSub = p && p.textContent ? extractKeywords(p.textContent) : "";
                         featureImg.src = getImageUrl(globalMainKeyword, initialSub, index);
                         featureImg.setAttribute('data-main', globalMainKeyword); 
                         featureImg.setAttribute('data-sub', initialSub);
@@ -761,7 +787,9 @@
                             if (this.classList.contains('reloading') || currentLayoutMode === 2) return; 
                             this.classList.add('reloading');
                             let currentP = newSlide.querySelector('p');
-                            let slideText = currentP ? currentP.innerText : ""; 
+                            
+                            // ✅ 同步修正這裡的 innerText，確保點擊圖片時能正常獲取文字並變更關鍵詞
+                            let slideText = currentP ? currentP.textContent : ""; 
                             if (!slideText.trim()) { this.classList.remove('reloading'); return; }
 
                             let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]"), currentSub = this.getAttribute('data-sub');
@@ -896,41 +924,31 @@
             return runs.length > 0 ? runs : [{ text: htmlElement.innerText, options: { color: defaultColor, fontFace: font } }];
         }
 
-        // =======================================================================
-        // 核心修正：利用離線 Canvas 將圖片物理裁切為具有透明背景的完美圓形 Base64
-        // 以徹底繞開 PptxGenJS 原生不支援任意形狀遮罩的缺陷
-        // =======================================================================
         function cropImageToCircleBase64(imgEl) {
             try {
                 let natW = imgEl.naturalWidth || 800;
                 let natH = imgEl.naturalHeight || 800;
                 let minSide = Math.min(natW, natH);
-                
-                // 限制最高解析度以確保 PPTX 檔案大小不會失控
                 let size = Math.min(minSide, 800); 
                 
                 const canvas = document.createElement('canvas');
                 canvas.width = size; canvas.height = size;
                 const ctx = canvas.getContext('2d');
                 
-                // 1. 繪製並裁切出完美圓形遮罩
                 ctx.beginPath();
                 ctx.arc(size/2, size/2, size/2, 0, 2*Math.PI);
                 ctx.closePath();
                 ctx.clip();
                 
-                // 2. 注入等同於 UI 的美學濾鏡設定
                 ctx.filter = 'grayscale(30%) sepia(10%) contrast(1.1)';
                 
-                // 3. 執行 Object-fit: cover 置中裁切演算法
                 let sw = natW, sh = natH;
                 let sx = 0, sy = 0;
                 if (sw > sh) { sx = (sw - sh) / 2; sw = sh; }
                 else { sy = (sh - sw) / 2; sh = sw; }
                 
-                // 4. 將圖片寫入畫布
                 ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, size, size);
-                return canvas.toDataURL('image/png'); // 必須是 PNG 以保留透明區域
+                return canvas.toDataURL('image/png'); 
             } catch(e) {
                 console.warn("Canvas crop failed, fallback to original", e);
                 return imgEl.src;
@@ -971,25 +989,11 @@
                     
                     if (isGeometricLayout) {
                         boxX = 1.5; boxY = 1.5; boxW = 7.0; boxH = 2.6;
-                        
-                        // 幾何模式下：我們刻意宣告「完美的滿版正圓 (寬度=高度)」，並利用座標位移將它偏移出 Slide 邊界外
-                        // PowerPoint 在播放時會自動將畫面外的區域裁切掉，這完美達成 UI 中 border-radius: 50vw 的視覺效果！
-                        if (cList.contains('layout-img-left')) { 
-                            imgW = 5.5; imgH = 5.5; imgX = -2.75; imgY = 0.0625; 
-                        }
-                        else if (cList.contains('layout-img-right')) { 
-                            imgW = 5.5; imgH = 5.5; imgX = 7.25; imgY = 0.0625; 
-                        }
-                        else if (cList.contains('layout-overlap-left')) { 
-                            imgW = 4.5; imgH = 4.5; imgX = -1.0; imgY = 1.5; 
-                        }
-                        else if (cList.contains('layout-overlap-right')) { 
-                            imgW = 5.5; imgH = 5.5; imgX = 6.0; imgY = -2.75; 
-                        }
-                        else if (cList.contains('layout-bottom-text')) { 
-                            imgW = 5.5; imgH = 5.5; imgX = 2.25; imgY = 2.875; 
-                            boxY = 0.8;
-                        }
+                        if (cList.contains('layout-img-left')) { imgW = 5.5; imgH = 5.5; imgX = -2.75; imgY = 0.0625; }
+                        else if (cList.contains('layout-img-right')) { imgW = 5.5; imgH = 5.5; imgX = 7.25; imgY = 0.0625; }
+                        else if (cList.contains('layout-overlap-left')) { imgW = 4.5; imgH = 4.5; imgX = -1.0; imgY = 1.5; }
+                        else if (cList.contains('layout-overlap-right')) { imgW = 5.5; imgH = 5.5; imgX = 6.0; imgY = -2.75; }
+                        else if (cList.contains('layout-bottom-text')) { imgW = 5.5; imgH = 5.5; imgX = 2.25; imgY = 2.875; boxY = 0.8;}
                     } else {
                         if (cList.contains('layout-img-left')) { imgX=0.5; imgY=0.6; imgW=3.5; imgH=4.4; boxX=4.5; boxY=1.0; boxW=5.0; boxH=3.6; } 
                         else if (cList.contains('layout-img-right')) { boxX=0.5; boxY=1.0; boxW=5.0; boxH=3.6; imgX=6.0; imgY=0.6; imgW=3.5; imgH=4.4; } 
@@ -1004,7 +1008,6 @@
                     let totalReqH = 0.7;
                     if (h1) totalReqH += 0.65;
                     if (h2) totalReqH += 0.45;
-                    
                     if (p) {
                         let pText = p.innerText || "";
                         let charsPerLine = Math.floor((boxW - 0.7) / 0.24); 
@@ -1025,30 +1028,16 @@
                         if (!isGeometricLayout && cList.contains('layout-bottom-text')) boxY += heightDiff; else boxY += (heightDiff / 2);
                     }
 
-                    // 渲染主配圖
                     if (hasImg) {
                         let featureImg = slide.querySelector('.feature-img-wrapper img');
                         if (featureImg) {
                             try { 
                                 if (isGeometricLayout) {
-                                    // 關鍵修正：透過 Canvas 將原圖物理性裁減為完美去背圓形的 Base64 資料流
                                     let circleBase64 = cropImageToCircleBase64(featureImg);
-                                    
-                                    pptSlide.addImage({ 
-                                        data: circleBase64, 
-                                        x: imgX, y: imgY, w: imgW, h: imgH, 
-                                        transparency: pptxImgOpacity,
-                                        // 由於影像是去背圓形 PNG，PPT 的陰影會自動精準貼合圓形外輪廓！
-                                        shadow: { type: 'outer', opacity: 0.15, blur: 8 }
-                                    }); 
+                                    pptSlide.addImage({ data: circleBase64, x: imgX, y: imgY, w: imgW, h: imgH, transparency: pptxImgOpacity, shadow: { type: 'outer', opacity: 0.15, blur: 8 }}); 
                                 } else {
                                     pptSlide.addShape(pres.ShapeType.rect, { x: imgX, y: imgY, w: imgW, h: imgH, fill: { color: cTheme.shapeFill }, shadow: { type: 'outer', opacity: 0.15, blur: 5 }});
-                                    pptSlide.addImage({ 
-                                        path: featureImg.src, 
-                                        x: imgX + 0.1, y: imgY + 0.1, 
-                                        sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 },
-                                        transparency: pptxImgOpacity
-                                    }); 
+                                    pptSlide.addImage({ path: featureImg.src, x: imgX + 0.1, y: imgY + 0.1, sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 }, transparency: pptxImgOpacity}); 
                                 }
                             } catch(e) { console.error(e); }
                         }
@@ -1062,7 +1051,6 @@
                     pptSlide.addShape(pres.ShapeType.line, { x: boxX+boxW-0.15, y: boxY+boxH-0.15-cLen, w: 0, h: cLen, line: { color: cTheme.line, width: 1.5 } }); 
 
                     let curY = boxY + 0.35, txtW = boxW - 0.7, txtX = boxX + 0.35;
-                    
                     if(h1) { pptSlide.addText(h1.innerText, { x: txtX, y: curY, w: txtW, h: 0.6, align: 'left', fontFace: font, fontSize: 32, color: cTheme.textMain, fit: 'shrink' }); curY += 0.65; }
                     if(h2) { pptSlide.addText(h2.innerText, { x: txtX, y: curY, w: txtW, h: 0.4, align: 'left', fontFace: font, fontSize: 20, color: cTheme.textMuted, fit: 'shrink' }); curY += 0.45; }
                     if(p) { 
