@@ -1,4 +1,43 @@
-<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
@@ -20,6 +59,27 @@
             background-color: #1a1a1a;
             color: #ffffff;
         }
+
+ .copyright-footer {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            padding: 5px 10px;
+            background-color: #f1f1f1;
+        }
+
+        .copyright-footer p {
+            margin: 0;
+            font-size: 14px;
+        }
+
+        @media (max-width: 600px) {
+            .copyright-footer p {
+                font-size: 12px;
+            }
+        }
+
+            
         .container {
             display: flex;
             height: 100%;
@@ -117,7 +177,6 @@
             width: 100%;
             height: 15px;
             background-color: #a9cce3;
-            pointer-events: none;
         }
         .pdf-border {
             border-width: 3px;
@@ -137,21 +196,11 @@
             white-space: pre-wrap;
             word-wrap: break-word;
             overflow-wrap: break-word;
-            overflow-y: auto;
+            overflow: hidden;
             font-family: 'cwTeXFangSong', 'cwTeXHei', 'Noto Serif TC', 'cwTeXKai', 'cwTeXMing', 'PingFang TC', 'Microsoft JhengHei', serif;
             transition: all 0.3s;
             border: none;
             outline: none;
-        }
-        .page-comment::-webkit-scrollbar {
-            width: 6px;
-        }
-        .page-comment::-webkit-scrollbar-thumb {
-            background-color: #ccc;
-            border-radius: 3px;
-        }
-        .dark-mode .page-comment::-webkit-scrollbar-thumb {
-            background-color: #666;
         }
         .dark-mode .page-comment {
             color: #eee;
@@ -173,71 +222,10 @@
             padding: 4px 12px;
             border-radius: 10px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-            z-index: 2;
         }
         .dark-mode .page-number {
             background: #445980;
         }
-
-        .ai-toolbar {
-            position: absolute;
-            bottom: 25px;
-            right: 10px;
-            display: flex;
-            gap: 8px;
-            opacity: 0.3;
-            transition: opacity 0.3s, transform 0.3s;
-            z-index: 5;
-        }
-        .page-comment-container:hover .ai-toolbar {
-            opacity: 1;
-        }
-        .ai-btn {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 50%;
-            width: 38px;
-            height: 38px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            color: #4b5563;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            margin: 0;
-            padding: 0;
-            font-size: 16px;
-        }
-        .ai-btn:hover {
-            background: #f0fdf4;
-            color: #10b981;
-            border-color: #10b981;
-            transform: scale(1.15) translateY(-2px);
-            box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
-        }
-        .ai-btn.semi:hover {
-            background: #eff6ff;
-            color: #3b82f6;
-            border-color: #3b82f6;
-            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
-        }
-        .dark-mode .ai-btn {
-            background: #374151;
-            border-color: #4b5563;
-            color: #d1d5db;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-        }
-        .dark-mode .ai-btn:hover {
-            background: #1f2937;
-            color: #34d399;
-            border-color: #34d399;
-        }
-        .dark-mode .ai-btn.semi:hover {
-            color: #60a5fa;
-            border-color: #60a5fa;
-        }
-
         .total-comment {
             margin-top: 20px;
             padding: 40px;
@@ -286,14 +274,13 @@
             border-radius: 4px;
             font-family: inherit;
             min-height: 120px;
-            box-sizing: border-box;
         }
         .dark-mode textarea {
             background: #333;
             color: #fff;
             border-color: #555;
         }
-        button.action-btn {
+        button {
             padding: 10px 20px;
             margin: 15px 0;
             cursor: pointer;
@@ -308,18 +295,17 @@
             gap: 5px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
-        button.action-btn:hover {
+        button:hover {
             background: #0056b3;
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
-        .dark-mode button.action-btn {
+        .dark-mode button {
             background: #007bff;
         }
-        .dark-mode button.action-btn:hover {
+        .dark-mode button:hover {
             background: #0056b3;
         }
-        
         .controls {
             position: sticky;
             top: 0;
@@ -334,34 +320,10 @@
         .dark-mode .controls {
             background: #333;
         }
-        .left-controls {
+        .left-controls, .right-controls {
             display: flex;
             align-items: center;
             gap: 10px;
-            flex: 1;
-            min-width: 0;
-        }
-        .right-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex: 1;
-            justify-content: flex-end;
-        }
-        .topic-input {
-            padding: 8px 12px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 16px;
-            width: 150px;
-            flex-shrink: 0;
-            outline: none;
-            font-family: inherit;
-        }
-        .dark-mode .topic-input {
-            background: #444;
-            color: #fff;
-            border-color: #555;
         }
         .font-size-control {
             display: inline-flex;
@@ -386,59 +348,22 @@
             align-items: center;
             justify-content: center;
             background: #e0e0e0;
-            cursor: pointer;
-            border: none;
-        }
-        .mode-toggle:hover {
-            transform: scale(1.1);
         }
         .dark-mode .mode-toggle {
             background: rgba(60,60,60,0.7);
-            color: white;
-        }
-        .right-controls button:not(.mode-toggle) {
-            padding: 10px;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #007bff;
-            color: white;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        .right-controls button:not(.mode-toggle):hover {
-            background: #0056b3;
-            transform: scale(1.1);
         }
         .tool-title {
-            flex: 0 0 auto;
+            flex: 1;
             text-align: center;
             font-size: 30px;
             font-weight: bold;
             color: #34495e;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
-            white-space: nowrap;
         }
         .dark-mode .tool-title {
             color: #66aaff;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         }
-        #file-status {
-            font-size: 16px;
-            color: #333;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 200px;
-        }
-        .dark-mode #file-status {
-            color: #ddd;
-        }
-        
         .total-comment-pdf {
             position: absolute;
             width: 794px !important;
@@ -527,8 +452,6 @@
             cursor: pointer;
             font-size: 16px;
             transition: all 0.3s;
-            white-space: nowrap;
-            flex-shrink: 0;
         }
         #file-upload-label:hover {
             background: #e0e0e0;
@@ -543,6 +466,37 @@
         }
         #file-upload {
             display: none;
+        }
+        #file-status {
+            font-size: 16px;
+            color: #333;
+        }
+        .dark-mode #file-status {
+            color: #ddd;
+        }
+        #file-order-modal > div {
+            background: white;
+            margin: 100px auto;
+            padding: 20px;
+            width: 400px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        #file-list li {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            cursor: move;
+        }
+        #file-list span {
+            flex: 1;
+        }
+        .thumbnail {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            margin-right: 10px;
+            cursor: pointer;
         }
         .progress-container {
             position: fixed;
@@ -585,114 +539,19 @@
             pointer-events: auto;
             box-sizing: border-box;
         }
-        .total-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .total-header h3 {
-            margin: 0;
-        }
-        .total-ai-toolbar {
-            display: flex;
-            gap: 8px;
-        }
-
-
-/* 總評確認視窗樣式 */
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(2px);
-            z-index: 2000;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        .modal-overlay.show {
-            opacity: 1;
-        }
-        .modal-content {
-            background: #fff;
-            border-radius: 12px;
-            padding: 25px 30px;
-            width: 320px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-            transform: translateY(-20px);
-            transition: transform 0.3s ease;
-        }
-        .modal-overlay.show .modal-content {
-            transform: translateY(0);
-        }
-        .dark-mode .modal-content {
-            background: #333;
-            color: #eee;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-        }
-        .modal-content h3 {
-            margin: 0 0 15px 0;
-            font-size: 20px;
-            color: #2c3e50;
-        }
-        .dark-mode .modal-content h3 { color: #66aaff; }
-        .modal-content p {
-            font-size: 16px;
-            color: #555;
-            margin-bottom: 25px;
-            line-height: 1.5;
-        }
-        .dark-mode .modal-content p { color: #ccc; }
-        .modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 12px;
-        }
-        .modal-actions button {
-            padding: 8px 18px;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-weight: bold;
-        }
-        .btn-cancel {
-            background: #e0e0e0;
-            color: #444;
-        }
-        .btn-cancel:hover { background: #d0d0d0; }
-        .dark-mode .btn-cancel { background: #555; color: #ddd; }
-        .dark-mode .btn-cancel:hover { background: #666; }
-        .btn-confirm {
-            background: #007bff;
-            color: white;
-            box-shadow: 0 2px 6px rgba(0, 123, 255, 0.3);
-        }
-        .btn-confirm:hover {
-            background: #0056b3;
-            transform: translateY(-2px);
-        }
-
-
     </style>
 </head>
 <body>
     <div class="container">
         <div class="document-area" id="document-area">
-          <div class="controls">
+            <div class="controls">
                 <div class="left-controls">
                     <label for="file-upload" id="file-upload-label">選擇檔案</label>
-                    <input type="file" id="file-upload" accept="image/*,application/pdf" multiple>
-                    <input type="text" id="essay-topic" placeholder="請輸入題目..." class="topic-input">
-                    <span id="file-status" title="這裡會顯示檔名"></span> 
+                    <input type="file" id="file-upload" accept="image/*,application/pdf" multiple style="display: none;">
+                    <span id="file-status"></span>
                 </div>
-                <!-- 這裡移除了原本置中的 tool-title -->
+                <div class="tool-title">琢玉</div>
                 <div class="right-controls">
-                    <!-- 將標題移至此處，並設定右邊距使其靠近重置按鈕 -->
-                    <div class="tool-title" style="margin-right: 15px;">琢玉</div>
                     <button onclick="resetZoom()"><i class="fas fa-sync-alt"></i></button>
                     <button onclick="zoomIn()"><i class="fas fa-search-plus"></i></button>
                     <button onclick="zoomOut()"><i class="fas fa-search-minus"></i></button>
@@ -707,7 +566,7 @@
                 <div class="comment-header">
                     <h3>旁批</h3>
                     <div class="font-size-control">
-                        <label for="font-size">全局文字大小:</label>
+                        <label for="font-size">文字大小:</label>
                         <input type="range" id="font-size" min="20" max="70" value="40" step="2">
                     </div>
                 </div>
@@ -721,40 +580,51 @@
             <div class="progress-bar">
                 <div class="progress-bar-inner"></div>
             </div>
-            <button id="confirm-order" class="action-btn" style="margin-top: 10px; justify-content: center; width: 100%;">確認</button>
+            <button id="confirm-order" style="margin-top: 10px; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; justify-content: center; text-align: center; width: 100%;">確認</button>
         </div>
     </div>
     <div class="progress-container">
-        <div class="progress-bar-inner"></div>
+        <div class="progress-bar"></div>
     </div>
     <div class="progress-text">生成進度：0%</div>
 
-
-
-<!-- 總評確認視窗 -->
-    <div id="confirm-modal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 id="modal-title">提示</h3>
-            <p id="modal-message">即將進行總評批改，確定要繼續嗎？</p>
-            <div class="modal-actions">
-                <button class="btn-cancel" onclick="closeConfirmModal()">取消</button>
-                <button class="btn-confirm" id="btn-confirm-action">確定</button>
-            </div>
-        </div>
-    </div>
-
-
+    <script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+                try {
+                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                    var firstSheetName = workbook.SheetNames[0];
+                    var worksheet = workbook.Sheets[firstSheetName];
+                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                    var filteredData = jsonData.filter(row => row.some(filledCell));
+                    var headerRowIndex = filteredData.findIndex((row, index) =>
+                      row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                    );
+                    if (headerRowIndex === -1 || headerRowIndex > 25) {
+                      headerRowIndex = 0;
+                    }
+                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                    return csv;
+                } catch (e) {
+                    console.error(e);
+                    return "";
+                }
+            }
+            return gk_fileData[filename] || "";
+        }
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <script>
-        // --- 替換為你的 Google Apps Script Web App URL ---
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwib6Tb7Z8Zfo5rBAVhidegrK7IHybfDEbgjHvtA8WmpEw4C3zDtkAG1ziH9PjKuyLO/exec";
-
-        const MODEL = "gemini-search"; 
-        const ZHIPU_MODEL = "glm-4v-flash";
-
         const { jsPDF } = window.jspdf;
         let pdfFiles = [];
         let pdfData = [];
@@ -766,7 +636,7 @@
         let pageHeights = [];
         let baseWidth = 0;
         let comments = [];
-        let globalFontSize = 40;
+        let fontSize = 40;
         const LINE_HEIGHT = 38;
         let currentFileType = '';
         let isDarkMode = false;
@@ -780,7 +650,6 @@
         let lastTapY = 0;
         let isHighlighting = false;
         let highlightStartX, highlightStartY;
-        const defaultImageURL = 'https://i.ibb.co/CssJHZjV/page-0001.jpg'; 
 
         function toggleDarkMode() {
             isDarkMode = !isDarkMode;
@@ -801,44 +670,21 @@
                 const pageHeight = children[index].offsetHeight * currentZoom;
                 comment.container.style.height = `${pageHeight}px`;
                 comment.element.style.height = `${pageHeight - 20}px`;
-                
                 const lines = Math.floor((pageHeight - 20) / LINE_HEIGHT);
                 const currentLines = comment.element.textContent.split('\n').length;
                 if (currentLines < lines) {
                     comment.element.textContent += '\n'.repeat(lines - currentLines);
+                } else if (currentLines > lines) {
+                    const arr = comment.element.textContent.split('\n');
+                    comment.element.textContent = arr.slice(0, lines).join('\n');
                 }
-                autoFitPage(index); 
             });
-        }
-
-        function autoFitPage(index) {
-            let comment = comments[index];
-            let el = comment.element;
-            let minFontSize = 24; 
-            
-            comment.fontSize = globalFontSize;
-            el.style.fontSize = comment.fontSize + 'px';
-
-            while (el.scrollHeight > el.clientHeight && comment.fontSize > minFontSize) {
-                comment.fontSize -= 1;
-                el.style.fontSize = comment.fontSize + 'px';
-            }
-        }
-
-        function adjustPageFontSize(index, delta) {
-            let comment = comments[index];
-            comment.fontSize += delta;
-            if(comment.fontSize < 24) comment.fontSize = 24;
-            if(comment.fontSize > 100) comment.fontSize = 100;
-            comment.element.style.fontSize = comment.fontSize + 'px';
-            synchronizeHeights(); 
         }
 
         document.getElementById('file-upload').addEventListener('change', function(event) {
             const files = event.target.files;
             if (files.length === 0) {
                 document.getElementById('file-status').textContent = '';
-                document.getElementById('file-status').title = '';
                 return;
             }
 
@@ -896,16 +742,15 @@
 
         function updateFileStatus() {
             const fileStatus = document.getElementById('file-status');
-            let statusText = '';
             if (currentMode === 'multiplePdfs') {
-                statusText = `正在批改第${currentPdfIndex + 1}篇，共${pdfFiles.length}篇`;
+                fileStatus.textContent = `正在批改第${currentPdfIndex + 1}篇作文，共${pdfFiles.length}篇`;
             } else if (currentMode === 'singlePdf' || currentMode === 'singleImage') {
-                statusText = originalFileName;
+                fileStatus.textContent = originalFileName;
             } else if (currentMode === 'multipleImages') {
-                statusText = `${pdfPages.length}頁`;
+                fileStatus.textContent = `${pdfPages.length}頁`;
+            } else {
+                fileStatus.textContent = '';
             }
-            fileStatus.textContent = statusText;
-            fileStatus.title = statusText; 
         }
 
         function loadCurrentPdf() {
@@ -1021,54 +866,17 @@
                 pdfPages.push({
                     canvas: canvas,
                     originalWidth: img.naturalWidth,
-                    originalHeight: img.naturalHeight,
-                    ocrText: "" 
+                    originalHeight: img.naturalHeight
                 });
 
                 pageHeights.push(canvas.height / 2);
                 if (baseWidth === 0) baseWidth = canvas.width / 2;
             }
 
-            await insertDefaultImage(pdfContainer);
-
-            initComments(pdfPages.length);
+            initComments(files.length);
             synchronizeHeights();
             appendTotalSection();
             updateFileStatus();
-        }
-
-        async function insertDefaultImage(container) {
-            const img = await loadImageFromURL(defaultImageURL);
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const scale = VIEWPORT_WIDTH / img.naturalWidth;
-            canvas.width = VIEWPORT_WIDTH * 2;
-            canvas.height = img.naturalHeight * scale * 2;
-            canvas.style.width = `${VIEWPORT_WIDTH}px`;
-            canvas.style.height = `${canvas.height / 2}px`;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            canvas.dataset.page = pdfPages.length + 1;
-            container.appendChild(canvas);
-
-            const symbolContainer = document.createElement('div');
-            symbolContainer.className = 'symbol-container';
-            symbolContainer.style.position = 'absolute';
-            symbolContainer.style.top = `${canvas.offsetTop}px`;
-            symbolContainer.style.left = `${canvas.offsetLeft}px`;
-            symbolContainer.style.width = `${parseFloat(canvas.style.width) * currentZoom}px`;
-            symbolContainer.style.height = `${parseFloat(canvas.style.height) * currentZoom}px`;
-            symbolContainer.style.pointerEvents = 'none';
-            container.appendChild(symbolContainer);
-            symbolContainers.push(symbolContainer);
-
-            pdfPages.push({
-                canvas: canvas,
-                originalWidth: img.naturalWidth,
-                originalHeight: img.naturalHeight,
-                ocrText: "" 
-            });
-
-            pageHeights.push(canvas.height / 2);
         }
 
         function loadImage(file) {
@@ -1077,16 +885,6 @@
                 img.onload = () => resolve(img);
                 img.onerror = reject;
                 img.src = URL.createObjectURL(file);
-            });
-        }
-
-        function loadImageFromURL(url) {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                img.onload = () => resolve(img);
-                img.onerror = reject;
-                img.src = url;
             });
         }
 
@@ -1139,31 +937,27 @@
                 pdfPages.push({
                     canvas: canvas,
                     originalWidth: originalViewport.width,
-                    originalHeight: originalViewport.height,
-                    ocrText: ""
+                    originalHeight: originalViewport.height
                 });
 
                 pageHeights.push(viewport.height / 2);
                 if (baseWidth === 0) baseWidth = viewport.width / 2;
-            }
-
-            await insertDefaultImage(container);
-
-            if (pdf.numPages > 0) {
-                initComments(pdfPages.length);
-                synchronizeHeights();
-                appendTotalSection();
+                if (pageNum === pdf.numPages) {
+                    initComments(pdf.numPages);
+                    synchronizeHeights();
+                    appendTotalSection();
+                }
             }
         }
 
-      function initComments(pageCount) {
+        function initComments(pageCount) {
             const commentSection = document.getElementById('comment-section');
             commentSection.innerHTML = `
                 <div class="comment-header">
                     <h3>旁批</h3>
                     <div class="font-size-control">
-                        <label for="font-size">全局文字大小:</label>
-                        <input type="range" id="font-size" min="20" max="70" value="40" step="2">
+                        <label for="font-size">文字大小:</label>
+                        <input type="range" id="font-size" min="16" max="64" value="32" step="1">
                     </div>
                 </div>
             `;
@@ -1177,29 +971,11 @@
                 pageNumber.textContent = `${i + 1}`;
                 commentContainer.appendChild(pageNumber);
 
-                const isLastPage = (i === pageCount - 1);
-                if (!isLastPage) {
-                    const aiToolbar = document.createElement('div');
-                    aiToolbar.className = 'ai-toolbar';
-                    // 這裡恢復成原來的 triggerAIGrading
-                    aiToolbar.innerHTML = `
-                        <button class="ai-btn" title="放大字體" onclick="adjustPageFontSize(${i}, 2)" style="font-weight:bold; font-family:serif;">A+</button>
-                        <button class="ai-btn" title="縮小字體" onclick="adjustPageFontSize(${i}, -2)" style="font-weight:bold; font-family:serif;">A-</button>
-                        <button class="ai-btn full-ai" title="全智能點評 (全篇脈絡分析本頁)" onclick="triggerAIGrading(${i}, 'full')">
-                            <i class="fas fa-magic"></i>
-                        </button>
-                        <button class="ai-btn semi-ai semi" title="半智能點評 (擴寫您的短評)" onclick="triggerAIGrading(${i}, 'semi')">
-                            <i class="fas fa-pen-fancy"></i>
-                        </button>
-                    `;
-                    commentContainer.appendChild(aiToolbar);
-                }
-
                 const commentDiv = document.createElement('div');
                 commentDiv.className = 'page-comment';
                 commentDiv.contentEditable = true;
                 const divHeight = pageHeights[i] * currentZoom;
-                commentDiv.style.fontSize = `${globalFontSize}px`;
+                commentDiv.style.fontSize = `${fontSize}px`;
                 const lines = Math.floor((divHeight - 20) / LINE_HEIGHT);
                 commentDiv.textContent = pdfData[currentPdfIndex].comments[i] || '\n'.repeat(lines - 1);
                 commentContainer.appendChild(commentDiv);
@@ -1210,8 +986,7 @@
                     element: commentDiv,
                     container: commentContainer,
                     page: i,
-                    positionY: pageHeights.slice(0, i).reduce((a, b) => a + b, 0),
-                    fontSize: globalFontSize 
+                    positionY: pageHeights.slice(0, i).reduce((a, b) => a + b, 0)
                 });
 
                 commentDiv.addEventListener('mousedown', function(e) {
@@ -1220,402 +995,12 @@
             }
 
             document.getElementById('font-size').addEventListener('input', function() {
-                globalFontSize = parseInt(this.value);
-                comments.forEach((comment, idx) => {
-                    comment.fontSize = globalFontSize;
-                    comment.element.style.fontSize = `${globalFontSize}px`;
-                    autoFitPage(idx); 
+                fontSize = this.value;
+                comments.forEach(comment => {
+                    comment.element.style.fontSize = `${fontSize}px`;
                 });
                 synchronizeHeights();
             });
-        }
-
-        // 壓縮 Canvas 尺寸與畫質，給 AI 分析用
-        function getCompressedBase64(canvas, maxWidth = 1024) {
-            const tempCanvas = document.createElement('canvas');
-            const ctx = tempCanvas.getContext('2d');
-            
-            let width = canvas.width;
-            let height = canvas.height;
-            
-            if (width > maxWidth) {
-                height = Math.round((height * maxWidth) / width);
-                width = maxWidth;
-            }
-            
-            tempCanvas.width = width;
-            tempCanvas.height = height;
-            
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, width, height);
-            ctx.drawImage(canvas, 0, 0, width, height);
-            
-            return tempCanvas.toDataURL('image/jpeg', 0.5);
-        }
-
-        function getAllPagesBase64() {
-            return pdfPages.map(p => getCompressedBase64(p.canvas));
-        }
-
-        /**
-         * 解析並拋出具體的錯誤資訊
-         */
-        function throwParsedError(data, defaultMsg) {
-            let msg = defaultMsg;
-            if (data.error) {
-                msg = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error;
-            }
-            if (data.details) {
-                msg += "\n\n【詳細內容】\n" + (typeof data.details === 'object' ? JSON.stringify(data.details, null, 2) : data.details);
-            }
-            throw new Error(msg);
-        }
-
-        // --- 呼叫後端 GAS 進行單頁 OCR 提取 ---
-        async function performOCR(pageIndex) {
-            if (pdfPages[pageIndex].ocrText) {
-                return pdfPages[pageIndex].ocrText;
-            }
-
-            const base64Image = getCompressedBase64(pdfPages[pageIndex].canvas, 1024);
-            const prompt = "請精準提取圖片中的所有手寫或印刷文字。只輸出提取出的文字，不要加入任何前言、後語、解釋或 Markdown 標籤。如果沒有文字，請回覆空字串。";
-
-            try {
-                const response = await fetch(GAS_WEB_APP_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({
-                        action: "zhipu",
-                        payload: {
-                            model: ZHIPU_MODEL,
-                            messages: [
-                                {
-                                    role: "user",
-                                    content: [
-                                        { type: "text", text: prompt },
-                                        { type: "image_url", image_url: { url: base64Image } }
-                                    ]
-                                }
-                            ]
-                        }
-                    })
-                });
-
-                if (!response.ok) throw new Error(`Google Apps Script 請求失敗 (狀態碼: ${response.status})`);
-                
-                const data = await response.json();
-                
-                // 如果回傳包含 error 物件，代表第三方 API 報錯
-                if (data.error) {
-                    throwParsedError(data, `第 ${pageIndex + 1} 頁 OCR 發生錯誤`);
-                }
-                
-                if (!data.choices || data.choices.length === 0) {
-                    throw new Error("智譜 API 未回傳有效的文字內容。\n" + JSON.stringify(data));
-                }
-
-                const extractedText = data.choices[0].message.content.trim();
-                pdfPages[pageIndex].ocrText = extractedText;
-                return extractedText;
-
-            } catch (error) {
-                console.error(`第 ${pageIndex + 1} 頁 OCR 失敗:`, error);
-                throw error; // 讓外層捕獲
-            }
-        }
-
-        async function triggerAIGrading(pageIndex, mode, isAutoTrigger = false, totalDirection = "") {
-            const commentObj = comments[pageIndex];
-            const topic = document.getElementById('essay-topic').value || "未提供題目";
-            
-            const toolbar = commentObj.container.querySelector('.ai-toolbar');
-            if(!toolbar) return; 
-
-            const targetBtn = (mode === 'full') ? toolbar.querySelector('.full-ai') : toolbar.querySelector('.semi-ai');
-            const originalIcon = targetBtn.innerHTML;
-            targetBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            targetBtn.style.pointerEvents = 'none';
-
-            const currentText = commentObj.element.textContent.replace(/^\s*[\r\n]/gm, '').trim();
-
-            if (mode === 'semi' && currentText.length < 2) {
-                if (!isAutoTrigger) {
-                    alert("請先在框內輸入簡短的評語，AI 才能幫你擴寫喔！");
-                }
-                targetBtn.innerHTML = originalIcon;
-                targetBtn.style.pointerEvents = 'auto';
-                return;
-            }
-
-            let currentOcrText = "";
-            try {
-                currentOcrText = await performOCR(pageIndex);
-            } catch (error) {
-                alert(`文字提取 (OCR) 失敗:\n${error.message}`);
-                targetBtn.innerHTML = originalIcon;
-                targetBtn.style.pointerEvents = 'auto';
-                return;
-            }
-
-            let promptText = "";
-            if (mode === 'full') {
-                promptText = `你是一個專業的中文作文批改老師。請仔細閱讀以下由圖片提取出的學生文章 OCR 辨識文字，並結合圖片內容進行評分。文章題目是：「${topic}」。
-以下是該頁（第 ${pageIndex + 1} 頁）的真實 OCR 辨識文本：
-【 ${currentOcrText} 】
-
-任務：請專注針對【第 ${pageIndex + 1} 張圖片】的真實情節內容給出旁批。
-要求：
-1. 嚴格字數限制：旁批絕對不可超過 80 個字，必須簡短準確。
-2. 範疇選擇：從「扣題」或「詳略」中挑選最關鍵的一個進行點評即可，不要兩者都評。
-3. 內容限制：評論只能涉及該頁（第 ${pageIndex + 1} 頁）的真實情節內容，絕不可提及其他頁面的內容。
-4. 表達方式：將點評範疇自然融於句中，絕對不要出現「扣題方面」、「詳略方面」等生硬詞彙，也不要使用任何 Markdown 標記。
-5. 嚴禁直接引用：絕對不可以使用引號（「」或“”或『』或''）直接摘錄原文！請務必用你自己的話來概括和歸納文章情節。
-6. 輸出格式：只輸出最終的評語純文字！絕對不能輸出 JSON 格式（不可包含 extracted_ocr_text 等欄位），不需要任何前言、後語或額外標籤。`;
-            } else if (mode === 'semi') {
-                promptText = `你是一個專業的中文作文批改老師。請仔細閱讀以下由圖片提取出的學生文章 OCR 辨識文字，並結合圖片內容進行評分。文章題目是：「${topic}」。
-以下是該頁（第 ${pageIndex + 1} 頁）的真實 OCR 辨識文本：
-【 ${currentOcrText} 】
-
-任務：我已經為【第 ${pageIndex + 1} 張圖片】給出了簡短的評語方向：「${currentText}」。請將其擴充為一段簡短準確的旁批。
-要求：
-1. 嚴格字數限制：擴寫後的旁批絕對不可超過 80 個字。
-2. 內容限制：擴寫只能結合該頁（第 ${pageIndex + 1} 頁）可見的真實情節內容，絕不可提及其他頁面。
-3. 表達方式：絕對不要出現「扣題方面」、「詳略方面」等生硬詞彙，也不要使用任何 Markdown 標記。
-4. 嚴禁直接引用：絕對不可以使用引號（「」或“”或『』或''）直接摘錄原文，請務必用你自己的話來概括和歸納文章情節。
-5. 輸出格式：只輸出最終的評語純文字！絕對不能輸出 JSON 格式，不需要任何前言、後語或額外標籤。`;
-            } else if (mode === 'guided') {
-                promptText = `你是一個專業的中文作文批改老師。請仔細閱讀以下由圖片提取出的學生文章 OCR 辨識文字，並結合圖片內容進行評分。文章題目是：「${topic}」。
-以下是該頁（第 ${pageIndex + 1} 頁）的真實 OCR 辨識文本：
-【 ${currentOcrText} 】
-
-任務：該頁目前沒有短評，但整篇文章的總評方向是：「${totalDirection}」。請根據這個總評脈絡，專注尋找【第 ${pageIndex + 1} 張圖片】中真實相關的情節，給出一段簡短準確的旁批。
-要求：
-1. 嚴格字數限制：旁批絕對不可超過 80 個字。
-2. 內容限制：評論只能涉及該頁（第 ${pageIndex + 1} 頁）的真實情節內容，絕不可提及其他頁面的內容。
-3. 表達方式：絕對不要出現「扣題方面」、「詳略方面」等生硬詞彙，也不要使用任何 Markdown 標記。
-4. 嚴禁直接引用：絕對不可以使用引號（「」或“”或『』或''）直接摘錄原文，請務必用你自己的話來概括和歸納文章情節。
-5. 輸出格式：只輸出最終的評語純文字！絕對不能輸出 JSON 格式，不需要任何前言、後語或額外標籤。`;
-            }
-
-            try {
-                const allImagesBase64 = getAllPagesBase64();
-                const contentArray = [
-                    { type: "text", text: promptText },
-                    ...allImagesBase64.map(b64 => ({ type: "image_url", image_url: { url: b64 } }))
-                ];
-
-                const response = await fetch(GAS_WEB_APP_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({
-                        action: "gemini",
-                        payload: {
-                            model: MODEL,
-                            messages: [
-                                { role: "user", content: contentArray }
-                            ]
-                        }
-                    })
-                });
-
-                if (!response.ok) throw new Error(`Google Apps Script 請求失敗 (狀態碼: ${response.status})`);
-                
-                const data = await response.json();
-                if (data.error) {
-                    throwParsedError(data, `AI 評語生成失敗`);
-                }
-                if (!data.choices || data.choices.length === 0) {
-                    throw new Error("AI 點評未回傳預期的內容。\n" + JSON.stringify(data));
-                }
-
-                let finalComment = data.choices[0].message.content.trim();
-
-                try {
-                    let cleanJsonStr = finalComment.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
-                    if (cleanJsonStr.startsWith('{') && cleanJsonStr.endsWith('}')) {
-                        const parsed = JSON.parse(cleanJsonStr);
-                        if (parsed.comment) {
-                            finalComment = parsed.comment;
-                        } else if (parsed.旁批) {
-                            finalComment = parsed.旁批;
-                        } else if (parsed.總評) {
-                            finalComment = parsed.總評;
-                        }
-                    }
-                } catch (e) {
-                }
-
-                finalComment = finalComment.replace(/^評語：/, '').replace(/^旁批：/, '').replace(/^"|"$/g, '').trim();
-                finalComment = finalComment.replace(/[「」“”『』'"]/g, '');
-
-                if (mode === 'semi' || mode === 'guided') {
-                    commentObj.element.textContent = finalComment; 
-                } else {
-                    if (currentText.length > 0) {
-                        commentObj.element.textContent = currentText + "\n\n" + finalComment;
-                    } else {
-                        commentObj.element.textContent = finalComment;
-                    }
-                }
-                
-                synchronizeHeights();
-                autoFitPage(pageIndex); 
-                
-                const lines = commentObj.element.textContent.split('\n').length;
-                moveCursorToLine(commentObj.element, lines - 1);
-
-            } catch (error) {
-                console.error("AI 點評發生錯誤:", error);
-                if (!isAutoTrigger) alert(`生成 AI 評語失敗:\n${error.message}`);
-            } finally {
-                targetBtn.innerHTML = originalIcon;
-                targetBtn.style.pointerEvents = 'auto';
-            }
-        }
-
-        async function triggerTotalAIGrading(mode) {
-            const topic = document.getElementById('essay-topic').value || "未提供題目";
-            const textarea = document.getElementById('total-comment-text');
-            const totalToolbar = document.querySelector('.total-ai-toolbar');
-            const targetBtn = mode === 'full' ? document.querySelector('.total-header .full-ai') : document.querySelector('.total-header .semi-ai');
-            
-            const originalIcon = targetBtn.innerHTML;
-            const currentText = textarea.value.trim();
-
-            if (mode === 'semi' && currentText.length < 2) {
-                alert("請先在總評框內輸入簡短的評語，AI 才能幫你擴寫喔！");
-                return;
-            }
-
-            targetBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            Array.from(totalToolbar.children).forEach(btn => btn.style.pointerEvents = 'none');
-
-            let allOcrTexts = "";
-            try {
-                const pagesToGrade = comments.length - 1;
-                for (let i = 0; i < pagesToGrade; i++) {
-                    const text = await performOCR(i);
-                    allOcrTexts += `【第 ${i + 1} 頁內容】：\n${text}\n\n`;
-                }
-            } catch (error) {
-                alert(`獲取全文 OCR 失敗:\n${error.message}`);
-                targetBtn.innerHTML = originalIcon;
-                Array.from(totalToolbar.children).forEach(btn => btn.style.pointerEvents = 'auto');
-                return;
-            }
-
-            let promptText = "";
-            if (mode === 'full') {
-                promptText = `你是一個專業的中文作文批改老師。請仔細閱讀以下由圖片提取出的學生文章 OCR 辨識文字，並結合圖片內容進行評分。文章題目是：「${topic}」。
-以下是整篇文章各頁的真實 OCR 辨識文本：
-===
-${allOcrTexts}
-===
-
-任務：請為整篇文章寫下一段全面性的總結評語（總評）。
-要求：
-1. 嚴格字數限制：總評絕對不可超過 100 個字。
-2. 表達方式：將「扣題」、「立意」、「詳略」、「結構」等範疇融為一體自然表達，絕對不要出現「扣題方面」、「詳略方面」等生硬標題或詞彙，也不要使用任何 Markdown 標記。
-3. 嚴禁直接引用：絕對不可以使用引號（「」或“”或『』或''）直接摘錄原文，請務必用你自己的話來概括和歸納文章情節。
-4. 輸出格式：只輸出最終的總評純文字！絕對不能輸出 JSON 格式（不可包含 extracted_ocr_text 等欄位），不需要任何前言、後語或額外標籤。`;
-            } else {
-                promptText = `你是一個專業的中文作文批改老師。請仔細閱讀以下由圖片提取出的學生文章 OCR 辨識文字，並結合圖片內容進行評分。文章題目是：「${topic}」。
-以下是整篇文章各頁的真實 OCR 辨識文本：
-===
-${allOcrTexts}
-===
-
-任務：我已經為整篇文章給出了簡短的總評方向：「${currentText}」。請將其擴充為一段總結評語。
-要求：
-1. 嚴格字數限制：擴寫後的總評絕對不可超過 100 個字。
-2. 表達方式：絕對不要出現「扣題方面」、「詳略方面」等生硬標題或詞彙，也不要使用任何 Markdown 標記。
-3. 嚴禁直接引用：絕對不可以使用引號（「」或“”或『』或''）直接摘錄原文，請務必用你自己的話來概括和歸納文章情節。
-4. 輸出格式：只輸出最終的總評純文字！絕對不能輸出 JSON 格式，不需要任何前言、後語或額外標籤。`;
-            }
-
-            try {
-                const allImagesBase64 = getAllPagesBase64();
-                const contentArray = [
-                    { type: "text", text: promptText },
-                    ...allImagesBase64.map(b64 => ({ type: "image_url", image_url: { url: b64 } }))
-                ];
-
-                const response = await fetch(GAS_WEB_APP_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({
-                        action: "gemini",
-                        payload: {
-                            model: MODEL,
-                            messages: [
-                                { role: "user", content: contentArray }
-                            ]
-                        }
-                    })
-                });
-
-                if (!response.ok) throw new Error(`Google Apps Script 請求失敗 (狀態碼: ${response.status})`);
-                
-                const data = await response.json();
-                if (data.error) {
-                    throwParsedError(data, `AI 總評生成失敗`);
-                }
-                if (!data.choices || data.choices.length === 0) {
-                    throw new Error("AI 總評未回傳預期的內容。\n" + JSON.stringify(data));
-                }
-
-                let finalComment = data.choices[0].message.content.trim();
-
-                try {
-                    let cleanJsonStr = finalComment.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
-                    if (cleanJsonStr.startsWith('{') && cleanJsonStr.endsWith('}')) {
-                        const parsed = JSON.parse(cleanJsonStr);
-                        if (parsed.comment) {
-                            finalComment = parsed.comment;
-                        } else if (parsed.總評) {
-                            finalComment = parsed.總評;
-                        } else if (parsed.旁批) {
-                            finalComment = parsed.旁批;
-                        }
-                    }
-                } catch (e) {
-                }
-
-                finalComment = finalComment.replace(/^評語：/, '').replace(/^總評：/, '').replace(/^"|"$/g, '').trim();
-                finalComment = finalComment.replace(/[「」“”『』'"]/g, '');
-
-                if (mode === 'semi') {
-                    textarea.value = finalComment; 
-                } else {
-                    if (currentText.length > 0) {
-                        textarea.value = currentText + "\n\n" + finalComment;
-                    } else {
-                        textarea.value = finalComment;
-                    }
-                }
-                pdfData[currentPdfIndex].totalComment = textarea.value;
-
-                const pagesToGrade = comments.length - 1; 
-                for (let i = 0; i < pagesToGrade; i++) {
-                    const pageText = comments[i].element.textContent.replace(/^\s*[\r\n]/gm, '').trim();
-                    if (mode === 'semi') {
-                        if (pageText.length < 2) {
-                            await triggerAIGrading(i, 'guided', true, currentText);
-                        } else {
-                            await triggerAIGrading(i, 'semi', true);
-                        }
-                    } else {
-                        await triggerAIGrading(i, 'full', true);
-                    }
-                }
-
-            } catch (error) {
-                console.error("AI 總評發生錯誤:", error);
-                alert(`生成 AI 總評失敗:\n${error.message}`);
-            } finally {
-                targetBtn.innerHTML = originalIcon;
-                Array.from(totalToolbar.children).forEach(btn => btn.style.pointerEvents = 'auto');
-            }
         }
 
         function handleCommentClick(e, element) {
@@ -1691,23 +1076,12 @@ ${allOcrTexts}
             synchronizeHeights();
         }
 
-      function appendTotalSection() {
+        function appendTotalSection() {
             if (!totalSection) {
                 totalSection = document.createElement('div');
                 totalSection.className = 'total-comment';
                 totalSection.innerHTML = `
-                    <div class="total-header">
-                        <h3>總評</h3>
-                        <div class="total-ai-toolbar ai-toolbar" style="position: static; opacity: 1;">
-                            <!-- 這裡才是修改為 showConfirmModal 的地方 -->
-                            <button class="ai-btn full-ai" title="一鍵全智能批改 (自動產生總評與所有旁批)" onclick="showConfirmModal('full')">
-                                <i class="fas fa-magic"></i>
-                            </button>
-                            <button class="ai-btn semi-ai semi" title="一鍵半智能批改 (擴寫總評與所有短評)" onclick="showConfirmModal('semi')">
-                                <i class="fas fa-pen-fancy"></i>
-                            </button>
-                        </div>
-                    </div>
+                    <h3>總評</h3>
                     <textarea id="total-comment-text" rows="6" placeholder="輸入總評">${pdfData[currentPdfIndex].totalComment}</textarea>
                     <h4>範疇</h4>
                     <div class="problem-categories">
@@ -1743,7 +1117,7 @@ ${allOcrTexts}
                         <label>總分:</label>
                         <span id="total-score">0</span>
                     </div>
-                    <button class="action-btn" onclick="generatePDF()"><i class="fas fa-file-pdf"></i> 生成PDF</button>
+                    <button onclick="generatePDF()"><i class="fas fa-file-pdf"></i> 生成PDF</button>
                 `;
                 document.getElementById('pdf-container').appendChild(totalSection);
                 document.querySelectorAll('.score-input input').forEach(input => {
@@ -1795,7 +1169,7 @@ ${allOcrTexts}
             };
 
             const progressContainer = document.querySelector('.progress-container');
-            const progressBar = document.querySelector('.progress-bar-inner');
+            const progressBar = document.querySelector('.progress-bar');
             const progressText = document.querySelector('.progress-text');
             progressContainer.style.display = 'block';
             progressText.style.display = 'block';
@@ -1876,12 +1250,6 @@ ${allOcrTexts}
 
                     pdf.addImage(pageCanvas, 'PNG', 0, 0, pdfWidth, pdfHeight);
 
-                    const toolbar = comment.container.querySelector('.ai-toolbar');
-                    if(toolbar) toolbar.style.display = 'none';
-
-                    const originalOverflow = comment.element.style.overflowY;
-                    comment.element.style.overflowY = 'visible';
-
                     if (comment.element.innerText.trim()) {
                         comment.container.classList.add('pdf-border');
                         const commentCanvas = await html2canvas(comment.container, {
@@ -1892,19 +1260,12 @@ ${allOcrTexts}
                         comment.container.classList.remove('pdf-border');
                         pdf.addImage(commentCanvas, 'PNG', pdfWidth, 0, fixedCommentWidth, pdfHeight);
                     }
-                    
-                    comment.element.style.overflowY = originalOverflow;
-                    if(toolbar) toolbar.style.display = 'flex';
 
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
 
                 const totalClone = totalSection.cloneNode(true);
                 totalClone.classList.add('total-comment-pdf');
-                
-                const totalAIToolbar = totalClone.querySelector('.total-ai-toolbar');
-                if (totalAIToolbar) totalAIToolbar.style.display = 'none';
-
                 const textarea = totalClone.querySelector('#total-comment-text');
                 const commentText = textarea.value;
                 const textDiv = document.createElement('div');
@@ -2126,47 +1487,12 @@ ${allOcrTexts}
                 symbol.remove();
             });
         }
-
-
-// ========== 總評確認視窗控制 ==========
-        let pendingTotalMode = null;
-
-        function showConfirmModal(mode) {
-            pendingTotalMode = mode;
-            const modal = document.getElementById('confirm-modal');
-            const msg = document.getElementById('modal-message');
-            const title = document.getElementById('modal-title');
-            
-            if (mode === 'full') {
-                title.textContent = "全智能批改確認";
-                msg.textContent = "這將自動分析全文並覆寫總評與旁批。可能需要數十秒時間，確定要繼續嗎？";
-            } else {
-                title.textContent = "半智能擴寫確認";
-                msg.textContent = "系統將根據您現有的短評擴寫為完整的總評與旁批，確定要繼續嗎？";
-            }
-            
-            modal.style.display = 'flex';
-            // 延遲添加類名以觸發 CSS 過渡動畫
-            setTimeout(() => { modal.classList.add('show'); }, 10); 
-        }
-
-        function closeConfirmModal() {
-            const modal = document.getElementById('confirm-modal');
-            modal.classList.remove('show');
-            setTimeout(() => { 
-                modal.style.display = 'none'; 
-                pendingTotalMode = null;
-            }, 300); // 對應 CSS 的過渡時間
-        }
-
-        // 綁定「確定」按鈕點擊事件
-        document.getElementById('btn-confirm-action').addEventListener('click', function() {
-            if (pendingTotalMode) {
-                triggerTotalAIGrading(pendingTotalMode);
-            }
-            closeConfirmModal();
-        });
-
     </script>
+
+<footer class="copyright-footer">
+        <p>Copyright © 2025 陳冠健. All rights reserved.</p>
+    </footer>
+
+        
 </body>
 </html>
