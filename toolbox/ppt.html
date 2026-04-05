@@ -987,16 +987,19 @@
 
                 // [Requirement 2] 嚴格的 DOM 解析與連續表格判斷機制
                 function walkDOM(node) {
-                    if (node.nodeType === 3) {
-                        let text = node.textContent;
-                        // 若遇到有實際意義的文字，會中斷表格的連續性
-                        if (text.trim().length > 0) {
-                            flushTables(); 
-                            currentTextBuffer += text;
-                        } else { 
-                            currentTextBuffer += text; // 保留空白或換行符號
-                        }
-                    } else if (node.nodeType === 1) {
+                   if (node.nodeType === 3) {
+    let text = node.textContent;
+    if (text.trim().length > 0) {
+        flushTables(); 
+        
+        // 【新增這行】如果之前已經讀取了圖片，現在又遇到文字，強制將前面的圖文輸出成一頁，打斷多圖連續性
+        if (currentImageBuffer.length > 0) flushText(); 
+        
+        currentTextBuffer += text;
+    } else { 
+        currentTextBuffer += text;
+    }
+} else if (node.nodeType === 1) {
                         if (node.tagName === 'TABLE') {
                             flushText(); 
                             currentTableBuffer.push(node.outerHTML);
@@ -1209,7 +1212,10 @@
                             const multiImgWrapper = document.createElement('div'); multiImgWrapper.className = 'multi-img-wrapper';
                             customImgs.forEach(src => {
                                 const frame = document.createElement('div'); frame.className = 'art-frame';
-                                const img = document.createElement('img'); img.src = src; img.setAttribute('data-custom', 'true');
+                               const img = document.createElement('img'); 
+img.crossOrigin = "anonymous"; // 加上這行，確保 Canvas 可以讀取像素進行裁切
+img.src = src; 
+img.setAttribute('data-custom', 'true');
                                 frame.appendChild(img); multiImgWrapper.appendChild(frame);
                                 attachPanning(img); 
                             });
@@ -1309,52 +1315,81 @@
         }
 
         // 強大的 Canvas 預處理器：保證 PPTX 圖片100%不變形，並同步網頁上的「平移焦點」
-        function captureImageStateToBase64(imgEl, targetW, targetH, isGeo = false, isBg = false) {
-            try {
-                const targetRatio = targetW / targetH;
-                const canvas = document.createElement('canvas');
-                const canvasW = 1200;
-                const canvasH = canvasW / targetRatio;
-                canvas.width = canvasW; 
-                canvas.height = canvasH;
-                const ctx = canvas.getContext('2d');
-                
-                let natW = imgEl.naturalWidth || 1600; 
-                let natH = imgEl.naturalHeight || 1600;
-                let imgRatio = natW / natH;
-                
-                let drawW, drawH, drawX, drawY;
-                if (imgRatio > targetRatio) { 
-                    drawH = canvasH; drawW = canvasH * imgRatio; 
-                } else { 
-                    drawW = canvasW; drawH = canvasW / imgRatio; 
-                }
-                
-                let objPos = window.getComputedStyle(imgEl).objectPosition || '50% 50%';
-                let posParts = objPos.split(' ');
-                let pctX = parseFloat(posParts[0]) || 50; 
-                let pctY = parseFloat(posParts[1] || posParts[0]) || 50;
-                
-                drawX = (canvasW - drawW) * (pctX / 100); 
-                drawY = (canvasH - drawH) * (pctY / 100);
-                
-                if (isGeo) {
-                     ctx.beginPath(); 
-                     ctx.arc(canvasW/2, canvasH/2, Math.min(canvasW, canvasH)/2, 0, 2*Math.PI); 
-                     ctx.closePath(); 
-                     ctx.clip();
-                     ctx.filter = 'grayscale(30%) sepia(10%) contrast(1.1)';
-                }
-                 if (isBg) {
-             ctx.filter = 'grayscale(100%)';
+       function captureImageStateToBase64(imgEl, targetW, targetH, isGeo = false, isBg = false) {
+    try {
+        const targetRatio = targetW / targetH;
+        const canvas = document.createElement('canvas');
+        const canvasW = 1200;
+        const canvasH = canvasW / targetRatio;
+        canvas.width = canvasW; 
+        canvas.height = canvasH;
+        const ctx = canvas.getContext('2d');
+        
+        let natW = imgEl.naturalWidth || 1600; 
+        let natH = imgEl.naturalHeight || 1600;
+        let imgRatio = natW / natH;
+        
+        let drawW, drawH, drawX, drawY;
+        if (imgRatio > targetRatio) { 
+            drawH = canvasH; drawW = canvasH * imgRatio; 
+        } else { 
+            drawW = canvasW; drawH = canvasW / imgRatio; 
+        }
+        
+        let objPos = window.getComputedStyle(imgEl).objectPosition || '50% 50%';
+        let posParts = objPos.split(' ');
+        let pctX = parseFloat(posParts[0]) || 50; 
+        let pctY = parseFloat(posParts[1] || posParts[0]) || 50;
+        
+        drawX = (canvasW - drawW) * (pctX / 100); 
+        drawY = (canvasH - drawH) * (pctY / 100);
+        
+        if (isGeo) {
+            // --- 修訂核心：依照版型配置四個角的圓角半徑 (對應 CSS 的 --geo-shape) ---
+            let tl = 0, tr = 0, br = 0, bl = 0;
+            // 給予極大值，Canvas 會像 CSS border-radius 一樣自動將半徑限制在最大可用範圍內
+            let r = Math.max(canvasW, canvasH); 
+            let slide = imgEl.closest('.slide');
+
+            if (slide) {
+                if (slide.classList.contains('layout-img-left')) { tr = r; br = r; }         // 右半圓
+                else if (slide.classList.contains('layout-img-right')) { tl = r; bl = r; }   // 左半圓
+                else if (slide.classList.contains('layout-overlap-right')) { br = r; bl = r; } // 下半圓
+                else if (slide.classList.contains('layout-bottom-text')) { tl = r; tr = r; }   // 上半圓
+                else { tl = r; tr = r; br = r; bl = r; } // 其他 (例如 overlap-left, multi-image) 為全圓
+            }
+
+            ctx.beginPath(); 
+            if (ctx.roundRect) {
+                // 使用支援獨立圓角的 API (完美對應 CSS)
+                ctx.roundRect(0, 0, canvasW, canvasH, [tl, tr, br, bl]);
+            } else {
+                // 針對極舊版瀏覽器的降級備案
+                ctx.arc(canvasW/2, canvasH/2, Math.min(canvasW, canvasH)/2, 0, 2*Math.PI);
+            }
+            ctx.closePath(); 
+            ctx.clip();
+            ctx.filter = 'grayscale(30%) sepia(10%) contrast(1.1)';
+        }
+        
+        if (isBg) {
+            ctx.filter = 'grayscale(100%)';
         }
 
-        // 【加入這兩行】先填滿白色背景，防止透明 PNG 轉存 JPEG 時變成黑底
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, canvasW, canvasH);
+        // 先填滿白色背景，防止透明 PNG 轉存 JPEG 時變成黑底 (非幾何模式)
+        if (!isGeo) {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, canvasW, canvasH);
+        }
 
         ctx.drawImage(imgEl, drawX, drawY, drawW, drawH);
-        return canvas.toDataURL('image/jpeg', 0.9);
+        
+        // 幾何模式必須輸出 PNG 才能保留圓角外的透明度，否則 PPT 會補上黑/白底
+        if (isGeo) {
+            return canvas.toDataURL('image/png');
+        } else {
+            return canvas.toDataURL('image/jpeg', 0.9);
+        }
     } catch(e) { 
         return imgEl.src; 
     }
@@ -1468,11 +1503,18 @@
                 if(b64.startsWith('data:image')) imgOpts.data = b64; else { imgOpts.path = b64; imgOpts.sizing = {type:'cover', w:imgW, h:imgH}; }
                 pptSlide.addImage(imgOpts); 
             } else if (isGeometricLayout) {
-                let b64 = captureImageStateToBase64(featureImg, imgW, imgH, true);
-                let imgOpts = { x: imgX, y: imgY, w: imgW, h: imgH, transparency: pptxImgOpacity, shadow: { type: 'outer', opacity: 0.15, blur: 8 }};
-                if(b64.startsWith('data:image')) imgOpts.data = b64; else { imgOpts.path = b64; imgOpts.sizing = {type:'cover', w:imgW, h:imgH}; }
-                pptSlide.addImage(imgOpts); 
-            } else {
+    let b64 = captureImageStateToBase64(featureImg, imgW, imgH, true);
+    let imgOpts = { x: imgX, y: imgY, w: imgW, h: imgH, transparency: pptxImgOpacity, shadow: { type: 'outer', opacity: 0.15, blur: 8 }};
+    if(b64.startsWith('data:image')) {
+        imgOpts.data = b64; 
+    } else { 
+        imgOpts.path = b64; 
+        imgOpts.sizing = {type:'cover', w:imgW, h:imgH}; 
+        // 加入後備遮罩：萬一 Canvas 失敗，使用 PPT 內建的形狀盡可能裁切
+        imgOpts.shape = pres.ShapeType.oval; 
+    }
+    pptSlide.addImage(imgOpts); 
+} else {
                 // 【核心修復】經典版型的統一處理區塊
                 let finalW = imgW - 0.2; 
                 let finalH = imgH - 0.2;
@@ -1512,9 +1554,20 @@
                                 let r = Math.floor(i / cols); let c = i % cols; let x = startX + c * (w + 0.2); let y = startY + r * (h + 0.2);
                                 pptSlide.addShape(pres.ShapeType.rect, { x: x, y: y, w: w, h: h, fill: { color: cTheme.shapeFill }, shadow: { type: 'outer', opacity: 0.1, blur: 3 }});
                                 
-                                let finalW = w - 0.1; let finalH = h - 0.1;
-                                let b64 = captureImageStateToBase64(img, finalW, finalH);
-                                pptSlide.addImage({ data: b64, x: x + 0.05, y: y + 0.05, w: finalW, h: finalH });
+                               let finalW = w - 0.1; let finalH = h - 0.1;
+// 加上 isGeometricLayout 參數觸發圓角裁切
+let b64 = captureImageStateToBase64(img, finalW, finalH, isGeometricLayout); 
+let imgOpts = { x: x + 0.05, y: y + 0.05, w: finalW, h: finalH };
+
+if(b64.startsWith('data:image')) {
+    imgOpts.data = b64;
+} else {
+    // 若圖片損壞或仍跨域被擋，Fallback 使用 PPT 內建圓形
+    imgOpts.path = b64;
+    imgOpts.sizing = { type: 'cover', w: finalW, h: finalH };
+    if(isGeometricLayout) imgOpts.shape = pres.ShapeType.oval; 
+}
+pptSlide.addImage(imgOpts);
                             });
                         }
                     }
