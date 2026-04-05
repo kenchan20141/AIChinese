@@ -905,11 +905,28 @@
             showHUDFeedback(this.querySelector('svg'), "插入分頁標記");
         });
 
-       function splitIntoChunks(text, maxLength = 95) {
-            const sentences = text.split(/([。！？.!?\n，,；;])/); let merged = [];
+      function splitIntoChunks(text, maxLength = 95) {
+            // 【真實治本】：只允許真正的句尾符號與換行作為斷句節點，移除逗號與分號
+            const sentences = text.split(/([。！？.!?\n])/); 
+            let merged = [];
             for (let i = 0; i < sentences.length; i += 2) { let s = sentences[i], punc = sentences[i + 1] || ""; if (s + punc) merged.push(s + punc); }
             let chunks = [], cur = "";
-            for (let s of merged) { s = s.trim(); if (!s) continue; if (cur.length + s.length <= maxLength) { cur += cur ? s : s; } else { if (cur) chunks.push(cur); while (s.length > maxLength) { chunks.push(s.substring(0, maxLength)); s = s.substring(maxLength); } cur = s; } }
+            for (let s of merged) { 
+                s = s.trim(); if (!s) continue; 
+                if (cur.length + s.length <= maxLength) { 
+                    cur += cur ? s : s; 
+                } else { 
+                    if (cur) chunks.push(cur); 
+                    // 萬一遇到連續 95 字完全沒有句號的極端超長句，必須硬切時，避開剛好切在逗號上
+                    while (s.length > maxLength) { 
+                        let sliceLen = maxLength;
+                        if (/[,，、]/.test(s.charAt(sliceLen - 1))) sliceLen -= 1; 
+                        chunks.push(s.substring(0, sliceLen)); 
+                        s = s.substring(sliceLen); 
+                    } 
+                    cur = s; 
+                } 
+            }
             if (cur) chunks.push(cur); return chunks;
         }
 
@@ -1062,7 +1079,7 @@
                         if(textDraftContents.length > 0) {
                             showLoader("正在為文字排版...");
                             try {
-                                const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `為以下段落產生繁體中文短標題(不超過8個字)。只輸出JSON陣列，如:["標一","標二"]` }, { role: "user", content: textDraftContents.map((c,i)=>`[段${i+1}] ${c}`).join("\n") } ] }) });
+                               const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字，且每一頁必須是語意完整的句子結尾(如句號、問號)，【絕對禁止】以逗號或頓號作為頁面結尾！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.只輸出純 HTML。6.${titleInstruction}` }, { role: "user", content: `擴充以下內容：\n\n${aiInputText}` } ] }) });
                                 let titles = JSON.parse((await res.json()).choices[0].message.content.replace(/```json/gi, '').replace(/```/gi, '').trim()); while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
                                 textDraftIndexes.forEach((idx, i) => { 
                                     let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
