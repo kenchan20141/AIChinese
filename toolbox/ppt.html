@@ -7,6 +7,8 @@
     <title>AURA</title>
     <!-- 引入 PptxGenJS 引擎 -->
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+    <!-- 引入 Mammoth.js 用於解析 DOCX 檔案 -->
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
     <!-- 引入美學字體 -->
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Noto+Serif+TC:wght@300;400;500;600&family=Inter:wght@200;300;400&display=swap" rel="stylesheet">
     <style>
@@ -21,6 +23,7 @@
             --feature-img-opacity: 0.65; 
             --ui-icon: #888888;
             --ui-hl: #D97706;
+            --table-band: #8c9b90;
         }
 
         /* --- 簡報風格變數 --- */
@@ -66,17 +69,19 @@
             font-family: 'Inter', 'Noto Serif TC', serif;
             background-color: var(--ui-bg); color: var(--ui-text);
             height: 100vh; display: flex; overflow: hidden;
+            transition: background-color 0.4s;
         }
 
         .sidebar {
             width: 30%; min-width: 340px; background: var(--ui-surface);
             border-right: 1px solid var(--ui-border); display: flex; flex-direction: column; padding: 4rem 3rem; z-index: 10;
+            position: relative; transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
 
         .brand { 
             font-family: 'Cinzel', serif; font-size: 2.2rem; font-weight: 500; 
             letter-spacing: 12px; margin-bottom: 2rem; color: var(--ui-text); text-align: center;
-            position: relative; padding-bottom: 1.5rem;
+            position: relative; padding-bottom: 1.5rem; transition: opacity 0.3s, height 0.3s, margin 0.3s;
         }
         .brand::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 40px; height: 1px; background-color: var(--ui-border); }
 
@@ -119,11 +124,15 @@
         .keyword-input-wrapper input:focus { border-bottom-color: var(--ui-text); }
         .keyword-input-wrapper input::placeholder { color: var(--ui-muted); font-weight: 300; font-family: 'Inter', sans-serif; letter-spacing: 1px; }
 
-        .editor-wrapper { flex: 1; position: relative; display: flex; flex-direction: column; margin-bottom: 2rem; overflow: hidden; min-height: 150px;}
-        #promptInput { flex: 1; font-size: 1.1rem; line-height: 2.2; color: var(--ui-text); background: transparent; outline: none; font-weight: 300; font-family: 'Inter', 'Noto Serif TC', serif; overflow-y: auto; padding-right: 10px; }
+        .editor-wrapper { flex: 1; position: relative; display: flex; flex-direction: column; margin-bottom: 2rem; overflow: hidden; min-height: 150px; transition: all 0.4s;}
+        #promptInput { flex: 1; font-size: 1.1rem; line-height: 2.2; color: var(--ui-text); background: transparent; outline: none; font-weight: 300; font-family: 'Inter', 'Noto Serif TC', serif; overflow-y: auto; padding-right: 10px; transition: font-size 0.3s; }
         #promptInput:empty::before { content: attr(data-placeholder); color: var(--ui-muted); opacity:0.6; font-family: 'Inter', sans-serif; font-weight: 200; letter-spacing: 2px; pointer-events: none; }
         #promptInput::-webkit-scrollbar { width: 4px; }
         #promptInput::-webkit-scrollbar-thumb { background: var(--ui-border); border-radius: 4px; }
+        
+        #promptInput img { max-width: 100%; height: auto; border-radius: 4px; margin: 10px 0; }
+        #promptInput table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 0.85rem;}
+        #promptInput th, #promptInput td { border: 1px solid var(--ui-border); padding: 5px; }
 
         .page-break-line { display: flex; align-items: center; justify-content: center; margin: 25px 0; gap: 15px; color: var(--ui-muted); font-family: 'Cinzel', serif; font-size: 0.75rem; letter-spacing: 4px; user-select: none; }
         .page-break-line::before, .page-break-line::after { content: ''; flex: 1; height: 1px; background: var(--ui-border); }
@@ -154,7 +163,7 @@
             background: var(--slide-glass); backdrop-filter: blur(15px);
             border: 1px solid var(--slide-border); padding: 3cqw 3.5cqw;
             box-shadow: 0 15px 40px rgba(0,0,0,0.06); border-radius: 2px; transition: background 0.5s, border-color 0.5s;
-            height: fit-content; max-height: 100%; align-self: center;
+            height: fit-content; max-height: 100%; align-self: center; width: 100%;
         }
         .text-content-wrapper::before, .text-content-wrapper::after { content: ''; position: absolute; width: 1.5cqw; height: 1.5cqw; border: 1.5px solid var(--slide-border-dark); pointer-events: none; transition: border-color 0.5s;}
         .text-content-wrapper::before { top: 1cqw; left: 1cqw; border-right: none; border-bottom: none; }
@@ -174,6 +183,50 @@
         .text-inner-scroll [contenteditable="true"] { outline: none; border-radius: 4px; padding: 0 4px; margin-left: -4px; transition: background 0.3s; }
         .text-inner-scroll [contenteditable="true"]:focus { background: var(--slide-edit-bg); cursor: text; }
 
+        /* =======================================================
+           多表格並排與藝術表格樣式升級
+           ======================================================= */
+        .multi-table-wrapper {
+            display: flex; flex-direction: row; gap: 3cqw; width: 100%;
+            align-items: flex-start; justify-content: center;
+            margin-top: 1cqw; flex-wrap: wrap;
+        }
+        .multi-table-wrapper .table-container { flex: 1 1 45%; min-width: 0; margin-top: 0; }
+        
+        .table-container {
+            width: 100%; overflow-x: auto; overflow-y: hidden; margin-top: 1.5cqw; margin-bottom: 1cqw;
+            border-left: 4px solid var(--table-band); border-radius: 0 4px 4px 0;
+            background: linear-gradient(90deg, rgba(0,0,0,0.03) 0%, transparent 100%);
+            padding: 0 1cqw 1cqw 1cqw; transition: border-color 0.5s;
+        }
+        .table-container::-webkit-scrollbar { height: 4px; }
+        .table-container::-webkit-scrollbar-thumb { background: var(--slide-border); border-radius: 4px; }
+        
+        /* 藝術感表格新樣式設計 */
+        .text-inner-scroll table {
+            width: 100%; border-collapse: collapse; margin-bottom: 0;
+            font-size: calc(clamp(8px, 1.6cqw, 1.3rem) * var(--text-scale));
+            color: var(--slide-text); table-layout: auto;
+            border-top: none; 
+            border-bottom: none; 
+        }
+        .text-inner-scroll th, .text-inner-scroll td {
+            padding: 1.2cqw 1.5cqw; text-align: left; vertical-align: middle; line-height: 1.6;
+            border-left: none; border-right: none;
+        }
+        .text-inner-scroll th {
+            font-family: 'Cinzel', 'Noto Serif TC', serif; font-weight: 600; 
+            color: var(--slide-text); text-transform: uppercase; letter-spacing: 2px;
+            border-bottom: 1px solid var(--slide-text); border-top: none; opacity: 0.95;
+        }
+        .text-inner-scroll td {
+            border-bottom: 1px dotted rgba(0,0,0,0.2); font-weight: 300; color: var(--slide-muted);
+        }
+        .presentation-wrapper[data-theme="midnight"] td, .presentation-wrapper[data-theme="ocean"] td {
+            border-bottom: 1px dotted rgba(255,255,255,0.2);
+        }
+        .text-inner-scroll tr:last-child td { border-bottom: none; }
+
         /* 一般版式 */
         .feature-img-wrapper { 
             position: relative; z-index: 2; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; 
@@ -183,9 +236,11 @@
         .art-frame { position: relative; padding: 0.8cqw; background: var(--slide-frame); border: 1px solid var(--slide-border); box-shadow: 0 15px 45px rgba(0,0,0,0.1); max-width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: background 0.5s, border-color 0.5s;}
         .art-frame::before { content: ''; position: absolute; inset: 0.4cqw; border: 1px solid var(--slide-border-dark); opacity: 0.3; pointer-events: none; z-index: 5; transition: border-color 0.5s;}
         
-        .art-frame img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: filter 0.3s, transform 0.3s; -webkit-tap-highlight-color: transparent; }
-        .art-frame:not(.no-hover):hover img { filter: brightness(0.7); transform: scale(0.995); }
-        .art-frame:not(.no-hover) img:active { filter: brightness(0.5); transform: scale(0.96); } 
+        .art-frame.is-transparent-img { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
+        .art-frame.is-transparent-img::before { display: none !important; }
+
+        .art-frame img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: grab; transition: filter 0.3s, transform 0.3s; -webkit-tap-highlight-color: transparent; }
+        .art-frame:not(.no-hover):hover img { filter: brightness(0.85); }
         .art-frame img.reloading { filter: blur(8px) grayscale(50%); transform: scale(0.98); pointer-events: none; }
 
         .layout-img-left .feature-img-wrapper { grid-area: 2 / 1 / 12 / 6; transform: translateY(4%); } 
@@ -200,12 +255,39 @@
         .layout-overlap-right .feature-img-wrapper { grid-area: 1 / 1 / 13 / 10; transform: translateY(-2%); -webkit-mask-image: linear-gradient(to left, transparent 0%, rgba(0,0,0,1) 45%); mask-image: linear-gradient(to left, transparent 0%, rgba(0,0,0,1) 45%);} 
         .layout-overlap-right .text-content-wrapper { grid-area: 5 / 7 / 11 / 13; z-index: 4; }
         
-        .layout-center .text-content-wrapper { grid-area: 3 / 2 / 11 / 12; align-items: flex-start; justify-content: center;} .layout-center .feature-img-wrapper { display: none; }
+        .layout-center .text-content-wrapper { grid-area: 2 / 2 / 12 / 12; align-items: flex-start; justify-content: center;} .layout-center .feature-img-wrapper { display: none; }
         
         .layout-bottom-text .feature-img-wrapper { grid-area: 1 / 3 / 8 / 11; transform: translateY(3%); } 
         .layout-bottom-text .text-content-wrapper { grid-area: 8 / 2 / 13 / 12; flex-direction: column; align-items: flex-start; justify-content: center; padding: 2cqw 4cqw;}
         .layout-bottom-text .text-inner-scroll p { margin-top: 0; }
 
+        /* 專屬表格視圖排版 */
+        .slide.layout-table-focus .text-content-wrapper { 
+            grid-area: 3 / 1 / 12 / 13; padding: 4cqw 6cqw; align-items: flex-start; justify-content: flex-start; 
+            z-index: 3; background: var(--slide-glass); border-width: 1px;
+        } 
+        .slide.layout-table-focus .feature-img-wrapper { 
+            grid-area: 1 / 1 / 13 / 13; opacity: calc(var(--feature-img-opacity) * 0.4); 
+            transform: scale(1.02); filter: blur(3px) grayscale(30%);
+            -webkit-mask-image: radial-gradient(circle, rgba(0,0,0,1) 20%, transparent 85%);
+            mask-image: radial-gradient(circle, rgba(0,0,0,1) 20%, transparent 85%);
+            z-index: 1; pointer-events: none;
+        }
+        .slide.layout-table-focus .art-frame { border: none; background: transparent; padding: 0; box-shadow: none; width: 100%; height: 100%;}
+        .slide.layout-table-focus .art-frame::before { display: none; }
+
+        /* =======================================================
+           多圖專屬佈局 (New Multi-Image Layout)
+           ======================================================= */
+        .layout-multi-image .text-content-wrapper { grid-area: 3 / 1 / 11 / 7; z-index: 4; }
+        .layout-multi-image .multi-img-wrapper { 
+            grid-area: 2 / 7 / 12 / 13; z-index: 2; 
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(45%, 1fr)); 
+            gap: 1.5cqw; align-content: center;
+        }
+        .layout-multi-image .multi-img-wrapper .art-frame { height: 100%; min-height: 15cqw; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .layout-multi-image .feature-img-wrapper { display: none; }
+        
         /* 封面頁 */
         .layout-cover .text-content-wrapper { grid-area: 4 / 3 / 10 / 11; align-items: center; justify-content: center; text-align: center; padding: 4cqw 6cqw; border-width: 2px; }
         .layout-cover .text-inner-scroll h1 { font-size: calc(clamp(16px, 6cqw, 5rem) * var(--text-scale)); text-align: center; margin-bottom: 2cqw; font-weight: 600; letter-spacing: 0.5cqw; }
@@ -224,6 +306,20 @@
         body.use-geometric .layout-overlap-left .feature-img-wrapper { grid-area: 6 / 2 / 12 / 6 !important; transform: translate(15%, 15%) !important; --geo-shape: 50%; }
         body.use-geometric .layout-overlap-right .feature-img-wrapper { grid-area: 1 / 8 / 6 / 12 !important; transform: translate(-10%, -15%) !important; --geo-shape: 0 0 50vw 50vw; }
         body.use-geometric .layout-bottom-text .feature-img-wrapper { grid-area: 1 / 6 / 8 / 10 !important; transform: translate(15%, -10%) !important; --geo-shape: 50vw 50vw 0 0; }
+        body.use-geometric .slide.layout-table-focus .text-content-wrapper { grid-area: 2 / 2 / 12 / 12 !important; }
+        body.use-geometric .slide.layout-table-focus .feature-img-wrapper { grid-area: 1 / 8 / 8 / 12 !important; opacity: calc(var(--feature-img-opacity) * 0.8) !important; transform: translate(20%, -15%) !important; filter: none !important; --geo-shape: 50vw !important; }
+        
+        body.use-geometric .layout-multi-image .text-content-wrapper { grid-area: 3 / 1 / 11 / 6 !important; z-index: 5; }
+        body.use-geometric .layout-multi-image .multi-img-wrapper { 
+            grid-area: 2 / 6 / 12 / 13 !important; transform: none !important;
+            display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 2cqw; 
+        }
+        body.use-geometric .layout-multi-image .multi-img-wrapper .art-frame { 
+            background: transparent; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.15); padding: 0;
+            border-radius: 50%; width: 42%; aspect-ratio: 1/1; height: auto; min-height: 0;
+        }
+        body.use-geometric .layout-multi-image .multi-img-wrapper .art-frame::before { display: none; }
+        body.use-geometric .layout-multi-image .multi-img-wrapper .art-frame img { border-radius: 50%; }
 
         .slide-number-indicator { position: absolute; bottom: 2cqw; right: 3cqw; font-size: 1.2cqw; font-family: 'Cinzel', serif; color: var(--slide-muted); letter-spacing: 0.2cqw; z-index: 5; pointer-events: none; transition: color 0.5s;}
 
@@ -231,13 +327,12 @@
         .icon-btn { background: transparent; border: none; width: 40px; height: 40px; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s; color: var(--ui-icon); }
         .icon-btn:hover { color: var(--ui-text); }
         .icon-btn:active { transform: scale(0.85); }
-        .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1; }
+        .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;}
         .slide-counter { font-size: 0.8rem; font-family: 'Inter', sans-serif; font-weight: 300; color: var(--ui-muted); font-variant-numeric: tabular-nums; letter-spacing: 1px; transition: color 0.5s;}
         
         .empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; justify-content: center; align-items: center; opacity: 0.15; transition: opacity 0.5s;}
         .empty-state svg { width: 100px; height: 100px; stroke: var(--ui-text); stroke-width: 0.5; fill: none; animation: breathe 4s infinite ease-in-out; }
         
-        /* Action Bar */
         .action-bar { position: absolute; top: 2rem; right: 2.5rem; display: flex; align-items: center; gap: 15px; z-index: 20;}
         .action-row { display: flex; align-items: center; gap: 15px; }
 
@@ -261,8 +356,28 @@
 
         .mobile-back-btn { display: none; margin-right: auto; }
 
-        /* Loader & Modals */
-        .fullscreen-loader { position: fixed; inset: 0; z-index: 9999; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2rem; opacity: 0; visibility: hidden; transition: opacity 0.8s, visibility 0.8s; }
+        /* --- 全螢幕編輯器模式樣式 (Requirement 1) --- */
+        body.editor-fullscreen .sidebar {
+            width: 100vw; max-width: 100vw; height: 100vh;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 999999; border-right: none;
+            padding-top: 3.5rem; /* 消除標題後的頂部空間 */
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        body.editor-fullscreen .main-content { display: none; }
+        body.editor-fullscreen .brand { display: none; opacity: 0; height: 0; margin: 0; padding: 0;}
+        body.editor-fullscreen .editor-wrapper { margin-top: 1rem; }
+        body.editor-fullscreen #promptInput { font-size: 1.25rem; }
+        
+        .close-fs-btn {
+            display: none; position: absolute; top: 1.5rem; right: 2rem; background: transparent; border: none; width: 44px; height: 44px; cursor: pointer; color: var(--ui-text); transition: transform 0.2s; z-index: 10;
+        }
+        .close-fs-btn:hover { transform: scale(1.1); }
+        .close-fs-btn svg { width: 28px; height: 28px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round;}
+        body.editor-fullscreen .close-fs-btn { display: flex; align-items: center; justify-content: center; }
+        body.editor-fullscreen #expandEditorBtn { display: none !important; }
+
+        .fullscreen-loader { position: fixed; inset: 0; z-index: 9999999; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2rem; opacity: 0; visibility: hidden; transition: opacity 0.8s, visibility 0.8s; }
         .fullscreen-loader.active { opacity: 1; visibility: visible; }
         .cinematic-ring { width: 60px; height: 60px; border: 1px solid var(--ui-border); border-top: 1px solid var(--ui-text); border-radius: 50%; animation: slowSpin 1.5s infinite; }
         .loading-text-stage { font-family: 'Noto Serif TC', serif; font-size: 1.2rem; font-weight: 300; letter-spacing: 4px; color: var(--ui-text); animation: pulseText 2s infinite; }
@@ -287,9 +402,6 @@
         .custom-modal-btn-confirm { background: var(--ui-text); color: var(--ui-surface); border: 1px solid var(--ui-text); }
         .custom-modal-btn-confirm:hover { background: transparent; color: var(--ui-text); }
 
-        /* =======================================================
-           全螢幕：排版選擇器 (Layout Filter Modal) 
-           ======================================================= */
         .layout-modal-overlay {
             position: fixed; inset: 0; z-index: 100000; background: rgba(245, 245, 247, 0.98); 
             backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
@@ -320,15 +432,9 @@
         }
         .layout-card:hover { opacity: 0.8; transform: translateY(-2px); }
         .layout-card.active { opacity: 1; border-color: var(--ui-text); box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
-        
-        /* 選擇標記 */
-        .layout-card::after {
-            content: ''; position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; 
-            border-radius: 50%; border: 1px solid var(--ui-text); opacity: 0; transition: 0.3s;
-        }
+        .layout-card::after { content: ''; position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ui-text); opacity: 0; transition: 0.3s; }
         .layout-card.active::after { background: var(--ui-text); opacity: 1; }
 
-        /* 內部純 CSS 骨架線框設計 (能感知經典/幾何模式) */
         .wf-board { position: absolute; inset: 0; background: var(--ui-bg); overflow: hidden; pointer-events: none; }
         .wf-img { position: absolute; background: var(--ui-muted); opacity: 0.3; transition: all 0.5s ease; border-radius: 2px; }
         .wf-box { position: absolute; display: flex; flex-direction: column; gap: 8px; z-index: 2; transition: all 0.5s ease; }
@@ -336,76 +442,42 @@
         .wf-line.h { width: 70%; height: 3px; opacity: 0.9; }
         .wf-line.s { width: 40%; }
         
-        /* [共用預設] 經典模式配置 */
         .layout-card[data-layout="layout-img-left"] .wf-img { top: 10%; left: 5%; width: 35%; height: 80%; }
         .layout-card[data-layout="layout-img-left"] .wf-box { top: 30%; right: 10%; width: 40%; }
-        
         .layout-card[data-layout="layout-img-right"] .wf-img { top: 10%; right: 5%; width: 35%; height: 80%; }
         .layout-card[data-layout="layout-img-right"] .wf-box { top: 30%; left: 10%; width: 40%; }
-        
         .layout-card[data-layout="layout-overlap-left"] .wf-img { top: 0; right: 0; width: 65%; height: 100%; border-radius: 0; -webkit-mask-image: linear-gradient(to right, transparent, black 40%); }
         .layout-card[data-layout="layout-overlap-left"] .wf-box { top: 25%; left: 10%; width: 40%; background: var(--ui-surface); padding: 5%; border: 1px solid var(--ui-border); }
-        
         .layout-card[data-layout="layout-overlap-right"] .wf-img { top: 0; left: 0; width: 65%; height: 100%; border-radius: 0; -webkit-mask-image: linear-gradient(to left, transparent, black 40%); }
         .layout-card[data-layout="layout-overlap-right"] .wf-box { top: 25%; right: 10%; width: 40%; background: var(--ui-surface); padding: 5%; border: 1px solid var(--ui-border); }
-        
         .layout-card[data-layout="layout-center"] .wf-img { display: none; }
         .layout-card[data-layout="layout-center"] .wf-box { top: 40%; left: 20%; width: 60%; align-items: center; }
-        
         .layout-card[data-layout="layout-bottom-text"] .wf-img { top: 10%; left: 25%; width: 50%; height: 50%; }
         .layout-card[data-layout="layout-bottom-text"] .wf-box { bottom: 10%; left: 20%; width: 60%; align-items: center; }
 
-        /* [幾何模式] 觸發後，圖示自動變形對齊實際版面 */
         .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-img-left"] .wf-img { top: 10%; left: -5%; width: 45%; height: 80%; border-radius: 0 50vw 50vw 0; }
         .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-img-left"] .wf-box { top: 30%; right: 5%; width: 45%; }
-        
         .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-img-right"] .wf-img { top: auto; bottom: 5%; right: -5%; width: 40%; height: 80%; border-radius: 50vw 0 0 50vw; }
         .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-img-right"] .wf-box { top: 30%; left: 5%; width: 45%; }
-        
-      /* 重疊左 (幾何模式)：大圓形超出下方邊界裁切；文字框為帶底色的寬版矩形跨越在圖上 */
-.layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-left"] .wf-img { top: auto; bottom: -25%; left: 10%; right: auto; width: 50%; height: 85%; border-radius: 50%; -webkit-mask-image: none; }
-.layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-left"] .wf-box { top: 38%; left: 10%; right: auto; width: 80%; background: var(--ui-surface); border: 1px solid var(--ui-border); padding: 5%; align-items: flex-start; }
-
-/* 重疊右 (幾何模式)：大圓形超出上方邊界裁切；文字框為帶底色的寬版矩形跨越在圖上 */
-.layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-right"] .wf-img { top: -25%; right: 5%; left: auto; bottom: auto; width: 50%; height: 85%; border-radius: 50%; -webkit-mask-image: none; }
-.layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-right"] .wf-box { top: 42%; left: 10%; right: auto; width: 80%; background: var(--ui-surface); border: 1px solid var(--ui-border); padding: 5%; align-items: flex-start; }
+        .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-left"] .wf-img { top: auto; bottom: -25%; left: 10%; right: auto; width: 50%; height: 85%; border-radius: 50%; -webkit-mask-image: none; }
+        .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-left"] .wf-box { top: 38%; left: 10%; right: auto; width: 80%; background: var(--ui-surface); border: 1px solid var(--ui-border); padding: 5%; align-items: flex-start; }
+        .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-right"] .wf-img { top: -25%; right: 5%; left: auto; bottom: auto; width: 50%; height: 85%; border-radius: 50%; -webkit-mask-image: none; }
+        .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-overlap-right"] .wf-box { top: 42%; left: 10%; right: auto; width: 80%; background: var(--ui-surface); border: 1px solid var(--ui-border); padding: 5%; align-items: flex-start; }
         .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-bottom-text"] .wf-img { top: -10%; left: auto; right: 10%; width: 40%; height: 65%; border-radius: 50vw 50vw 0 0; }
         .layout-modal-overlay.geo-mode .layout-card[data-layout="layout-bottom-text"] .wf-box { bottom: 15%; left: 10%; width: 70%; align-items: flex-start; }
         
-        /* =======================================================
-           HUD 視覺反饋系統 (HUD Feedback Overlay)
-           ======================================================= */
-        .aura-hud-feedback {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
-            background: rgba(30, 30, 30, 0.65); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px;
-            width: 170px; height: 160px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px;
-            color: rgba(255, 255, 255, 0.95); z-index: 1000000; pointer-events: none; opacity: 0;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.25);
-            animation: hudPop 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
+        .aura-hud-feedback { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9); background: rgba(30, 30, 30, 0.65); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; width: 170px; height: 160px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; color: rgba(255, 255, 255, 0.95); z-index: 1000000; pointer-events: none; opacity: 0; box-shadow: 0 20px 40px rgba(0,0,0,0.25); animation: hudPop 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .aura-hud-feedback svg { width: 44px; height: 44px; stroke-width: 1.2; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
-        .aura-hud-feedback .hud-text { 
-            font-family: 'Noto Serif TC', serif; font-size: 0.8rem; font-weight: 400; 
-            letter-spacing: 3px; margin-left: 3px; 
-            color: rgba(255, 255, 255, 0.9); text-align: center;
-        }
-
+        .aura-hud-feedback .hud-text { font-family: 'Noto Serif TC', serif; font-size: 0.8rem; font-weight: 400; letter-spacing: 3px; margin-left: 3px; color: rgba(255, 255, 255, 0.9); text-align: center; }
         .aura-hud-feedback svg path.hl-line { opacity: 0; }
         .aura-hud-feedback.hud-hl svg path.hl-line { opacity: 0.8; stroke: var(--ui-hl); }
 
-        @keyframes hudPop {
-            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); filter: blur(5px); }
-            10% { opacity: 1; transform: translate(-50%, -50%) scale(1.02); filter: blur(0px); }
-            15% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0px); }
-            75% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0px); }
-            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1); filter: blur(8px); }
-        }
+        @keyframes hudPop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); filter: blur(5px); } 10% { opacity: 1; transform: translate(-50%, -50%) scale(1.02); filter: blur(0px); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0px); } 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0px); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1); filter: blur(8px); } }
 
-        /* 手機版響應式 */
         @media (max-width: 1024px) {
             body { flex-direction: column; height: 100dvh; overflow: hidden; }
             .sidebar { width: 100%; height: 100dvh; max-height: 100dvh; padding: 2rem 2rem 5rem 2rem; border-right: none; overflow-y: auto; flex: none; transition: transform 0.4s cubic-bezier(0.25,0.8,0.25,1); }
+            body.editor-fullscreen .sidebar { padding: 4rem 1.5rem 2rem 1.5rem; }
             .main-content { position: fixed; top: 0; left: 0; width: 100%; height: 100dvh; background: var(--ui-bg); z-index: 50; transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.25,0.8,0.25,1); padding: 5rem 1rem 4rem 1rem; justify-content: center; }
             body.preview-mode .sidebar { transform: translateX(-30%); opacity: 0; pointer-events: none; }
             body.preview-mode .main-content { transform: translateX(0); }
@@ -431,99 +503,24 @@
             body.use-geometric .layout-overlap-left .feature-img-wrapper { top: 40%; left: -50px; --geo-shape: 50%; }
             body.use-geometric .layout-overlap-right .feature-img-wrapper { top: 20%; right: -50px; --geo-shape: 50%; }
             body.use-geometric .layout-bottom-text .feature-img-wrapper { bottom: -30px; left: 50%; transform: translateX(-50%) !important; width: 250px; height: 100px; --geo-shape: 50vw 50vw 0 0; }
+            /* 行動端本身就等同於全螢幕，隱藏展開按鈕 */
+            #expandEditorBtn { display: none !important; }
         }
 
-        .copyright-footer {
-            position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 10px; text-align: center;
-            background-color: var(--ui-bg); color: var(--ui-muted); border-top: 1px solid var(--ui-border);
-            z-index: 999; transition: all 0.3s ease; box-shadow: 0 -2px 10px rgba(0,0,0,0.03);
-        }
-        .copyright-footer p {
-            margin: 0; font-size: 11px; font-family: 'Cinzel', serif; letter-spacing: 0.8px; 
-            font-weight: 400; text-transform: uppercase; opacity: 0.6; white-space: nowrap; 
-            overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-        }
+        .copyright-footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 10px; text-align: center; background-color: var(--ui-bg); color: var(--ui-muted); border-top: 1px solid var(--ui-border); z-index: 999; transition: all 0.3s ease; box-shadow: 0 -2px 10px rgba(0,0,0,0.03); }
+        .copyright-footer p { margin: 0; font-size: 11px; font-family: 'Cinzel', serif; letter-spacing: 0.8px; font-weight: 400; text-transform: uppercase; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         body.preview-mode .copyright-footer { opacity: 0; visibility: hidden; pointer-events: none; }
-    </style>
 
-    <!-- ==========================================
-         Landing Page 保護性樣式注入 (帶有 lp- 前綴保證不衝突)
-         ========================================== -->
-    <style id="landing-page-styles">
-        #landingPageWrapper {
-            --lp-hl: #D97706;
-            --lp-slide-shadow: 0 20px 50px rgba(0,0,0,0.08);
-            position: fixed; inset: 0; z-index: 999999;
-            background-color: var(--ui-bg);
-            color: var(--ui-text);
-            font-family: 'Inter', 'Noto Serif TC', serif;
-            display: flex; justify-content: center; align-items: center; overflow: hidden;
-            background-image: linear-gradient(var(--ui-border) 1px, transparent 1px), linear-gradient(90deg, var(--ui-border) 1px, transparent 1px);
-            background-size: 40px 40px; background-position: center center;
-            
-            /* 【修改這裡】增加電影感的平滑過渡設定 */
-            transition: opacity 1.2s cubic-bezier(0.25, 1, 0.5, 1), 
-                        visibility 1.2s,
-                        transform 1.2s cubic-bezier(0.25, 1, 0.5, 1),
-                        filter 1s ease-in;
-        }
-
-        /* 2. 修改隱藏狀態：加入放大與模糊 (製造鏡頭穿透感) */
-        #landingPageWrapper.hidden {
-            opacity: 0; 
-            visibility: hidden; 
-            pointer-events: none;
-            /* 【新增】藝術感核心：放大並模糊化淡出 */
-            transform: scale(1.15); 
-            filter: blur(15px);
-        }
-
-        /* 3. 【新增】底層編輯器的浮現動畫 (掛載在 body 上) */
-        body.studio-reveal .sidebar {
-            animation: cinematicReveal 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-        }
-        body.studio-reveal .main-content {
-            /* 電腦版：主畫面比側邊欄晚一點點到位，製造層次感 */
-            animation: cinematicReveal 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-        }
-
-        /* 電腦版預設動畫 (帶有位移與縮放) */
-        @keyframes cinematicReveal {
-            0% { opacity: 0; transform: scale(0.96) translateY(20px); filter: blur(8px); }
-            100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
-        }
-
-        /* 【修復手機版專用動畫】：只做模糊與淡入，不改變 transform，保護原有的左右滑動邏輯 */
-        @keyframes cinematicRevealMobile {
-            0% { opacity: 0; filter: blur(8px); }
-            100% { opacity: 1; filter: blur(0); }
-        }
-
-        /* 手機與平板尺寸下的動畫覆蓋 */
-        @media (max-width: 1024px) {
-            body.studio-reveal .sidebar {
-                animation: cinematicRevealMobile 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-            }
-            body.studio-reveal .main-content {
-                /* 手機版的主畫面一開始躲在右側，我們直接取消它的出場動畫，避免它跑回中間蓋住畫面 */
-                animation: none !important;
-            }
-        }
-        #landingPageWrapper::before {
-            content: ''; position: absolute; inset: 0;
-            background: radial-gradient(circle, transparent 20%, var(--ui-bg) 80%);
-            z-index: 0; pointer-events: none;
-        }
-
-        .lp-presentation-demo {
-            position: relative; width: 85vw; max-width: 1100px; aspect-ratio: 16 / 9; max-height: 80vh;
-            background: var(--ui-surface); box-shadow: var(--lp-slide-shadow);
-            border: 1px solid var(--ui-border); z-index: 1; overflow: hidden; display: block;
-            container-type: inline-size;
-        }
-        .lp-presentation-demo::after {
-            content: ''; position: absolute; inset: 3cqw; border: 1px solid rgba(0,0,0,0.04); pointer-events: none;
-        }
+        #landingPageWrapper { --lp-hl: #D97706; --lp-slide-shadow: 0 20px 50px rgba(0,0,0,0.08); position: fixed; inset: 0; z-index: 999999; background-color: var(--ui-bg); color: var(--ui-text); font-family: 'Inter', 'Noto Serif TC', serif; display: flex; justify-content: center; align-items: center; overflow: hidden; background-image: linear-gradient(var(--ui-border) 1px, transparent 1px), linear-gradient(90deg, var(--ui-border) 1px, transparent 1px); background-size: 40px 40px; background-position: center center; transition: opacity 1.2s cubic-bezier(0.25, 1, 0.5, 1), visibility 1.2s, transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), filter 1s ease-in; }
+        #landingPageWrapper.hidden { opacity: 0; visibility: hidden; pointer-events: none; transform: scale(1.15); filter: blur(15px); }
+        body.studio-reveal .sidebar { animation: cinematicReveal 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; }
+        body.studio-reveal .main-content { animation: cinematicReveal 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards; }
+        @keyframes cinematicReveal { 0% { opacity: 0; transform: scale(0.96) translateY(20px); filter: blur(8px); } 100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); } }
+        @keyframes cinematicRevealMobile { 0% { opacity: 0; filter: blur(8px); } 100% { opacity: 1; filter: blur(0); } }
+        @media (max-width: 1024px) { body.studio-reveal .sidebar { animation: cinematicRevealMobile 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards; } body.studio-reveal .main-content { animation: none !important; } }
+        #landingPageWrapper::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle, transparent 20%, var(--ui-bg) 80%); z-index: 0; pointer-events: none; }
+        .lp-presentation-demo { position: relative; width: 85vw; max-width: 1100px; aspect-ratio: 16 / 9; max-height: 80vh; background: var(--ui-surface); box-shadow: var(--lp-slide-shadow); border: 1px solid var(--ui-border); z-index: 1; overflow: hidden; display: block; container-type: inline-size; }
+        .lp-presentation-demo::after { content: ''; position: absolute; inset: 3cqw; border: 1px solid rgba(0,0,0,0.04); pointer-events: none; }
         .lp-wf-visual { position: absolute; background: #e0e0e0; overflow: hidden; transition: all 1.5s cubic-bezier(0.77, 0, 0.175, 1); animation: lpEngineVisual 16s infinite; }
         .lp-wf-visual::before, .lp-wf-visual::after { content: ''; position: absolute; background: rgba(0,0,0,0.05); }
         .lp-wf-visual::before { width: 200%; height: 1px; top: 50%; left: -50%; transform: rotate(45deg); }
@@ -535,69 +532,29 @@
         .lp-wf-line.p1 { width: 100%; opacity: 0.4; }
         .lp-wf-line.p2 { width: 95%; opacity: 0.4; }
         .lp-wf-line.p3 { width: 70%; opacity: 0.4; }
-
-        @keyframes lpEngineVisual {
-            0%, 20% { top: 50%; left: 50%; width: 0; height: 0; border-radius: 0; opacity: 0; }
-            25%, 45% { top: 10%; left: 5%; width: 35%; height: 80%; border-radius: 2px; opacity: 1; }
-            50%, 70% { top: 0%; left: 45%; width: 55%; height: 100%; border-radius: 100cqw 0 0 100cqw; opacity: 1; }
-            75%, 95% { top: 5%; left: 15%; width: 70%; height: 50%; border-radius: 2px; opacity: 1; }
-            100% { top: 50%; left: 50%; width: 0; height: 0; opacity: 0; }
-        }
-        @keyframes lpEngineText {
-            0%, 20% { top: 35%; left: 20%; width: 60%; align-items: center; background: transparent; padding: 0; border: none; backdrop-filter: none; }
-            25%, 45% { top: 30%; left: 45%; width: 45%; align-items: flex-start; background: transparent; padding: 0; border: none; backdrop-filter: none;}
-            50%, 70% { top: 35%; left: 10%; width: 45%; align-items: flex-start; background: rgba(255,255,255,0.85); padding: 4cqw; border: 1px solid var(--ui-border); box-shadow: 0 15px 35px rgba(0,0,0,0.05); backdrop-filter: blur(15px); }
-            75%, 95% { top: 65%; left: 25%; width: 50%; align-items: flex-start; background: transparent; padding: 0; border: none; box-shadow: none; backdrop-filter: none;}
-            100% { top: 35%; left: 20%; width: 60%; align-items: center; }
-        }
+        @keyframes lpEngineVisual { 0%, 20% { top: 50%; left: 50%; width: 0; height: 0; border-radius: 0; opacity: 0; } 25%, 45% { top: 10%; left: 5%; width: 35%; height: 80%; border-radius: 2px; opacity: 1; } 50%, 70% { top: 0%; left: 45%; width: 55%; height: 100%; border-radius: 100cqw 0 0 100cqw; opacity: 1; } 75%, 95% { top: 5%; left: 15%; width: 70%; height: 50%; border-radius: 2px; opacity: 1; } 100% { top: 50%; left: 50%; width: 0; height: 0; opacity: 0; } }
+        @keyframes lpEngineText { 0%, 20% { top: 35%; left: 20%; width: 60%; align-items: center; background: transparent; padding: 0; border: none; backdrop-filter: none; } 25%, 45% { top: 30%; left: 45%; width: 45%; align-items: flex-start; background: transparent; padding: 0; border: none; backdrop-filter: none;} 50%, 70% { top: 35%; left: 10%; width: 45%; align-items: flex-start; background: rgba(255,255,255,0.85); padding: 4cqw; border: 1px solid var(--ui-border); box-shadow: 0 15px 35px rgba(0,0,0,0.05); backdrop-filter: blur(15px); } 75%, 95% { top: 65%; left: 25%; width: 50%; align-items: flex-start; background: transparent; padding: 0; border: none; box-shadow: none; backdrop-filter: none;} 100% { top: 35%; left: 20%; width: 60%; align-items: center; } }
         @keyframes lpAlignLines { 0%, 20% { margin-left: auto; margin-right: auto; } 25%, 100% { margin-left: 0; margin-right: 0; } }
         .lp-wf-line.h1, .lp-wf-line.h2, .lp-wf-line.p1, .lp-wf-line.p2, .lp-wf-line.p3 { animation: lpAlignLines 16s infinite; }
-        
         .lp-slide-progress { position: absolute; bottom: 0; left: 0; height: 3px; background: var(--ui-text); animation: lpProgressBar 16s infinite linear; }
         @keyframes lpProgressBar { 0% { width: 0%; } 100% { width: 100%; } }
-
         .lp-overlay-ui { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; background: radial-gradient(circle, rgba(245,245,247,0.3) 0%, rgba(245,245,247,0.8) 100%); }
         .lp-brand-logo { font-family: 'Cinzel', serif; font-size: clamp(3rem, 6vw, 5rem); font-weight: 500; letter-spacing: 1.5vw; color: var(--ui-text); margin-right: -1.5vw; margin-bottom: 3rem; position: relative; }
         .lp-brand-logo::after { content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 40px; height: 1px; background-color: var(--ui-text); }
-        
         .lp-btn-launch { pointer-events: auto; background: var(--ui-text); color: var(--ui-surface); border: 1px solid var(--ui-text); padding: 1.2rem 3.5rem; font-family: 'Cinzel', serif; font-size: 0.9rem; font-weight: 500; letter-spacing: 6px; cursor: pointer; transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1); border-radius: 2px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         .lp-btn-launch:hover { background: transparent; color: var(--ui-text); transform: translateY(-2px); box-shadow: 0 15px 40px rgba(0,0,0,0.05); }
         .lp-btn-launch:active { transform: translateY(1px); }
-
         .lp-corner-mark { position: absolute; font-family: 'Inter', sans-serif; font-size: 0.65rem; letter-spacing: 2px; color: var(--ui-muted); text-transform: uppercase; }
         .lp-mark-br { bottom: 2rem; right: 3rem; font-family: 'Cinzel', serif; letter-spacing: 4px;}
-
         .lp-layout-indicator { position: absolute; top: 2rem; right: 3rem; display: flex; gap: 8px; }
         .lp-layout-dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--ui-muted); animation: lpDotSync 16s infinite; }
-        @keyframes lpDotSync {
-            0%, 20%   { background: transparent; }
-            21%, 25%  { background: var(--ui-text); border-color: var(--ui-text); }
-            26%, 45%  { background: var(--ui-text); }
-            46%, 50%  { background: transparent; }
-            51%, 70%  { background: var(--lp-hl); border-color: var(--lp-hl); }
-            71%, 75%  { background: transparent; }
-            76%, 95%  { background: var(--ui-text); border-color: var(--ui-text); }
-            96%, 100% { background: transparent; }
-        }
-        .lp-layout-dot:nth-child(1) { animation-delay: -16s; }
-        .lp-layout-dot:nth-child(2) { animation-delay: -12s; }
-        .lp-layout-dot:nth-child(3) { animation-delay: -8s; }
-        .lp-layout-dot:nth-child(4) { animation-delay: -4s; }
-
-        @media (max-width: 768px) {
-            .lp-presentation-demo { width: 95vw; max-height: 85vh; }
-            .lp-brand-logo { font-size: 3rem; margin-bottom: 2rem; letter-spacing: 0.8rem; margin-right: -0.8rem; }
-            .lp-btn-launch { padding: 1rem 2rem; font-size: 0.8rem; letter-spacing: 4px; }
-            .lp-layout-indicator { top: 1.5rem; right: 1.5rem; }
-            .lp-mark-br { bottom: 1.5rem; right: 1.5rem; font-size: 0.5rem; }
-        }
+        @keyframes lpDotSync { 0%, 20% { background: transparent; } 21%, 25% { background: var(--ui-text); border-color: var(--ui-text); } 26%, 45% { background: var(--ui-text); } 46%, 50% { background: transparent; } 51%, 70% { background: var(--lp-hl); border-color: var(--lp-hl); } 71%, 75% { background: transparent; } 76%, 95% { background: var(--ui-text); border-color: var(--ui-text); } 96%, 100% { background: transparent; } }
+        .lp-layout-dot:nth-child(1) { animation-delay: -16s; } .lp-layout-dot:nth-child(2) { animation-delay: -12s; } .lp-layout-dot:nth-child(3) { animation-delay: -8s; } .lp-layout-dot:nth-child(4) { animation-delay: -4s; }
+        @media (max-width: 768px) { .lp-presentation-demo { width: 95vw; max-height: 85vh; } .lp-brand-logo { font-size: 3rem; margin-bottom: 2rem; letter-spacing: 0.8rem; margin-right: -0.8rem; } .lp-btn-launch { padding: 1rem 2rem; font-size: 0.8rem; letter-spacing: 4px; } .lp-layout-indicator { top: 1.5rem; right: 1.5rem; } .lp-mark-br { bottom: 1.5rem; right: 1.5rem; font-size: 0.5rem; } }
     </style>
 </head>
 <body>
 
-    <!-- ==========================================
-         Landing Page 覆蓋層 (合併進來的內容)
-         ========================================== -->
     <div id="landingPageWrapper">
         <div class="lp-corner-mark lp-mark-br">The Art of Presentation</div>
         <div class="lp-layout-indicator">
@@ -608,13 +565,7 @@
         </div>
         <div class="lp-presentation-demo">
             <div class="lp-wf-visual"></div>
-            <div class="lp-wf-text-group">
-                <div class="lp-wf-line h1"></div>
-                <div class="lp-wf-line h2"></div>
-                <div class="lp-wf-line p1"></div>
-                <div class="lp-wf-line p2"></div>
-                <div class="lp-wf-line p3"></div>
-            </div>
+            <div class="lp-wf-text-group"><div class="lp-wf-line h1"></div><div class="lp-wf-line h2"></div><div class="lp-wf-line p1"></div><div class="lp-wf-line p2"></div><div class="lp-wf-line p3"></div></div>
             <div class="lp-slide-progress"></div>
         </div>
         <div class="lp-overlay-ui">
@@ -623,10 +574,6 @@
         </div>
     </div>
 
-
-    <!-- ==========================================
-         以下為您原本 100% 受保護的系統原始碼
-         ========================================== -->
     <div class="custom-modal-overlay" id="backModal">
         <div class="custom-modal-box">
             <div class="custom-modal-text">確定要返回編輯器嗎？</div>
@@ -637,11 +584,8 @@
         </div>
     </div>
 
-    <!-- 全螢幕排版選擇器 -->
     <div class="layout-modal-overlay" id="layoutSelectorModal">
-        <button class="layout-modal-back" id="layoutModalBackBtn" title="返回">
-            <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-        </button>
+        <button class="layout-modal-back" id="layoutModalBackBtn" title="返回"><svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg></button>
         <div class="layout-grid" id="layoutGridContainer">
             <div class="layout-card active" data-layout="layout-img-left"><div class="wf-board"><div class="wf-img"></div><div class="wf-box"><div class="wf-line h"></div><div class="wf-line"></div><div class="wf-line s"></div></div></div></div>
             <div class="layout-card active" data-layout="layout-img-right"><div class="wf-board"><div class="wf-img"></div><div class="wf-box"><div class="wf-line h"></div><div class="wf-line"></div><div class="wf-line s"></div></div></div></div>
@@ -653,19 +597,21 @@
     </div>
 
     <div class="export-loader-overlay" id="exportLoader">
-        <div class="minimal-progress-track">
-            <div class="minimal-progress-fill" id="exportProgressFill"></div>
-        </div>
+        <div class="minimal-progress-track"><div class="minimal-progress-fill" id="exportProgressFill"></div></div>
     </div>
 
     <div class="fullscreen-loader" id="fullscreenLoader">
         <div class="cinematic-ring"></div>
-        <div class="loading-text-stage" id="loadingStageText">正在自動分頁...</div>
+        <div class="loading-text-stage" id="loadingStageText">正在處理排版...</div>
     </div>
 
     <div class="sidebar">
-        <div class="brand">AURA</div>
+        <!-- 全螢幕模式退出按鈕 -->
+        <button class="close-fs-btn" id="closeFsBtn" title="退出全螢幕">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
 
+        <div class="brand">AURA</div>
         <div class="theme-selector" id="themeSelector">
             <button class="theme-btn active" data-theme="classic" style="--c1: #ffffff; --c2: #111111;" title="經典留白"></button>
             <button class="theme-btn" data-theme="midnight" style="--c1: #1e1e1e; --c2: #f5f5f5;" title="深夜影院"></button>
@@ -674,94 +620,50 @@
             <button class="theme-btn" data-theme="morandi" style="--c1: #8c9b90; --c2: #f2f4f1;" title="莫蘭迪綠"></button>
             <button class="theme-btn btn-mix" data-theme="mix" title="混搭風格"></button>
         </div>
-
         <div class="mix-options" id="mixOptions">
-            <div class="mix-toggle active" data-mix="classic" style="background: #ffffff;"></div>
-            <div class="mix-toggle active" data-mix="midnight" style="background: #1e1e1e;"></div>
-            <div class="mix-toggle active" data-mix="earth" style="background: #e4dccc;"></div>
-            <div class="mix-toggle active" data-mix="ocean" style="background: #0b132b;"></div>
-            <div class="mix-toggle active" data-mix="morandi" style="background: #8c9b90;"></div>
+            <div class="mix-toggle active" data-mix="classic" style="background: #ffffff;"></div><div class="mix-toggle active" data-mix="midnight" style="background: #1e1e1e;"></div><div class="mix-toggle active" data-mix="earth" style="background: #e4dccc;"></div><div class="mix-toggle active" data-mix="ocean" style="background: #0b132b;"></div><div class="mix-toggle active" data-mix="morandi" style="background: #8c9b90;"></div>
         </div>
-
         <div class="toolbar">
-            <div class="icon-toggle" id="highlightToggle" title="開啟/關閉自動畫重點 (Highlight)">
-                <svg viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path><path d="M3 21h18" stroke-width="2.5" class="hl-line"></path></svg>
-            </div>
+            <!-- 全螢幕展開按鈕 -->
+            <div class="icon-toggle" id="expandEditorBtn" title="全螢幕編輯模式"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <!-- DOCX 上傳按鈕 -->
+            <div class="icon-toggle" id="uploadDocBtn" title="上載 DOC/DOCX 檔案匯入文字"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+            <div class="icon-toggle" id="highlightToggle" title="開啟/關閉自動畫重點"><svg viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path><path d="M3 21h18" stroke-width="2.5" class="hl-line"></path></svg></div>
             <div class="icon-toggle" id="pageBreakBtn" title="插入強制分頁標記"><svg viewBox="0 0 24 24"><path d="M5 12h14M8 7l-3 5 3 5m8-10l3 5-3 5" stroke-width="2"></path></svg></div>
-            
             <div class="icon-toggle" id="layoutModeToggle" title="點擊切換排版模式 / 長按篩選特定版面">
-                <svg id="icon-layout-std" viewBox="0 0 24 24" style="display: block;">
-                    <rect x="3" y="3" width="8" height="18" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/>
-                    <rect x="13" y="3" width="8" height="8" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/>
-                    <rect x="13" y="13" width="8" height="8" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/>
-                </svg>
-                <svg id="icon-layout-geo-bing" viewBox="0 0 24 24" style="display: none;">
-                    <circle cx="9" cy="9" r="5" stroke="var(--ui-hl)" fill="none" stroke-width="1.5"></circle>
-                    <rect x="11" y="11" width="8" height="8" rx="4" stroke="currentColor" fill="none" stroke-width="1.5"></rect>
-                    <path d="M19 3v4M17 5h4" stroke="var(--ui-hl)" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-                <svg id="icon-layout-geo-pic" viewBox="0 0 24 24" style="display: none;">
-                    <circle cx="9" cy="9" r="5" stroke="currentColor" fill="none" stroke-width="1.5"></circle>
-                    <rect x="11" y="11" width="8" height="8" rx="4" stroke="currentColor" fill="none" stroke-width="1.5"></rect>
-                </svg>
+                <svg id="icon-layout-std" viewBox="0 0 24 24" style="display: block;"><rect x="3" y="3" width="8" height="18" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/><rect x="13" y="3" width="8" height="8" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/><rect x="13" y="13" width="8" height="8" rx="1" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+                <svg id="icon-layout-geo-bing" viewBox="0 0 24 24" style="display: none;"><circle cx="9" cy="9" r="5" stroke="var(--ui-hl)" fill="none" stroke-width="1.5"></circle><rect x="11" y="11" width="8" height="8" rx="4" stroke="currentColor" fill="none" stroke-width="1.5"></rect><path d="M19 3v4M17 5h4" stroke="var(--ui-hl)" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <svg id="icon-layout-geo-pic" viewBox="0 0 24 24" style="display: none;"><circle cx="9" cy="9" r="5" stroke="currentColor" fill="none" stroke-width="1.5"></circle><rect x="11" y="11" width="8" height="8" rx="4" stroke="currentColor" fill="none" stroke-width="1.5"></rect></svg>
             </div>
-
             <div class="icon-toggle" id="coverToggle" title="首頁封面開關">
-                <svg id="icon-cover-off" viewBox="0 0 24 24" style="display: block;">
-                    <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"></rect>
-                    <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></line>
-                </svg>
-                <svg id="icon-cover-on" viewBox="0 0 24 24" style="display: none;">
-                    <rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor" opacity="0.2"></rect>
-                    <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect>
-                </svg>
+                <svg id="icon-cover-off" viewBox="0 0 24 24" style="display: block;"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"></rect><line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></line></svg>
+                <svg id="icon-cover-on" viewBox="0 0 24 24" style="display: none;"><rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor" opacity="0.2"></rect><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect></svg>
             </div>
-
             <div class="icon-toggle" id="titleToggle" title="標題模式">
-                <svg id="icon-title-off" viewBox="0 0 24 24" style="display: block;">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect>
-                    <line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" stroke-width="1.5"></line>
-                    <line x1="7" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"></line>
-                    <line x1="7" y1="17" x2="13" y2="17" stroke="currentColor" stroke-width="1.5"></line>
-                </svg>
-                <svg id="icon-title-manual" viewBox="0 0 24 24" style="display: none;">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect>
-                    <rect x="7" y="7" width="10" height="3" fill="none" stroke="currentColor" stroke-dasharray="2 2" stroke-width="1"></rect>
-                    <line x1="7" y1="14" x2="17" y2="14" stroke="currentColor" stroke-width="1.5"></line>
-                    <line x1="7" y1="18" x2="13" y2="18" stroke="currentColor" stroke-width="1.5"></line>
-                </svg>
-                <svg id="icon-title-ai" viewBox="0 0 24 24" style="display: none;">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect>
-                    <line x1="7" y1="8" x2="17" y2="8" stroke="currentColor" stroke-width="2.5"></line>
-                    <line x1="7" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"></line>
-                    <line x1="7" y1="17" x2="13" y2="17" stroke="currentColor" stroke-width="1.5"></line>
-                    <circle cx="19" cy="5" r="2.5" fill="var(--ui-hl)"/>
-                </svg>
+                <svg id="icon-title-off" viewBox="0 0 24 24" style="display: block;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect><line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" stroke-width="1.5"></line><line x1="7" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"></line><line x1="7" y1="17" x2="13" y2="17" stroke="currentColor" stroke-width="1.5"></line></svg>
+                <svg id="icon-title-manual" viewBox="0 0 24 24" style="display: none;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect><rect x="7" y="7" width="10" height="3" fill="none" stroke="currentColor" stroke-dasharray="2 2" stroke-width="1"></rect><line x1="7" y1="14" x2="17" y2="14" stroke="currentColor" stroke-width="1.5"></line><line x1="7" y1="18" x2="13" y2="18" stroke="currentColor" stroke-width="1.5"></line></svg>
+                <svg id="icon-title-ai" viewBox="0 0 24 24" style="display: none;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect><line x1="7" y1="8" x2="17" y2="8" stroke="currentColor" stroke-width="2.5"></line><line x1="7" y1="13" x2="17" y2="13" stroke="currentColor" stroke-width="1.5"></line><line x1="7" y1="17" x2="13" y2="17" stroke="currentColor" stroke-width="1.5"></line><circle cx="19" cy="5" r="2.5" fill="var(--ui-hl)"/></svg>
             </div>
-            
             <div class="icon-toggle" id="modeToggle" title="AI排版/嚴格保留">
                 <svg id="icon-magic" viewBox="0 0 24 24" style="display:none;"><path d="M21 16.052v-.004A9.965 9.965 0 0022 12c0-5.523-4.477-10-10-10S2 6.477 2 12s4.477 10 10 10c1.72 0 3.336-.434 4.757-1.189l4.53 1.51-1.34-4.269zM12 7v10M7 12h10"/></svg>
                 <svg id="icon-lock" viewBox="0 0 24 24" style="display:block;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
             </div>
         </div>
-        
         <div class="keyword-input-wrapper"><input type="text" id="mainKeywordInput" placeholder="全域插圖關鍵詞"></div>
-        <div class="editor-wrapper"><div id="promptInput" contenteditable="true" data-placeholder="輸入需排版的原文或段落..."></div></div>
+        <div class="editor-wrapper"><div id="promptInput" contenteditable="true" data-placeholder="輸入需排版的原文，或貼入含表格及圖片的資料..."></div></div>
         <button id="generateBtn" class="btn">GENERATE</button>
     </div>
 
     <div class="main-content">
         <div class="action-bar" id="actionBar" style="display: none;">
             <div class="action-row top-row">
-                <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器">
-                    <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke-width="2"></line><polyline points="12 19 5 12 12 5" stroke-width="2"></polyline></svg>
-                </button>
+                <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器"><svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke-width="2"></line><polyline points="12 19 5 12 12 5" stroke-width="2"></polyline></svg></button>
                 <div class="sub-keyword-group" id="subKeywordGroup" title="自訂此頁子關鍵詞並重整圖片">
                     <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
                     <button class="btn-refresh-img" id="btnRefreshImg" title="依此關鍵詞重新生成"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.63-6.37L21 8"></path></svg></button>
                 </div>
             </div>
-            
             <div class="action-row bottom-row">
                 <div class="opacity-control" title="調整背景濃度">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20v-20z" fill="currentColor" opacity="0.3"/></svg>
@@ -775,11 +677,9 @@
                 <button id="btnExportPptx" class="btn-export">PPTX</button>
             </div>
         </div>
-
         <div class="presentation-wrapper" id="presentationBoard">
             <div class="empty-state"><svg viewBox="0 0 100 100"><rect x="15" y="25" width="70" height="50" rx="1" ry="1"></rect><line x1="25" y1="40" x2="60" y2="40"></line><line x1="25" y1="50" x2="75" y2="50"></line><line x1="25" y1="60" x2="50" y2="60"></line></svg></div>
         </div>
-
         <div class="controls-container" id="controls" style="display: none;">
             <button class="icon-btn" id="prevBtn"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
             <div class="slide-counter"><span id="currentSlideNum">0</span> / <span id="totalSlideNum">0</span></div>
@@ -787,410 +687,252 @@
         </div>
     </div>
 
-    <!-- 隱藏的本機圖片上傳器 -->
+    <!-- 隱藏的本機圖片與文件上傳器 -->
     <input type="file" id="localImageUploader" accept="image/*" style="display: none;">
+    <input type="file" id="docUploader" accept=".doc,.docx" style="display: none;">
 
     <script>
-        // ==========================================
-        // Landing Page JS (按鈕淡出與動畫同步)
-        // ==========================================
         const lpDots = document.querySelectorAll('.lp-layout-dot');
         let lpCurrentPhase = 0;
-        
         let lpInterval = setInterval(() => {
             lpDots.forEach(dot => { dot.style.background = 'transparent'; dot.style.borderColor = 'var(--ui-muted)'; });
-            
-            if(lpCurrentPhase === 2) {
-                lpDots[lpCurrentPhase].style.background = 'var(--lp-hl)';
-                lpDots[lpCurrentPhase].style.borderColor = 'var(--lp-hl)';
-            } else {
-                lpDots[lpCurrentPhase].style.background = 'var(--ui-text)';
-                lpDots[lpCurrentPhase].style.borderColor = 'var(--ui-text)';
-            }
+            if(lpCurrentPhase === 2) { lpDots[lpCurrentPhase].style.background = 'var(--lp-hl)'; lpDots[lpCurrentPhase].style.borderColor = 'var(--lp-hl)'; } 
+            else { lpDots[lpCurrentPhase].style.background = 'var(--ui-text)'; lpDots[lpCurrentPhase].style.borderColor = 'var(--ui-text)'; }
             lpCurrentPhase = (lpCurrentPhase + 1) % 4;
         }, 4000); 
 
        document.getElementById('lpBtnLaunch').addEventListener('click', function(e) {
             e.preventDefault();
-            
-            // 1. 讓 Landing Page 執行景深穿透淡出
             document.getElementById('landingPageWrapper').classList.add('hidden');
-            
-            // 2. 【新增】為 body 加上 class，讓底下的編輯器優雅地浮現
             document.body.classList.add('studio-reveal');
-
-            // 3. 延遲清理定時器 (配合新的 1.2 秒動畫時間)
             setTimeout(() => { clearInterval(lpInterval); }, 1200); 
         });
-        // ==========================================
-        // 以下為原本受保護的編輯器與渲染邏輯
-        // ==========================================
-        const API_KEYS = ["pk_eFlNmo9v1lXOC6Zw"];
-        const API_URL = "https://gen.pollinations.ai/v1/chat/completions";
-        const MODEL = "gemini-search";
 
-        // ==========================================
-        // 核心功能：HUD 視覺反饋系統
-        // ==========================================
+        const API_KEYS = ["pk_eFlNmo9v1lXOC6Zw"]; const API_URL = "https://gen.pollinations.ai/v1/chat/completions"; const MODEL = "gemini-search";
+
         let hudTimeout;
         function showHUDFeedback(triggerElement, textString = "", isHighlight = false) {
-            let oldHud = document.getElementById('aura-hud');
-            if (oldHud) oldHud.remove();
-
-            const hud = document.createElement('div');
-            hud.id = 'aura-hud';
-            hud.className = 'aura-hud-feedback' + (isHighlight ? ' hud-hl' : '');
-
-            // 如果是 svg 就複製，不然直接文字
+            let oldHud = document.getElementById('aura-hud'); if (oldHud) oldHud.remove();
+            const hud = document.createElement('div'); hud.id = 'aura-hud'; hud.className = 'aura-hud-feedback' + (isHighlight ? ' hud-hl' : '');
             if (triggerElement && triggerElement.tagName && triggerElement.tagName.toLowerCase() === 'svg') {
-                let clonedVisual = triggerElement.cloneNode(true);
-                clonedVisual.style.display = 'flex';
-                hud.appendChild(clonedVisual);
+                let clonedVisual = triggerElement.cloneNode(true); clonedVisual.style.display = 'flex'; hud.appendChild(clonedVisual);
             }
-
-            if (textString) {
-                const textNode = document.createElement('div');
-                textNode.className = 'hud-text';
-                textNode.innerText = textString;
-                hud.appendChild(textNode);
-            }
-
+            if (textString) { const textNode = document.createElement('div'); textNode.className = 'hud-text'; textNode.innerText = textString; hud.appendChild(textNode); }
             document.body.appendChild(hud);
-
-            clearTimeout(hudTimeout);
-            hudTimeout = setTimeout(() => {
-                if (hud.parentNode) hud.parentNode.removeChild(hud);
-            }, 1000);
+            clearTimeout(hudTimeout); hudTimeout = setTimeout(() => { if (hud.parentNode) hud.parentNode.removeChild(hud); }, 1000);
         }
-        // ==========================================
 
-        const generateBtn = document.getElementById('generateBtn');
-        const promptInput = document.getElementById('promptInput');
-        const mainKeywordInput = document.getElementById('mainKeywordInput');
-        const subKeywordInput = document.getElementById('subKeywordInput');
-        const subKeywordGroup = document.getElementById('subKeywordGroup');
-        const btnRefreshImg = document.getElementById('btnRefreshImg');
-        const presentationBoard = document.getElementById('presentationBoard');
-        const controls = document.getElementById('controls');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const currentSlideNum = document.getElementById('currentSlideNum');
-        const totalSlideNum = document.getElementById('totalSlideNum');
-        const actionBar = document.getElementById('actionBar');
+        const generateBtn = document.getElementById('generateBtn'), promptInput = document.getElementById('promptInput'), mainKeywordInput = document.getElementById('mainKeywordInput'), subKeywordInput = document.getElementById('subKeywordInput'), subKeywordGroup = document.getElementById('subKeywordGroup'), btnRefreshImg = document.getElementById('btnRefreshImg'), presentationBoard = document.getElementById('presentationBoard'), controls = document.getElementById('controls'), prevBtn = document.getElementById('prevBtn'), nextBtn = document.getElementById('nextBtn'), currentSlideNum = document.getElementById('currentSlideNum'), totalSlideNum = document.getElementById('totalSlideNum'), actionBar = document.getElementById('actionBar'), opacitySlider = document.getElementById('opacitySlider'), imgOpacitySlider = document.getElementById('imgOpacitySlider'), pageBreakBtn = document.getElementById('pageBreakBtn'), loaderScreen = document.getElementById('fullscreenLoader'), loaderStageText = document.getElementById('loadingStageText'), themeBtns = document.querySelectorAll('.theme-btn'), mixOptionsPanel = document.getElementById('mixOptions'), mixToggles = document.querySelectorAll('.mix-toggle'), backModal = document.getElementById('backModal'), mobileBackBtn = document.getElementById('mobileBackBtn'), btnCancelBack = document.getElementById('btnCancelBack'), btnConfirmBack = document.getElementById('btnConfirmBack'), localImageUploader = document.getElementById('localImageUploader');
         
-        const opacitySlider = document.getElementById('opacitySlider');
-        const imgOpacitySlider = document.getElementById('imgOpacitySlider');
-        
-        const pageBreakBtn = document.getElementById('pageBreakBtn');
-        const loaderScreen = document.getElementById('fullscreenLoader');
-        const loaderStageText = document.getElementById('loadingStageText');
-        const themeBtns = document.querySelectorAll('.theme-btn');
-        const mixOptionsPanel = document.getElementById('mixOptions');
-        const mixToggles = document.querySelectorAll('.mix-toggle');
-        
-        const backModal = document.getElementById('backModal');
-        const mobileBackBtn = document.getElementById('mobileBackBtn');
-        const btnCancelBack = document.getElementById('btnCancelBack');
-        const btnConfirmBack = document.getElementById('btnConfirmBack');
-        
-        const localImageUploader = document.getElementById('localImageUploader');
+        const expandEditorBtn = document.getElementById('expandEditorBtn'), closeFsBtn = document.getElementById('closeFsBtn');
+        const uploadDocBtn = document.getElementById('uploadDocBtn'), docUploader = document.getElementById('docUploader');
 
-        let currentLayoutMode = 0; 
-        let isAiMode = false, titleMode = 0, isHighlightMode = false;
-        let addCoverPage = false;
-        
-        let slides = [], currentIndex = 0;
-        let globalMainKeyword = "藝術排版";
-        let currentThemeId = 'classic';
-
-        let targetImgForUpload = null;
-        let isLongPress = false; 
+        let currentLayoutMode = 0, isAiMode = false, titleMode = 0, isHighlightMode = false, addCoverPage = false;
+        let slides = [], currentIndex = 0, globalMainKeyword = "藝術排版", currentThemeId = 'classic';
+        let targetImgForUpload = null, isLongPress = false; 
         
         const themePptxColors = {
-            classic: { bg: 'F5F5F7', textMain: '111111', textMuted: '666666', hl: 'D97706', shapeFill: 'FFFFFF', line: '444444', shapeOpac: 10 },
-            midnight: { bg: '121212', textMain: 'F5F5F5', textMuted: 'A0A0A0', hl: '4ADE80', shapeFill: '1E1E1E', line: '888888', shapeOpac: 15 },
-            earth: { bg: 'E4DCCC', textMain: '3E362E', textMuted: '6B5E51', hl: 'C05C3B', shapeFill: 'D6CBB8', line: '6B5E51', shapeOpac: 10 },
-            ocean: { bg: '0B132B', textMain: 'F0F8FF', textMuted: '6FFFE9', hl: 'FCA311', shapeFill: '1C2541', line: '6FFFE9', shapeOpac: 15 },
+            classic: { bg: 'F5F5F7', textMain: '111111', textMuted: '666666', hl: 'D97706', shapeFill: 'FFFFFF', line: 'CCCCCC', shapeOpac: 10 },
+            midnight: { bg: '121212', textMain: 'F5F5F5', textMuted: 'A0A0A0', hl: '4ADE80', shapeFill: '1E1E1E', line: '444444', shapeOpac: 15 },
+            earth: { bg: 'E4DCCC', textMain: '3E362E', textMuted: '6B5E51', hl: 'C05C3B', shapeFill: 'D6CBB8', line: 'C8BCA7', shapeOpac: 10 },
+            ocean: { bg: '0B132B', textMain: 'F0F8FF', textMuted: '6FFFE9', hl: 'FCA311', shapeFill: '1C2541', line: '3A506B', shapeOpac: 15 },
             morandi: { bg: '8C9B90', textMain: '2F3631', textMuted: '647067', hl: 'D49A89', shapeFill: 'F2F4F1', line: 'BCC5BE', shapeOpac: 5 }
         };
-
         const stopWords = new Set(["的","了","和","是","就","都","而","及","與","著","或","一個","沒有","我們","你們","他們","這個","那個","因為","所以","雖然","但是","如果","那麼","可以","就是","這","那","哪","啊","呢","嗎","吧","也","很","在","從","到","讓","被","對","會","能","要","去","有","把","給","什麼","怎麼","自己","開始","需要","進行","產生","使用","這種","那些","以及","為了","這樣","the","and","that","this","with","for","not","are","but","from","you","your","what","how"]);
+
+        // --- 全螢幕編輯器邏輯 (Requirement 1) ---
+        expandEditorBtn.addEventListener('click', () => {
+            document.body.classList.add('editor-fullscreen');
+            showHUDFeedback(expandEditorBtn.querySelector('svg'), "進入全螢幕編輯");
+        });
+        closeFsBtn.addEventListener('click', () => {
+            document.body.classList.remove('editor-fullscreen');
+        });
+
+        // --- 檔案上傳邏輯 ---
+        uploadDocBtn.addEventListener('click', () => docUploader.click());
+        docUploader.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            showLoader("正在讀取文件內容..."); 
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const arrayBuffer = event.target.result;
+                mammoth.convertToHtml({arrayBuffer: arrayBuffer})
+                    .then(function(result){
+                        promptInput.innerHTML = result.value; 
+                        hideLoader();
+                        showHUDFeedback(uploadDocBtn.querySelector('svg'), "文件匯入成功");
+                    })
+                    .catch(function(err){
+                        hideLoader();
+                        alert("讀取檔案失敗：" + err.message);
+                    });
+            };
+            reader.readAsArrayBuffer(file);
+            this.value = ''; 
+        });
+
+        // 圖片拖曳平移 (Panning) 功能
+        function attachPanning(img) {
+            if (img.dataset.pannable) return;
+            img.dataset.pannable = 'true';
+            img.style.cursor = 'grab';
+            img.dataset.objX = 50; img.dataset.objY = 50;
+            
+            let isDragging = false, startX, startY, startObjX, startObjY;
+
+            // 阻擋瀏覽器預設的鬼影圖片拖放行為，實現按下立刻拖曳
+            img.addEventListener('dragstart', (e) => e.preventDefault());
+
+            const onDown = (e) => {
+                if(e.button !== 0 && e.type.includes('mouse')) return;
+                isDragging = true; img.dataset.hasMoved = 'false';
+                startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+                startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+                startObjX = parseFloat(img.dataset.objX); startObjY = parseFloat(img.dataset.objY);
+                img.style.cursor = 'grabbing';
+            };
+
+            const onMove = (e) => {
+                if (!isDragging) return;
+                let currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+                let currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+                let dx = currentX - startX, dy = currentY - startY;
+                
+                if(Math.abs(dx) > 5 || Math.abs(dy) > 5) { img.dataset.hasMoved = 'true'; e.preventDefault(); e.stopPropagation(); }
+
+                let rect = img.getBoundingClientRect();
+                let movePctX = (dx / rect.width) * 100, movePctY = (dy / rect.height) * 100;
+
+                let newX = Math.max(0, Math.min(100, startObjX - movePctX));
+                let newY = Math.max(0, Math.min(100, startObjY - movePctY));
+
+                img.style.objectPosition = `${newX}% ${newY}%`;
+                img.dataset.tempX = newX; img.dataset.tempY = newY;
+            };
+
+            const onUp = (e) => {
+                if (!isDragging) return;
+                isDragging = false; img.style.cursor = 'grab';
+                if (img.dataset.tempX !== undefined) { img.dataset.objX = img.dataset.tempX; img.dataset.objY = img.dataset.tempY; }
+            };
+
+            img.addEventListener('mousedown', onDown); img.addEventListener('touchstart', onDown, {passive: false});
+            window.addEventListener('mousemove', onMove, {passive: false}); window.addEventListener('touchmove', onMove, {passive: false});
+            window.addEventListener('mouseup', onUp); window.addEventListener('touchend', onUp);
+        }
 
         localImageUploader.addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file && targetImgForUpload) {
                 const reader = new FileReader();
-                reader.onload = function(event) {
-                    targetImgForUpload.src = event.target.result;
-                    targetImgForUpload.setAttribute('data-custom', 'true');
-                    targetImgForUpload.classList.remove('reloading');
+                reader.onload = function(event) { 
+                    targetImgForUpload.removeAttribute('crossorigin'); 
+                    targetImgForUpload.src = event.target.result; 
+                    targetImgForUpload.setAttribute('data-custom', 'true'); 
+                    targetImgForUpload.classList.remove('reloading'); 
+                    if (file.type === 'image/png' || file.type === 'image/gif') {
+                        targetImgForUpload.closest('.art-frame').classList.add('is-transparent-img');
+                    }
                 }
                 reader.readAsDataURL(file);
             }
             this.value = ''; 
         });
 
-        // ==========================================
-        // 全螢幕排版篩選器邏輯 (長按開啟)
-        // ==========================================
-        const layoutSelectorModal = document.getElementById('layoutSelectorModal');
-        const layoutModalBackBtn = document.getElementById('layoutModalBackBtn');
-        const layoutModeToggle = document.getElementById('layoutModeToggle');
-        const layoutCards = document.querySelectorAll('.layout-card');
-        
-        let layoutPressTimer;
-        let isLayoutLongPress = false;
+        const layoutSelectorModal = document.getElementById('layoutSelectorModal'), layoutModalBackBtn = document.getElementById('layoutModalBackBtn'), layoutModeToggle = document.getElementById('layoutModeToggle'), layoutCards = document.querySelectorAll('.layout-card');
+        let layoutPressTimer, isLayoutLongPress = false;
 
-        function openLayoutModal() {
-            isLayoutLongPress = true;
-            layoutSelectorModal.classList.add('active');
-            // 同步目前的佈局模式，自動變形內部 CSS 線框圖案
-            if (currentLayoutMode !== 0) {
-                layoutSelectorModal.classList.add('geo-mode');
-            } else {
-                layoutSelectorModal.classList.remove('geo-mode');
-            }
-        }
-
-        function cancelLayoutPress() {
-            clearTimeout(layoutPressTimer);
-        }
-
-        // 電腦版長按
-        layoutModeToggle.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return; // 確保只反應左鍵
-            isLayoutLongPress = false;
-            layoutPressTimer = setTimeout(openLayoutModal, 500);
-        });
-        layoutModeToggle.addEventListener('mouseup', cancelLayoutPress);
-        layoutModeToggle.addEventListener('mouseleave', cancelLayoutPress);
-        
-        // 手機版長按
-        layoutModeToggle.addEventListener('touchstart', (e) => {
-            isLayoutLongPress = false;
-            layoutPressTimer = setTimeout(openLayoutModal, 500);
-        });
+        function openLayoutModal() { isLayoutLongPress = true; layoutSelectorModal.classList.add('active'); if (currentLayoutMode !== 0) layoutSelectorModal.classList.add('geo-mode'); else layoutSelectorModal.classList.remove('geo-mode'); }
+        function cancelLayoutPress() { clearTimeout(layoutPressTimer); }
+        layoutModeToggle.addEventListener('mousedown', (e) => { if (e.button !== 0) return; isLayoutLongPress = false; layoutPressTimer = setTimeout(openLayoutModal, 500); });
+        layoutModeToggle.addEventListener('mouseup', cancelLayoutPress); layoutModeToggle.addEventListener('mouseleave', cancelLayoutPress);
+        layoutModeToggle.addEventListener('touchstart', (e) => { isLayoutLongPress = false; layoutPressTimer = setTimeout(openLayoutModal, 500); });
         layoutModeToggle.addEventListener('touchend', cancelLayoutPress);
-
-        // 返回鍵關閉全螢幕
-        layoutModalBackBtn.addEventListener('click', () => {
-            layoutSelectorModal.classList.remove('active');
-        });
-
-        // 點擊選擇或取消版面
-        layoutCards.forEach(card => {
-            card.addEventListener('click', function() {
-                const isActive = this.classList.contains('active');
-                if (isActive && document.querySelectorAll('.layout-card.active').length === 1) {
-                    showHUDFeedback(null, "最少需保留一種版型");
-                    return;
-                }
-                this.classList.toggle('active');
-            });
-        });
-
-        function getActiveLayouts() {
-            const selected = Array.from(document.querySelectorAll('.layout-card.active')).map(el => el.getAttribute('data-layout'));
-            return selected.length > 0 ? selected : ['layout-center'];
-        }
-        // ==========================================
-
+        layoutModalBackBtn.addEventListener('click', () => { layoutSelectorModal.classList.remove('active'); });
+        layoutCards.forEach(card => { card.addEventListener('click', function() { const isActive = this.classList.contains('active'); if (isActive && document.querySelectorAll('.layout-card.active').length === 1) { showHUDFeedback(null, "最少需保留一種版型"); return; } this.classList.toggle('active'); }); });
+        function getActiveLayouts() { const selected = Array.from(document.querySelectorAll('.layout-card.active')).map(el => el.getAttribute('data-layout')); return selected.length > 0 ? selected : ['layout-center']; }
 
         function updateSlideThemes() {
             if (slides.length === 0) return;
             if (currentThemeId === 'mix') {
                 let pool = Array.from(document.querySelectorAll('.mix-toggle.active')).map(el => el.getAttribute('data-mix'));
                 if (pool.length === 0) pool = ['classic']; 
-                slides.forEach((slide, index) => { slide.setAttribute('data-theme', pool[index % pool.length]); });
-                presentationBoard.removeAttribute('data-theme');
-            } else {
-                presentationBoard.setAttribute('data-theme', currentThemeId);
-                slides.forEach(slide => slide.removeAttribute('data-theme'));
-            }
+                slides.forEach((slide, index) => { slide.setAttribute('data-theme', pool[index % pool.length]); }); presentationBoard.removeAttribute('data-theme');
+            } else { presentationBoard.setAttribute('data-theme', currentThemeId); slides.forEach(slide => slide.removeAttribute('data-theme')); }
         }
 
-        themeBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                themeBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentThemeId = btn.getAttribute('data-theme');
-                if (currentThemeId === 'mix') mixOptionsPanel.classList.add('show');
-                else mixOptionsPanel.classList.remove('show');
-                updateSlideThemes();
-            });
-        });
+        themeBtns.forEach(btn => { btn.addEventListener('click', () => { themeBtns.forEach(b => b.classList.remove('active')); btn.classList.add('active'); currentThemeId = btn.getAttribute('data-theme'); if (currentThemeId === 'mix') mixOptionsPanel.classList.add('show'); else mixOptionsPanel.classList.remove('show'); updateSlideThemes(); }); });
+        mixToggles.forEach(toggle => { toggle.addEventListener('click', () => { toggle.classList.toggle('active'); if(document.querySelectorAll('.mix-toggle.active').length === 0) toggle.classList.add('active'); updateSlideThemes(); }); });
 
-        mixToggles.forEach(toggle => {
-            toggle.addEventListener('click', () => {
-                toggle.classList.toggle('active');
-                if(document.querySelectorAll('.mix-toggle.active').length === 0) toggle.classList.add('active');
-                updateSlideThemes();
-            });
-        });
-
-        mobileBackBtn.addEventListener('click', () => { backModal.classList.add('active'); });
-        btnCancelBack.addEventListener('click', () => { backModal.classList.remove('active'); });
-        btnConfirmBack.addEventListener('click', () => { backModal.classList.remove('active'); document.body.classList.remove('preview-mode'); });
+        mobileBackBtn.addEventListener('click', () => { backModal.classList.add('active'); }); btnCancelBack.addEventListener('click', () => { backModal.classList.remove('active'); }); btnConfirmBack.addEventListener('click', () => { backModal.classList.remove('active'); document.body.classList.remove('preview-mode'); });
 
         opacitySlider.addEventListener('input', (e) => document.documentElement.style.setProperty('--bg-opacity', (0.02 + (e.target.value / 100) * 0.23).toFixed(3)));
         imgOpacitySlider.addEventListener('input', (e) => document.documentElement.style.setProperty('--feature-img-opacity', (e.target.value / 100).toFixed(2)));
         
-        // --- 工具列狀態切換 + HUD 回饋觸發 ---
         document.getElementById('modeToggle').addEventListener('click', function() { 
-            isAiMode = !isAiMode; 
-            document.getElementById('icon-magic').style.display = isAiMode ? "block" : "none"; 
-            document.getElementById('icon-lock').style.display = isAiMode ? "none" : "block"; 
-            this.classList.toggle('active-mode', isAiMode);
-            
-            let activeIcon = isAiMode ? document.getElementById('icon-magic') : document.getElementById('icon-lock');
-            let text = isAiMode ? "智能擴充" : "保留原文";
-            showHUDFeedback(activeIcon, text);
+            isAiMode = !isAiMode; document.getElementById('icon-magic').style.display = isAiMode ? "block" : "none"; document.getElementById('icon-lock').style.display = isAiMode ? "none" : "block"; 
+            this.classList.toggle('active-mode', isAiMode); showHUDFeedback(isAiMode ? document.getElementById('icon-magic') : document.getElementById('icon-lock'), isAiMode ? "智能擴充" : "保留原文");
         });
         
         document.getElementById('coverToggle').addEventListener('click', function() {
-            addCoverPage = !addCoverPage;
-            document.getElementById('icon-cover-on').style.display = addCoverPage ? "block" : "none";
-            document.getElementById('icon-cover-off').style.display = addCoverPage ? "none" : "block";
-            this.classList.toggle('active-mode', addCoverPage);
-
-            let activeIcon = addCoverPage ? document.getElementById('icon-cover-on') : document.getElementById('icon-cover-off');
-            let text = addCoverPage ? "啟用首頁封面" : "隱藏首頁封面";
-            showHUDFeedback(activeIcon, text);
+            addCoverPage = !addCoverPage; document.getElementById('icon-cover-on').style.display = addCoverPage ? "block" : "none"; document.getElementById('icon-cover-off').style.display = addCoverPage ? "none" : "block";
+            this.classList.toggle('active-mode', addCoverPage); showHUDFeedback(addCoverPage ? document.getElementById('icon-cover-on') : document.getElementById('icon-cover-off'), addCoverPage ? "啟用首頁封面" : "隱藏首頁封面");
         });
 
         document.getElementById('titleToggle').addEventListener('click', function() {
-            titleMode = (titleMode + 1) % 3;
-            document.getElementById('icon-title-off').style.display = titleMode === 0 ? "block" : "none";
-            document.getElementById('icon-title-manual').style.display = titleMode === 1 ? "block" : "none";
-            document.getElementById('icon-title-ai').style.display = titleMode === 2 ? "block" : "none";
+            titleMode = (titleMode + 1) % 3; document.getElementById('icon-title-off').style.display = titleMode === 0 ? "block" : "none"; document.getElementById('icon-title-manual').style.display = titleMode === 1 ? "block" : "none"; document.getElementById('icon-title-ai').style.display = titleMode === 2 ? "block" : "none";
             this.classList.toggle('active-mode', titleMode !== 0);
-            
-            let activeIcon;
-            let text;
-            if(titleMode === 0) { activeIcon = document.getElementById('icon-title-off'); text = "無標題"; }
-            else if(titleMode === 1) { activeIcon = document.getElementById('icon-title-manual'); text = "自訂標題"; }
-            else { activeIcon = document.getElementById('icon-title-ai'); text = "智能標題"; }
-            showHUDFeedback(activeIcon, text);
+            let activeIcon, text; if(titleMode === 0) { activeIcon = document.getElementById('icon-title-off'); text = "無標題"; } else if(titleMode === 1) { activeIcon = document.getElementById('icon-title-manual'); text = "自訂標題"; } else { activeIcon = document.getElementById('icon-title-ai'); text = "智能標題"; } showHUDFeedback(activeIcon, text);
         });
 
-        document.getElementById('highlightToggle').addEventListener('click', function() { 
-            isHighlightMode = !isHighlightMode; 
-            this.classList.toggle('active-mode', isHighlightMode); 
-            document.body.classList.toggle('show-highlight', isHighlightMode); 
-            
-            let text = isHighlightMode ? "啟用焦點強調" : "停用焦點強調";
-            showHUDFeedback(this.querySelector('svg'), text, isHighlightMode);
-        });
+        document.getElementById('highlightToggle').addEventListener('click', function() { isHighlightMode = !isHighlightMode; this.classList.toggle('active-mode', isHighlightMode); document.body.classList.toggle('show-highlight', isHighlightMode); showHUDFeedback(this.querySelector('svg'), isHighlightMode ? "啟用焦點強調" : "停用焦點強調", isHighlightMode); });
         
-        // 排版按鈕的一般點擊事件（如果非長按）
         layoutModeToggle.addEventListener('click', function(e) {
-            if (isLayoutLongPress) {
-                e.preventDefault();
-                return;
-            }
-            currentLayoutMode = (currentLayoutMode + 1) % 3;
-            document.getElementById('icon-layout-std').style.display = currentLayoutMode === 0 ? 'block' : 'none';
-            document.getElementById('icon-layout-geo-bing').style.display = currentLayoutMode === 1 ? 'block' : 'none';
-            document.getElementById('icon-layout-geo-pic').style.display = currentLayoutMode === 2 ? 'block' : 'none';
-            this.classList.toggle('active-mode', currentLayoutMode !== 0);
-            document.body.classList.toggle('use-geometric', currentLayoutMode !== 0);
-            mainKeywordInput.parentElement.style.display = currentLayoutMode === 2 ? 'none' : 'block';
-            updateSlides();
-
-            let activeIcon;
-            let text;
-            if(currentLayoutMode === 0) { activeIcon = document.getElementById('icon-layout-std'); text = "經典排版【圖文關聯】"; }
-            else if(currentLayoutMode === 1) { activeIcon = document.getElementById('icon-layout-geo-bing'); text = "幾何排版【圖文關聯】"; }
-            else { activeIcon = document.getElementById('icon-layout-geo-pic'); text = "幾何排版【隨意配圖】"; }
-            showHUDFeedback(activeIcon, text);
+            if (isLayoutLongPress) { e.preventDefault(); return; } currentLayoutMode = (currentLayoutMode + 1) % 3;
+            document.getElementById('icon-layout-std').style.display = currentLayoutMode === 0 ? 'block' : 'none'; document.getElementById('icon-layout-geo-bing').style.display = currentLayoutMode === 1 ? 'block' : 'none'; document.getElementById('icon-layout-geo-pic').style.display = currentLayoutMode === 2 ? 'block' : 'none';
+            this.classList.toggle('active-mode', currentLayoutMode !== 0); document.body.classList.toggle('use-geometric', currentLayoutMode !== 0); mainKeywordInput.parentElement.style.display = currentLayoutMode === 2 ? 'none' : 'block'; updateSlides();
+            let activeIcon, text; if(currentLayoutMode === 0) { activeIcon = document.getElementById('icon-layout-std'); text = "經典排版【圖文關聯】"; } else if(currentLayoutMode === 1) { activeIcon = document.getElementById('icon-layout-geo-bing'); text = "幾何排版【圖文關聯】"; } else { activeIcon = document.getElementById('icon-layout-geo-pic'); text = "幾何排版【隨意配圖】"; } showHUDFeedback(activeIcon, text);
         });
 
         pageBreakBtn.addEventListener('mousedown', (e) => e.preventDefault());
         pageBreakBtn.addEventListener('click', function() {
             promptInput.focus(); const selection = window.getSelection();
             if (selection.rangeCount > 0 && promptInput.contains(selection.anchorNode)) {
-                const range = selection.getRangeAt(0); range.deleteContents();
-                const markerDiv = document.createElement('div'); markerDiv.className = 'page-break-line'; markerDiv.contentEditable = 'false'; markerDiv.innerHTML = '<span>✦</span> 分頁標記 <span>✦</span>';
-                const brDiv = document.createElement('div'); brDiv.innerHTML = '<br>';
-                range.insertNode(brDiv); range.insertNode(markerDiv); range.setStart(brDiv, 0); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); markerDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                const range = selection.getRangeAt(0); range.deleteContents(); const markerDiv = document.createElement('div'); markerDiv.className = 'page-break-line'; markerDiv.contentEditable = 'false'; markerDiv.innerHTML = '<span>✦</span> 分頁標記 <span>✦</span>'; const brDiv = document.createElement('div'); brDiv.innerHTML = '<br>'; range.insertNode(brDiv); range.insertNode(markerDiv); range.setStart(brDiv, 0); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); markerDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
             } else { promptInput.insertAdjacentHTML('beforeend', `<div class="page-break-line" contenteditable="false"><span>✦</span> 分頁標記 <span>✦</span></div><div><br></div>`); promptInput.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
             showHUDFeedback(this.querySelector('svg'), "插入分頁標記");
         });
 
        function splitIntoChunks(text, maxLength = 95) {
-            // 新增 ，,；; 作為切割符號，避免詩詞或長文沒句號切不開
-            const sentences = text.split(/([。！？.!?\n，,；;])/); 
-            let merged = [];
-            for (let i = 0; i < sentences.length; i += 2) { 
-                let s = sentences[i], punc = sentences[i + 1] || ""; 
-                if (s + punc) merged.push(s + punc); 
-            }
+            const sentences = text.split(/([。！？.!?\n，,；;])/); let merged = [];
+            for (let i = 0; i < sentences.length; i += 2) { let s = sentences[i], punc = sentences[i + 1] || ""; if (s + punc) merged.push(s + punc); }
             let chunks = [], cur = "";
-            for (let s of merged) { 
-                s = s.trim(); 
-                if (!s) continue; 
-                if (cur.length + s.length <= maxLength) {
-                    cur += cur ? s : s; // 中文相接不需要加空白
-                } else { 
-                    if (cur) chunks.push(cur); 
-                    // 防呆機制：如果遇到完全沒標點符號的超長文字，強制依字數暴力截斷
-                    while (s.length > maxLength) {
-                        chunks.push(s.substring(0, maxLength));
-                        s = s.substring(maxLength);
-                    }
-                    cur = s; 
-                } 
-            }
-            if (cur) chunks.push(cur); 
-            return chunks;
+            for (let s of merged) { s = s.trim(); if (!s) continue; if (cur.length + s.length <= maxLength) { cur += cur ? s : s; } else { if (cur) chunks.push(cur); while (s.length > maxLength) { chunks.push(s.substring(0, maxLength)); s = s.substring(maxLength); } cur = s; } }
+            if (cur) chunks.push(cur); return chunks;
         }
 
         function getTopKeywords(text, count = 3) {
-            if (!text) return []; 
-            let cleanText = text.replace(/[0-9０-９]/g, '');
-            const isDatePattern = (str) => /^[一二三四五六七八九十百千萬億兆零〇年月日號]+$/.test(str) && /[年月日號]/.test(str);
-            
-            let chText = cleanText.replace(/[^\u4e00-\u9fa5]/g, ''); 
-            let fallbackChWords = [];
-            for (let i = 0; i < chText.length - 1; i++) fallbackChWords.push(chText.substring(i, i + 2));
-            let enWords = cleanText.match(/[a-zA-Z]{2,}/g) || [];
-            
+            if (!text) return []; let cleanText = text.replace(/[0-9０-９]/g, ''); const isDatePattern = (str) => /^[一二三四五六七八九十百千萬億兆零〇年月日號]+$/.test(str) && /[年月日號]/.test(str);
+            let chText = cleanText.replace(/[^\u4e00-\u9fa5]/g, ''); let fallbackChWords = []; for (let i = 0; i < chText.length - 1; i++) fallbackChWords.push(chText.substring(i, i + 2)); let enWords = cleanText.match(/[a-zA-Z]{2,}/g) || [];
             let words = [];
-            if (typeof Intl.Segmenter === 'function') {
-                const segmenter = new Intl.Segmenter(['zh-TW', 'en'], { granularity: 'word' });
-                let segWords = [...segmenter.segment(cleanText)].filter(s => s.isWordLike).map(s => s.segment.trim());
-                let hasValidChineseWord = segWords.some(w => w.length >= 2 && /[\u4e00-\u9fa5]/.test(w));
-                if (hasValidChineseWord) { words = segWords.filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w) && w.length >= 2); } 
-                else { words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w)); }
-            } else {
-                words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w));
-            }
-            
-            const frequency = {}; 
-            words.forEach(w => { frequency[w.toLowerCase()] = (frequency[w.toLowerCase()] || 0) + 1; });
+            if (typeof Intl.Segmenter === 'function') { const segmenter = new Intl.Segmenter(['zh-TW', 'en'], { granularity: 'word' }); let segWords = [...segmenter.segment(cleanText)].filter(s => s.isWordLike).map(s => s.segment.trim()); let hasValidChineseWord = segWords.some(w => w.length >= 2 && /[\u4e00-\u9fa5]/.test(w)); if (hasValidChineseWord) { words = segWords.filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w) && w.length >= 2); } else { words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w)); } } else { words = [...enWords, ...fallbackChWords].filter(w => !stopWords.has(w.toLowerCase()) && !isDatePattern(w)); }
+            const frequency = {}; words.forEach(w => { frequency[w.toLowerCase()] = (frequency[w.toLowerCase()] || 0) + 1; });
             return Object.keys(frequency).sort((a, b) => frequency[b] - frequency[a]).slice(0, count).map(lw => words.find(w => w.toLowerCase() === lw)).filter(Boolean);
         }
 
         function extractKeywords(text) { let topWords = getTopKeywords(text, 1); return topWords.length > 0 ? topWords[0] : ""; }
-
-        function getImageUrl(mainKw, subKw, index) {
-            let baseQuery = mainKw || "設計"; if (subKw && !baseQuery.includes(subKw)) baseQuery = `${baseQuery} ${subKw}`;
-            return `https://tse${(index % 4) + 1}.mm.bing.net/th?q=${encodeURIComponent(baseQuery.trim())}&w=1600&h=1600&c=7&rs=1&qlt=100&pid=Api&mkt=zh-TW&nocache=${Date.now() + index}`;
-        }
+        function getImageUrl(mainKw, subKw, index) { let baseQuery = mainKw || "設計"; if (subKw && !baseQuery.includes(subKw)) baseQuery = `${baseQuery} ${subKw}`; return `https://tse${(index % 4) + 1}.mm.bing.net/th?q=${encodeURIComponent(baseQuery.trim())}&w=1600&h=1600&c=7&rs=1&qlt=100&pid=Api&mkt=zh-TW&nocache=${Date.now() + index}`; }
 
         let manualRefreshIndex = 100; 
         function refreshImage(imgEl) {
             if(imgEl.classList.contains('reloading') || currentLayoutMode === 2) return; 
-            imgEl.classList.add('reloading'); 
-            manualRefreshIndex++; 
+            imgEl.classList.add('reloading'); manualRefreshIndex++; 
             let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex);
-            let tempLoader = new Image();
-            tempLoader.crossOrigin = "anonymous";
-            imgEl._tempLoader = tempLoader; 
-
+            let tempLoader = new Image(); tempLoader.crossOrigin = "anonymous"; imgEl._tempLoader = tempLoader; 
             tempLoader.onload = function() { imgEl.src = newSrc; imgEl.classList.remove('reloading'); delete imgEl._tempLoader; };
             tempLoader.onerror = function() { imgEl.src = newSrc; imgEl.classList.remove('reloading'); delete imgEl._tempLoader; }; 
-            
             setTimeout(() => { if(imgEl.classList.contains('reloading')) { imgEl.classList.remove('reloading'); delete imgEl._tempLoader; } }, 6000);
             tempLoader.src = newSrc;
         }
@@ -1198,135 +940,199 @@
         function triggerCurrentSlideRefresh() {
             if (slides.length === 0 || currentLayoutMode === 2) return; 
             let imgEl = slides[currentIndex].querySelector('.art-frame img');
-            if (imgEl) { imgEl.removeAttribute('data-custom'); imgEl.setAttribute('data-sub', subKeywordInput.value.trim()); refreshImage(imgEl); }
+            if (imgEl && !imgEl.hasAttribute('data-custom')) { imgEl.setAttribute('data-sub', subKeywordInput.value.trim()); refreshImage(imgEl); }
         }
         
-        btnRefreshImg.addEventListener('click', triggerCurrentSlideRefresh);
-        subKeywordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); triggerCurrentSlideRefresh(); } });
+        btnRefreshImg.addEventListener('click', triggerCurrentSlideRefresh); subKeywordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); triggerCurrentSlideRefresh(); } });
 
-        function autoFitText() {
-            document.querySelectorAll('.text-inner-scroll').forEach(wrapper => {
-                let scale = 1.0; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; 
-                while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { scale -= 0.02; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; }
-            });
-        }
-        
-        window.addEventListener('resize', () => { if (slides.length > 0) autoFitText(); });
-        if (document.fonts) { document.fonts.ready.then(() => { if (slides.length > 0) autoFitText(); }); }
+        function autoFitText() { document.querySelectorAll('.text-inner-scroll').forEach(wrapper => { let scale = 1.0; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { scale -= 0.02; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; } }); }
+        window.addEventListener('resize', () => { if (slides.length > 0) autoFitText(); }); if (document.fonts) { document.fonts.ready.then(() => { if (slides.length > 0) autoFitText(); }); }
 
         function showLoader(text) { loaderStageText.innerText = text; loaderScreen.classList.add('active'); }
         function hideLoader() { loaderScreen.classList.remove('active'); }
 
         generateBtn.addEventListener('click', async () => {
-            const rawHTML = promptInput.innerHTML.trim(); if (!promptInput.innerText.trim() && !rawHTML) return;
-            generateBtn.disabled = true; showLoader("正在自動分頁..."); controls.style.display = "none"; actionBar.style.display = "none";
+            const rawHTML = promptInput.innerHTML.trim(); if (!promptInput.innerText.trim() && !rawHTML && !promptInput.querySelector('img')) return;
+            generateBtn.disabled = true; showLoader("正在解析結構與分頁..."); controls.style.display = "none"; actionBar.style.display = "none";
             sessionStorage.clear(); await new Promise(r => setTimeout(r, 600));
 
+            // 全螢幕模式生成後自動退出，以便預覽
+            if(document.body.classList.contains('editor-fullscreen')) {
+                document.body.classList.remove('editor-fullscreen');
+            }
+
             try {
-                let finalHtml = "", chunks = [];
-                if (rawHTML.includes('page-break-line')) {
-                    const parts = rawHTML.split(/<div class="page-break-line".*?<\/div>/gi);
-                    const temp = document.createElement('div');
-                    parts.forEach(p => { temp.innerHTML = p.replace(/<br\s*\/?>/gi, '\n'); let t = temp.innerText.trim(); if (t) chunks.push(...splitIntoChunks(t, 95)); });
-                } else chunks = splitIntoChunks(promptInput.innerText.trim(), 95);
+                let slideDrafts = [];
+                const tempDiv = document.createElement('div'); tempDiv.innerHTML = rawHTML.replace(/<br\s*\/?>/gi, '\n');
+                let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
 
-                let userMainInput = mainKeywordInput.value.trim();
-                globalMainKeyword = userMainInput ? userMainInput : (chunks.length > 0 ? extractKeywords(chunks[0]) || "視覺藝術" : "視覺藝術");
-
-                if (!isAiMode) {
-                    if (titleMode === 0) { finalHtml = chunks.map(c => `<div class="slide"><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n"); } 
-                    else if (titleMode === 1) { finalHtml = chunks.map(c => `<div class="slide"><h2>點擊輸入標題</h2><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n"); } 
-                    else {
-                        showLoader("正在排版...");
-                        try {
-                            const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `為以下段落產生繁體中文短標題(不超過8個字)。只輸出JSON陣列，如:["標一","標二"]` }, { role: "user", content: chunks.map((c,i)=>`[段${i+1}] ${c}`).join("\n") } ] }) });
-                            let titles = JSON.parse((await res.json()).choices[0].message.content.replace(/```json/gi, '').replace(/```/gi, '').trim());
-                            while(titles.length < chunks.length) titles.push(globalMainKeyword);
-                            finalHtml = chunks.map((c, i) => `<div class="slide"><h2>${titles[i]}</h2><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n");
-                        } catch(e) { finalHtml = chunks.map((c, i) => `<div class="slide"><h2>章節 ${i+1}</h2><p>${c.replace(/\n/g, '<br>')}</p></div>`).join("\n"); }
+                function flushText() {
+                    if (currentTextBuffer.trim() || currentImageBuffer.length > 0) {
+                        let chunks = splitIntoChunks(currentTextBuffer.trim(), 95);
+                        if (chunks.length === 0) chunks = [""];
+                        chunks.forEach((c, i) => {
+                            slideDrafts.push({ type: 'text', content: c, images: i === 0 ? currentImageBuffer : [] });
+                        });
+                        currentTextBuffer = ""; currentImageBuffer = [];
                     }
-               } else {
-                    showLoader("AI智能擴充...");
-                    
-                    // 將前端嚴格切好的字塊，格式化成明確的頁碼結構餵給 AI
-                    let aiInputText = chunks.map((c, i) => `[第 ${i+1} 頁草稿]：\n${c}`).join('\n\n');
-                    
-                    let titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>[繁體中文短標題]</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>";
-                    if (titleMode === 0) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n絕對禁止輸出 <h2> 或 <h1> 標籤。";
-                    else if (titleMode === 1) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>點擊輸入標題</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n所有 <h2> 標籤內必須一字不漏地填入「點擊輸入標題」。";
-
-                    const res = await fetch(API_URL, { 
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, 
-                        body: JSON.stringify({ 
-                            model: MODEL, 
-                            messages: [ 
-                                { 
-                                    role: "system", 
-                                    content: `你是頂級的簡報企劃專家。你的任務是將使用者的草稿擴充並排版。
-嚴格遵守以下規則：
-1. 語言限制：【必須】全部使用標準繁體中文。
-2. 內容擴充：根據草稿補充具體細節，但每張投影片內文【絕對不允許】超過 95 個字！
-3. 強制一對一產出（關鍵）：使用者已經把草稿分為多個 [第 X 頁草稿]。你【必須】為每一個草稿產出對應的「一張」投影片。有幾頁草稿，就必須產出幾個 <div class="slide">，絕對禁止將多頁草稿合併成一頁！
-4. 唯一標籤限制：每個 slide 裡面【只能有一個 <p> 標籤】來包裝所有內文！絕對禁止使用 <ul>、<li> 等標籤。
-5. 只允許輸出純 HTML，不要包含 markdown 語法。
-6. ${titleInstruction}` 
-                                }, 
-                                { 
-                                    role: "user", 
-                                    content: `請幫我逐頁擴充以下簡報內容，確保產出的 <div class="slide"> 數量與提供的草稿頁數完全一致：\n\n${aiInputText}` 
-                                } 
-                            ] 
-                        }) 
-                    });
-                    finalHtml = (await res.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
                 }
 
-              if (isHighlightMode) {
+                function flushTables() {
+                    if (currentTableBuffer.length > 0) {
+                        let combined = currentTableBuffer.map(t => `<div class="table-container">${t}</div>`).join('');
+                        slideDrafts.push({ type: 'table', content: combined, images: [] });
+                        currentTableBuffer = [];
+                    }
+                }
+
+                // [Requirement 2] 嚴格的 DOM 解析與連續表格判斷機制
+                function walkDOM(node) {
+                    if (node.nodeType === 3) {
+                        let text = node.textContent;
+                        // 若遇到有實際意義的文字，會中斷表格的連續性
+                        if (text.trim().length > 0) {
+                            flushTables(); 
+                            currentTextBuffer += text;
+                        } else { 
+                            currentTextBuffer += text; // 保留空白或換行符號
+                        }
+                    } else if (node.nodeType === 1) {
+                        if (node.tagName === 'TABLE') {
+                            flushText(); 
+                            currentTableBuffer.push(node.outerHTML);
+                            return; // 遇到表格視為獨立區塊，不再往下鑽取內部，防堵幽靈文字
+                        } else if (node.tagName === 'IMG') {
+                            let src = node.getAttribute('src') || node.src;
+                            if (src && !src.startsWith('chrome-extension')) {
+                                flushTables(); // 遇到圖片，中斷表格的連續性
+                                currentImageBuffer.push(src);
+                            }
+                        } else if (node.classList.contains('page-break-line')) {
+                            flushText(); 
+                            flushTables(); // 遇到強制分頁標記，中斷表格的連續性
+                        } else {
+                            let isBlock = ['DIV', 'P', 'H1', 'H2', 'LI', 'SECTION', 'BR'].includes(node.tagName);
+                            if (isBlock && currentTextBuffer.length > 0 && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
+                            Array.from(node.childNodes).forEach(walkDOM);
+                            if (isBlock && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
+                        }
+                    }
+                }
+
+                Array.from(tempDiv.childNodes).forEach(walkDOM);
+                flushText(); flushTables();
+
+                let userMainInput = mainKeywordInput.value.trim();
+                let firstTextDraft = slideDrafts.find(d => d.type === 'text' && d.content.trim().length > 0);
+                globalMainKeyword = userMainInput ? userMainInput : (firstTextDraft ? extractKeywords(firstTextDraft.content) || "專案排版" : "專案排版");
+
+                let finalHtmlChunks = new Array(slideDrafts.length);
+                let textDraftIndexes = []; let textDraftContents = []; let textDraftImages = [];
+
+                slideDrafts.forEach((draft, i) => {
+                    if (draft.type === 'table') {
+                        let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2>點擊輸入標題</h2>" : "<h2>數據與分析洞察</h2>");
+                        let hasMultiple = draft.content.split('table-container').length > 2;
+                        if(hasMultiple) finalHtmlChunks[i] = `<div class="slide">${title}<div class="multi-table-wrapper">${draft.content}</div></div>`;
+                        else finalHtmlChunks[i] = `<div class="slide">${title}${draft.content}</div>`;
+                    } else {
+                        textDraftIndexes.push(i); textDraftContents.push(draft.content); textDraftImages.push(draft.images);
+                    }
+                });
+
+                if (!isAiMode) {
+                    if (titleMode === 0) { 
+                        textDraftIndexes.forEach((idx, i) => { 
+                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                        }); 
+                    } 
+                    else if (titleMode === 1) { 
+                        textDraftIndexes.forEach((idx, i) => { 
+                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>點擊輸入標題</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                        }); 
+                    } 
+                    else {
+                        if(textDraftContents.length > 0) {
+                            showLoader("正在為文字排版...");
+                            try {
+                                const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `為以下段落產生繁體中文短標題(不超過8個字)。只輸出JSON陣列，如:["標一","標二"]` }, { role: "user", content: textDraftContents.map((c,i)=>`[段${i+1}] ${c}`).join("\n") } ] }) });
+                                let titles = JSON.parse((await res.json()).choices[0].message.content.replace(/```json/gi, '').replace(/```/gi, '').trim()); while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
+                                textDraftIndexes.forEach((idx, i) => { 
+                                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${titles[i]}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                                });
+                            } catch(e) { 
+                                textDraftIndexes.forEach((idx, i) => { 
+                                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>章節 ${i+1}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                                }); 
+                            }
+                        }
+                    }
+                } else {
+                    if (textDraftContents.length > 0) {
+                        showLoader("AI智能擴充中...");
+                        let aiInputText = textDraftContents.map((c, i) => `[第 ${i+1} 頁草稿]：\n${c}`).join('\n\n');
+                        let titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>[繁體中文短標題]</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>";
+                        if (titleMode === 0) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n絕對禁止輸出 <h2> 或 <h1> 標籤。";
+                        else if (titleMode === 1) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>點擊輸入標題</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n所有 <h2> 標籤內必須一字不漏地填入「點擊輸入標題」。";
+
+                        const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.只輸出純 HTML。6.${titleInstruction}` }, { role: "user", content: `擴充以下內容：\n\n${aiInputText}` } ] }) });
+                        let aiHtml = (await res.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
+                        const aiTempDiv = document.createElement('div'); aiTempDiv.innerHTML = aiHtml; const aiSlides = Array.from(aiTempDiv.querySelectorAll('.slide'));
+                        textDraftIndexes.forEach((idx, i) => { 
+                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
+                            if (aiSlides[i]) { 
+                                if (joinedImgs) aiSlides[i].setAttribute('data-custom-images', textDraftImages[i].join('|||'));
+                                finalHtmlChunks[idx] = aiSlides[i].outerHTML; 
+                            } else { 
+                                finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                            } 
+                        });
+                    }
+                }
+
+                let finalHtml = finalHtmlChunks.join('\n');
+
+                if (isHighlightMode) {
                     showLoader("正在分析並畫重點...");
                     try {
-                        // 準確計算第一階段產生了多少個 slide，用來強制約束 AI
-                        const slideCount = (finalHtml.match(/<div class="slide"/gi) || []).length;
-                        
-                        const hlRes = await fetch(API_URL, { 
-                            method: 'POST', 
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, 
-                            body: JSON.stringify({ 
-                                model: MODEL, 
-                                messages: [ 
-                                    { 
-                                        role: "system", 
-                                        content: `你是一個嚴格的 HTML 結構處理程式。
-任務：為提供的 HTML 中的「每一頁」加入重點標記。
-規則：
-1. 原封不動保留結構：提供的 HTML 總共有 ${slideCount} 個 <div class="slide">。你輸出的 HTML 【必須完整保留這 ${slideCount} 個 slide】，絕對禁止刪減、縮寫或合併任何內容！
-2. 每一頁都必須標記：你【必須】在「每一個」 <div class="slide"> 的內文（<p> 標籤內部），精準挑選 1~2 個最核心的詞彙或短句，用 <span data-hl="true"> 和 </span> 包圍起來。
-3. 強制條件（非常重要）：請逐頁檢查，絕對不允許任何一頁缺少 <span data-hl="true"> 標記！
-4. 絕不改變原始文字與既有的 HTML 結構，只能插入 span 標籤。只輸出純 HTML 代碼，不要包含 markdown 語法。` 
-                                    }, 
-                                    { role: "user", content: finalHtml } 
-                                ] 
-                            }) 
+                        let tempHtml = finalHtml;
+                        let imgStore = {};
+                        let imgCounter = 0;
+                        tempHtml = tempHtml.replace(/data-custom-images="([^"]*)"/g, (match, p1) => {
+                            let id = `__IMG_PH_${imgCounter++}__`;
+                            imgStore[id] = p1;
+                            return `data-custom-images="${id}"`;
                         });
-                        
+
+                        const slideCount = (tempHtml.match(/<div class="slide"/gi) || []).length;
+                        const hlRes = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是一個 HTML 結構處理程式。任務：為提供的 HTML 加入重點標記。\n規則：\n1. 原封不動保留結構：提供的 HTML 總共有 ${slideCount} 個 <div class="slide">。你輸出的 HTML 【必須完整保留這 ${slideCount} 個 slide】！**不允許修改或破壞 <div class="table-container"> 或 <table> 相關的內容！**\n2. 每一頁(若有<p>)都必須在 <p> 內部挑選 1~2 個最核心的短句，用 <span data-hl="true"> 和 </span> 包圍。\n3. 絕不改變原始文字與既有結構。只輸出純 HTML 代碼。` }, { role: "user", content: tempHtml } ] }) });
                         let hlOutput = (await hlRes.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
-                        // 防呆機制：確保 AI 沒有擅自把 HTML 截斷或破壞才覆蓋
+                        
                         if(hlOutput.includes('<div class="slide"')) {
+                            for (let id in imgStore) {
+                                hlOutput = hlOutput.replace(`data-custom-images="${id}"`, `data-custom-images="${imgStore[id]}"`);
+                            }
                             finalHtml = hlOutput;
                         }
-                    } catch(e) {
-                        console.error("Highlighting failed:", e);
-                    }
+                    } catch(e) { console.error("Highlighting failed, continuing with unhighlighted html."); }
                 }
 
                 if (addCoverPage) { let coverHtml = `<div class="slide layout-cover"><h1>主標題 (點擊修改)</h1><h2>副標題 / 演講者 (點擊修改)</h2></div>\n`; finalHtml = coverHtml + finalHtml; }
 
-                showLoader("正在加載圖片..."); 
+                showLoader("正在加載專屬視覺與佈局..."); 
                 renderPresentation(finalHtml);
                 
                 const newImages = Array.from(presentationBoard.querySelectorAll('img'));
                 await Promise.all(newImages.map(img => { if (img.complete) return Promise.resolve(); return new Promise(resolve => { img.onload = resolve; img.onerror = resolve; }); }));
-
                 setTimeout(autoFitText, 100); setTimeout(autoFitText, 500); 
                 if (window.innerWidth <= 1024) { document.body.classList.add('preview-mode'); }
 
@@ -1336,15 +1142,28 @@
 
         function renderPresentation(htmlContent) {
             const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlContent; presentationBoard.innerHTML = '';
-            
-            // 從全螢幕面板獲取啟用的版面
-            const activeLayouts = getActiveLayouts();
-            let layoutCounter = 0;
+            const activeLayouts = getActiveLayouts(); let layoutCounter = 0;
             
             tempDiv.querySelectorAll('.slide').forEach((slide, index) => {
                 const newSlide = document.createElement('div');
+                
+                let hasTable = slide.querySelector('table') !== null;
+                let customImgsRaw = slide.getAttribute('data-custom-images') || "";
+                let customImgs = customImgsRaw ? customImgsRaw.split('|||') : [];
+                
                 let assignedLayout = slide.classList.contains('layout-cover') ? 'layout-cover' : activeLayouts[layoutCounter++ % activeLayouts.length];
-                newSlide.className = `slide ${assignedLayout}`;
+                
+                if(hasTable) { 
+                    assignedLayout = 'layout-table-focus'; newSlide.className = `slide ${assignedLayout} has-tables`; 
+                } else if (customImgs.length > 1) { 
+                    assignedLayout = 'layout-multi-image'; newSlide.className = `slide ${assignedLayout}`; 
+                } else if (customImgs.length === 1 && assignedLayout === 'layout-center') {
+                    let altLayouts = activeLayouts.filter(l => l !== 'layout-center');
+                    assignedLayout = altLayouts.length > 0 ? altLayouts[0] : 'layout-img-left';
+                    newSlide.className = `slide ${assignedLayout}`;
+                } else { 
+                    newSlide.className = `slide ${assignedLayout}`; 
+                }
                 
                 const bgImg = document.createElement('img'); bgImg.className = 'bg-img';
                 bgImg.crossOrigin = "Anonymous"; bgImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/1600/900`;
@@ -1353,81 +1172,98 @@
                 const textWrapper = document.createElement('div'); textWrapper.className = 'text-content-wrapper';
                 const scrollArea = document.createElement('div'); scrollArea.className = 'text-inner-scroll';
                 
-                ['h1', 'h2', 'p', 'ul'].forEach(tag => { 
-                    const el = slide.querySelector(tag); 
-                    if(el) {
-                        let cloned = el.cloneNode(true);
-                        cloned.contentEditable = "true"; cloned.spellcheck = false;
-                        cloned.addEventListener('input', () => autoFitText()); 
-                        cloned.addEventListener('blur', function() { let cleanText = this.textContent.trim().replace(/\u200B/g, ''); if (cleanText === '') { this.remove(); autoFitText(); } });
-                        scrollArea.appendChild(cloned);
-                    } 
+                Array.from(slide.children).forEach(el => {
+                    if(el.tagName === 'IMG' && el.classList.contains('bg-img')) return;
+                    scrollArea.appendChild(el.cloneNode(true));
                 });
+
+                // 綁定編輯與防呆隱藏機制
+                scrollArea.querySelectorAll('h1, h2, p, ul, td, th').forEach(el => {
+                    el.contentEditable = "true"; el.spellcheck = false; 
+                    el.addEventListener('input', () => autoFitText());
+                    if(['H1', 'H2', 'P'].includes(el.tagName)) { 
+                        el.addEventListener('blur', function() { 
+                            let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
+                            if (cleanText === '' || cleanText === '點擊輸入標題' || cleanText === '數據與分析洞察') { 
+                                this.textContent = '';
+                                this.style.display = 'none'; 
+                                autoFitText(); 
+                            } 
+                        });
+                        el.addEventListener('focus', function() {
+                            if (this.style.display === 'none') this.style.display = '';
+                        });
+                    }
+                });
+
                 textWrapper.appendChild(scrollArea); newSlide.appendChild(textWrapper);
 
                 if (assignedLayout !== 'layout-center' && assignedLayout !== 'layout-cover') {
-                    const p = slide.querySelector('p'), imgWrapper = document.createElement('div'); imgWrapper.className = 'feature-img-wrapper';
-                    const artFrame = document.createElement('div'); artFrame.className = 'art-frame';
-                    const featureImg = document.createElement('img'); featureImg.crossOrigin = "anonymous";
-                    featureImg.title = "點擊更換 AI 圖片 / 電腦右鍵或手機長按上傳自訂圖片";
-                    
-                    if (currentLayoutMode === 2) { 
-                        featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
-                        artFrame.classList.add('no-hover'); 
-                    } else { 
-                        let initialSub = p && p.textContent ? extractKeywords(p.textContent) : "";
-                        featureImg.src = getImageUrl(globalMainKeyword, initialSub, index);
-                        featureImg.setAttribute('data-main', globalMainKeyword); featureImg.setAttribute('data-sub', initialSub);
+                    let shouldAddImage = true;
+                    if (hasTable && customImgs.length === 0) {
+                        shouldAddImage = false; 
                     }
-                    
-                    featureImg.addEventListener('contextmenu', function(e) { e.preventDefault(); isLongPress = true; setTimeout(() => isLongPress = false, 500); targetImgForUpload = this; localImageUploader.click(); });
 
-                    featureImg.addEventListener('click', function(e) {
-                        e.preventDefault(); if (isLongPress || this.classList.contains('reloading') || currentLayoutMode === 2) return; 
-                        this.removeAttribute('data-custom'); 
-                        
-                        let currentP = newSlide.querySelector('p'); let slideText = currentP ? currentP.textContent : ""; 
-                        let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
-                        let currentSub = this.getAttribute('data-sub') || "";
-                        if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
-                        
-                        let newSub = "";
-                        if (slideText.trim()) {
-                            let potentialKws = getTopKeywords(slideText, 20); newSub = potentialKws.find(kw => !usedKws.includes(kw));
-                            if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; }
+                    if (shouldAddImage) {
+                        if (customImgs.length > 1) {
+                            const multiImgWrapper = document.createElement('div'); multiImgWrapper.className = 'multi-img-wrapper';
+                            customImgs.forEach(src => {
+                                const frame = document.createElement('div'); frame.className = 'art-frame';
+                                const img = document.createElement('img'); img.src = src; img.setAttribute('data-custom', 'true');
+                                frame.appendChild(img); multiImgWrapper.appendChild(frame);
+                                attachPanning(img); 
+                            });
+                            newSlide.appendChild(multiImgWrapper);
+                        } else {
+                            const p = slide.querySelector('p'), imgWrapper = document.createElement('div'); imgWrapper.className = 'feature-img-wrapper';
+                            const artFrame = document.createElement('div'); artFrame.className = 'art-frame';
+                            const featureImg = document.createElement('img'); 
+                            featureImg.title = "點擊更換圖片 / 電腦右鍵或手機長按上傳自訂圖片 / 自由拖曳移動焦點";
+                            
+                            if (customImgs.length === 1) {
+                                featureImg.removeAttribute('crossorigin');
+                                featureImg.src = customImgs[0]; featureImg.setAttribute('data-custom', 'true');
+                            } else if (currentLayoutMode === 2) { 
+                                featureImg.crossOrigin = "anonymous";
+                                featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`; artFrame.classList.add('no-hover'); 
+                            } else { 
+                                featureImg.crossOrigin = "anonymous";
+                                let initialSub = p && p.textContent ? extractKeywords(p.textContent) : "";
+                                featureImg.src = getImageUrl(globalMainKeyword, initialSub, index); featureImg.setAttribute('data-main', globalMainKeyword); featureImg.setAttribute('data-sub', initialSub);
+                            }
+                            
+                            featureImg.addEventListener('contextmenu', function(e) { e.preventDefault(); isLongPress = true; setTimeout(() => isLongPress = false, 500); targetImgForUpload = this; localImageUploader.click(); });
+                            featureImg.addEventListener('click', function(e) {
+                                if (this.dataset.hasMoved === 'true') { e.preventDefault(); return; } 
+                                e.preventDefault(); if (isLongPress || this.classList.contains('reloading') || currentLayoutMode === 2 || this.hasAttribute('data-custom')) return; 
+                                let currentP = newSlide.querySelector('p'); let slideText = currentP ? currentP.textContent : ""; 
+                                let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+                                let currentSub = this.getAttribute('data-sub') || ""; if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                                let newSub = "";
+                                if (slideText.trim()) { let potentialKws = getTopKeywords(slideText, 20); newSub = potentialKws.find(kw => !usedKws.includes(kw)); if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; } }
+                                if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
+                                usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); 
+                                if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; refreshImage(this); 
+                            });
+                            artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper);
+                            attachPanning(featureImg); 
                         }
-                        if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
-                        
-                        usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); 
-                        if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
-                        refreshImage(this); 
-                    });
-                    artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper);
+                    }
                 }
                 const pageNum = document.createElement('div'); pageNum.className = 'slide-number-indicator'; pageNum.innerText = String(index + 1).padStart(2, '0');
                 newSlide.appendChild(pageNum); presentationBoard.appendChild(newSlide);
             });
             slides = document.querySelectorAll('.slide'); if (slides.length === 0) return;
-            updateSlideThemes();
-            if(currentIndex >= slides.length) currentIndex = 0;
-            updateSlides(); controls.style.display = "flex"; actionBar.style.display = "flex"; totalSlideNum.innerText = slides.length;
+            updateSlideThemes(); if(currentIndex >= slides.length) currentIndex = 0; updateSlides(); 
+            controls.style.display = "flex"; actionBar.style.display = "flex"; totalSlideNum.innerText = slides.length;
         }
 
        function updateSlides() { 
             slides.forEach((s, i) => s.classList.toggle('active', i === currentIndex)); 
             currentSlideNum.innerText = slides.length > 0 ? currentIndex + 1 : 0; 
-            
-            if (currentLayoutMode === 2 || slides.length === 0) { 
-                subKeywordGroup.style.display = 'none'; 
-            } else {
+            if (currentLayoutMode === 2 || slides.length === 0 || slides[currentIndex].classList.contains('layout-multi-image')) { subKeywordGroup.style.display = 'none'; } else {
                 let img = slides[currentIndex].querySelector('.art-frame img');
-                if (img) { 
-                    subKeywordGroup.style.display = 'flex'; 
-                    subKeywordInput.value = img.getAttribute('data-sub') || ""; 
-                } else { 
-                    subKeywordGroup.style.display = 'none'; 
-                    subKeywordInput.value = ""; 
-                }
+                if (img && !img.hasAttribute('data-custom')) { subKeywordGroup.style.display = 'flex'; subKeywordInput.value = img.getAttribute('data-sub') || ""; } else { subKeywordGroup.style.display = 'none'; subKeywordInput.value = ""; }
             }
         }
 
@@ -1435,9 +1271,7 @@
         nextBtn.addEventListener('click', () => { if (currentIndex < slides.length - 1) { currentIndex++; updateSlides(); } });
         
         document.addEventListener('keydown', (e) => { 
-            // 排除在全螢幕時左右鍵切換（如果全螢幕選單開啟則略過）
             if(layoutSelectorModal.classList.contains('active')) return;
-            
             if (slides.length === 0) return;
             if (document.activeElement && document.activeElement.isContentEditable) return; 
             if ([subKeywordInput, mainKeywordInput, promptInput].includes(document.activeElement)) return;
@@ -1446,52 +1280,90 @@
         });
 
         document.getElementById('btnExportHtml').addEventListener('click', () => {
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = Array.from(slides).map(s => s.outerHTML).join('\n');
+            const tempDiv = document.createElement('div'); tempDiv.innerHTML = Array.from(slides).map(s => s.outerHTML).join('\n');
             tempDiv.querySelectorAll('.art-frame img').forEach(img => { img.removeAttribute('title'); img.removeAttribute('data-main'); img.removeAttribute('data-sub'); img.style.cursor = 'default'; });
             tempDiv.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
-
-            const slideHtml = tempDiv.innerHTML;
-            let bodyClasses = [];
-            if(isHighlightMode) bodyClasses.push('show-highlight');
-            if(currentLayoutMode !== 0) bodyClasses.push('use-geometric');
-            const classAttr = bodyClasses.length > 0 ? `class="${bodyClasses.join(' ')}"` : '';
-            const styles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
-            const wrapperThemeAttr = currentThemeId === 'mix' ? '' : `data-theme="${currentThemeId}"`;
-
+            const slideHtml = tempDiv.innerHTML; let bodyClasses = [];
+            if(isHighlightMode) bodyClasses.push('show-highlight'); if(currentLayoutMode !== 0) bodyClasses.push('use-geometric');
+            const classAttr = bodyClasses.length > 0 ? `class="${bodyClasses.join(' ')}"` : ''; const styles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n'); const wrapperThemeAttr = currentThemeId === 'mix' ? '' : `data-theme="${currentThemeId}"`;
             const exportHtml = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>AURA Presentation</title><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500&family=Noto+Serif+TC:wght@300;400;500;600&family=Inter:wght@200;300;400&display=swap" rel="stylesheet"><style>${styles} body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #111; overflow: hidden; cursor: pointer; } .presentation-wrapper { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; position: relative; container-type: inline-size; overflow: hidden; margin: auto; } .slide { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; } .slide.active { opacity: 1; pointer-events: auto; }</style></head><body ${classAttr}><div class="presentation-wrapper" id="board" ${wrapperThemeAttr}>${slideHtml}</div><script>const slides = document.querySelectorAll('.slide'); let c = 0; function update() { slides.forEach((s, i) => s.classList.toggle('active', i === c)); } if(slides.length > 0) update(); document.addEventListener('keydown', (e) => { if(e.key === 'ArrowRight' && c < slides.length - 1) { c++; update(); } if(e.key === 'ArrowLeft' && c > 0) { c--; update(); } }); document.addEventListener('click', (e) => { if (window.getSelection().toString().length > 0) return; if (e.clientX < window.innerWidth / 2) { if(c > 0) { c--; update(); } } else { if(c < slides.length - 1) { c++; update(); } } }); function autoFitText() { document.querySelectorAll('.text-inner-scroll').forEach(wrapper => { let scale = 1.0; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { scale -= 0.02; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; } }); } setTimeout(autoFitText, 100); window.addEventListener('resize', autoFitText); if (document.fonts) { document.fonts.ready.then(autoFitText); }<\/script></body></html>`;
-
             const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportHtml], { type: 'text/html' })); a.download = 'AURA_Presentation.html'; a.click();
         });
 
         function parseHtmlToPptxTextRuns(htmlElement, defaultColor, hlColor, font) {
-            let runs = [];
-            htmlElement.childNodes.forEach(node => {
+            let runs = []; htmlElement.childNodes.forEach(node => {
                 if (node.nodeType === 3 && node.textContent) runs.push({ text: node.textContent, options: { color: defaultColor, fontFace: font } });
                 else if (node.nodeName === 'BR') runs.push({ text: '\n' });
                 else if (node.nodeName === 'SPAN' && node.dataset.hl) runs.push({ text: node.innerText, options: { color: isHighlightMode ? hlColor : defaultColor, bold: isHighlightMode, fontFace: font } });
                 else runs.push({ text: node.innerText || node.textContent, options: { color: defaultColor, fontFace: font } });
-            });
-            return runs.length > 0 ? runs : [{ text: htmlElement.innerText, options: { color: defaultColor, fontFace: font } }];
+            }); return runs.length > 0 ? runs : [{ text: htmlElement.innerText, options: { color: defaultColor, fontFace: font } }];
         }
 
-        function cropImageToCircleBase64(imgEl) {
-            try {
-                let natW = imgEl.naturalWidth || 800, natH = imgEl.naturalHeight || 800;
-                let size = Math.min(Math.min(natW, natH), 800); 
-                const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const ctx = canvas.getContext('2d');
-                ctx.beginPath(); ctx.arc(size/2, size/2, size/2, 0, 2*Math.PI); ctx.closePath(); ctx.clip(); ctx.filter = 'grayscale(30%) sepia(10%) contrast(1.1)';
-                let sw = natW, sh = natH, sx = 0, sy = 0;
-                if (sw > sh) { sx = (sw - sh) / 2; sw = sh; } else { sy = (sh - sw) / 2; sh = sw; }
-                ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, size, size); return canvas.toDataURL('image/png'); 
-            } catch(e) { return imgEl.src; }
+        function isVisible(el) {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+            const text = el.textContent.replace(/\u200B/g, '').replace(/\n/g, '').trim();
+            if (text === '' || text === '點擊輸入標題' || text === '數據與分析洞察') return false;
+            return true;
         }
+
+        // 強大的 Canvas 預處理器：保證 PPTX 圖片100%不變形，並同步網頁上的「平移焦點」
+        function captureImageStateToBase64(imgEl, targetW, targetH, isGeo = false, isBg = false) {
+            try {
+                const targetRatio = targetW / targetH;
+                const canvas = document.createElement('canvas');
+                const canvasW = 1200;
+                const canvasH = canvasW / targetRatio;
+                canvas.width = canvasW; 
+                canvas.height = canvasH;
+                const ctx = canvas.getContext('2d');
+                
+                let natW = imgEl.naturalWidth || 1600; 
+                let natH = imgEl.naturalHeight || 1600;
+                let imgRatio = natW / natH;
+                
+                let drawW, drawH, drawX, drawY;
+                if (imgRatio > targetRatio) { 
+                    drawH = canvasH; drawW = canvasH * imgRatio; 
+                } else { 
+                    drawW = canvasW; drawH = canvasW / imgRatio; 
+                }
+                
+                let objPos = window.getComputedStyle(imgEl).objectPosition || '50% 50%';
+                let posParts = objPos.split(' ');
+                let pctX = parseFloat(posParts[0]) || 50; 
+                let pctY = parseFloat(posParts[1] || posParts[0]) || 50;
+                
+                drawX = (canvasW - drawW) * (pctX / 100); 
+                drawY = (canvasH - drawH) * (pctY / 100);
+                
+                if (isGeo) {
+                     ctx.beginPath(); 
+                     ctx.arc(canvasW/2, canvasH/2, Math.min(canvasW, canvasH)/2, 0, 2*Math.PI); 
+                     ctx.closePath(); 
+                     ctx.clip();
+                     ctx.filter = 'grayscale(30%) sepia(10%) contrast(1.1)';
+                }
+                 if (isBg) {
+             ctx.filter = 'grayscale(100%)';
+        }
+
+        // 【加入這兩行】先填滿白色背景，防止透明 PNG 轉存 JPEG 時變成黑底
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, canvasW, canvasH);
+
+        ctx.drawImage(imgEl, drawX, drawY, drawW, drawH);
+        return canvas.toDataURL('image/jpeg', 0.9);
+    } catch(e) { 
+        return imgEl.src; 
+    }
+}
 
         document.getElementById('btnExportPptx').addEventListener('click', async () => {
             if(typeof PptxGenJS === 'undefined') { alert("PPT 引擎載入中，請稍後再試。"); return; }
             const exportLoader = document.getElementById('exportLoader'); const progressFill = document.getElementById('exportProgressFill');
-            exportLoader.classList.add('active'); progressFill.style.width = '0%';
-            let progress = 0; const progressInterval = setInterval(() => { progress += (85 - progress) * 0.08; progressFill.style.width = `${progress}%`; }, 150);
+            exportLoader.classList.add('active'); progressFill.style.width = '0%'; let progress = 0; const progressInterval = setInterval(() => { progress += (85 - progress) * 0.08; progressFill.style.width = `${progress}%`; }, 150);
             await new Promise(r => setTimeout(r, 400));
 
             try {
@@ -1502,18 +1374,35 @@
 
                 slides.forEach((slide, index) => {
                     let pptSlide = pres.addSlide();
-                    let slideThemeId = slide.getAttribute('data-theme') || currentThemeId;
-                    if (slideThemeId === 'mix') slideThemeId = 'classic';
+                    let slideThemeId = slide.getAttribute('data-theme') || currentThemeId; if (slideThemeId === 'mix') slideThemeId = 'classic';
                     const cTheme = themePptxColors[slideThemeId];
 
                     pptSlide.bkgd = cTheme.bg; pptSlide.transition = { type: 'fade', speed: 'med' };
-                    let bgImg = slide.querySelector('.bg-img');
-                    if (bgImg) pptSlide.addImage({ path: bgImg.src, x: 0, y: 0, w: '100%', h: '100%', transparency: pptxBgTransparency }); 
+                    let bgImg = slide.querySelector('.bg-img'); 
+                    if (bgImg) {
+                        let bgB64 = captureImageStateToBase64(bgImg, 10, 5.625, false, true);
+                        pptSlide.addImage({ data: bgB64, x: 0, y: 0, w: '100%', h: '100%', transparency: pptxBgTransparency }); 
+                    }
                     
                     let cList = slide.classList; let isCover = cList.contains('layout-cover');
                     let boxX=0, boxY=0, boxW=0, boxH=0, imgX=0, imgY=0, imgW=0, imgH=0, hasImg = !cList.contains('layout-center') && !isCover;
-                    
+                    let isTableFocus = cList.contains('layout-table-focus');
+                    let isMultiImg = cList.contains('layout-multi-image');
+
                     if (isCover) { boxX = 1.0; boxY = 1.5; boxW = 8.0; boxH = 2.6; } 
+                    else if (isTableFocus) { 
+                        boxX = 1.0; boxY = 0.8; boxW = 8.0; boxH = 4.0;
+                        if(hasImg) { 
+                            if (isGeometricLayout) {
+                                imgW = 3.5; imgH = 3.5; imgX = 6.2; imgY = -0.3;
+                            } else {
+                                imgX = 0; imgY = 0; imgW = 10.0; imgH = 5.625;
+                            }
+                        }
+                    }
+                    else if (isMultiImg) {
+                        boxX = 0.5; boxY = 1.0; boxW = 4.8; boxH = 3.6;
+                    }
                     else if (isGeometricLayout) {
                         boxX = 1.5; boxY = 1.5; boxW = 7.0; boxH = 2.6;
                         if (cList.contains('layout-img-left')) { imgW = 5.5; imgH = 5.5; imgX = -2.75; imgY = 0.0625; }
@@ -1530,40 +1419,103 @@
                         else if (cList.contains('layout-center')) { boxX=2.0; boxY=1.5; boxW=6.0; boxH=2.6; } 
                     }
 
-                    let h1 = slide.querySelector('h1'), h2 = slide.querySelector('h2'), p = slide.querySelector('p');
+                    let h1s = Array.from(slide.querySelectorAll('h1')).filter(el => !el.closest('table'));
+                    let h2s = Array.from(slide.querySelectorAll('h2')).filter(el => !el.closest('table'));
+                    let ps = Array.from(slide.querySelectorAll('p')).filter(el => !el.closest('table'));
+                    let tables = slide.querySelectorAll('table');
+
+                    let h1 = h1s.length > 0 ? h1s[0] : null;
+                    let h2 = h2s.length > 0 ? h2s[0] : null;
+                    let p = ps.length > 0 ? ps[0] : null;
+                    
+                    let h1Text = isVisible(h1) ? h1.innerText.replace(/\u200B/g, '').trim() : "";
+                    let h2Text = isVisible(h2) ? h2.innerText.replace(/\u200B/g, '').trim() : "";
+                    let pText = isVisible(p) ? p.innerText.replace(/\u200B/g, '').trim() : "";
+                    
                     let totalReqH = 0.7;
-                    if (h1) totalReqH += isCover ? 1.0 : 0.65;
-                    if (h2) totalReqH += isCover ? 0.6 : 0.45;
-                    if (p) {
-                        let pText = p.innerText || ""; let charsPerLine = Math.floor((boxW - 0.7) / 0.24); if (charsPerLine < 10) charsPerLine = 10;
+                    if (h1Text) totalReqH += isCover ? 1.0 : 0.65;
+                    if (h2Text) totalReqH += isCover ? 0.6 : 0.45;
+                    if (pText) {
+                        let charsPerLine = Math.floor((boxW - 0.7) / 0.24); if (charsPerLine < 10) charsPerLine = 10;
                         let explicitLines = (pText.match(/\n/g) || []).length; let estimatedLines = Math.ceil(pText.length / charsPerLine) + explicitLines;
                         totalReqH += (estimatedLines * 0.35);
+                    }
+                    if (tables.length > 0) {
+                        let isMulti = tables.length > 1; let maxRows = 0;
+                        tables.forEach(t => { let rows = t.querySelectorAll('tr').length; if(isMulti) { if(rows > maxRows) maxRows = rows; } else { totalReqH += (rows * 0.4) + 0.2; } });
+                        if(isMulti) totalReqH += (maxRows * 0.4) + 0.2;
                     }
 
                     let defaultBoxH = boxH;
                     if (isCover) { boxH = Math.max(totalReqH + 0.5, 2.6); boxY = (5.625 - boxH) / 2; } 
                     else if (totalReqH > defaultBoxH) {
                         let heightDiff = totalReqH - defaultBoxH; boxH = totalReqH;
-                        if (!isGeometricLayout && cList.contains('layout-bottom-text')) boxY -= heightDiff; else boxY -= (heightDiff / 2);
+                        if (!isGeometricLayout && !isTableFocus && !isMultiImg && cList.contains('layout-bottom-text')) boxY -= heightDiff; else boxY -= (heightDiff / 2);
                         if (boxY < 0.2) boxY = 0.2; if (boxY + boxH > 5.4) boxH = 5.4 - boxY;
                     } else if (totalReqH < defaultBoxH) {
                         let newBoxH = Math.max(totalReqH, 1.5); let heightDiff = defaultBoxH - newBoxH; boxH = newBoxH;
-                        if (!isGeometricLayout && cList.contains('layout-bottom-text')) boxY += heightDiff; else boxY += (heightDiff / 2);
+                        if (!isGeometricLayout && !isTableFocus && !isMultiImg && cList.contains('layout-bottom-text')) boxY += heightDiff; else boxY += (heightDiff / 2);
                     }
 
-                    if (hasImg) {
-                        let featureImg = slide.querySelector('.feature-img-wrapper img');
-                        if (featureImg) {
-                            try { 
-                                if (isGeometricLayout) {
-                                    let circleBase64 = cropImageToCircleBase64(featureImg);
-                                    pptSlide.addImage({ data: circleBase64, x: imgX, y: imgY, w: imgW, h: imgH, transparency: pptxImgOpacity, shadow: { type: 'outer', opacity: 0.15, blur: 8 }}); 
-                                } else {
-                                    let isCustomBase64 = featureImg.src.startsWith('data:image');
-                                    pptSlide.addShape(pres.ShapeType.rect, { x: imgX, y: imgY, w: imgW, h: imgH, fill: { color: cTheme.shapeFill }, shadow: { type: 'outer', opacity: 0.15, blur: 5 }});
-                                    pptSlide.addImage(isCustomBase64 ? { data: featureImg.src, x: imgX + 0.1, y: imgY + 0.1, sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 }, transparency: pptxImgOpacity} : { path: featureImg.src, x: imgX + 0.1, y: imgY + 0.1, sizing: { type: 'cover', w: imgW - 0.2, h: imgH - 0.2 }, transparency: pptxImgOpacity});
-                                }
-                            } catch(e) {}
+                    // 處理單圖與主圖，直接使用預處理畫布(Base64)來取代 PptxGenJS 原生的 sizing cover 裁切，徹底防範拉伸變形
+                    if (hasImg && !isMultiImg) {
+    let featureImg = slide.querySelector('.feature-img-wrapper img');
+    if (featureImg) {
+        try { 
+            if(isTableFocus && !isGeometricLayout) { 
+                let b64 = captureImageStateToBase64(featureImg, imgW, imgH);
+                let imgOpts = { x: imgX, y: imgY, w: imgW, h: imgH, transparency: 85 };
+                if(b64.startsWith('data:image')) imgOpts.data = b64; else { imgOpts.path = b64; imgOpts.sizing = {type:'cover', w:imgW, h:imgH}; }
+                pptSlide.addImage(imgOpts); 
+            } else if (isGeometricLayout) {
+                let b64 = captureImageStateToBase64(featureImg, imgW, imgH, true);
+                let imgOpts = { x: imgX, y: imgY, w: imgW, h: imgH, transparency: pptxImgOpacity, shadow: { type: 'outer', opacity: 0.15, blur: 8 }};
+                if(b64.startsWith('data:image')) imgOpts.data = b64; else { imgOpts.path = b64; imgOpts.sizing = {type:'cover', w:imgW, h:imgH}; }
+                pptSlide.addImage(imgOpts); 
+            } else {
+                // 【核心修復】經典版型的統一處理區塊
+                let finalW = imgW - 0.2; 
+                let finalH = imgH - 0.2;
+
+                // 1. 先畫出「白框」的背景 Shape，並加上細邊線確保白框邊界清晰可見
+                pptSlide.addShape(pres.ShapeType.rect, { 
+                    x: imgX, y: imgY, w: imgW, h: imgH, 
+                    fill: { color: cTheme.shapeFill }, 
+                    line: { color: cTheme.line, width: 0.75 }, 
+                    shadow: { type: 'outer', opacity: 0.15, blur: 5 }
+                });
+                
+                // 2. 將圖片精準定位覆蓋在白框之上
+                let b64 = captureImageStateToBase64(featureImg, finalW, finalH);
+                let imgOpts = { x: imgX + 0.1, y: imgY + 0.1, w: finalW, h: finalH, transparency: pptxImgOpacity };
+                
+                if(b64.startsWith('data:image')) {
+                    imgOpts.data = b64;
+                } else {
+                    // 萬一 Canvas 因跨域(CORS)失敗退回原網址，強制套用 PptxGenJS 的 cover 防止拉伸
+                    imgOpts.path = b64;
+                    imgOpts.sizing = { type: 'cover', w: finalW, h: finalH }; 
+                }
+                pptSlide.addImage(imgOpts);
+            }
+        } catch(e) {}
+    }
+}
+
+                    if (isMultiImg) {
+                        let mImgs = slide.querySelectorAll('.multi-img-wrapper img');
+                        if (mImgs.length > 0) {
+                            let startX = 5.6, startY = 0.5, areaW = 4.0, areaH = 4.6;
+                            let cols = mImgs.length > 2 ? 2 : 1; let rows = Math.ceil(mImgs.length / cols);
+                            let w = (areaW - (cols-1)*0.2) / cols; let h = (areaH - (rows-1)*0.2) / rows;
+                            mImgs.forEach((img, i) => {
+                                let r = Math.floor(i / cols); let c = i % cols; let x = startX + c * (w + 0.2); let y = startY + r * (h + 0.2);
+                                pptSlide.addShape(pres.ShapeType.rect, { x: x, y: y, w: w, h: h, fill: { color: cTheme.shapeFill }, shadow: { type: 'outer', opacity: 0.1, blur: 3 }});
+                                
+                                let finalW = w - 0.1; let finalH = h - 0.1;
+                                let b64 = captureImageStateToBase64(img, finalW, finalH);
+                                pptSlide.addImage({ data: b64, x: x + 0.05, y: y + 0.05, w: finalW, h: finalH });
+                            });
                         }
                     }
 
@@ -1577,12 +1529,54 @@
                     let curY = boxY + (isCover ? 0.5 : 0.35), txtW = boxW - 0.7, txtX = boxX + 0.35;
                     let alignText = isCover ? 'center' : 'left';
                     
-                    if(h1) { pptSlide.addText(h1.innerText, { x: txtX, y: curY, w: txtW, h: isCover ? 0.8 : 0.6, align: alignText, fontFace: font, fontSize: isCover ? 38 : 32, color: cTheme.textMain, fit: 'shrink' }); curY += isCover ? 0.9 : 0.65; }
-                    if(h2) { pptSlide.addText(h2.innerText, { x: txtX, y: curY, w: txtW, h: isCover ? 0.6 : 0.4, align: alignText, fontFace: font, fontSize: isCover ? 24 : 20, color: cTheme.textMuted, fit: 'shrink' }); curY += isCover ? 0.6 : 0.45; }
-                    if(p) { 
+                    if(h1Text) { pptSlide.addText(h1Text, { x: txtX, y: curY, w: txtW, h: isCover ? 0.8 : 0.6, align: alignText, fontFace: font, fontSize: isCover ? 38 : 32, color: cTheme.textMain, fit: 'shrink' }); curY += isCover ? 0.9 : 0.65; }
+                    if(h2Text) { pptSlide.addText(h2Text, { x: txtX, y: curY, w: txtW, h: isCover ? 0.6 : 0.4, align: alignText, fontFace: font, fontSize: isCover ? 24 : 20, color: cTheme.textMuted, fit: 'shrink' }); curY += isCover ? 0.6 : 0.45; }
+                    if(pText) { 
                         let textRuns = parseHtmlToPptxTextRuns(p, cTheme.textMain, cTheme.hl, font);
                         let finalPHeight = (boxY + boxH) - curY - 0.35; if(finalPHeight < 0.5) finalPHeight = 0.5;
+                        if(tables.length > 0) finalPHeight = (p.innerText.match(/\n/g) || []).length * 0.35 + 0.5;
                         pptSlide.addText(textRuns, { x: txtX, y: curY, w: txtW, h: finalPHeight, align: alignText, valign: 'top', fontFace: font, fontSize: 16, lineSpacing: 25, fit: 'shrink', wrap: true }); 
+                        curY += finalPHeight;
+                    }
+                    
+                    if (tables.length > 0) {
+                        let isMulti = tables.length > 1; let gap = 0.4;
+                        let tableW = isMulti ? (txtW - (gap * (tables.length - 1))) / tables.length : txtW;
+                        let maxTableH = 0; let tableBandColor = '8C9B90'; 
+                        let tblLineColor = cTheme.textMain; 
+                        let tblSubLineColor = (slideThemeId === 'midnight' || slideThemeId === 'ocean') ? '666666' : 'D0D0D0';
+                        
+                        tables.forEach((tableEl, tIndex) => {
+                            let tableX = isMulti ? txtX + (tIndex * (tableW + gap)) : txtX; let pptRows = [];
+                            let rowsHtml = tableEl.querySelectorAll('tr');
+                            let rCount = rowsHtml.length;
+                            
+                            rowsHtml.forEach((tr, rIndex) => {
+                                let row = [];
+                                tr.querySelectorAll('th, td').forEach(cell => {
+                                    let isHeader = cell.tagName === 'TH';
+                                    
+                                    let bTop = null;
+                                    let bBot = null;
+                                    if (isHeader) { 
+                                        bBot = { pt: 0.5, color: tblLineColor }; 
+                                    } else if (rIndex !== rCount - 1) { 
+                                        bBot = { type: 'dash', pt: 0.5, color: tblSubLineColor }; 
+                                    }
+
+                                    row.push({ text: cell.innerText || "", options: { fontFace: font, fontSize: isHeader ? 14 : 12, color: isHeader ? cTheme.textMain : cTheme.textMuted, bold: isHeader, border: [bTop, null, bBot, null], margin: [0.1, 0.15, 0.1, 0.15] } });
+                                });
+                                if(row.length > 0) pptRows.push(row);
+                            });
+                            if(pptRows.length > 0) {
+                                let thisTableH = (pptRows.length * 0.4) + 0.2;
+                                pptSlide.addShape(pres.ShapeType.rect, { x: tableX - 0.08, y: curY, w: 0.06, h: thisTableH, fill: { color: tableBandColor } });
+                                pptSlide.addShape(pres.ShapeType.rect, { x: tableX, y: curY, w: tableW, h: thisTableH, fill: { color: '000000', transparency: 97 } });
+                                pptSlide.addTable(pptRows, { x: tableX, y: curY, w: tableW, border: {type: 'none'}, colW: tableW / pptRows[0].length });
+                                if(isMulti) { if(thisTableH > maxTableH) maxTableH = thisTableH; } else { curY += thisTableH + 0.3; }
+                            }
+                        });
+                        if (isMulti) curY += maxTableH + 0.3;
                     }
 
                     pptSlide.slideNumber = { x: 9.0, y: 5.1, w: 0.8, h: 0.4, align: 'right', fontFace: 'Cinzel', fontSize: 16, color: cTheme.textMuted };
@@ -1591,10 +1585,8 @@
                 await pres.writeFile({ fileName: "AURA_Presentation.pptx" });
                 clearInterval(progressInterval); progressFill.style.width = '100%';
                 setTimeout(() => { exportLoader.classList.remove('active'); setTimeout(() => { progressFill.style.width = '0%'; }, 500); }, 600);
-
             } catch(err) { clearInterval(progressInterval); exportLoader.classList.remove('active'); alert("匯出過程發生錯誤，請稍後重試。"); }
         });
     </script>
-    <footer class="copyright-footer"><p>© 2026 AURA • Chan Kwun Kin. All rights reserved.</p></footer>
 </body>
 </html>
