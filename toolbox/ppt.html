@@ -1733,11 +1733,11 @@ finalHtml += `\n<div class="slide layout-cover end-page"><h1>完</h1><h2>THE END
                             if (customImgs.length === 1) {
                                 featureImg.removeAttribute('crossorigin');
                                 featureImg.src = customImgs[0]; featureImg.setAttribute('data-custom', 'true');
-                            } else if (usePicsum) { 
-                                featureImg.crossOrigin = "anonymous";
-                                featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`; 
-                                artFrame.classList.add('no-hover'); 
-                            } else { 
+                           } else if (usePicsum) { 
+    featureImg.crossOrigin = "anonymous";
+    featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`; 
+    // 刪除了 artFrame.classList.add('no-hover'); 讓滑鼠移過去有變暗提示，代表可點擊
+} else {
                                 featureImg.crossOrigin = "anonymous";
                                 let initialSub = p && p.textContent ? extractKeywords(p.textContent) : "";
                                 featureImg.src = getImageUrl(globalMainKeyword, initialSub, index); 
@@ -1746,16 +1746,51 @@ finalHtml += `\n<div class="slide layout-cover end-page"><h1>完</h1><h2>THE END
                             
                             featureImg.addEventListener('contextmenu', function(e) { e.preventDefault(); isLongPress = true; setTimeout(() => isLongPress = false, 500); targetImgForUpload = this; localImageUploader.click(); });
                             featureImg.addEventListener('click', function(e) {
-                                if (this.dataset.hasMoved === 'true') { e.preventDefault(); return; } 
-                                e.preventDefault(); if (isLongPress || this.classList.contains('reloading') || usePicsum || this.hasAttribute('data-custom')) return; 
-                                let currentP = newSlide.querySelector('p'); let slideText = currentP ? currentP.textContent : ""; 
+                                e.preventDefault();
+                                
+                                // 1. 拖曳防撞機制：如果剛剛發生了平移拖曳 (超過5px)，就不觸發點擊換圖
+                                if (this.dataset.hasMoved === 'true') return; 
+                                
+                                // 2. 防呆機制：如果是長按選單、圖片還在載入中、或是使用者手動上傳的圖片，就不予理會
+                                if (isLongPress || this.classList.contains('reloading') || this.hasAttribute('data-custom')) return; 
+
+                                // 3. 【隨意配圖模式】的換圖邏輯
+                                if (usePicsum) {
+                                    this.classList.add('reloading');
+                                    let newSrc = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
+                                    let tempLoader = new Image(); 
+                                    tempLoader.crossOrigin = "anonymous";
+                                    tempLoader.onload = () => { this.src = newSrc; this.classList.remove('reloading'); };
+                                    tempLoader.onerror = () => { this.src = newSrc; this.classList.remove('reloading'); };
+                                    tempLoader.src = newSrc;
+                                    return; // 執行完隨機圖片就結束，不往下跑 Bing 邏輯
+                                }
+                                
+                                // 4. 【圖文關聯模式】的換圖邏輯 (Bing Search)
+                                let currentP = newSlide.querySelector('p'); 
+                                let slideText = currentP ? currentP.textContent : ""; 
                                 let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
-                                let currentSub = this.getAttribute('data-sub') || ""; if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                                let currentSub = this.getAttribute('data-sub') || ""; 
+                                
+                                if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                                
                                 let newSub = "";
-                                if (slideText.trim()) { let potentialKws = getTopKeywords(slideText, 20); newSub = potentialKws.find(kw => !usedKws.includes(kw)); if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; } }
+                                if (slideText.trim()) { 
+                                    let potentialKws = getTopKeywords(slideText, 20); 
+                                    newSub = potentialKws.find(kw => !usedKws.includes(kw)); 
+                                    if (!newSub && potentialKws.length > 0) { 
+                                        usedKws = [currentSub].filter(Boolean); 
+                                        newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; 
+                                    } 
+                                }
                                 if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
-                                usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); 
-                                if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; refreshImage(this); 
+                                
+                                usedKws.push(newSub); 
+                                sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); 
+                                this.setAttribute('data-sub', newSub); 
+                                
+                                if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; 
+                                refreshImage(this); 
                             });
                             artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper);
                             attachPanning(featureImg); 
