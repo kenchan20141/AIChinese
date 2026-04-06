@@ -1099,8 +1099,8 @@
             const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlString.replace(/<br\s*\/?>/gi, '\n');
             let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
 
-            // 強大的項目符號正則表達式（剝除原標籤）
-            const listRegex = /^(?:(?:第)?[0-9]+(?:[\.\)\]\u3001、]\s*|\s+)|(?:第)?[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+)|[\-\•\*\✦\>]\s*)(.+)/;
+            // 強大的項目符號正則表達式（嚴格模式：支援全形數字，且純數字必須配有標點才會被當作序號）
+            const listRegex = /^((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
 
             function flushText() {
                 if (currentTextBuffer.trim() || currentImageBuffer.length > 0) {
@@ -1135,11 +1135,16 @@
                         let match = line.match(listRegex);
                         if (match) {
                             flushNormal();
-                            listBuffer.push(match[1].trim()); // 推入已剝除序號的乾淨文字
+                            let prefix = match[1].trim();
+                            // 若只是符號則提供預設順序編號，否則保留用家輸入的序號(如 11. 12.)
+                            if (/^[\-\•\*\✦\>]$/.test(prefix)) {
+                                prefix = String(listBuffer.length + 1).padStart(2, '0');
+                            }
+                            listBuffer.push({ num: prefix, text: match[2].trim() }); 
                         } else {
                             if (listBuffer.length > 0 && line.length < 40) {
                                 // 若文字很短，視為上一個列點的換行接續
-                                listBuffer[listBuffer.length - 1] += " " + line;
+                                listBuffer[listBuffer.length - 1].text += " " + line;
                             } else {
                                 flushList();
                                 normalBuffer.push(line);
@@ -1176,12 +1181,20 @@
                     } else if (node.classList.contains('page-break-line')) {
                         flushText(); flushTables(); 
                     } else if (node.tagName === 'LI') {
-                        // 強制轉換原生 LI 標籤為 Bullet 格式供後續的正則抓取
                         flushTables();
                         let liText = node.textContent.trim();
                         if(liText) {
                             if (currentTextBuffer.length > 0 && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
-                            currentTextBuffer += "• " + liText + "\n";
+                            
+                            // 🌟 防禦瀏覽器吃數字：判斷是否被瀏覽器強制轉換為 <ol> 順序清單
+                            if (node.parentElement && node.parentElement.tagName === 'OL') {
+                                let lis = Array.from(node.parentElement.children).filter(n => n.tagName === 'LI');
+                                let idx = lis.indexOf(node);
+                                let start = parseInt(node.parentElement.getAttribute('start')) || 1;
+                                currentTextBuffer += (start + idx) + ". " + liText + "\n";
+                            } else {
+                                currentTextBuffer += "• " + liText + "\n";
+                            }
                         }
                         return;
                     } else {
@@ -1202,7 +1215,7 @@
         const draftOverlay = document.getElementById('draftOverlay');
         const draftContainer = document.getElementById('draftContainer');
 
-      function renderDraftCards() {
+     function renderDraftCards() {
             draftContainer.innerHTML = '';
             currentDrafts.forEach((draft, index) => {
                 const card = document.createElement('div'); card.className = 'draft-card';
@@ -1216,13 +1229,18 @@
                 if (draft.type === 'text') {
                     textHtml = `<div class="draft-card-content" contenteditable="true">${draft.content.replace(/\n/g, '<br>')}</div>`;
                 } else if (draft.type === 'list') {
-                    // 🌟 草稿區呈現獨立列點視圖
+                    // 🌟 草稿區呈現獨立列點視圖 (全面防呆版，自動過濾掉 [object Object])
                     textHtml = `<div class="draft-card-content list-mode">` +
-                        draft.items.map((item, i) => `
+                        draft.items.map((item, i) => {
+                            let n = (typeof item === 'object' && item.num !== undefined) ? item.num : String(i+1).padStart(2, '0');
+                            let t = (typeof item === 'object' && item.text !== undefined) ? item.text : String(item);
+                            if (t === '[object Object]') t = ""; // 過濾掉舊的錯誤數據
+                            return `
                             <div class="dl-item">
-                                <span class="dl-num">0${i+1}</span>
-                                <span class="dl-text" contenteditable="true">${item}</span>
-                            </div>`).join('') +
+                                <span class="dl-num" contenteditable="true">${n}</span>
+                                <span class="dl-text" contenteditable="true">${t}</span>
+                            </div>`;
+                        }).join('') +
                         `</div>`;
                 } else {
                     textHtml = `<div class="draft-card-content">${draft.content}</div>`;
@@ -1255,7 +1273,14 @@
                 } else if (draft.type === 'list') {
                     contentDiv.addEventListener('input', () => {
                         let newItems = [];
-                        contentDiv.querySelectorAll('.dl-text').forEach(el => newItems.push(el.innerText.trim()));
+                        contentDiv.querySelectorAll('.dl-item').forEach(el => {
+                            let nEl = el.querySelector('.dl-num');
+                            let tEl = el.querySelector('.dl-text');
+                            newItems.push({
+                                num: nEl ? nEl.innerText.trim() : "",
+                                text: tEl ? tEl.innerText.trim() : ""
+                            });
+                        });
                         currentDrafts[index].items = newItems;
                     });
                 }
@@ -1340,20 +1365,25 @@
                 let textDraftIndexes = []; let textDraftContents = []; let textDraftImages = [];
 
                 currentDrafts.forEach((draft, i) => {
-                    if (draft.type === 'table') {
+                   if (draft.type === 'table') {
                         let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2>點擊輸入標題</h2>" : "<h2>數據與分析洞察</h2>");
                         let hasMultiple = draft.content.split('table-container').length > 2;
                         if(hasMultiple) finalHtmlChunks[i] = `<div class="slide">${title}<div class="multi-table-wrapper">${draft.content}</div></div>`;
                         else finalHtmlChunks[i] = `<div class="slide">${title}${draft.content}</div>`;
-                    } else if (draft.type === 'list') {
+                  } else if (draft.type === 'list') {
                         // 🌟 專屬 List 渲染：不交由 AI 處理，直接生成完美 HTML 結構
                         let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2 contenteditable='true'>點擊輸入標題</h2>" : "<h2 contenteditable='true'>要點彙整</h2>");
-                        let listCardsHtml = draft.items.map((item, idx) => `
+                        let listCardsHtml = draft.items.map((item, idx) => {
+                            let n = (typeof item === 'object' && item.num !== undefined) ? item.num : String(idx + 1).padStart(2, '0');
+                            let t = (typeof item === 'object' && item.text !== undefined) ? item.text : String(item);
+                            if (t === '[object Object]') t = ""; // 強制防呆
+                            return `
                             <div class="list-card-item">
-                                <div class="lc-num">0${idx + 1}</div>
-                                <div class="lc-text" contenteditable="true">${item}</div>
+                                <div class="lc-num" contenteditable="true">${n}</div>
+                                <div class="lc-text" contenteditable="true">${t}</div>
                             </div>
-                        `).join('');
+                            `;
+                        }).join('');
 
                         let joinedImgs = draft.images && draft.images.length > 0 ? draft.images.join('|||').replace(/"/g, '&quot;') : "";
                         let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
@@ -1522,13 +1552,28 @@
                 newSlide.appendChild(bgImg);
 
                 // 🌟 若為 List Cards，不使用標準的 text-inner-scroll，直接複製已建好的 list-content-wrapper
-                if (isListCard) {
+                 if (isListCard) {
                     let listWrapper = slide.querySelector('.list-content-wrapper');
                     if(listWrapper) {
-                        listWrapper.querySelectorAll('[contenteditable="true"]').forEach(el => {
-                            el.spellcheck = false; el.addEventListener('input', () => autoFitText());
+                        let clonedWrapper = listWrapper.cloneNode(true);
+                        clonedWrapper.querySelectorAll('[contenteditable="true"]').forEach(el => {
+                            el.spellcheck = false; 
+                            el.addEventListener('input', () => autoFitText());
+                            el.addEventListener('focus', function() { 
+                                let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
+                                if (['點擊輸入標題', '數據與分析洞察', '要點彙整'].includes(cleanText)) {
+                                    const range = document.createRange(); range.selectNodeContents(this);
+                                    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+                                }
+                            });
+                            if(['H1', 'H2', 'P'].includes(el.tagName)) {
+                                el.addEventListener('blur', function() { 
+                                    let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
+                                    if (cleanText === '') { this.style.display = 'none'; autoFitText(); } 
+                                });
+                            }
                         });
-                        newSlide.appendChild(listWrapper.cloneNode(true));
+                        newSlide.appendChild(clonedWrapper);
                     }
                 } else {
                     const textWrapper = document.createElement('div'); textWrapper.className = 'text-content-wrapper';
@@ -1541,9 +1586,16 @@
                         if(['H1', 'H2', 'P'].includes(el.tagName)) { 
                             el.addEventListener('blur', function() { 
                                 let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
-                                if (cleanText === '' || cleanText === '點擊輸入標題' || cleanText === '數據與分析洞察') { this.textContent = ''; this.style.display = 'none'; autoFitText(); } 
+                                if (cleanText === '') { this.textContent = ''; this.style.display = 'none'; autoFitText(); } 
                             });
-                            el.addEventListener('focus', function() { if (this.style.display === 'none') this.style.display = ''; });
+                            el.addEventListener('focus', function() { 
+                                if (this.style.display === 'none') this.style.display = ''; 
+                                let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
+                                if (['點擊輸入標題', '數據與分析洞察', '要點彙整'].includes(cleanText)) {
+                                    const range = document.createRange(); range.selectNodeContents(this);
+                                    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+                                }
+                            });
                         }
                     });
                     textWrapper.appendChild(scrollArea); newSlide.appendChild(textWrapper);
