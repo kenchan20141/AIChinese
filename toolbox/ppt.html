@@ -1097,7 +1097,7 @@ const openDraftBtn = document.getElementById('openDraftBtn');
       function openLayoutModal() { 
             isLayoutLongPress = true; 
             layoutModalMode = 'global';
-            layoutModalMainTitle.innerText = "設定全域自動輪播版型 (可複選)";
+            layoutModalMainTitle.innerText = "設定全域圖文版型";
             layoutSelectorModal.classList.remove('single-selection-mode'); // 確保移除單頁模式
             layoutCards.forEach(c => {
                 c.style.opacity = c.classList.contains('active') ? '1' : '0.4';
@@ -1862,46 +1862,85 @@ openDraftBtn.addEventListener('click', () => {
                         });
                         newSlide.appendChild(multiImgWrapper);
                     } else {
-                            const p = slide.querySelector('p'), imgWrapper = document.createElement('div'); imgWrapper.className = 'feature-img-wrapper';
+                         const p = slide.querySelector('p'), imgWrapper = document.createElement('div'); imgWrapper.className = 'feature-img-wrapper';
                             const artFrame = document.createElement('div'); artFrame.className = 'art-frame';
-                            const featureImg = document.createElement('img'); featureImg.title = "點擊更換圖片 / 電腦右鍵或手機長按上傳自訂圖片 / 自由拖曳移動焦點";
+                            const featureImg = document.createElement('img'); 
+                            featureImg.title = "單擊更換圖片 / 雙擊切換圖源 / 電腦右鍵或長按上傳自訂圖片 / 自由拖曳移動焦點";
                             
+                            // 初始化設定，並把狀態記錄在 dataset.imgSource 中
                             if (customImgs.length > 0) {
                                 featureImg.removeAttribute('crossorigin'); featureImg.src = customImgs[0]; featureImg.setAttribute('data-custom', 'true');
+                                featureImg.dataset.imgSource = 'custom';
                             } else if (usePicsum) { 
                                 featureImg.crossOrigin = "anonymous"; featureImg.src = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`; 
+                                featureImg.dataset.imgSource = 'picsum';
                             } else {
                                 featureImg.crossOrigin = "anonymous";
                                 let initialSub = p && p.textContent ? extractKeywords(p.textContent) : "";
                                 featureImg.src = getImageUrl(globalMainKeyword, initialSub, index); 
                                 featureImg.setAttribute('data-main', globalMainKeyword); featureImg.setAttribute('data-sub', initialSub);
+                                featureImg.dataset.imgSource = 'bing';
                             }
                             
                             featureImg.addEventListener('contextmenu', function(e) { e.preventDefault(); isLongPress = true; setTimeout(() => isLongPress = false, 500); targetImgForUpload = this; localImageUploader.click(); });
+                            
+                            let clickTimer = null;
                             featureImg.addEventListener('click', function(e) {
                                 e.preventDefault(); if (this.dataset.hasMoved === 'true') return; 
                                 if (isLongPress || this.classList.contains('reloading') || this.hasAttribute('data-custom')) return; 
 
-                                if (usePicsum) {
-                                    this.classList.add('reloading'); let newSrc = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
-                                    let tempLoader = new Image(); tempLoader.crossOrigin = "anonymous";
-                                    tempLoader.onload = () => { this.src = newSrc; this.classList.remove('reloading'); }; tempLoader.onerror = () => { this.src = newSrc; this.classList.remove('reloading'); }; tempLoader.src = newSrc; return; 
+                                const performRefresh = () => {
+                                    let currentSource = this.dataset.imgSource;
+                                    
+                                    if (currentSource === 'picsum') {
+                                        // 執行 Picsum 隨機配圖邏輯
+                                        if (slides[currentIndex] === newSlide) { subKeywordGroup.style.display = 'none'; }
+                                        this.classList.add('reloading'); let newSrc = `https://picsum.photos/seed/${Math.floor(Math.random() * 99999)}/800/800`;
+                                        let tempLoader = new Image(); tempLoader.crossOrigin = "anonymous";
+                                        tempLoader.onload = () => { this.src = newSrc; this.classList.remove('reloading'); }; 
+                                        tempLoader.onerror = () => { this.src = newSrc; this.classList.remove('reloading'); }; 
+                                        tempLoader.src = newSrc;
+                                        
+                                    } else if (currentSource === 'bing') {
+                                        // 執行 Bing 關聯配圖邏輯
+                                        let currentP = newSlide.querySelector('p'); let slideText = currentP ? currentP.textContent : ""; 
+                                        let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+                                        let currentSub = this.getAttribute('data-sub') || ""; 
+                                        if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
+                                        let newSub = "";
+                                        if (slideText.trim()) { 
+                                            let potentialKws = getTopKeywords(slideText, 20); newSub = potentialKws.find(kw => !usedKws.includes(kw)); 
+                                            if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; } 
+                                        }
+                                        if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
+                                        usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); 
+                                        if (slides[currentIndex] === newSlide) { subKeywordInput.value = newSub; subKeywordGroup.style.display = 'flex'; }
+                                        
+                                        this.classList.add('reloading'); manualRefreshIndex++; 
+                                        let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword, newSub, manualRefreshIndex);
+                                        let tempLoaderBing = new Image(); tempLoaderBing.crossOrigin = "anonymous"; this._tempLoader = tempLoaderBing; 
+                                        tempLoaderBing.onload = () => { this.src = newSrcBing; this.classList.remove('reloading'); delete this._tempLoader; };
+                                        tempLoaderBing.onerror = () => { this.src = newSrcBing; this.classList.remove('reloading'); delete this._tempLoader; }; 
+                                        setTimeout(() => { if(this.classList.contains('reloading')) { this.classList.remove('reloading'); delete this._tempLoader; } }, 6000);
+                                        tempLoaderBing.src = newSrcBing;
+                                    }
+                                };
+
+                                if (clickTimer) {
+                                    clearTimeout(clickTimer);
+                                    clickTimer = null;
+                                    // ⚡ 雙擊：反轉當前的圖源狀態 (Picsum 變 Bing，Bing 變 Picsum)
+                                    this.dataset.imgSource = (this.dataset.imgSource === 'picsum') ? 'bing' : 'picsum';
+                                    performRefresh(); 
+                                } else {
+                                    clickTimer = setTimeout(() => {
+                                        clickTimer = null;
+                                        // 👆 單擊：維持當前的圖源狀態，直接刷新
+                                        performRefresh(); 
+                                    }, 250); 
                                 }
-                                
-                                let currentP = newSlide.querySelector('p'); let slideText = currentP ? currentP.textContent : ""; 
-                                let storageKey = `aura_slide_${index}_kws`, usedKws = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
-                                let currentSub = this.getAttribute('data-sub') || ""; 
-                                if (currentSub && !usedKws.includes(currentSub)) usedKws.push(currentSub);
-                                let newSub = "";
-                                if (slideText.trim()) { 
-                                    let potentialKws = getTopKeywords(slideText, 20); newSub = potentialKws.find(kw => !usedKws.includes(kw)); 
-                                    if (!newSub && potentialKws.length > 0) { usedKws = [currentSub].filter(Boolean); newSub = potentialKws.find(kw => kw !== currentSub) || potentialKws[0]; } 
-                                }
-                                if (!newSub) newSub = currentSub ? currentSub : globalMainKeyword;
-                                usedKws.push(newSub); sessionStorage.setItem(storageKey, JSON.stringify(usedKws)); this.setAttribute('data-sub', newSub); 
-                                if (slides[currentIndex] === newSlide) subKeywordInput.value = newSub; refreshImage(this); 
                             });
-                            artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper); attachPanning(featureImg); 
+                            artFrame.appendChild(featureImg); imgWrapper.appendChild(artFrame); newSlide.appendChild(imgWrapper); attachPanning(featureImg);
                         }
                     }
                 }
