@@ -491,6 +491,44 @@
         .draft-card-content img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 10px; }
         .draft-card-content table { width: 100%; font-size: 0.8rem; border-collapse: collapse; margin-top: 10px; }
         .draft-card-content td, .draft-card-content th { border: 1px solid var(--ui-border); padding: 6px; }
+
+
+/* 🌟 讓草稿視圖的圖片獨立出來，不與文字混在一起 */
+        .draft-card-img-preview {
+            display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 4px;
+        }
+        .draft-card-img-preview img {
+            height: 60px; width: auto; border-radius: 4px; object-fit: cover; border: 1px solid var(--ui-border);
+        }
+
+/* 🌟 草稿視圖圖片拖放相關 CSS */
+        .draft-card-img-preview img {
+            height: 60px; width: auto; border-radius: 4px; object-fit: cover; border: 1px solid var(--ui-border);
+            cursor: grab; transition: opacity 0.2s; /* 加上游標提示 */
+        }
+        .draft-card-img-preview img:active { cursor: grabbing; }
+        
+        /* 當圖片拖曳到某張卡片上方時，給予視覺高亮提示 */
+        .draft-card.drag-over {
+            border-color: var(--ui-text);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transform: scale(1.02);
+        }
+
+
+        
+        .draft-card-content {
+            flex: 1; font-size: 0.95rem; line-height: 1.9; color: var(--ui-text);
+            outline: none; overflow-y: auto; max-height: 250px; font-weight: 300;
+        }
+        .draft-card-content::-webkit-scrollbar { width: 4px; }
+        .draft-card-content::-webkit-scrollbar-thumb { background: var(--ui-border); border-radius: 4px; }
+        /* 隱藏使用者不小心貼入文字區的圖片 */
+        .draft-card-content img { display: none !important; }
+        .draft-card-content table { width: 100%; font-size: 0.8rem; border-collapse: collapse; margin-top: 10px; }
+        .draft-card-content td, .draft-card-content th { border: 1px solid var(--ui-border); padding: 6px; }
+
+        
         
         .draft-add-btn {
             display: flex; justify-content: center; align-items: center;
@@ -1292,22 +1330,23 @@ function walkDOM(node) {
         const draftOverlay = document.getElementById('draftOverlay');
         const draftContainer = document.getElementById('draftContainer');
 
-        function renderDraftCards() {
+      function renderDraftCards() {
             draftContainer.innerHTML = '';
             currentDrafts.forEach((draft, index) => {
                 const card = document.createElement('div');
                 card.className = 'draft-card';
                 
-               let contentHtml = "";
-                // 【修訂】：先放入圖片，再放入文字，使順序與用家貼上的視覺習慣一致
+                // 將圖片加上 draggable 屬性與定位資料
+                let imgHtml = "";
                 if(draft.images && draft.images.length > 0) {
-                    contentHtml += draft.images.map(src => `<img src="${src}">`).join('');
+                    imgHtml = `<div class="draft-card-img-preview">` + 
+                        draft.images.map((src, imgIndex) => 
+                            `<img src="${src}" draggable="true" data-source-draft="${index}" data-img-index="${imgIndex}">`
+                        ).join('') + 
+                    `</div>`;
                 }
-                if(draft.type === 'text') {
-                    contentHtml += draft.content.replace(/\n/g, '<br>');
-                } else {
-                    contentHtml += draft.content;
-                }
+                
+                let textHtml = draft.type === 'text' ? draft.content.replace(/\n/g, '<br>') : draft.content;
                 
                 card.innerHTML = `
                     <div class="draft-card-header">
@@ -1321,15 +1360,69 @@ function walkDOM(node) {
                             </button>
                         </div>
                     </div>
-                    <div class="draft-card-content" contenteditable="${draft.type === 'text'}">${contentHtml}</div>
+                    ${imgHtml}
+                    <div class="draft-card-content" ${draft.type === 'text' ? 'contenteditable="true"' : ''}>${textHtml}</div>
                 `;
                 
+                // 處理純文字的修改
                 const contentDiv = card.querySelector('.draft-card-content');
                 if(draft.type === 'text') {
                     contentDiv.addEventListener('input', () => {
-                        currentDrafts[index].content = contentDiv.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+                        let tempHtml = contentDiv.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+                        let tempDivEl = document.createElement('div');
+                        tempDivEl.innerHTML = tempHtml;
+                        tempDivEl.querySelectorAll('img').forEach(img => img.remove());
+                        currentDrafts[index].content = tempDivEl.textContent || "";
                     });
                 }
+
+                // 🌟 【新增】：圖片起拖事件 (Drag Start)
+                card.querySelectorAll('.draft-card-img-preview img').forEach(img => {
+                    img.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData('sourceDraft', img.dataset.sourceDraft);
+                        e.dataTransfer.setData('sourceImgIndex', img.dataset.imgIndex);
+                        e.dataTransfer.effectAllowed = 'move';
+                        setTimeout(() => img.style.opacity = '0.4', 0); // 拖曳時讓原圖半透明
+                    });
+                    img.addEventListener('dragend', (e) => {
+                        img.style.opacity = '1';
+                    });
+                });
+
+                // 🌟 【新增】：卡片接收拖放事件 (Drag Over & Drop)
+                card.addEventListener('dragover', (e) => {
+                    e.preventDefault(); // 必須 preventDefault 才能觸發 drop
+                    card.classList.add('drag-over');
+                });
+                
+                card.addEventListener('dragleave', (e) => {
+                    card.classList.remove('drag-over');
+                });
+                
+                card.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    card.classList.remove('drag-over');
+                    
+                    const sourceDraftIndex = parseInt(e.dataTransfer.getData('sourceDraft'));
+                    const sourceImgIndex = parseInt(e.dataTransfer.getData('sourceImgIndex'));
+                    
+                    // 如果跨頁拖放且來源存在
+                    if (!isNaN(sourceDraftIndex) && !isNaN(sourceImgIndex) && sourceDraftIndex !== index) {
+                        // 1. 抓取被拖曳的圖片網址
+                        const imgSrc = currentDrafts[sourceDraftIndex].images[sourceImgIndex];
+                        
+                        // 2. 從原頁面刪除該圖片
+                        currentDrafts[sourceDraftIndex].images.splice(sourceImgIndex, 1);
+                        
+                        // 3. 把圖片加到目前拖放到的頁面
+                        if (!currentDrafts[index].images) currentDrafts[index].images = [];
+                        currentDrafts[index].images.push(imgSrc);
+                        
+                        // 4. 重新渲染所有卡片
+                        renderDraftCards();
+                    }
+                });
+
                 draftContainer.appendChild(card);
             });
             
@@ -1343,7 +1436,6 @@ function walkDOM(node) {
             };
             draftContainer.appendChild(addBtn);
         }
-
         window.mergeDraftUp = function(index) {
             if(index <= 0) return;
             let curr = currentDrafts[index]; let prev = currentDrafts[index - 1];
