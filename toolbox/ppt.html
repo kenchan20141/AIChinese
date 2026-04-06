@@ -1019,15 +1019,25 @@ const openDraftBtn = document.getElementById('openDraftBtn');
             layoutSelectorModal.classList.add('active');
         });
         
-        layoutCards.forEach(card => { 
+       layoutCards.forEach(card => { 
             card.addEventListener('click', function() { 
                 if (layoutModalMode === 'single') {
                     // --- 單頁獨立套用邏輯 ---
-                    this.classList.add('temp-selected'); // 顯示點擊的點點回饋
+                    this.classList.add('temp-selected'); 
                     
                     const newLayout = this.getAttribute('data-layout');
                     const isGeo = this.closest('.geometric-grid') !== null;
                     const currentSlide = slides[currentIndex];
+
+                    // ★ 核心修復 1：找出對應的草稿索引，並將排版設定永久綁定在草稿上
+                    let isCoverPage = currentSlide.classList.contains('layout-cover');
+                    if (!isCoverPage) {
+                        let draftIndex = addCoverPage ? currentIndex - 1 : currentIndex;
+                        if (draftIndex >= 0 && draftIndex < currentDrafts.length) {
+                            currentDrafts[draftIndex].lockedLayout = newLayout;
+                            currentDrafts[draftIndex].lockedGeo = isGeo;
+                        }
+                    }
 
                     // 移除舊的所有版型與幾何 class
                     currentSlide.classList.remove('layout-img-left', 'layout-img-right', 'layout-overlap-left', 'layout-overlap-right', 'layout-center', 'layout-bottom-text', 'layout-table-focus', 'layout-multi-image', 'layout-cover', 'layout-list-cards', 'is-geometric');
@@ -1036,7 +1046,6 @@ const openDraftBtn = document.getElementById('openDraftBtn');
                     currentSlide.classList.add(newLayout);
                     if (isGeo) currentSlide.classList.add('is-geometric');
 
-                    // 延遲 350 毫秒關閉，讓用家能看到點點出現的視覺回饋
                     setTimeout(() => {
                         layoutSelectorModal.classList.remove('active');
                         layoutSelectorModal.classList.remove('single-selection-mode');
@@ -1623,12 +1632,22 @@ openDraftBtn.addEventListener('click', () => {
                 let customImgsRaw = slide.getAttribute('data-custom-images') || "";
                 let customImgs = customImgsRaw ? customImgsRaw.split('|||') : [];
                 
-                let assignedLayout = ''; let isGeometric = false; let usePicsum = false;
+               let assignedLayout = ''; let isGeometric = false; let usePicsum = false;
                 
-                 if (slide.classList.contains('layout-cover')) {
+                let isCoverPage = slide.classList.contains('layout-cover');
+                // 取得這張 slide 對應到 currentDrafts 的實際索引 (排除封面/封底)
+                let draftRef = (!isCoverPage && currentDrafts[layoutCounter]) ? currentDrafts[layoutCounter] : null;
+                
+                if (isCoverPage) {
                     assignedLayout = 'layout-cover';
                 } else if (isListCard) {
                     assignedLayout = 'layout-list-cards'; // 強制鎖定為清單佈局
+                } else if (draftRef && draftRef.lockedLayout) {
+                    // ★ 核心修復 2：如果這頁草稿被鎖定了單頁排版，強制優先使用！
+                    assignedLayout = draftRef.lockedLayout;
+                    isGeometric = draftRef.lockedGeo;
+                    // 若全域模式是隨意配圖，依然套用配圖邏輯
+                    if (currentLayoutMode === 1 || currentLayoutMode === 3 || currentLayoutMode === 5) usePicsum = true;
                 } else if (currentLayoutMode === 0) {
                     assignedLayout = classicLayouts[layoutCounter % classicLayouts.length];
                 } else if (currentLayoutMode === 1) {
