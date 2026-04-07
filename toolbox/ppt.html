@@ -681,6 +681,107 @@
     
         .slide.layout-cover.end-page .text-inner-scroll h1 { font-family: 'Noto Serif TC', serif; font-size: calc(clamp(24px, 8cqw, 7rem) * var(--text-scale)); letter-spacing: 3rem; margin-right: -3rem; font-weight: 300; }
         .slide.layout-cover.end-page .text-inner-scroll h2 { font-family: 'Cinzel', serif; letter-spacing: 1cqw; opacity: 0.5; font-size: calc(clamp(10px, 2cqw, 2rem) * var(--text-scale)); }
+ 
+    
+    /* --- 1. 拖曳排序動畫與視覺狀態 --- */
+.draft-card {
+    /* 加入過渡動畫，讓位置交換時看起來平滑 */
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s, border-color 0.2s;
+}
+.draft-card.is-dragging {
+    opacity: 0.5;
+    transform: scale(0.96);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+    z-index: 100;
+    border: 1px dashed var(--ui-hl);
+}
+.draft-card.drag-over-left { border-left: 4px solid var(--ui-hl); transform: translateX(5px); }
+.draft-card.drag-over-right { border-right: 4px solid var(--ui-hl); transform: translateX(-5px); }
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+
+/* 草稿區連結模式 UI */
+.draft-card-content.link-mode { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 15px; }
+.draft-card-content.link-mode svg { width: 32px; height: 32px; stroke: var(--ui-hl); opacity: 0.8; }
+.draft-card-content.link-mode .draft-link-text { font-family: 'Inter', sans-serif; font-size: 0.85rem; color: var(--ui-muted); word-break: break-all; outline: none;}
+
+/* --- 極簡連結卡片 (70% 全螢幕置中、無配圖) --- */
+      .slide.layout-link-card { 
+            display: flex !important; /* 強制使用 flex 來確保卡片絕對置中 */
+            align-items: center !important; 
+            justify-content: center !important; 
+            text-align: center; 
+        }
+        .slide.layout-link-card .feature-img-wrapper, .slide.layout-link-card .text-content-wrapper { 
+            display: none !important; 
+        }
+        .slide.layout-link-card::before { 
+            content: ''; position: absolute; width: 60cqw; height: 60cqw; border-radius: 50%; 
+            background: var(--slide-hl); filter: blur(120px); opacity: 0.06; z-index: 0; pointer-events: none; 
+            top: 50%; left: 50%; transform: translate(-50%, -50%); /* 光暈也完美置中 */
+        }
+        .link-glass-box { 
+            position: relative; z-index: 5; background: var(--slide-glass); backdrop-filter: blur(25px); 
+            border: 1px solid var(--slide-border); border-radius: 4px; 
+            box-shadow: 0 20px 50px rgba(0,0,0,0.05); display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; gap: 2cqw; 
+            width: 70cqw; aspect-ratio: 16 / 8; /* 佔據畫面 70% */
+            cursor: pointer; transition: all 0.4s ease;
+        }
+        .link-glass-box:hover {
+            transform: translateY(-5px); box-shadow: 0 25px 60px rgba(0,0,0,0.1); border-color: var(--slide-hl);
+        }
+        .link-tag { font-family: 'Cinzel', serif; font-size: 1.2cqw; letter-spacing: 0.4cqw; color: var(--slide-hl); font-weight: 600; }
+        .link-glass-box h2 { 
+            font-size: calc(clamp(16px, 3.5cqw, 3rem) * var(--text-scale)); font-weight: 500; 
+            color: var(--slide-text); margin: 0; outline: none; transition: 0.3s;
+        }
+        .link-glass-box .link-icon {
+            width: 50px; height: 50px; stroke: var(--slide-hl); opacity: 0.6; transition: all 0.3s;
+        }
+        .link-glass-box:hover .link-icon { transform: scale(1.1) translateY(-2px); opacity: 1; }
+        .link-url-display { 
+            font-family: 'Inter', sans-serif; font-size: calc(clamp(10px, 1.4cqw, 1.2rem) * var(--text-scale)); 
+            color: var(--slide-muted); word-break: break-all; opacity: 0.7; outline: none; margin-top: 1cqw;
+        }
+        .hidden-url { display: none !important; }
+    
+/* --- 1. 拖曳成功後的虛線圍邊動畫 --- */
+.draft-card.just-moved { position: relative; }
+.draft-card.just-moved::after {
+    content: ''; position: absolute; inset: -4px;
+    border: 2px dashed var(--ui-hl); border-radius: 6px;
+    pointer-events: none; z-index: 10;
+    animation: fadeDashed 2.5s forwards;
+}
+@keyframes fadeDashed {
+    0% { opacity: 1; transform: scale(0.98); }
+    15% { opacity: 1; transform: scale(1); }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* --- 2. 極簡連結卡片 (隱藏網址，整塊可點擊) --- */
+.link-glass-box {
+    cursor: pointer; transition: all 0.4s ease;
+}
+.link-glass-box:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 25px 60px rgba(0,0,0,0.1);
+    border-color: var(--slide-hl);
+}
+.link-glass-box .link-icon {
+    width: 44px; height: 44px; margin-top: 1.5cqw;
+    stroke: var(--slide-hl); opacity: 0.7; transition: all 0.3s;
+}
+.link-glass-box:hover .link-icon {
+    transform: scale(1.1) translateY(-2px); opacity: 1;
+}
+.hidden-url { display: none !important; }
+
+
+        
+    
     </style>
 </head>
 <body>
@@ -827,8 +928,21 @@
         <div class="action-bar" id="actionBar" style="display: none;">
            <div class="action-row top-row">
                 <button class="icon-btn mobile-back-btn" id="mobileBackBtn" title="返回編輯器"><svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke-width="2"></line><polyline points="12 19 5 12 12 5" stroke-width="2"></polyline></svg></button>
-                <div style="display: flex; gap: 10px; margin-right: auto;">
-                    <button class="icon-btn" id="openDraftBtn" title="返回草稿視圖 (Draft Vision)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.5"/><line x1="9" y1="21" x2="9" y2="9" stroke="currentColor" stroke-width="1.5"/></svg></button>
+               <div style="display: flex; gap: 10px; margin-right: auto;">
+                    <button class="icon-btn" id="singleTitleToggleBtn" title="新增/隱藏此頁標題">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="4 7 4 4 20 4 20 7"></polyline>
+                            <line x1="9" y1="20" x2="15" y2="20"></line>
+                            <line x1="12" y1="4" x2="12" y2="20"></line>
+                        </svg>
+                    </button>
+                    <button class="icon-btn" id="singleLayoutBtn" title="修改此頁專屬排版">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="4" width="6" height="6" rx="1" />
+                            <rect x="14" y="4" width="6" height="6" rx="1" />
+                            <rect x="4" y="14" width="16" height="6" rx="1" />
+                        </svg>
+                    </button>
                 </div>
                 <div class="sub-keyword-group" id="subKeywordGroup" title="自訂此頁子關鍵詞並重整圖片">
                     <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
@@ -851,17 +965,14 @@
         <div class="presentation-wrapper" id="presentationBoard">
             <div class="empty-state"><svg viewBox="0 0 100 100"><rect x="15" y="25" width="70" height="50" rx="1" ry="1"></rect><line x1="25" y1="40" x2="60" y2="40"></line><line x1="25" y1="50" x2="75" y2="50"></line><line x1="25" y1="60" x2="50" y2="60"></line></svg></div>
         </div>
-        <div class="controls-container" id="controls" style="display: none;">
+       <div class="controls-container" id="controls" style="display: none;">
             <button class="icon-btn" id="prevBtn" title="上一頁"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
             <div class="slide-counter"><span id="currentSlideNum">0</span> / <span id="totalSlideNum">0</span></div>
             <button class="icon-btn" id="nextBtn" title="下一頁"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
             <div style="width: 1px; height: 18px; background: var(--ui-border); margin: 0 5px;"></div>
-            <button class="icon-btn" id="singleLayoutBtn" title="修改此頁專屬排版">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="4" y="4" width="6" height="6" rx="1" />
-                    <rect x="14" y="4" width="6" height="6" rx="1" />
-                    <rect x="4" y="14" width="16" height="6" rx="1" />
-                </svg>
+            
+            <button class="icon-btn" id="openDraftBtn" title="全局草稿總覽 (Draft Vision)">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.5"/><line x1="9" y1="21" x2="9" y2="9" stroke="currentColor" stroke-width="1.5"/></svg>
             </button>
         </div>
 
@@ -1315,227 +1426,338 @@ const openDraftBtn = document.getElementById('openDraftBtn');
         function hideLoader() { loaderScreen.classList.remove('active'); }
 
         // 🌟 升級版解析器：專屬處理「列點/項目符號」
-        function parseContentToSlideDrafts(htmlString) {
-            let drafts = [];
-            const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlString.replace(/<br\s*\/?>/gi, '\n');
-            let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
+       // 替換原有的 parseContentToSlideDrafts 函數
+// 替換原有的 parseContentToSlideDrafts 函數
+function parseContentToSlideDrafts(htmlString) {
+    let drafts = [];
+    const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlString.replace(/<br\s*\/?>/gi, '\n');
+    let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
 
-            // 強大的項目符號正則表達式（嚴格模式：支援全形數字，且純數字必須配有標點才會被當作序號）
-            const listRegex = /^((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
+    const listRegex = /^((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
+    
+    // 🌟 強化版網址正則：包含 www 開頭，且嚴格排除中文與全形標點，避免網址黏著文字
+    const urlExtractRegex = /(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)/gi;
+    const pureUrlRegex = /^(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)$/i;
 
-            function flushText() {
-                if (currentTextBuffer.trim() || currentImageBuffer.length > 0) {
-                    let lines = currentTextBuffer.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                    
-                    let normalBuffer = [];
-                    let listBuffer = [];
+    function flushText() {
+        if (currentTextBuffer.trim() || currentImageBuffer.length > 0) {
+            
+            // 🌟 關鍵修復 1：自動將混在文字中的網址前後加上換行，強制獨立分段
+            let processedText = currentTextBuffer.replace(urlExtractRegex, '\n$1\n');
+            
+            let lines = processedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            let normalBuffer = []; let listBuffer = [];
 
-                    function flushNormal() {
-                        if (normalBuffer.length > 0) {
-                            let text = normalBuffer.join('\n');
-                            let chunks = splitIntoChunks(text, 95);
-                            if (chunks.length === 0) chunks = [""];
-                            chunks.forEach((c, i) => { drafts.push({ type: 'text', content: c, images: i === 0 ? currentImageBuffer : [] }); });
-                            normalBuffer = []; currentImageBuffer = [];
-                        }
+            function flushNormal() {
+                if (normalBuffer.length > 0) {
+                    let text = normalBuffer.join('\n');
+                    let chunks = splitIntoChunks(text, 95);
+                    if (chunks.length === 0) chunks = [""];
+                    chunks.forEach((c, i) => { drafts.push({ type: 'text', content: c, images: i === 0 ? currentImageBuffer : [] }); });
+                    normalBuffer = []; currentImageBuffer = [];
+                }
+            }
+
+            function flushList() {
+                if (listBuffer.length > 0) {
+                    for (let i = 0; i < listBuffer.length; i += 4) {
+                        let chunk = listBuffer.slice(i, i + 4);
+                        drafts.push({ type: 'list', items: chunk, images: i === 0 ? currentImageBuffer : [] });
+                        currentImageBuffer = [];
                     }
+                    listBuffer = [];
+                }
+            }
 
-                    function flushList() {
-                        if (listBuffer.length > 0) {
-                            // 🌟 滿4個項目就切分一張新卡片
-                            for (let i = 0; i < listBuffer.length; i += 4) {
-                                let chunk = listBuffer.slice(i, i + 4);
-                                drafts.push({ type: 'list', items: chunk, images: i === 0 ? currentImageBuffer : [] });
-                                currentImageBuffer = [];
-                            }
-                            listBuffer = [];
-                        }
-                    }
-
-                    for (let line of lines) {
-                        let match = line.match(listRegex);
-                        if (match) {
-                            flushNormal();
-                            let prefix = match[1].trim();
-                            // 若只是符號則提供預設順序編號，否則保留用家輸入的序號(如 11. 12.)
-                            if (/^[\-\•\*\✦\>]$/.test(prefix)) {
-                                prefix = String(listBuffer.length + 1).padStart(2, '0');
-                            }
-                            listBuffer.push({ num: prefix, text: match[2].trim() }); 
-                        } else {
-                            if (listBuffer.length > 0 && line.length < 40) {
-                                // 若文字很短，視為上一個列點的換行接續
-                                listBuffer[listBuffer.length - 1].text += " " + line;
-                            } else {
-                                flushList();
-                                normalBuffer.push(line);
-                            }
-                        }
-                    }
+            for (let line of lines) {
+                let matchList = line.match(listRegex);
+                let matchUrl = line.match(pureUrlRegex);
+                
+                if (matchUrl) {
+                    // 🌟 關鍵修復 2：抓出網址並必定獨立為一張連結卡片
                     flushNormal(); flushList();
-                    currentTextBuffer = "";
-                }
-            }
-
-            function flushTables() {
-                if (currentTableBuffer.length > 0) {
-                    let combined = currentTableBuffer.map(t => `<div class="table-container">${t}</div>`).join('');
-                    drafts.push({ type: 'table', content: combined, images: [] }); currentTableBuffer = [];
-                }
-            }
-
-            function walkDOM(node) {
-                if (node.nodeType === 3) {
-                    let text = node.textContent;
-                    if (text.trim().length > 0) flushTables(); 
-                    currentTextBuffer += text;
-                } else if (node.nodeType === 1) {
-                    if (node.tagName === 'TABLE') {
-                        flushText(); currentTableBuffer.push(node.outerHTML); return;
-                    } else if (node.tagName === 'IMG') {
-                        let src = node.getAttribute('src') || node.src;
-                        if (src && !src.startsWith('chrome-extension')) { 
-                            flushTables(); 
-                            if (currentTextBuffer.trim().length > 0) flushText();
-                            currentImageBuffer.push(src); 
-                        }
-                    } else if (node.classList.contains('page-break-line')) {
-                        flushText(); flushTables(); 
-                    } else if (node.tagName === 'LI') {
-                        flushTables();
-                        let liText = node.textContent.trim();
-                        if(liText) {
-                            if (currentTextBuffer.length > 0 && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
-                            
-                            // 🌟 防禦瀏覽器吃數字：判斷是否被瀏覽器強制轉換為 <ol> 順序清單
-                            if (node.parentElement && node.parentElement.tagName === 'OL') {
-                                let lis = Array.from(node.parentElement.children).filter(n => n.tagName === 'LI');
-                                let idx = lis.indexOf(node);
-                                let start = parseInt(node.parentElement.getAttribute('start')) || 1;
-                                currentTextBuffer += (start + idx) + ". " + liText + "\n";
-                            } else {
-                                currentTextBuffer += "• " + liText + "\n";
-                            }
-                        }
-                        return;
+                    drafts.push({ type: 'link', content: matchUrl[1], images: [] });
+                } else if (matchList) {
+                    flushNormal();
+                    let prefix = matchList[1].trim();
+                    if (/^[\-\•\*\✦\>]$/.test(prefix)) prefix = String(listBuffer.length + 1).padStart(2, '0');
+                    listBuffer.push({ num: prefix, text: matchList[2].trim() }); 
+                } else {
+                    if (listBuffer.length > 0 && line.length < 40) {
+                        listBuffer[listBuffer.length - 1].text += " " + line;
                     } else {
-                        let isBlock = ['DIV', 'P', 'H1', 'H2', 'SECTION', 'BR'].includes(node.tagName);
-                        if (isBlock && currentTextBuffer.length > 0 && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
-                        Array.from(node.childNodes).forEach(walkDOM);
-                        if (isBlock && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
+                        flushList(); normalBuffer.push(line);
                     }
                 }
             }
-
-            Array.from(tempDiv.childNodes).forEach(walkDOM);
-            flushText(); flushTables();
-            return drafts;
+            flushNormal(); flushList();
+            currentTextBuffer = "";
         }
+    }
 
+    function flushTables() {
+        if (currentTableBuffer.length > 0) {
+            let combined = currentTableBuffer.map(t => `<div class="table-container">${t}</div>`).join('');
+            drafts.push({ type: 'table', content: combined, images: [] }); currentTableBuffer = [];
+        }
+    }
+
+    function walkDOM(node) {
+        if (node.nodeType === 3) {
+            let text = node.textContent;
+            if (text.trim().length > 0) flushTables(); 
+            currentTextBuffer += text;
+        } else if (node.nodeType === 1) {
+            if (node.tagName === 'TABLE') {
+                flushText(); currentTableBuffer.push(node.outerHTML); return;
+            } else if (node.tagName === 'IMG') {
+                let src = node.getAttribute('src') || node.src;
+                if (src && !src.startsWith('chrome-extension')) { 
+                    flushTables(); 
+                    if (currentTextBuffer.trim().length > 0) flushText();
+                    currentImageBuffer.push(src); 
+                }
+            } else if (node.classList.contains('page-break-line')) {
+                flushText(); flushTables(); 
+            } else if (node.tagName === 'LI') {
+                flushTables();
+                let liText = node.textContent.trim();
+                if(liText) {
+                    if (currentTextBuffer.length > 0 && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
+                    if (node.parentElement && node.parentElement.tagName === 'OL') {
+                        let lis = Array.from(node.parentElement.children).filter(n => n.tagName === 'LI');
+                        let idx = lis.indexOf(node);
+                        let start = parseInt(node.parentElement.getAttribute('start')) || 1;
+                        currentTextBuffer += (start + idx) + ". " + liText + "\n";
+                    } else {
+                        currentTextBuffer += "• " + liText + "\n";
+                    }
+                }
+                return;
+            } else {
+                let isBlock = ['DIV', 'P', 'H1', 'H2', 'SECTION', 'BR'].includes(node.tagName);
+                if (isBlock && currentTextBuffer.length > 0 && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
+                Array.from(node.childNodes).forEach(walkDOM);
+                if (isBlock && !currentTextBuffer.endsWith('\n')) currentTextBuffer += '\n';
+            }
+        }
+    }
+
+    Array.from(tempDiv.childNodes).forEach(walkDOM);
+    flushText(); flushTables();
+    return drafts;
+}
         let currentDrafts = [];
         const draftOverlay = document.getElementById('draftOverlay');
         const draftContainer = document.getElementById('draftContainer');
 
-     function renderDraftCards() {
-            draftContainer.innerHTML = '';
-            currentDrafts.forEach((draft, index) => {
-                const card = document.createElement('div'); card.className = 'draft-card';
-                
-                let imgHtml = "";
-                if(draft.images && draft.images.length > 0) {
-                    imgHtml = `<div class="draft-card-img-preview">` + draft.images.map((src, imgIndex) => `<img src="${src}" draggable="true" data-source-draft="${index}" data-img-index="${imgIndex}">`).join('') + `</div>`;
-                }
-                
-                let textHtml = "";
-                if (draft.type === 'text') {
-                    textHtml = `<div class="draft-card-content" contenteditable="true">${draft.content.replace(/\n/g, '<br>')}</div>`;
-                } else if (draft.type === 'list') {
-                    // 🌟 草稿區呈現獨立列點視圖 (全面防呆版，自動過濾掉 [object Object])
-                    textHtml = `<div class="draft-card-content list-mode">` +
-                        draft.items.map((item, i) => {
-                            let n = (typeof item === 'object' && item.num !== undefined) ? item.num : String(i+1).padStart(2, '0');
-                            let t = (typeof item === 'object' && item.text !== undefined) ? item.text : String(item);
-                            if (t === '[object Object]') t = ""; // 過濾掉舊的錯誤數據
-                            return `
-                            <div class="dl-item">
-                                <span class="dl-num" contenteditable="true">${n}</span>
-                                <span class="dl-text" contenteditable="true">${t}</span>
-                            </div>`;
-                        }).join('') +
-                        `</div>`;
-                } else {
-                    textHtml = `<div class="draft-card-content">${draft.content}</div>`;
-                }
-                
-                card.innerHTML = `
-                    <div class="draft-card-header">
-                        <div class="draft-card-num">PAGE ${String(index + 1).padStart(2, '0')}</div>
-                        <div class="draft-card-tools">
-                            <button class="draft-tool-btn" onclick="mergeDraftUp(${index})" title="與上一頁合併" ${index===0?'disabled':''}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-                            </button>
-                            <button class="draft-tool-btn" onclick="deleteDraft(${index})" title="刪除此頁">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                            </button>
-                        </div>
+    // 定義一個全域變數用來判斷現在拖曳的是分頁卡還是圖片
+window._auraDragState = { type: null, index: null };
+
+// 替換原有的 renderDraftCards 函數
+function renderDraftCards() {
+    draftContainer.innerHTML = '';
+    currentDrafts.forEach((draft, index) => {
+        const card = document.createElement('div'); card.className = 'draft-card';
+        card.setAttribute('data-card-index', index);
+        
+        // 🌟 新增：如果這張卡是剛被拖曳放下的，加上動畫 class
+        if (window._auraDragState && window._auraDragState.movedTo === index) {
+            card.classList.add('just-moved');
+        }
+        
+        // 賦予卡片本身可拖曳屬性，用於換順序
+        card.setAttribute('draggable', 'true');
+        
+        let imgHtml = "";
+        if(draft.images && draft.images.length > 0) {
+            imgHtml = `<div class="draft-card-img-preview">` + draft.images.map((src, imgIndex) => `<img src="${src}" draggable="true" data-source-draft="${index}" data-img-index="${imgIndex}">`).join('') + `</div>`;
+        }
+        
+       let textHtml = "";
+        if (draft.type === 'text') {
+            textHtml = `<div class="draft-card-content" contenteditable="true">${draft.content.replace(/\n/g, '<br>')}</div>`;
+        } else if (draft.type === 'list') {
+            textHtml = `<div class="draft-card-content list-mode">` +
+                draft.items.map((item, i) => {
+                    let n = (typeof item === 'object' && item.num !== undefined) ? item.num : String(i+1).padStart(2, '0');
+                    let t = (typeof item === 'object' && item.text !== undefined) ? item.text : String(item);
+                    if (t === '[object Object]') t = ""; 
+                    return `
+                    <div class="dl-item">
+                        <span class="dl-num" contenteditable="true">${n}</span>
+                        <span class="dl-text" contenteditable="true">${t}</span>
+                    </div>`;
+                }).join('') + `</div>`;
+        } 
+        /* 👇👇👇 第一處：草稿預覽區的網址卡片 👇👇👇 */
+        else if (draft.type === 'link') {
+            textHtml = `<div class="draft-card-content link-mode">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                <div class="draft-link-text" contenteditable="true">${draft.content}</div>
+            </div>`;
+        } 
+        /* 👆👆👆 第一處修正完畢 👆👆👆 */
+        else {
+            textHtml = `<div class="draft-card-content">${draft.content}</div>`;
+        }
+        
+        // 標題列加入「拖曳手把 (drag-handle)」標示
+        card.innerHTML = `
+            <div class="draft-card-header">
+                <div class="draft-card-num">PAGE ${String(index + 1).padStart(2, '0')}</div>
+                <div class="draft-card-tools">
+                    <div class="draft-tool-btn drag-handle" title="按住拖曳排序">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
                     </div>
-                    ${imgHtml}
-                    ${textHtml}
-                `;
-                
-                const contentDiv = card.querySelector('.draft-card-content');
-                if(draft.type === 'text') {
-                    contentDiv.addEventListener('input', () => {
-                        let tempHtml = contentDiv.innerHTML.replace(/<br\s*\/?>/gi, '\n');
-                        let tempDivEl = document.createElement('div'); tempDivEl.innerHTML = tempHtml;
-                        tempDivEl.querySelectorAll('img').forEach(img => img.remove());
-                        currentDrafts[index].content = tempDivEl.textContent || "";
-                    });
-                } else if (draft.type === 'list') {
-                    contentDiv.addEventListener('input', () => {
-                        let newItems = [];
-                        contentDiv.querySelectorAll('.dl-item').forEach(el => {
-                            let nEl = el.querySelector('.dl-num');
-                            let tEl = el.querySelector('.dl-text');
-                            newItems.push({
-                                num: nEl ? nEl.innerText.trim() : "",
-                                text: tEl ? tEl.innerText.trim() : ""
-                            });
-                        });
-                        currentDrafts[index].items = newItems;
-                    });
-                }
-
-                card.querySelectorAll('.draft-card-img-preview img').forEach(img => {
-                    img.addEventListener('dragstart', (e) => {
-                        e.dataTransfer.setData('sourceDraft', img.dataset.sourceDraft); e.dataTransfer.setData('sourceImgIndex', img.dataset.imgIndex);
-                        e.dataTransfer.effectAllowed = 'move'; setTimeout(() => img.style.opacity = '0.4', 0); 
-                    });
-                    img.addEventListener('dragend', (e) => { img.style.opacity = '1'; });
-                });
-
-                card.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
-                card.addEventListener('dragleave', (e) => { card.classList.remove('drag-over'); });
-                card.addEventListener('drop', (e) => {
-                    e.preventDefault(); card.classList.remove('drag-over');
-                    const sourceDraftIndex = parseInt(e.dataTransfer.getData('sourceDraft')); const sourceImgIndex = parseInt(e.dataTransfer.getData('sourceImgIndex'));
-                    if (!isNaN(sourceDraftIndex) && !isNaN(sourceImgIndex) && sourceDraftIndex !== index) {
-                        const imgSrc = currentDrafts[sourceDraftIndex].images[sourceImgIndex];
-                        currentDrafts[sourceDraftIndex].images.splice(sourceImgIndex, 1);
-                        if (!currentDrafts[index].images) currentDrafts[index].images = [];
-                        currentDrafts[index].images.push(imgSrc); renderDraftCards();
-                    }
-                });
-
-                draftContainer.appendChild(card);
+                    <button class="draft-tool-btn" onclick="mergeDraftUp(${index})" title="與上一頁合併" ${index===0?'disabled':''}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                    </button>
+                    <button class="draft-tool-btn" onclick="deleteDraft(${index})" title="刪除此頁">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                </div>
+            </div>
+            ${imgHtml}
+            ${textHtml}
+        `;
+        
+        // 即時資料更新邏輯 (Text, List, Link)
+        const contentDiv = card.querySelector('.draft-card-content');
+        if(draft.type === 'text') {
+            contentDiv.addEventListener('input', () => {
+                let tempHtml = contentDiv.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+                let tempDivEl = document.createElement('div'); tempDivEl.innerHTML = tempHtml;
+                tempDivEl.querySelectorAll('img').forEach(img => img.remove());
+                currentDrafts[index].content = tempDivEl.textContent || "";
             });
-            
-            const addBtn = document.createElement('div'); addBtn.className = 'draft-add-btn'; addBtn.title = "新增空白分頁";
-            addBtn.innerHTML = '<svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
-            addBtn.onclick = () => { currentDrafts.push({ type: 'text', content: '', images: [] }); renderDraftCards(); };
-            draftContainer.appendChild(addBtn);
+        } else if (draft.type === 'list') {
+            contentDiv.addEventListener('input', () => {
+                let newItems = [];
+                contentDiv.querySelectorAll('.dl-item').forEach(el => {
+                    let nEl = el.querySelector('.dl-num'); let tEl = el.querySelector('.dl-text');
+                    newItems.push({ num: nEl ? nEl.innerText.trim() : "", text: tEl ? tEl.innerText.trim() : "" });
+                });
+                currentDrafts[index].items = newItems;
+            });
+        } else if (draft.type === 'link') {
+            contentDiv.addEventListener('input', () => {
+                let tEl = contentDiv.querySelector('.draft-link-text');
+                if (tEl) currentDrafts[index].content = tEl.innerText.trim();
+            });
         }
 
+        // ---------- 🌟 分頁卡片拖曳 (Drag & Drop) 邏輯 ----------
+        card.addEventListener('dragstart', (e) => {
+            if (e.target.tagName === 'IMG') return; // 如果拖圖片，跳過此處
+            window._auraDragState = { type: 'card', index: index };
+            e.dataTransfer.effectAllowed = 'move';
+            // 處理 Firefox 相容性 (一定要塞資料)
+            e.dataTransfer.setData('text/plain', index);
+            setTimeout(() => card.classList.add('is-dragging'), 0);
+        });
+
+        card.addEventListener('dragend', () => {
+            card.classList.remove('is-dragging');
+            document.querySelectorAll('.draft-card').forEach(c => c.classList.remove('drag-over-left', 'drag-over-right'));
+            window._auraDragState = { type: null, index: null };
+        });
+
+        card.addEventListener('dragover', (e) => {
+            e.preventDefault(); // 允許 Drop
+            if (window._auraDragState.type === 'card') {
+                if (window._auraDragState.index !== index) {
+                    const rect = card.getBoundingClientRect();
+                    // 根據游標位置決定是在卡片左側插入還是右側插入
+                    if (e.clientX - rect.left < rect.width / 2) {
+                        card.classList.add('drag-over-left'); card.classList.remove('drag-over-right', 'drag-over');
+                    } else {
+                        card.classList.add('drag-over-right'); card.classList.remove('drag-over-left', 'drag-over');
+                    }
+                }
+            } else {
+                card.classList.add('drag-over'); // 這是原來圖片拖拉的樣式
+            }
+        });
+
+        card.addEventListener('dragleave', () => { 
+            card.classList.remove('drag-over', 'drag-over-left', 'drag-over-right'); 
+        });
+
+        card.addEventListener('drop', (e) => {
+            e.preventDefault(); 
+            card.classList.remove('drag-over', 'drag-over-left', 'drag-over-right');
+            
+            // 如果是拖曳分頁卡片
+           if (window._auraDragState && window._auraDragState.type === 'card') {
+                const sourceIdx = window._auraDragState.index;
+                if (sourceIdx !== null && sourceIdx !== index) {
+                    const rect = card.getBoundingClientRect();
+                    const insertAfter = (e.clientX - rect.left) >= rect.width / 2;
+                    let targetIdx = insertAfter ? index + 1 : index;
+                    
+                    const draggedItem = currentDrafts.splice(sourceIdx, 1)[0];
+                    if (sourceIdx < targetIdx) targetIdx--; 
+                    currentDrafts.splice(targetIdx, 0, draggedItem);
+                    
+                    // 🌟 記錄它被移到了哪個位置，以供虛線動畫判讀
+                    window._auraDragState = { type: null, index: null, movedTo: targetIdx }; 
+                    renderDraftCards(); 
+                }
+            }
+            // 如果是拖曳圖片
+            else {
+                const sourceDraftIndex = parseInt(e.dataTransfer.getData('sourceDraft')); 
+                const sourceImgIndex = parseInt(e.dataTransfer.getData('sourceImgIndex'));
+                if (!isNaN(sourceDraftIndex) && !isNaN(sourceImgIndex) && sourceDraftIndex !== index) {
+                    const imgSrc = currentDrafts[sourceDraftIndex].images[sourceImgIndex];
+                    currentDrafts[sourceDraftIndex].images.splice(sourceImgIndex, 1);
+                    if (!currentDrafts[index].images) currentDrafts[index].images = [];
+                    currentDrafts[index].images.push(imgSrc); renderDraftCards();
+                }
+            }
+        });
+
+        // 圖片拖拉事件 (沿用)
+        card.querySelectorAll('.draft-card-img-preview img').forEach(img => {
+            img.addEventListener('dragstart', (e) => {
+                window._auraDragState = { type: 'image', index: null };
+                e.dataTransfer.setData('sourceDraft', img.dataset.sourceDraft); e.dataTransfer.setData('sourceImgIndex', img.dataset.imgIndex);
+                e.dataTransfer.effectAllowed = 'move'; setTimeout(() => img.style.opacity = '0.4', 0); 
+            });
+            img.addEventListener('dragend', () => { img.style.opacity = '1'; window._auraDragState = { type: null, index: null }; });
+        });
+
+        draftContainer.appendChild(card);
+    });
+    
+    const addBtn = document.createElement('div'); addBtn.className = 'draft-add-btn'; addBtn.title = "新增空白分頁";
+    addBtn.innerHTML = '<svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    addBtn.onclick = () => { currentDrafts.push({ type: 'text', content: '', images: [] }); renderDraftCards(); };
+   draftContainer.appendChild(addBtn);
+    
+    // 🌟 渲染完畢後清除標記，確保動畫只會播放一次
+    if (window._auraDragState) {
+        window._auraDragState.movedTo = null;
+    }
+} // 這是 renderDraftCards 函數原本的結尾括號
+
+
+
+// 草稿容器自動滾動邏輯 (靠近頂部/底部時)
+draftContainer.addEventListener('dragover', (e) => {
+    if (!window._auraDragState || window._auraDragState.type !== 'card') return;
+    const threshold = 80; // 觸發滾動的邊界距離
+    const rect = draftContainer.getBoundingClientRect();
+    if (e.clientY - rect.top < threshold) {
+        draftContainer.scrollTop -= 20; // 向上滾動
+    } else if (rect.bottom - e.clientY < threshold) {
+        draftContainer.scrollTop += 20; // 向下滾動
+    }
+});
+
+
+       
         window.mergeDraftUp = function(index) {
             if(index <= 0) return;
             let curr = currentDrafts[index]; let prev = currentDrafts[index - 1];
@@ -1631,7 +1853,25 @@ openDraftBtn.addEventListener('click', () => {
                                 </div>
                             </div>
                         </div>`;
-                    } else {
+                    } 
+                    /* 👇👇👇 第二處：最終簡報畫面的網址卡片 👇👇👇 */
+                    else if (draft.type === 'link') {
+                        let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2 contenteditable='true'>點擊輸入標題</h2>" : "<h2 contenteditable='true'>參考連結與資源</h2>");
+                        let urlRaw = draft.content.trim();
+                        let hrefTarget = urlRaw.startsWith('http') ? urlRaw : 'https://' + urlRaw;
+                        
+                        finalHtmlChunks[i] = `
+                        <div class="slide layout-link-card">
+                            <div class="link-glass-box" onclick="if(!this.matches(':focus-within')){window.open('${hrefTarget}', '_blank');}">
+                                <span class="link-tag">REFERENCE LINK</span>
+                                ${title}
+                                <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                                <span class="hidden-url">${urlRaw}</span>
+                            </div>
+                        </div>`;
+                    } 
+                    /* 👆👆👆 第二處修正完畢 👆👆👆 */
+                    else {
                         textDraftIndexes.push(i); textDraftContents.push(draft.content); textDraftImages.push(draft.images);
                     }
                 });
@@ -1750,14 +1990,17 @@ openDraftBtn.addEventListener('click', () => {
                 
                let assignedLayout = ''; let isGeometric = false; let usePicsum = false;
                 
-                let isCoverPage = slide.classList.contains('layout-cover');
+               let isCoverPage = slide.classList.contains('layout-cover');
+                let isLinkCard = slide.classList.contains('layout-link-card'); // <-- 新增這行
                 // 取得這張 slide 對應到 currentDrafts 的實際索引 (排除封面/封底)
                 let draftRef = (!isCoverPage && currentDrafts[layoutCounter]) ? currentDrafts[layoutCounter] : null;
                 
-                if (isCoverPage) {
+              if (isCoverPage) {
                     assignedLayout = 'layout-cover';
                 } else if (isListCard) {
-                    assignedLayout = 'layout-list-cards'; // 強制鎖定為清單佈局
+                    assignedLayout = 'layout-list-cards';
+                } else if (isLinkCard) {
+                    assignedLayout = 'layout-link-card'; // <-- 強制指定版型
                 } else if (draftRef && draftRef.lockedLayout) {
                     // ★ 核心修復 2：如果這頁草稿被鎖定了單頁排版，強制優先使用！
                     assignedLayout = draftRef.lockedLayout;
@@ -1799,16 +2042,17 @@ openDraftBtn.addEventListener('click', () => {
                 newSlide.appendChild(bgImg);
 
                 // 🌟 若為 List Cards，不使用標準的 text-inner-scroll，直接複製已建好的 list-content-wrapper
-                 if (isListCard) {
-                    let listWrapper = slide.querySelector('.list-content-wrapper');
-                    if(listWrapper) {
-                        let clonedWrapper = listWrapper.cloneNode(true);
+                 if (isListCard || isLinkCard) {
+                    let wrapperClass = isListCard ? '.list-content-wrapper' : '.link-glass-box';
+                    let customWrapper = slide.querySelector(wrapperClass);
+                    if(customWrapper) {
+                        let clonedWrapper = customWrapper.cloneNode(true);
                         clonedWrapper.querySelectorAll('[contenteditable="true"]').forEach(el => {
                             el.spellcheck = false; 
                             el.addEventListener('input', () => autoFitText());
                             el.addEventListener('focus', function() { 
                                 let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
-                                if (['點擊輸入標題', '數據與分析洞察', '要點彙整'].includes(cleanText)) {
+                                if (['點擊輸入標題', '數據與分析洞察', '要點彙整', '參考連結與資源'].includes(cleanText)) {
                                     const range = document.createRange(); range.selectNodeContents(this);
                                     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
                                 }
@@ -1848,7 +2092,7 @@ openDraftBtn.addEventListener('click', () => {
                     textWrapper.appendChild(scrollArea); newSlide.appendChild(textWrapper);
                 }
 
-                if (assignedLayout !== 'layout-center' && assignedLayout !== 'layout-cover') {
+              if (assignedLayout !== 'layout-center' && assignedLayout !== 'layout-cover' && assignedLayout !== 'layout-link-card') {
                     let shouldAddImage = true;
                     if (hasTable && customImgs.length === 0) shouldAddImage = false; 
 
@@ -2088,10 +2332,76 @@ openDraftBtn.addEventListener('click', () => {
                                 pptSlide.addText(descText, { x: cX + 0.2, y: cY + 0.8, w: cW - 0.4, h: cH - 1.0, align: 'left', valign: 'top', fontFace: font, fontSize: 14, color: cTheme.textMain, wrap: true });
                             });
                         }
-                        pptSlide.slideNumber = { x: 9.0, y: 5.1, w: 0.8, h: 0.4, align: 'right', fontFace: 'Cinzel', fontSize: 16, color: cTheme.textMuted };
+                       pptSlide.slideNumber = { x: 9.0, y: 5.1, w: 0.8, h: 0.4, align: 'right', fontFace: 'Cinzel', fontSize: 16, color: cTheme.textMuted };
                         return; // 中斷常規 Slide 的繪製，跳到下一頁
                     }
                     
+                    /* 👇👇👇 就是加在這裡 👇👇👇 */
+                    // 🌟 針對「網址卡片 (Link Cards)」的 PPTX 繪製邏輯
+ if (cList.contains('layout-link-card')) {
+                         let titleEl = slide.querySelector('h2');
+                         let titleText = isVisible(titleEl) ? titleEl.innerText.replace(/\u200B/g, '').trim() : "";
+                         let urlEl = slide.querySelector('.hidden-url'); // <-- 從隱藏標籤抓網址
+                         let urlText = urlEl ? urlEl.innerText.trim() : "";
+                         let targetUrl = urlText.startsWith('http') ? urlText : 'https://' + urlText;
+                         
+                         // 計算 70% 置中卡片的位置
+                         let boxW = 7.5; let boxH = 4.2;
+                         let boxX = (10 - boxW) / 2; let boxY = (5.625 - boxH) / 2;
+
+                         // 1. 透明點擊墊片 (★ 關鍵：超連結只綁定在底板上，徹底消滅 PPT 的醜陋預設底線文字)
+                         pptSlide.addShape(pres.ShapeType.rect, { 
+                             x: boxX, y: boxY, w: boxW, h: boxH, 
+                             fill: { color: cTheme.shapeFill, transparency: cTheme.shapeOpac }, 
+                             shadow: { type: 'outer', opacity: 0.05, blur: 15 },
+                             hyperlink: { url: targetUrl } 
+                         });
+
+                         let curY = boxY + 1.0;
+
+                         // 2. 頂部極簡標籤 (強制 Noto Serif TC，寬字距，低調灰色)
+                         pptSlide.addText("R E F E R E N C E", { 
+                             x: boxX, y: curY, w: boxW, h: 0.3, 
+                             align: 'center', fontFace: 'Noto Serif TC', fontSize: 11, color: cTheme.textMuted, bold: false
+                         });
+                         curY += 0.35;
+                         
+                         // 3. 裝飾短線 (展現克制的設計感，全畫面唯一的亮色點綴)
+                         pptSlide.addShape(pres.ShapeType.line, {
+                             x: 5.0 - 0.25, y: curY, w: 0.5, h: 0,
+                             line: { color: cTheme.hl, width: 1.0 }
+                         });
+                         curY += 0.5;
+
+                         // 4. 主標題 (優雅的 Noto Serif TC)
+                         if(titleText) { 
+                             pptSlide.addText(titleText, { 
+                                 x: boxX + 0.5, y: curY, w: boxW - 1, h: 0.8, 
+                                 align: 'center', fontFace: 'Noto Serif TC', fontSize: 28, color: cTheme.textMain, bold: false
+                             });
+                             curY += 1.0;
+                         } else {
+                             curY += 0.5; 
+                         }
+
+                         // 5. 底部 OPEN LINK 提示 (極簡純文字，無邊框)
+                         pptSlide.addText("O P E N   L I N K", { 
+                             x: boxX, y: curY, w: boxW, h: 0.4, 
+                             align: 'center', valign: 'middle', fontFace: 'Noto Serif TC', fontSize: 11, color: cTheme.textMain, bold: true
+                         });
+
+                         // 6. 純手工幾何繪製極簡箭頭 (★ 絕對不會變成亂碼 è)
+                         let arrowX = 5.0 + 0.85; // 位於畫面中央偏右
+                         let arrowY = curY + 0.2;
+                         pptSlide.addShape(pres.ShapeType.line, { x: arrowX, y: arrowY, w: 0.15, h: 0, line: { color: cTheme.textMain, width: 1 }}); // 橫線
+                         pptSlide.addShape(pres.ShapeType.line, { x: arrowX + 0.1, y: arrowY - 0.05, w: 0.05, h: 0.05, line: { color: cTheme.textMain, width: 1 }}); // 上斜
+                         pptSlide.addShape(pres.ShapeType.line, { x: arrowX + 0.1, y: arrowY, w: 0.05, h: 0.05, line: { color: cTheme.textMain, width: 1 }}); // 下斜
+                         
+                         pptSlide.slideNumber = { x: 9.0, y: 5.1, w: 0.8, h: 0.4, align: 'right', fontFace: 'Cinzel', fontSize: 16, color: cTheme.textMuted };
+                         return; // 中斷後續常規排版的匯出
+                    }
+                    /* 👆👆👆 到這裡結束 👆👆👆 */
+
                     let isCover = cList.contains('layout-cover');
                     let boxX=0, boxY=0, boxW=0, boxH=0, imgX=0, imgY=0, imgW=0, imgH=0, hasImg = !cList.contains('layout-center') && !isCover;
                     let isTableFocus = cList.contains('layout-table-focus');
@@ -2255,6 +2565,63 @@ openDraftBtn.addEventListener('click', () => {
                 setTimeout(() => { exportLoader.classList.remove('active'); setTimeout(() => { progressFill.style.width = '0%'; }, 500); }, 600);
             } catch(err) { clearInterval(progressInterval); exportLoader.classList.remove('active'); alert("匯出過程發生錯誤，請稍後重試。"); }
         });
+
+
+// 🌟 單頁專屬標題開關邏輯
+        document.getElementById('singleTitleToggleBtn').addEventListener('click', () => {
+            if (slides.length === 0) return;
+            let currentSlide = slides[currentIndex];
+
+            // 封面頁本身就有主副標題，不需要透過此按鈕切換
+            if (currentSlide.classList.contains('layout-cover')) return;
+
+            let h2 = currentSlide.querySelector('h2');
+            
+            // 如果 H2 存在，切換顯示/隱藏
+            if (h2) {
+                if (h2.style.display === 'none' || !h2.textContent.trim()) {
+                    h2.style.display = 'block';
+                    if (!h2.textContent.trim()) h2.textContent = '點擊輸入標題';
+                } else {
+                    h2.style.display = 'none';
+                    h2.textContent = '';
+                }
+            } else {
+                // 如果該頁連 H2 標籤都沒有，則動態創建一個
+                h2 = document.createElement('h2');
+                h2.contentEditable = 'true';
+                h2.spellcheck = false;
+                h2.textContent = '點擊輸入標題';
+                
+                // 綁定與生成時相同的事件
+                h2.addEventListener('input', () => autoFitText());
+                h2.addEventListener('focus', function() { 
+                    if (this.textContent.trim() === '點擊輸入標題') {
+                        const range = document.createRange(); range.selectNodeContents(this);
+                        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+                    }
+                });
+                h2.addEventListener('blur', function() { 
+                    if (this.textContent.trim() === '') { this.style.display = 'none'; autoFitText(); } 
+                });
+
+                // 根據版面類型插入到正確的位置
+                if (currentSlide.classList.contains('layout-list-cards')) {
+                    let wrapper = currentSlide.querySelector('.list-content-wrapper');
+                    wrapper.insertBefore(h2, wrapper.querySelector('.list-cards-grid'));
+                } else if (currentSlide.classList.contains('layout-link-card')) {
+                    let tag = currentSlide.querySelector('.link-tag');
+                    if (tag) tag.insertAdjacentElement('afterend', h2);
+                } else {
+                    let wrapper = currentSlide.querySelector('.text-inner-scroll');
+                    if(wrapper) wrapper.prepend(h2);
+                }
+            }
+            autoFitText();
+            saveAuraState(); // 儲存狀態，以便匯出時包含改變
+        });
+
+       
     </script>
 </body>
 </html>
