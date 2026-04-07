@@ -9,8 +9,8 @@
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <!-- 引入 Mammoth.js 用於解析 DOCX 檔案 -->
     <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
-    <!-- 引入美學字體 -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Noto+Serif+TC:wght@300;400;500;600&family=Inter:wght@200;300;400&display=swap" rel="stylesheet">
+    <!-- 引入美學字體 (新增 700 粗體字重) -->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Noto+Serif+TC:wght@300;400;500;600;700&family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         /* --- 全域網頁 UI 變數 --- */
         :root {
@@ -798,7 +798,18 @@
 .kw-link-toggle:not(.active) #icon-kw-linked { display: none; }
 .kw-link-toggle:not(.active) #icon-kw-unlinked { display: block; }
         
-        
+
+
+
+        /* --- 確保粗體文字在所有介面中清晰可見 --- */
+b, strong, 
+#promptInput b, #promptInput strong,
+.draft-card-content b, .draft-card-content strong,
+.text-inner-scroll b, .text-inner-scroll strong,
+.list-card-item b, .list-card-item strong {
+    font-weight: 700 !important;
+    color: inherit;
+}
     
     </style>
 </head>
@@ -2036,8 +2047,7 @@ openDraftBtn.addEventListener('click', () => {
                 if(textDraftContents.length > 0) {
                     showLoader("正在排版...");
                     try {
-                       const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是專業的簡報企劃。任務：根據使用者提供的 ${textDraftContents.length} 頁草稿內容，為每一頁精煉出一個精準、總結性的「繁體中文短標題」(約 4~12 字)。\n你【必須】只輸出一個純 JSON 陣列（格式：["標題一", "標題二", ...]），陣列長度必須剛好為 ${textDraftContents.length}。絕對不要輸出其他任何 HTML、說明文字或 Markdown 標記！` }, { role: "user", content: `請為以下內容生成適合的標題：\n\n${textDraftContents.map((c, i) => `[第 ${i+1} 頁內容]：\n${c}`).join('\n\n')}` } ] }) });
-                        
+                      const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.如果草稿中有 <b> 或 <strong> 標籤包圍的重點文字，擴充改寫時【絕對必須保留該標籤】以維持粗體顯示。6.只輸出純 HTML。7.${titleInstruction}` }, { role: "user", content: `擴充以下內容：\n\n${aiInputText}` } ] }) });
                         let aiResponse = (await res.json()).choices[0].message.content.trim();
                         aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/gi, '').trim(); 
                         let titles = JSON.parse(aiResponse); 
