@@ -1503,29 +1503,33 @@ function parseContentToSlideDrafts(htmlString) {
     let drafts = [];
     const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlString.replace(/<br\s*\/?>/gi, '\n');
     let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
+    let currentExtractedTitle = ""; 
 
     const listRegex = /^((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
-    
-    // 🌟 強化版網址正則：包含 www 開頭，且嚴格排除中文與全形標點，避免網址黏著文字
     const urlExtractRegex = /(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)/gi;
     const pureUrlRegex = /^(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)$/i;
 
     function flushText() {
-        if (currentTextBuffer.trim() || currentImageBuffer.length > 0) {
+        if (currentTextBuffer.trim() || currentImageBuffer.length > 0 || currentExtractedTitle.trim()) {
             
-            // 🌟 關鍵修復 1：自動將混在文字中的網址前後加上換行，強制獨立分段
             let processedText = currentTextBuffer.replace(urlExtractRegex, '\n$1\n');
-            
             let lines = processedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
             let normalBuffer = []; let listBuffer = [];
 
             function flushNormal() {
-                if (normalBuffer.length > 0) {
+                if (normalBuffer.length > 0 || currentExtractedTitle.trim()) {
                     let text = normalBuffer.join('\n');
                     let chunks = splitIntoChunks(text, 95);
                     if (chunks.length === 0) chunks = [""];
-                    chunks.forEach((c, i) => { drafts.push({ type: 'text', content: c, images: i === 0 ? currentImageBuffer : [] }); });
-                    normalBuffer = []; currentImageBuffer = [];
+                    chunks.forEach((c, i) => { 
+                        drafts.push({ 
+                            type: 'text', 
+                            content: c, 
+                            images: i === 0 ? currentImageBuffer : [],
+                            customTitle: i === 0 ? currentExtractedTitle.trim() : "" 
+                        }); 
+                    });
+                    normalBuffer = []; currentImageBuffer = []; currentExtractedTitle = ""; 
                 }
             }
 
@@ -1533,11 +1537,20 @@ function parseContentToSlideDrafts(htmlString) {
                 if (listBuffer.length > 0) {
                     for (let i = 0; i < listBuffer.length; i += 4) {
                         let chunk = listBuffer.slice(i, i + 4);
-                        drafts.push({ type: 'list', items: chunk, images: i === 0 ? currentImageBuffer : [] });
+                        drafts.push({ 
+                            type: 'list', 
+                            items: chunk, 
+                            images: i === 0 ? currentImageBuffer : [],
+                            customTitle: i === 0 ? currentExtractedTitle.trim() : "" 
+                        });
                         currentImageBuffer = [];
                     }
-                    listBuffer = [];
+                    listBuffer = []; currentExtractedTitle = ""; 
                 }
+            }
+
+            if (lines.length === 0 && currentExtractedTitle.trim()) {
+                 flushNormal();
             }
 
             for (let line of lines) {
@@ -1545,9 +1558,9 @@ function parseContentToSlideDrafts(htmlString) {
                 let matchUrl = line.match(pureUrlRegex);
                 
                 if (matchUrl) {
-                    // 🌟 關鍵修復 2：抓出網址並必定獨立為一張連結卡片
                     flushNormal(); flushList();
-                    drafts.push({ type: 'link', content: matchUrl[1], images: [] });
+                    drafts.push({ type: 'link', content: matchUrl[1], images: [], customTitle: currentExtractedTitle.trim() });
+                    currentExtractedTitle = "";
                 } else if (matchList) {
                     flushNormal();
                     let prefix = matchList[1].trim();
@@ -1569,13 +1582,36 @@ function parseContentToSlideDrafts(htmlString) {
     function flushTables() {
         if (currentTableBuffer.length > 0) {
             let combined = currentTableBuffer.map(t => `<div class="table-container">${t}</div>`).join('');
-            drafts.push({ type: 'table', content: combined, images: [] }); currentTableBuffer = [];
+            drafts.push({ type: 'table', content: combined, images: [], customTitle: currentExtractedTitle.trim() }); 
+            currentTableBuffer = []; currentExtractedTitle = ""; 
         }
     }
 
     function walkDOM(node) {
         if (node.nodeType === 3) {
             let text = node.textContent;
+            
+            let isUnderlined = false;
+            let parent = node.parentElement;
+            while (parent && parent !== tempDiv) {
+                if (parent.tagName === 'U' || parent.tagName === 'INS') { isUnderlined = true; break; }
+                if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) { isUnderlined = true; break; }
+                parent = parent.parentElement;
+            }
+
+            if (isUnderlined) {
+                if (text.trim().length > 0) {
+                    // 🌟 修正 2：若遇到新的底線標題，且先前已經累積了內文、表格或圖片
+                    // 代表這是一個「新分頁」的開端，必須先強制輸出先前的內容
+                    if (currentTextBuffer.trim().length > 0 || currentTableBuffer.length > 0 || currentImageBuffer.length > 0) {
+                        flushTables();
+                        flushText(); // 這會清空舊有的 currentExtractedTitle
+                    }
+                    currentExtractedTitle += text; 
+                }
+                return; 
+            }
+
             if (text.trim().length > 0) flushTables(); 
             currentTextBuffer += text;
         } else if (node.nodeType === 1) {
@@ -1585,7 +1621,7 @@ function parseContentToSlideDrafts(htmlString) {
                 let src = node.getAttribute('src') || node.src;
                 if (src && !src.startsWith('chrome-extension')) { 
                     flushTables(); 
-                    if (currentTextBuffer.trim().length > 0) flushText();
+                    if (currentTextBuffer.trim().length > 0 || currentExtractedTitle.trim().length > 0) flushText();
                     currentImageBuffer.push(src); 
                 }
             } else if (node.classList.contains('page-break-line')) {
@@ -1618,6 +1654,9 @@ function parseContentToSlideDrafts(htmlString) {
     flushText(); flushTables();
     return drafts;
 }
+
+
+       
         let currentDrafts = [];
         const draftOverlay = document.getElementById('draftOverlay');
         const draftContainer = document.getElementById('draftContainer');
@@ -1876,188 +1915,213 @@ openDraftBtn.addEventListener('click', () => {
             if(document.body.classList.contains('editor-fullscreen')) { document.body.classList.remove('editor-fullscreen'); }
         });
 
-        document.getElementById('startRenderBtn').addEventListener('click', async () => {
-            draftOverlay.classList.remove('active');
-            showLoader("正在分析結構..."); 
-            controls.style.display = "none"; actionBar.style.display = "none";
-            sessionStorage.removeItem('aura_slide_kws');
-            await new Promise(r => setTimeout(r, 600));
+     document.getElementById('startRenderBtn').addEventListener('click', async () => {
+    draftOverlay.classList.remove('active');
+    showLoader("正在分析結構..."); 
+    controls.style.display = "none"; actionBar.style.display = "none";
+    sessionStorage.removeItem('aura_slide_kws');
+    await new Promise(r => setTimeout(r, 600));
 
-            try {
-                let userMainInput = mainKeywordInput.value.trim();
-                let firstTextDraft = currentDrafts.find(d => d.type === 'text' && d.content.trim().length > 0);
-                globalMainKeyword = userMainInput ? userMainInput : (firstTextDraft ? extractKeywords(firstTextDraft.content) || "專案排版" : "專案排版");
+    try {
+        let userMainInput = mainKeywordInput.value.trim();
+        let firstTextDraft = currentDrafts.find(d => d.type === 'text' && d.content.trim().length > 0);
+        globalMainKeyword = userMainInput ? userMainInput : (firstTextDraft ? extractKeywords(firstTextDraft.content) || "專案排版" : "專案排版");
 
-                let finalHtmlChunks = new Array(currentDrafts.length);
-                let textDraftIndexes = []; let textDraftContents = []; let textDraftImages = [];
+        let finalHtmlChunks = new Array(currentDrafts.length);
+        let textDraftIndexes = []; let textDraftContents = []; let textDraftImages = []; let textDraftTitles = [];
 
-                currentDrafts.forEach((draft, i) => {
-                   if (draft.type === 'table') {
-                        let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2>點擊輸入標題</h2>" : "<h2>數據與分析洞察</h2>");
-                        let hasMultiple = draft.content.split('table-container').length > 2;
-                        if(hasMultiple) finalHtmlChunks[i] = `<div class="slide">${title}<div class="multi-table-wrapper">${draft.content}</div></div>`;
-                        else finalHtmlChunks[i] = `<div class="slide">${title}${draft.content}</div>`;
-                  } else if (draft.type === 'list') {
-                        // 🌟 專屬 List 渲染：不交由 AI 處理，直接生成完美 HTML 結構
-                        let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2 contenteditable='true'>點擊輸入標題</h2>" : "<h2 contenteditable='true'>要點彙整</h2>");
-                        let listCardsHtml = draft.items.map((item, idx) => {
-                            let n = (typeof item === 'object' && item.num !== undefined) ? item.num : String(idx + 1).padStart(2, '0');
-                            let t = (typeof item === 'object' && item.text !== undefined) ? item.text : String(item);
-                            if (t === '[object Object]') t = ""; // 強制防呆
-                            return `
-                            <div class="list-card-item">
-                                <div class="lc-num" contenteditable="true">${n}</div>
-                                <div class="lc-text" contenteditable="true">${t}</div>
-                            </div>
-                            `;
-                        }).join('');
+        currentDrafts.forEach((draft, i) => {
+           if (draft.type === 'table') {
+                let titleText = draft.customTitle ? draft.customTitle : ""; 
+                let title = "";
+                if (titleText) title = `<h2>${titleText}</h2>`; // 🌟 無論什麼模式，有自訂標題就優先套用
+                else if (titleMode === 1) title = "<h2>點擊輸入標題</h2>";
+                else if (titleMode === 2) title = "<h2>數據與分析洞察</h2>";
 
-                        let joinedImgs = draft.images && draft.images.length > 0 ? draft.images.join('|||').replace(/"/g, '&quot;') : "";
-                        let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
+                let hasMultiple = draft.content.split('table-container').length > 2;
+                if(hasMultiple) finalHtmlChunks[i] = `<div class="slide">${title}<div class="multi-table-wrapper">${draft.content}</div></div>`;
+                else finalHtmlChunks[i] = `<div class="slide">${title}${draft.content}</div>`;
+          } else if (draft.type === 'list') {
+                let titleText = draft.customTitle ? draft.customTitle : ""; 
+                let title = "";
+                if (titleText) title = `<h2 contenteditable='true'>${titleText}</h2>`;
+                else if (titleMode === 1) title = "<h2 contenteditable='true'>點擊輸入標題</h2>";
+                else if (titleMode === 2) title = "<h2 contenteditable='true'>要點彙整</h2>";
 
-                        finalHtmlChunks[i] = `
-                        <div class="slide layout-list-cards"${imgAttr}>
-                            <div class="list-content-wrapper">
-                                ${title}
-                                <div class="list-cards-grid items-${draft.items.length}">
-                                    ${listCardsHtml}
-                                </div>
-                            </div>
-                        </div>`;
-                    } 
-                    /* 👇👇👇 第二處：最終簡報畫面的網址卡片 👇👇👇 */
-                    else if (draft.type === 'link') {
-                        let title = titleMode === 0 ? "" : (titleMode === 1 ? "<h2 contenteditable='true'>點擊輸入標題</h2>" : "<h2 contenteditable='true'>參考連結與資源</h2>");
-                        let urlRaw = draft.content.trim();
-                        let hrefTarget = urlRaw.startsWith('http') ? urlRaw : 'https://' + urlRaw;
-                        
-                        finalHtmlChunks[i] = `
-                        <div class="slide layout-link-card">
-                            <div class="link-glass-box" onclick="if(!this.matches(':focus-within')){window.open('${hrefTarget}', '_blank');}">
-                                <span class="link-tag">REFERENCE LINK</span>
-                                ${title}
-                                <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                                <span class="hidden-url">${urlRaw}</span>
-                            </div>
-                        </div>`;
-                    } 
-                    /* 👆👆👆 第二處修正完畢 👆👆👆 */
-                    else {
-                        textDraftIndexes.push(i); textDraftContents.push(draft.content); textDraftImages.push(draft.images);
-                    }
-                });
+                let listCardsHtml = draft.items.map((item, idx) => {
+                    let n = (typeof item === 'object' && item.num !== undefined) ? item.num : String(idx + 1).padStart(2, '0');
+                    let t = (typeof item === 'object' && item.text !== undefined) ? item.text : String(item);
+                    if (t === '[object Object]') t = ""; 
+                    return `
+                    <div class="list-card-item">
+                        <div class="lc-num" contenteditable="true">${n}</div>
+                        <div class="lc-text" contenteditable="true">${t}</div>
+                    </div>
+                    `;
+                }).join('');
 
-               if (!isAiMode) {
-                    if (titleMode === 0) { 
-                        textDraftIndexes.forEach((idx, i) => { 
-                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                        }); 
-                    } 
-                    else if (titleMode === 1) { 
-                        textDraftIndexes.forEach((idx, i) => { 
-                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>點擊輸入標題</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                        }); 
-                    } 
-                    else {
-                        // 🌟 修正：嚴格要求 AI 根據內容歸納標題，並且純粹只輸出 JSON 陣列，不混雜 HTML
-                        if(textDraftContents.length > 0) {
-                            showLoader("正在排版...");
-                            try {
-                               const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是專業的簡報企劃。任務：根據使用者提供的 ${textDraftContents.length} 頁草稿內容，為每一頁精煉出一個精準、總結性的「繁體中文短標題」(約 4~12 字)。\n你【必須】只輸出一個純 JSON 陣列（格式：["標題一", "標題二", ...]），陣列長度必須剛好為 ${textDraftContents.length}。絕對不要輸出其他任何 HTML、說明文字或 Markdown 標記！` }, { role: "user", content: `請為以下內容生成適合的標題：\n\n${textDraftContents.map((c, i) => `[第 ${i+1} 頁內容]：\n${c}`).join('\n\n')}` } ] }) });
-                                
-                                let aiResponse = (await res.json()).choices[0].message.content.trim();
-                                aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/gi, '').trim(); // 清理 markdown 語法
-                                let titles = JSON.parse(aiResponse); 
-                                
-                                // 防呆：確保陣列長度足夠
-                                while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
-                                
-                                textDraftIndexes.forEach((idx, i) => { 
-                                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${titles[i]}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                                });
-                            } catch(e) { 
-                                console.error("標題解析失敗，使用備用標題", e);
-                                textDraftIndexes.forEach((idx, i) => { 
-                                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>重點內容 ${i+1}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                                }); 
-                            }
-                        }
-                    }
-                } else {
-                    if (textDraftContents.length > 0) {
-                        showLoader("正在擴充與排版...");
-                        let aiInputText = textDraftContents.map((c, i) => `[第 ${i+1} 頁草稿]：\n${c}`).join('\n\n');
-                        
-                        // 🌟 修正：明確指引 AI 在此模式下也要根據內文來歸納短標題
-                        let titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>[請根據該頁擴充後的內容，歸納精準的繁體中文短標題]</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>";
-                        
-                        if (titleMode === 0) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n絕對禁止輸出 <h2> 或 <h1> 標籤。";
-                        else if (titleMode === 1) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>點擊輸入標題</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n所有 <h2> 標籤內必須一字不漏地填入「點擊輸入標題」。";
+                let joinedImgs = draft.images && draft.images.length > 0 ? draft.images.join('|||').replace(/"/g, '&quot;') : "";
+                let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
 
-                        const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.只輸出純 HTML。6.${titleInstruction}` }, { role: "user", content: `擴充以下內容：\n\n${aiInputText}` } ] }) });
-                        let aiHtml = (await res.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
-                        const aiTempDiv = document.createElement('div'); aiTempDiv.innerHTML = aiHtml; const aiSlides = Array.from(aiTempDiv.querySelectorAll('.slide'));
-                        textDraftIndexes.forEach((idx, i) => { 
-                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
-                            if (aiSlides[i]) { 
-                                if (joinedImgs) aiSlides[i].setAttribute('data-custom-images', textDraftImages[i].join('|||'));
-                                finalHtmlChunks[idx] = aiSlides[i].outerHTML; 
-                            } else { 
-                                finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                            } 
-                        });
-                    }
-                }
-                let finalHtml = finalHtmlChunks.join('\n');
+                finalHtmlChunks[i] = `
+                <div class="slide layout-list-cards"${imgAttr}>
+                    <div class="list-content-wrapper">
+                        ${title}
+                        <div class="list-cards-grid items-${draft.items.length}">
+                            ${listCardsHtml}
+                        </div>
+                    </div>
+                </div>`;
+            } 
+            else if (draft.type === 'link') {
+                let titleText = draft.customTitle ? draft.customTitle : ""; 
+                let title = "";
+                if (titleText) title = `<h2 contenteditable='true'>${titleText}</h2>`;
+                else if (titleMode === 1) title = "<h2 contenteditable='true'>點擊輸入標題</h2>";
+                else if (titleMode === 2) title = "<h2 contenteditable='true'>參考連結與資源</h2>";
 
-                if (isHighlightMode) {
-                    showLoader("正在分析並畫重點...");
-                    try {
-                        let tempHtml = finalHtml; let imgStore = {}; let imgCounter = 0;
-                        tempHtml = tempHtml.replace(/data-custom-images="([^"]*)"/g, (match, p1) => {
-                            let id = `__IMG_PH_${imgCounter++}__`; imgStore[id] = p1; return `data-custom-images="${id}"`;
-                        });
-                        const slideCount = (tempHtml.match(/<div class="slide"/gi) || []).length;
-                        const hlRes = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是一個 HTML 結構處理程式。任務：為提供的 HTML 加入重點標記。\n規則：\n1. 原封不動保留結構：提供的 HTML 總共有 ${slideCount} 個 <div class="slide">。你輸出的 HTML 【必須完整保留這 ${slideCount} 個 slide】！**不允許修改或破壞 <div class="table-container"> 或 <table> 相關的內容！也不允許修改 <div class="list-card-item">！**\n2. 每一頁(若有<p>)都必須在 <p> 內部挑選 1~2 個最核心的短句，用 <span data-hl="true"> 和 </span> 包圍。\n3. 絕不改變原始文字與既有結構。只輸出純 HTML 代碼。` }, { role: "user", content: tempHtml } ] }) });
-                        let hlOutput = (await hlRes.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
-                        if(hlOutput.includes('<div class="slide"')) {
-                            for (let id in imgStore) { hlOutput = hlOutput.replace(`data-custom-images="${id}"`, `data-custom-images="${imgStore[id]}"`); }
-                            finalHtml = hlOutput;
-                        }
-                    } catch(e) { console.error("Highlighting failed."); }
-                }
-
-                if (addCoverPage) { let coverHtml = `<div class="slide layout-cover"><h1>主標題 (點擊修改)</h1><h2>副標題 / 演講者 (點擊修改)</h2></div>\n`; finalHtml = coverHtml + finalHtml; }
-                finalHtml += `\n<div class="slide layout-cover end-page"><h1>完</h1><h2>THE END</h2></div>`;
+                let urlRaw = draft.content.trim();
+                let hrefTarget = urlRaw.startsWith('http') ? urlRaw : 'https://' + urlRaw;
                 
-              showLoader("正在設計頁面佈局..."); 
-                window.lastGeneratedHtml = finalHtml; 
-                
-                // 🌟 新增這行：強制將視圖重置回第一頁
-                currentIndex = 0; 
-                
-                renderPresentation(finalHtml);
-                
-                const newImages = Array.from(presentationBoard.querySelectorAll('img'));
-                await Promise.all(newImages.map(img => { if (img.complete) return Promise.resolve(); return new Promise(resolve => { img.onload = resolve; img.onerror = resolve; }); }));
-                setTimeout(autoFitText, 100); setTimeout(autoFitText, 500); 
-           if (window.innerWidth <= 1024) { document.body.classList.add('preview-mode'); }
-                saveAuraState(); 
-                hideLoader(); // ★ 關鍵：順利生成完畢後關閉載入畫面
-            } catch (error) { 
-                hideLoader(); // ★ 就算拋出報錯也必須強制關閉載入畫面
-                presentationBoard.innerHTML = `<div class="empty-state"><p>發生錯誤，請稍後再試</p></div>`; 
+                finalHtmlChunks[i] = `
+                <div class="slide layout-link-card">
+                    <div class="link-glass-box" onclick="if(!this.matches(':focus-within')){window.open('${hrefTarget}', '_blank');}">
+                        <span class="link-tag">REFERENCE LINK</span>
+                        ${title}
+                        <svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                        <span class="hidden-url">${urlRaw}</span>
+                    </div>
+                </div>`;
+            } 
+            else {
+                textDraftIndexes.push(i); textDraftContents.push(draft.content); textDraftImages.push(draft.images);
+                textDraftTitles.push(draft.customTitle || ""); 
             }
         });
+
+       if (!isAiMode) {
+            if (titleMode === 0) { 
+                textDraftIndexes.forEach((idx, i) => { 
+                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                    // 🌟 修正 1：無標題模式下，若有抓取到底線文字，依舊強制加上 <h2> 標題
+                    let slideTitle = textDraftTitles[i] ? `<h2>${textDraftTitles[i]}</h2>` : ""; 
+                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}>${slideTitle}<p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                }); 
+            } 
+            else if (titleMode === 1) { 
+                textDraftIndexes.forEach((idx, i) => { 
+                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                    let slideTitle = textDraftTitles[i] ? textDraftTitles[i] : "點擊輸入標題"; 
+                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${slideTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                }); 
+            } 
+            else {
+                if(textDraftContents.length > 0) {
+                    showLoader("正在排版...");
+                    try {
+                       const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是專業的簡報企劃。任務：根據使用者提供的 ${textDraftContents.length} 頁草稿內容，為每一頁精煉出一個精準、總結性的「繁體中文短標題」(約 4~12 字)。\n你【必須】只輸出一個純 JSON 陣列（格式：["標題一", "標題二", ...]），陣列長度必須剛好為 ${textDraftContents.length}。絕對不要輸出其他任何 HTML、說明文字或 Markdown 標記！` }, { role: "user", content: `請為以下內容生成適合的標題：\n\n${textDraftContents.map((c, i) => `[第 ${i+1} 頁內容]：\n${c}`).join('\n\n')}` } ] }) });
+                        
+                        let aiResponse = (await res.json()).choices[0].message.content.trim();
+                        aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/gi, '').trim(); 
+                        let titles = JSON.parse(aiResponse); 
+                        
+                        while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
+                        
+                        textDraftIndexes.forEach((idx, i) => { 
+                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                            let finalTitle = textDraftTitles[i] ? textDraftTitles[i] : titles[i];
+                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${finalTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                        });
+                    } catch(e) { 
+                        console.error("標題解析失敗，使用備用標題", e);
+                        textDraftIndexes.forEach((idx, i) => { 
+                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
+                            let finalTitle = textDraftTitles[i] ? textDraftTitles[i] : `重點內容 ${i+1}`;
+                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${finalTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                        }); 
+                    }
+                }
+            }
+        } else {
+            if (textDraftContents.length > 0) {
+                showLoader("正在擴充與排版...");
+                let aiInputText = textDraftContents.map((c, i) => `[第 ${i+1} 頁草稿]：\n${c}`).join('\n\n');
+                
+                let titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>[請根據該頁擴充後的內容，歸納精準的繁體中文短標題]</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>";
+                
+                if (titleMode === 0) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n絕對禁止輸出 <h2> 或 <h1> 標籤。";
+                else if (titleMode === 1) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>點擊輸入標題</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n所有 <h2> 標籤內必須一字不漏地填入「點擊輸入標題」。";
+
+                const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.只輸出純 HTML。6.${titleInstruction}` }, { role: "user", content: `擴充以下內容：\n\n${aiInputText}` } ] }) });
+                let aiHtml = (await res.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
+                const aiTempDiv = document.createElement('div'); aiTempDiv.innerHTML = aiHtml; const aiSlides = Array.from(aiTempDiv.querySelectorAll('.slide'));
+                textDraftIndexes.forEach((idx, i) => { 
+                    let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+                    let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
+                    if (aiSlides[i]) { 
+                        if (joinedImgs) aiSlides[i].setAttribute('data-custom-images', textDraftImages[i].join('|||'));
+                        
+                        // 🌟 若 AI 有輸出結構，但該頁有專屬底線標題，優先覆蓋回底線標題
+                        if (textDraftTitles[i]) {
+                            let h2Node = aiSlides[i].querySelector('h2');
+                            if (h2Node) {
+                                h2Node.innerHTML = textDraftTitles[i];
+                            } else {
+                                aiSlides[i].insertAdjacentHTML('afterbegin', `<h2>${textDraftTitles[i]}</h2>`);
+                            }
+                        }
+                        finalHtmlChunks[idx] = aiSlides[i].outerHTML; 
+                    } else { 
+                        let slideTitle = textDraftTitles[i] ? `<h2>${textDraftTitles[i]}</h2>` : (titleMode === 1 ? "<h2>點擊輸入標題</h2>" : "");
+                        finalHtmlChunks[idx] = `<div class="slide"${imgAttr}>${slideTitle}<p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                    } 
+                });
+            }
+        }
+        let finalHtml = finalHtmlChunks.join('\n');
+
+        if (isHighlightMode) {
+            showLoader("正在分析並畫重點...");
+            try {
+                let tempHtml = finalHtml; let imgStore = {}; let imgCounter = 0;
+                tempHtml = tempHtml.replace(/data-custom-images="([^"]*)"/g, (match, p1) => {
+                    let id = `__IMG_PH_${imgCounter++}__`; imgStore[id] = p1; return `data-custom-images="${id}"`;
+                });
+                const slideCount = (tempHtml.match(/<div class="slide"/gi) || []).length;
+                const hlRes = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是一個 HTML 結構處理程式。任務：為提供的 HTML 加入重點標記。\n規則：\n1. 原封不動保留結構：提供的 HTML 總共有 ${slideCount} 個 <div class="slide">。你輸出的 HTML 【必須完整保留這 ${slideCount} 個 slide】！**不允許修改或破壞 <div class="table-container"> 或 <table> 相關的內容！也不允許修改 <div class="list-card-item">！**\n2. 每一頁(若有<p>)都必須在 <p> 內部挑選 1~2 個最核心的短句，用 <span data-hl="true"> 和 </span> 包圍。\n3. 絕不改變原始文字與既有結構。只輸出純 HTML 代碼。` }, { role: "user", content: tempHtml } ] }) });
+                let hlOutput = (await hlRes.json()).choices[0].message.content.replace(/```html/gi, '').replace(/```/gi, '').trim();
+                if(hlOutput.includes('<div class="slide"')) {
+                    for (let id in imgStore) { hlOutput = hlOutput.replace(`data-custom-images="${id}"`, `data-custom-images="${imgStore[id]}"`); }
+                    finalHtml = hlOutput;
+                }
+            } catch(e) { console.error("Highlighting failed."); }
+        }
+
+        if (addCoverPage) { let coverHtml = `<div class="slide layout-cover"><h1>主標題 (點擊修改)</h1><h2>副標題 / 演講者 (點擊修改)</h2></div>\n`; finalHtml = coverHtml + finalHtml; }
+        finalHtml += `\n<div class="slide layout-cover end-page"><h1>完</h1><h2>THE END</h2></div>`;
+        
+        showLoader("正在設計頁面佈局..."); 
+        window.lastGeneratedHtml = finalHtml; 
+        
+        currentIndex = 0; 
+        
+        renderPresentation(finalHtml);
+        
+        const newImages = Array.from(presentationBoard.querySelectorAll('img'));
+        await Promise.all(newImages.map(img => { if (img.complete) return Promise.resolve(); return new Promise(resolve => { img.onload = resolve; img.onerror = resolve; }); }));
+        setTimeout(autoFitText, 100); setTimeout(autoFitText, 500); 
+        if (window.innerWidth <= 1024) { document.body.classList.add('preview-mode'); }
+        saveAuraState(); 
+        hideLoader(); 
+    } catch (error) { 
+        hideLoader(); 
+        presentationBoard.innerHTML = `<div class="empty-state"><p>發生錯誤，請稍後再試</p></div>`; 
+    }
+});
 
         function renderPresentation(htmlContent) {
             const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlContent; presentationBoard.innerHTML = '';
