@@ -785,6 +785,19 @@
 .hidden-url { display: none !important; }
 
 
+.kw-link-toggle {
+    display: flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; margin-right: 6px;
+    cursor: pointer; color: var(--ui-muted); transition: 0.2s;
+}
+.kw-link-toggle:hover { color: var(--ui-text); }
+.kw-link-toggle.active { color: var(--ui-hl); }
+.kw-link-toggle svg { width: 14px; height: 14px; }
+.kw-link-toggle.active #icon-kw-linked { display: block; }
+.kw-link-toggle.active #icon-kw-unlinked { display: none; }
+.kw-link-toggle:not(.active) #icon-kw-linked { display: none; }
+.kw-link-toggle:not(.active) #icon-kw-unlinked { display: block; }
+        
         
     
     </style>
@@ -950,9 +963,13 @@
                     </button>
                 </div>
                 <div class="sub-keyword-group" id="subKeywordGroup" title="自訂此頁子關鍵詞並重整圖片">
-                    <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
-                    <button class="btn-refresh-img" id="btnRefreshImg" title="依此關鍵詞重新生成"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.63-6.37L21 8"></path></svg></button>
-                </div>
+    <div class="kw-link-toggle active" id="kwLinkToggle" title="已連結全域關鍵詞 (點擊斷開獨立搜尋)">
+        <svg id="icon-kw-linked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+        <svg id="icon-kw-unlinked" style="display:none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>
+    </div>
+    <input type="text" id="subKeywordInput" placeholder="子關鍵詞">
+    <button class="btn-refresh-img" id="btnRefreshImg" title="依此關鍵詞重新生成"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.63-6.37L21 8"></path></svg></button>
+</div>
             </div>
             <div class="action-row bottom-row">
                 <div class="opacity-control" title="調整背景濃度">
@@ -1424,13 +1441,23 @@ const openDraftBtn = document.getElementById('openDraftBtn');
         }
 
         function extractKeywords(text) { let topWords = getTopKeywords(text, 1); return topWords.length > 0 ? topWords[0] : ""; }
-        function getImageUrl(mainKw, subKw, index) { let baseQuery = mainKw || "設計"; if (subKw && !baseQuery.includes(subKw)) baseQuery = `${baseQuery} ${subKw}`; return `https://tse${(index % 4) + 1}.mm.bing.net/th?q=${encodeURIComponent(baseQuery.trim())}&w=1600&h=1600&c=7&rs=1&qlt=100&pid=Api&mkt=zh-TW&nocache=${Date.now() + index}`; }
+     function getImageUrl(mainKw, subKw, index, isolate = false) { 
+    let baseQuery = "";
+    if (isolate) {
+        baseQuery = subKw || mainKw || "設計"; // 獨立模式：優先只用子關鍵詞
+    } else {
+        baseQuery = mainKw || "設計"; 
+        if (subKw && !baseQuery.includes(subKw)) baseQuery = `${baseQuery} ${subKw}`; 
+    }
+    return `https://tse${(index % 4) + 1}.mm.bing.net/th?q=${encodeURIComponent(baseQuery.trim())}&w=1600&h=1600&c=7&rs=1&qlt=100&pid=Api&mkt=zh-TW&nocache=${Date.now() + index}`; 
+}
 
-        let manualRefreshIndex = 100; 
+       let manualRefreshIndex = 100; 
         function refreshImage(imgEl) {
             if(imgEl.classList.contains('reloading') || currentLayoutMode === 1 || currentLayoutMode === 3) return; 
             imgEl.classList.add('reloading'); manualRefreshIndex++; 
-            let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex);
+            let isolate = imgEl.getAttribute('data-isolate-kw') === 'true'; // 讀取該圖片是否斷開
+            let newSrc = getImageUrl(imgEl.getAttribute('data-main'), imgEl.getAttribute('data-sub'), manualRefreshIndex, isolate);
             let tempLoader = new Image(); tempLoader.crossOrigin = "anonymous"; imgEl._tempLoader = tempLoader; 
             tempLoader.onload = function() { imgEl.src = newSrc; imgEl.classList.remove('reloading'); delete imgEl._tempLoader; };
             tempLoader.onerror = function() { imgEl.src = newSrc; imgEl.classList.remove('reloading'); delete imgEl._tempLoader; }; 
@@ -1446,6 +1473,23 @@ const openDraftBtn = document.getElementById('openDraftBtn');
         
         btnRefreshImg.addEventListener('click', triggerCurrentSlideRefresh); subKeywordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); triggerCurrentSlideRefresh(); } });
 
+
+const kwLinkToggle = document.getElementById('kwLinkToggle');
+        kwLinkToggle.addEventListener('click', () => {
+            let isActive = kwLinkToggle.classList.contains('active');
+            kwLinkToggle.classList.toggle('active', !isActive); // 切換狀態
+            
+            if (slides.length > 0) {
+                let imgEl = slides[currentIndex].querySelector('.art-frame img');
+                if (imgEl && !imgEl.hasAttribute('data-custom')) {
+                    imgEl.setAttribute('data-isolate-kw', isActive ? 'true' : 'false'); 
+                    kwLinkToggle.title = isActive ? "已斷開全域 (僅用子關鍵詞)" : "已連結全域 (結合搜尋)";
+                    triggerCurrentSlideRefresh(); // 切換後自動觸發重新搜圖
+                }
+            }
+        });
+
+       
         function autoFitText() { document.querySelectorAll('.text-inner-scroll, .list-content-wrapper').forEach(wrapper => { let scale = 1.0; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { scale -= 0.02; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; } }); }
         window.addEventListener('resize', () => { if (slides.length > 0) autoFitText(); }); if (document.fonts) { document.fonts.ready.then(() => { if (slides.length > 0) autoFitText(); }); }
 
@@ -2203,7 +2247,8 @@ openDraftBtn.addEventListener('click', () => {
                                         if (slides[currentIndex] === newSlide) { subKeywordInput.value = newSub; subKeywordGroup.style.display = 'flex'; }
                                         
                                         this.classList.add('reloading'); manualRefreshIndex++; 
-                                        let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword, newSub, manualRefreshIndex);
+                                        let isolate = this.getAttribute('data-isolate-kw') === 'true';
+let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword, newSub, manualRefreshIndex, isolate);
                                         let tempLoaderBing = new Image(); tempLoaderBing.crossOrigin = "anonymous"; this._tempLoader = tempLoaderBing; 
                                         tempLoaderBing.onload = () => { this.src = newSrcBing; this.classList.remove('reloading'); delete this._tempLoader; };
                                         tempLoaderBing.onerror = () => { this.src = newSrcBing; this.classList.remove('reloading'); delete this._tempLoader; }; 
@@ -2238,12 +2283,25 @@ openDraftBtn.addEventListener('click', () => {
             controls.style.display = "flex"; actionBar.style.display = "flex"; totalSlideNum.innerText = slides.length;
         }
 
-       function updateSlides() { 
+     function updateSlides() { 
             slides.forEach((s, i) => s.classList.toggle('active', i === currentIndex)); 
             currentSlideNum.innerText = slides.length > 0 ? currentIndex + 1 : 0; 
-            if (currentLayoutMode === 1 || currentLayoutMode === 3 || slides.length === 0 || slides[currentIndex].classList.contains('layout-multi-image') || slides[currentIndex].classList.contains('layout-list-cards')) { subKeywordGroup.style.display = 'none'; } else {
+            if (currentLayoutMode === 1 || currentLayoutMode === 3 || slides.length === 0 || slides[currentIndex].classList.contains('layout-multi-image') || slides[currentIndex].classList.contains('layout-list-cards')) { 
+                subKeywordGroup.style.display = 'none'; 
+            } else {
                 let img = slides[currentIndex].querySelector('.art-frame img');
-                if (img && !img.hasAttribute('data-custom')) { subKeywordGroup.style.display = 'flex'; subKeywordInput.value = img.getAttribute('data-sub') || ""; } else { subKeywordGroup.style.display = 'none'; subKeywordInput.value = ""; }
+                if (img && !img.hasAttribute('data-custom')) { 
+                    subKeywordGroup.style.display = 'flex'; 
+                    subKeywordInput.value = img.getAttribute('data-sub') || ""; 
+                    
+                    // 翻頁時更新按鈕的連結/斷開狀態
+                    let isIsolate = img.getAttribute('data-isolate-kw') === 'true';
+                    document.getElementById('kwLinkToggle').classList.toggle('active', !isIsolate);
+                    document.getElementById('kwLinkToggle').title = isIsolate ? "已斷開全域 (僅用子關鍵詞)" : "已連結全域 (結合搜尋)";
+                } else { 
+                    subKeywordGroup.style.display = 'none'; 
+                    subKeywordInput.value = ""; 
+                }
             }
         }
 
