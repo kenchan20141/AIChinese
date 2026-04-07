@@ -2158,17 +2158,28 @@ openDraftBtn.addEventListener('click', () => {
                     
                     Array.from(slide.children).forEach(el => { if(el.tagName === 'IMG' && el.classList.contains('bg-img')) return; scrollArea.appendChild(el.cloneNode(true)); });
 
-                    scrollArea.querySelectorAll('h1, h2, p, ul, td, th').forEach(el => {
+                   scrollArea.querySelectorAll('h1, h2, p, ul, td, th').forEach(el => {
                         el.contentEditable = "true"; el.spellcheck = false; el.addEventListener('input', () => autoFitText());
                         if(['H1', 'H2', 'P'].includes(el.tagName)) { 
                             el.addEventListener('blur', function() { 
                                 let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
-                                if (cleanText === '') { this.textContent = ''; this.style.display = 'none'; autoFitText(); } 
+                                if (cleanText === '') { 
+                                    // 🌟 修正：封面或封底不允許完全隱藏，給予預設值防呆
+                                    if (slide.classList.contains('layout-cover')) {
+                                        if (this.tagName === 'H1') this.textContent = slide.classList.contains('end-page') ? '完' : '主標題 (點擊修改)';
+                                        if (this.tagName === 'H2') this.textContent = slide.classList.contains('end-page') ? 'THE END' : '副標題 / 演講者 (點擊修改)';
+                                    } else {
+                                        this.textContent = ''; this.style.display = 'none'; 
+                                    }
+                                    autoFitText(); 
+                                } 
                             });
                             el.addEventListener('focus', function() { 
                                 if (this.style.display === 'none') this.style.display = ''; 
                                 let cleanText = this.textContent.trim().replace(/\u200B/g, ''); 
-                                if (['點擊輸入標題', '數據與分析洞察', '要點彙整'].includes(cleanText)) {
+                                // 🌟 修正：將封面的文字也加入全選名單，讓點擊修改更順暢
+                                const placeholders = ['點擊輸入標題', '數據與分析洞察', '要點彙整', '主標題 (點擊修改)', '副標題 / 演講者 (點擊修改)', '完', 'THE END'];
+                                if (placeholders.includes(cleanText)) {
                                     const range = document.createRange(); range.selectNodeContents(this);
                                     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
                                 }
@@ -2550,6 +2561,8 @@ let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword
                     let h1Text = isVisible(h1) ? h1.innerText.replace(/\u200B/g, '').trim() : "";
                     let h2Text = isVisible(h2) ? h2.innerText.replace(/\u200B/g, '').trim() : "";
                     let pText = isVisible(p) ? p.innerText.replace(/\u200B/g, '').trim() : "";
+
+                   
                     
                     let totalReqH = 0.7;
                     if (h1Text) totalReqH += isCover ? 1.0 : 0.65;
