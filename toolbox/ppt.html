@@ -1505,7 +1505,8 @@ function parseContentToSlideDrafts(htmlString) {
     let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
     let currentExtractedTitle = ""; 
 
-    const listRegex = /^((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
+    // 🌟 修正：放寬正則表達式，容許列點開頭帶有 <b> 或 <strong> 等粗體標籤
+    const listRegex = /^(?:<\/?(?:b|strong)[^>]*>\s*)*((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
     const urlExtractRegex = /(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)/gi;
     const pureUrlRegex = /^(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)$/i;
 
@@ -1591,31 +1592,24 @@ function parseContentToSlideDrafts(htmlString) {
         if (node.nodeType === 3) {
             let text = node.textContent;
             
-            // 🌟 修正：同時偵測「底線」與「粗體」
             let isUnderlined = false;
             let isBold = false;
             let parent = node.parentElement;
             
             while (parent && parent !== tempDiv) {
-                // 檢查底線特徵
                 if (parent.tagName === 'U' || parent.tagName === 'INS') { isUnderlined = true; }
                 if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) { isUnderlined = true; }
                 
-                // 檢查粗體特徵
                 if (parent.tagName === 'B' || parent.tagName === 'STRONG') { isBold = true; }
                 if (parent.style && parent.style.fontWeight) {
                     let fw = String(parent.style.fontWeight).toLowerCase();
-                    // 包含數值型的粗體 (600以上) 或是關鍵字 bold/bolder
                     if (fw === 'bold' || fw === 'bolder' || parseInt(fw) >= 600) { isBold = true; }
                 }
 
-                // 若兩個條件都已滿足，不需再往上層找
                 if (isUnderlined && isBold) break;
-
                 parent = parent.parentElement;
             }
 
-            // 🌟 必須【同時具備粗體與底線】，才判定為標題
             if (isUnderlined && isBold) {
                 if (text.trim().length > 0) {
                     if (currentTextBuffer.trim().length > 0 || currentTableBuffer.length > 0 || currentImageBuffer.length > 0) {
@@ -1628,7 +1622,14 @@ function parseContentToSlideDrafts(htmlString) {
             }
 
             if (text.trim().length > 0) flushTables(); 
-            currentTextBuffer += text;
+            
+            // 🌟 修正：如果文字具有粗體樣式（且不是標題），則包上 <b> 標籤保留格式
+            if (isBold && text.trim().length > 0) {
+                currentTextBuffer += `<b>${text}</b>`;
+            } else {
+                currentTextBuffer += text;
+            }
+            
         } else if (node.nodeType === 1) {
             if (node.tagName === 'TABLE') {
                 flushText(); currentTableBuffer.push(node.outerHTML); return;
@@ -1669,7 +1670,6 @@ function parseContentToSlideDrafts(htmlString) {
     flushText(); flushTables();
     return drafts;
 }
-
 
        
         let currentDrafts = [];
@@ -2428,14 +2428,31 @@ let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword
             const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportHtml], { type: 'text/html' })); a.download = `${exportFileName}.html`; a.click();
         });
 
-        function parseHtmlToPptxTextRuns(htmlElement, defaultColor, hlColor, font) {
-            let runs = []; htmlElement.childNodes.forEach(node => {
-                if (node.nodeType === 3 && node.textContent) runs.push({ text: node.textContent, options: { color: defaultColor, fontFace: font } });
-                else if (node.nodeName === 'BR') runs.push({ text: '\n' });
-                else if (node.nodeName === 'SPAN' && node.dataset.hl) runs.push({ text: node.innerText, options: { color: isHighlightMode ? hlColor : defaultColor, bold: isHighlightMode, fontFace: font } });
-                else runs.push({ text: node.innerText || node.textContent, options: { color: defaultColor, fontFace: font } });
-            }); return runs.length > 0 ? runs : [{ text: htmlElement.innerText, options: { color: defaultColor, fontFace: font } }];
+     function parseHtmlToPptxTextRuns(htmlElement, defaultColor, hlColor, font) {
+    let runs = []; 
+    
+    // 🌟 修正：改用遞迴方式深入解析，確保被 <b> 標籤包覆的文字能被正確賦予 bold 屬性
+    function processNode(node, isBoldContext) {
+        if (node.nodeType === 3 && node.textContent) {
+            runs.push({ text: node.textContent, options: { color: defaultColor, fontFace: font, bold: isBoldContext } });
         }
+        else if (node.nodeName === 'BR') {
+            runs.push({ text: '\n' });
+        }
+        else if (node.nodeName === 'SPAN' && node.dataset.hl) {
+            runs.push({ text: node.innerText, options: { color: isHighlightMode ? hlColor : defaultColor, bold: true, fontFace: font } });
+        }
+        else if (node.nodeName === 'B' || node.nodeName === 'STRONG') {
+            node.childNodes.forEach(child => processNode(child, true));
+        }
+        else if (node.nodeType === 1) {
+            node.childNodes.forEach(child => processNode(child, isBoldContext));
+        }
+    }
+    
+    htmlElement.childNodes.forEach(node => processNode(node, false));
+    return runs.length > 0 ? runs : [{ text: htmlElement.innerText, options: { color: defaultColor, fontFace: font } }];
+}
 
         function isVisible(el) {
             if (!el) return false;
