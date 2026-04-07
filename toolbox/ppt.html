@@ -1591,21 +1591,36 @@ function parseContentToSlideDrafts(htmlString) {
         if (node.nodeType === 3) {
             let text = node.textContent;
             
+            // 🌟 修正：同時偵測「底線」與「粗體」
             let isUnderlined = false;
+            let isBold = false;
             let parent = node.parentElement;
+            
             while (parent && parent !== tempDiv) {
-                if (parent.tagName === 'U' || parent.tagName === 'INS') { isUnderlined = true; break; }
-                if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) { isUnderlined = true; break; }
+                // 檢查底線特徵
+                if (parent.tagName === 'U' || parent.tagName === 'INS') { isUnderlined = true; }
+                if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) { isUnderlined = true; }
+                
+                // 檢查粗體特徵
+                if (parent.tagName === 'B' || parent.tagName === 'STRONG') { isBold = true; }
+                if (parent.style && parent.style.fontWeight) {
+                    let fw = String(parent.style.fontWeight).toLowerCase();
+                    // 包含數值型的粗體 (600以上) 或是關鍵字 bold/bolder
+                    if (fw === 'bold' || fw === 'bolder' || parseInt(fw) >= 600) { isBold = true; }
+                }
+
+                // 若兩個條件都已滿足，不需再往上層找
+                if (isUnderlined && isBold) break;
+
                 parent = parent.parentElement;
             }
 
-            if (isUnderlined) {
+            // 🌟 必須【同時具備粗體與底線】，才判定為標題
+            if (isUnderlined && isBold) {
                 if (text.trim().length > 0) {
-                    // 🌟 修正 2：若遇到新的底線標題，且先前已經累積了內文、表格或圖片
-                    // 代表這是一個「新分頁」的開端，必須先強制輸出先前的內容
                     if (currentTextBuffer.trim().length > 0 || currentTableBuffer.length > 0 || currentImageBuffer.length > 0) {
                         flushTables();
-                        flushText(); // 這會清空舊有的 currentExtractedTitle
+                        flushText(); 
                     }
                     currentExtractedTitle += text; 
                 }
