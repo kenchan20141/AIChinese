@@ -1903,7 +1903,7 @@ openDraftBtn.addEventListener('click', () => {
                     }
                 });
 
-                if (!isAiMode) {
+               if (!isAiMode) {
                     if (titleMode === 0) { 
                         textDraftIndexes.forEach((idx, i) => { 
                             let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
@@ -1919,30 +1919,42 @@ openDraftBtn.addEventListener('click', () => {
                         }); 
                     } 
                     else {
+                        // 🌟 修正：嚴格要求 AI 根據內容歸納標題，並且純粹只輸出 JSON 陣列，不混雜 HTML
                         if(textDraftContents.length > 0) {
-                            showLoader("正在為文字排版...");
+                            showLoader("正在排版...");
                             try {
-                               const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字，且每一頁必須是語意完整的句子結尾(如句號、問號)，【絕對禁止】以逗號或頓號作為頁面結尾！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.只輸出純 HTML。6.${titleMode === 2 ? "【強制結構】：<div class=\"slide\"><h2>[繁體中文短標題]</h2><p>[內容]</p></div>" : ""}` }, { role: "user", content: `擴充以下內容：\n\n${textDraftContents.map((c, i) => `[第 ${i+1} 頁草稿]：\n${c}`).join('\n\n')}` } ] }) });
-                                let titles = JSON.parse((await res.json()).choices[0].message.content.replace(/```json/gi, '').replace(/```/gi, '').trim()); while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
+                               const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是專業的簡報企劃。任務：根據使用者提供的 ${textDraftContents.length} 頁草稿內容，為每一頁精煉出一個精準、總結性的「繁體中文短標題」(約 4~12 字)。\n你【必須】只輸出一個純 JSON 陣列（格式：["標題一", "標題二", ...]），陣列長度必須剛好為 ${textDraftContents.length}。絕對不要輸出其他任何 HTML、說明文字或 Markdown 標記！` }, { role: "user", content: `請為以下內容生成適合的標題：\n\n${textDraftContents.map((c, i) => `[第 ${i+1} 頁內容]：\n${c}`).join('\n\n')}` } ] }) });
+                                
+                                let aiResponse = (await res.json()).choices[0].message.content.trim();
+                                aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/gi, '').trim(); // 清理 markdown 語法
+                                let titles = JSON.parse(aiResponse); 
+                                
+                                // 防呆：確保陣列長度足夠
+                                while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
+                                
                                 textDraftIndexes.forEach((idx, i) => { 
                                     let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
                                     let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
                                     finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${titles[i]}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
                                 });
                             } catch(e) { 
+                                console.error("標題解析失敗，使用備用標題", e);
                                 textDraftIndexes.forEach((idx, i) => { 
                                     let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
                                     let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>章節 ${i+1}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
+                                    finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>重點內容 ${i+1}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
                                 }); 
                             }
                         }
                     }
                 } else {
                     if (textDraftContents.length > 0) {
-                        showLoader("AI智能擴充中...");
+                        showLoader("正在擴充與排版...");
                         let aiInputText = textDraftContents.map((c, i) => `[第 ${i+1} 頁草稿]：\n${c}`).join('\n\n');
-                        let titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>[繁體中文短標題]</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>";
+                        
+                        // 🌟 修正：明確指引 AI 在此模式下也要根據內文來歸納短標題
+                        let titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>[請根據該頁擴充後的內容，歸納精準的繁體中文短標題]</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>";
+                        
                         if (titleMode === 0) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n絕對禁止輸出 <h2> 或 <h1> 標籤。";
                         else if (titleMode === 1) titleInstruction = "【強制結構】：每頁投影片必須完全符合這個格式：\n<div class=\"slide\">\n  <h2>點擊輸入標題</h2>\n  <p>[擴充後的具體內文，若需換行請用 <br>]</p>\n</div>\n所有 <h2> 標籤內必須一字不漏地填入「點擊輸入標題」。";
 
@@ -1961,7 +1973,6 @@ openDraftBtn.addEventListener('click', () => {
                         });
                     }
                 }
-
                 let finalHtml = finalHtmlChunks.join('\n');
 
                 if (isHighlightMode) {
@@ -1984,8 +1995,12 @@ openDraftBtn.addEventListener('click', () => {
                 if (addCoverPage) { let coverHtml = `<div class="slide layout-cover"><h1>主標題 (點擊修改)</h1><h2>副標題 / 演講者 (點擊修改)</h2></div>\n`; finalHtml = coverHtml + finalHtml; }
                 finalHtml += `\n<div class="slide layout-cover end-page"><h1>完</h1><h2>THE END</h2></div>`;
                 
-                showLoader("正在設計頁面佈局..."); 
+              showLoader("正在設計頁面佈局..."); 
                 window.lastGeneratedHtml = finalHtml; 
+                
+                // 🌟 新增這行：強制將視圖重置回第一頁
+                currentIndex = 0; 
+                
                 renderPresentation(finalHtml);
                 
                 const newImages = Array.from(presentationBoard.querySelectorAll('img'));
