@@ -2324,7 +2324,18 @@ let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword
             if(isHighlightMode) bodyClasses.push('show-highlight');
             const classAttr = bodyClasses.length > 0 ? `class="${bodyClasses.join(' ')}"` : ''; const styles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n'); const wrapperThemeAttr = currentThemeId === 'mix' ? '' : `data-theme="${currentThemeId}"`;
             const exportHtml = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>AURA Presentation</title><link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500&family=Noto+Serif+TC:wght@300;400;500;600&family=Inter:wght@200;300;400&display=swap" rel="stylesheet"><style>${styles} body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #111; overflow: hidden; cursor: pointer; } .presentation-wrapper { width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; position: relative; container-type: inline-size; overflow: hidden; margin: auto; } .slide { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; } .slide.active { opacity: 1; pointer-events: auto; }</style></head><body ${classAttr}><div class="presentation-wrapper" id="board" ${wrapperThemeAttr}>${slideHtml}</div><script>const slides = document.querySelectorAll('.slide'); let c = 0; function update() { slides.forEach((s, i) => s.classList.toggle('active', i === c)); } if(slides.length > 0) update(); document.addEventListener('keydown', (e) => { if(e.key === 'ArrowRight' && c < slides.length - 1) { c++; update(); } if(e.key === 'ArrowLeft' && c > 0) { c--; update(); } }); document.addEventListener('click', (e) => { if (window.getSelection().toString().length > 0) return; if (e.clientX < window.innerWidth / 2) { if(c > 0) { c--; update(); } } else { if(c < slides.length - 1) { c++; update(); } } }); function autoFitText() { document.querySelectorAll('.text-inner-scroll, .list-content-wrapper').forEach(wrapper => { let scale = 1.0; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; while (wrapper.scrollHeight > wrapper.clientHeight + 2 && scale > 0.15) { scale -= 0.02; wrapper.style.setProperty('--text-scale', scale); wrapper.offsetHeight; } }); } setTimeout(autoFitText, 100); window.addEventListener('resize', autoFitText); if (document.fonts) { document.fonts.ready.then(autoFitText); }<\/script></body></html>`;
-            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportHtml], { type: 'text/html' })); a.download = 'AURA_Presentation.html'; a.click();
+            let exportFileName = "AURA_Presentation"; 
+            if (slides.length > 0 && slides[0].classList.contains('layout-cover')) {
+                let h1El = slides[0].querySelector('h1');
+                if (h1El) {
+                    let titleText = h1El.innerText.replace(/\u200B/g, '').trim();
+                    if (titleText && titleText !== "主標題 (點擊修改)") {
+                        exportFileName = titleText.replace(/[<>:"\/\\|?*\n\r]/g, '_').substring(0, 40).trim();
+                    }
+                }
+            }
+
+            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportHtml], { type: 'text/html' })); a.download = `${exportFileName}.html`; a.click();
         });
 
         function parseHtmlToPptxTextRuns(htmlElement, defaultColor, hlColor, font) {
@@ -2660,7 +2671,20 @@ let newSrcBing = getImageUrl(this.getAttribute('data-main') || globalMainKeyword
                     pptSlide.slideNumber = { x: 9.0, y: 5.1, w: 0.8, h: 0.4, align: 'right', fontFace: 'Cinzel', fontSize: 16, color: cTheme.textMuted };
                 });
 
-                await pres.writeFile({ fileName: "AURA_Presentation.pptx" });
+                let exportFileName = "AURA_Presentation"; // 預設檔名
+                if (slides.length > 0 && slides[0].classList.contains('layout-cover')) {
+                    let h1El = slides[0].querySelector('h1');
+                    if (h1El) {
+                        let titleText = h1El.innerText.replace(/\u200B/g, '').trim();
+                        // 確保不是空值，且不是預設的佔位符
+                        if (titleText && titleText !== "主標題 (點擊修改)") {
+                            // 過濾掉作業系統不允許的檔名特殊字元，並限制長度
+                            exportFileName = titleText.replace(/[<>:"\/\\|?*\n\r]/g, '_').substring(0, 40).trim();
+                        }
+                    }
+                }
+
+                await pres.writeFile({ fileName: `${exportFileName}.pptx` });
                 clearInterval(progressInterval); progressFill.style.width = '100%';
                 setTimeout(() => { exportLoader.classList.remove('active'); setTimeout(() => { progressFill.style.width = '0%'; }, 500); }, 600);
             } catch(err) { clearInterval(progressInterval); exportLoader.classList.remove('active'); alert("匯出過程發生錯誤，請稍後重試。"); }
