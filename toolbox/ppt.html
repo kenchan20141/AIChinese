@@ -2043,34 +2043,65 @@ openDraftBtn.addEventListener('click', () => {
                     finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${slideTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
                 }); 
             } 
-            else {
-                if(textDraftContents.length > 0) {
-                    showLoader("正在排版...");
-                    try {
-                      const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, body: JSON.stringify({ model: MODEL, messages: [ { role: "system", content: `你是頂級簡報企劃專家。嚴格遵守：1.繁體中文。2.每張內文【絕對不允許】超過95字！3.強制一對一產出：使用者把草稿分為多個 [第X頁草稿]，你【必須】產出相對應數量的 <div class="slide">，總共有 ${textDraftContents.length} 個草稿。4.每個 slide 【只能有一個 <p>】。5.如果草稿中有 <b> 或 <strong> 標籤包圍的重點文字，擴充改寫時【絕對必須保留該標籤】以維持粗體顯示。6.只輸出純 HTML。7.${titleInstruction}` }, { role: "user", content: `擴充以下內容：\n\n${aiInputText}` } ] }) });
-                        let aiResponse = (await res.json()).choices[0].message.content.trim();
-                        aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/gi, '').trim(); 
-                        let titles = JSON.parse(aiResponse); 
-                        
-                        while(titles.length < textDraftContents.length) titles.push(globalMainKeyword);
-                        
-                        textDraftIndexes.forEach((idx, i) => { 
-                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                            let finalTitle = textDraftTitles[i] ? textDraftTitles[i] : titles[i];
-                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${finalTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                        });
-                    } catch(e) { 
-                        console.error("標題解析失敗，使用備用標題", e);
-                        textDraftIndexes.forEach((idx, i) => { 
-                            let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
-                            let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : ""; 
-                            let finalTitle = textDraftTitles[i] ? textDraftTitles[i] : `重點內容 ${i+1}`;
-                            finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${finalTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`; 
-                        }); 
-                    }
-                }
-            }
+           else {
+				// 🌟 修正：非智能擴充模式下的 AI 標題生成
+				if(textDraftContents.length > 0) {
+					showLoader("正在生成智能標題...");
+					
+					// 定義專門用於「提取標題」的指令，避免修改內文
+					const titleExtractionInstruction = "【強制結構】：你是一個簡報標題專家。請根據提供的每一頁內文，為每一頁歸納一個精準、簡潔的繁體中文短標題（建議 10-15 字以內）。\n請嚴格遵守以下 JSON 格式輸出，不要輸出任何其他文字或 Markdown 標記：\n[\"第一頁標題\", \"第二頁標題\", ...]";
+					
+					try {
+						// 準備發送給 AI 的內容：只包含內文，不包含排版指令，因為我們只需要標題
+						let aiInputForTitles = textDraftContents.map((c, i) => `[第 ${i+1} 頁內文]：\n${c}`).join('\n\n');
+						
+						const res = await fetch(API_URL, { 
+							method: 'POST', 
+							headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEYS[0]}` }, 
+							body: JSON.stringify({ 
+								model: MODEL, 
+								messages: [ 
+									{ role: "system", content: titleExtractionInstruction }, 
+									{ role: "user", content: `請為以下 ${textDraftContents.length} 頁簡報內容生成對應的標題：\n\n${aiInputForTitles}` } 
+								] 
+							}) 
+						});
+						
+						let aiResponse = (await res.json()).choices[0].message.content.trim();
+						
+						// 清理可能的 Markdown 代碼塊標記
+						aiResponse = aiResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
+						
+						let titles = JSON.parse(aiResponse);
+						
+						// 確保標題數量與草稿數量一致，若不足則補上預設值
+						while(titles.length < textDraftContents.length) {
+							titles.push(globalMainKeyword || "重點內容");
+						}
+						
+						textDraftIndexes.forEach((idx, i) => {
+							let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+							let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
+							
+							// 優先使用 AI 生成的標題，若該頁有手動底線標題則覆蓋
+							let finalTitle = textDraftTitles[i] ? textDraftTitles[i] : (titles[i] || "重點內容");
+							
+							// 在非智能模式下，內文保持原樣 (textDraftContents[i])，只插入 AI 標題
+							finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${finalTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`;
+						});
+						
+					} catch(e) {
+						console.error("AI 標題生成失敗，使用備用標題", e);
+						// 失敗時的備用方案
+						textDraftIndexes.forEach((idx, i) => {
+							let joinedImgs = textDraftImages[i].length > 0 ? textDraftImages[i].join('|||').replace(/"/g, '&quot;') : "";
+							let imgAttr = joinedImgs ? ` data-custom-images="${joinedImgs}"` : "";
+							let finalTitle = textDraftTitles[i] ? textDraftTitles[i] : `重點內容 ${i+1}`;
+							finalHtmlChunks[idx] = `<div class="slide"${imgAttr}><h2>${finalTitle}</h2><p>${textDraftContents[i].replace(/\n/g, '<br>')}</p></div>`;
+						});
+					}
+				}
+			}
         } else {
             if (textDraftContents.length > 0) {
                 showLoader("正在擴充與排版...");
