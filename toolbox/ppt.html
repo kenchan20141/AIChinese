@@ -1516,7 +1516,6 @@ function parseContentToSlideDrafts(htmlString) {
     let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
     let currentExtractedTitle = ""; 
 
-    // 🌟 修正：放寬正則表達式，容許列點開頭帶有 <b> 或 <strong> 等粗體標籤
     const listRegex = /^(?:<\/?(?:b|strong)[^>]*>\s*)*((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
     const urlExtractRegex = /(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)/gi;
     const pureUrlRegex = /^(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)$/i;
@@ -1525,6 +1524,11 @@ function parseContentToSlideDrafts(htmlString) {
         if (currentTextBuffer.trim() || currentImageBuffer.length > 0 || currentExtractedTitle.trim()) {
             
             let processedText = currentTextBuffer.replace(urlExtractRegex, '\n$1\n');
+            
+            // 👇 核心修復一：使用 HTML <br> 標籤，防止被分頁引擎吃掉換行
+            // 前方加上兩個 <br> 產生段落距離，後方加上一個 <br> 讓正文換行
+            processedText = processedText.replace(/(【.*?】)/g, '<br><br><b>$1</b><br>');
+            
             let lines = processedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
             let normalBuffer = []; let listBuffer = [];
 
@@ -1534,9 +1538,13 @@ function parseContentToSlideDrafts(htmlString) {
                     let chunks = splitIntoChunks(text, 95);
                     if (chunks.length === 0) chunks = [""];
                     chunks.forEach((c, i) => { 
+                        
+                        // 👇 核心修復二：如果副標題剛好被分到「新的一頁最頂端」，把多餘的頂部空白砍掉
+                        let cleanContent = c.replace(/^(?:<br\s*\/?>\s*)+/gi, '');
+                        
                         drafts.push({ 
                             type: 'text', 
-                            content: c, 
+                            content: cleanContent, 
                             images: i === 0 ? currentImageBuffer : [],
                             customTitle: i === 0 ? currentExtractedTitle.trim() : "" 
                         }); 
@@ -1579,11 +1587,9 @@ function parseContentToSlideDrafts(htmlString) {
                     if (/^[\-\•\*\✦\>]$/.test(prefix)) prefix = String(listBuffer.length + 1).padStart(2, '0');
                     listBuffer.push({ num: prefix, text: matchList[2].trim() }); 
                 } else {
-                    if (listBuffer.length > 0 && line.length < 40) {
-                        listBuffer[listBuffer.length - 1].text += " " + line;
-                    } else {
-                        flushList(); normalBuffer.push(line);
-                    }
+                    // 👇 核心修復三：遇到普通文字時，強制結算先前的列點，徹底分離兩者
+                    flushList(); 
+                    normalBuffer.push(line);
                 }
             }
             flushNormal(); flushList();
@@ -1602,7 +1608,6 @@ function parseContentToSlideDrafts(htmlString) {
     function walkDOM(node) {
         if (node.nodeType === 3) {
             let text = node.textContent;
-            
             let isUnderlined = false;
             let isBold = false;
             let parent = node.parentElement;
@@ -1610,13 +1615,11 @@ function parseContentToSlideDrafts(htmlString) {
             while (parent && parent !== tempDiv) {
                 if (parent.tagName === 'U' || parent.tagName === 'INS') { isUnderlined = true; }
                 if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) { isUnderlined = true; }
-                
                 if (parent.tagName === 'B' || parent.tagName === 'STRONG') { isBold = true; }
                 if (parent.style && parent.style.fontWeight) {
                     let fw = String(parent.style.fontWeight).toLowerCase();
                     if (fw === 'bold' || fw === 'bolder' || parseInt(fw) >= 600) { isBold = true; }
                 }
-
                 if (isUnderlined && isBold) break;
                 parent = parent.parentElement;
             }
@@ -1634,7 +1637,6 @@ function parseContentToSlideDrafts(htmlString) {
 
             if (text.trim().length > 0) flushTables(); 
             
-            // 🌟 修正：如果文字具有粗體樣式（且不是標題），則包上 <b> 標籤保留格式
             if (isBold && text.trim().length > 0) {
                 currentTextBuffer += `<b>${text}</b>`;
             } else {
