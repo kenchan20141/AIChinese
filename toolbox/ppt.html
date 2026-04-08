@@ -810,6 +810,27 @@ b, strong,
     font-weight: 700 !important;
     color: inherit;
 }
+
+
+/* --- 專屬副標題設計 --- */
+        .text-inner-scroll b.slide-sub-heading,
+        .draft-card-content b.slide-sub-heading {
+            display: inline-block;
+            font-family: 'Noto Serif TC', serif;
+            font-size: calc(clamp(10px, 2.4cqw, 1.8rem) * var(--text-scale)); /* 字體大小介於主標與正文之間 */
+            font-weight: 700 !important;
+            color: var(--slide-text); /* 使用主題文字顏色，不使用突兀的顏色 */
+            border-left: 4px solid var(--slide-muted); /* 使用低調的次要顏色作為左側裝飾線 */
+            padding-left: 0.8cqw;
+            letter-spacing: 0.15cqw;
+            margin-top: 0.4cqw;
+            margin-bottom: 0.2cqw;
+            line-height: 1.4;
+            opacity: 0.9;
+        }
+
+
+		
     
     </style>
 </head>
@@ -1525,9 +1546,9 @@ function parseContentToSlideDrafts(htmlString) {
             
             let processedText = currentTextBuffer.replace(urlExtractRegex, '\n$1\n');
             
-            // 👇 核心修復一：使用 HTML <br> 標籤，防止被分頁引擎吃掉換行
-            // 前方加上兩個 <br> 產生段落距離，後方加上一個 <br> 讓正文換行
-            processedText = processedText.replace(/(【.*?】)/g, '<br><br><b>$1</b><br>');
+            // 👇 核心修復一：將副標題與「下一行的文字」強力黏合，拔除中間的所有換行與空白
+            // 讓分頁引擎永遠不可能把它們切開
+            processedText = processedText.replace(/【(.*?)】\s*[\n\r]+/g, '【$1】');
             
             let lines = processedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
             let normalBuffer = []; let listBuffer = [];
@@ -1539,12 +1560,16 @@ function parseContentToSlideDrafts(htmlString) {
                     if (chunks.length === 0) chunks = [""];
                     chunks.forEach((c, i) => { 
                         
-                        // 👇 核心修復二：如果副標題剛好被分到「新的一頁最頂端」，把多餘的頂部空白砍掉
-                        let cleanContent = c.replace(/^(?:<br\s*\/?>\s*)+/gi, '');
+                        // 👇 核心修復二：在「分頁計算完成後」，才把【】轉為 HTML 標籤
+                        // 產生上方間距，並強制下一句話換行
+                        let htmlContent = c.replace(/【(.*?)】/g, '<br><br><b class="slide-sub-heading">$1</b><br>');
+                        
+                        // 確保如果副標題被分到新的一頁最頂端，自動砍掉多餘的頂部空白
+                        htmlContent = htmlContent.replace(/^(?:<br\s*\/?>\s*)+/gi, '');
                         
                         drafts.push({ 
                             type: 'text', 
-                            content: cleanContent, 
+                            content: htmlContent, 
                             images: i === 0 ? currentImageBuffer : [],
                             customTitle: i === 0 ? currentExtractedTitle.trim() : "" 
                         }); 
@@ -1555,6 +1580,10 @@ function parseContentToSlideDrafts(htmlString) {
 
             function flushList() {
                 if (listBuffer.length > 0) {
+                    listBuffer.forEach(item => {
+                        // 如果列點內剛好有使用【】，只加上設計樣式，不強制換行以免破壞列點卡片結構
+                        item.text = item.text.replace(/【(.*?)】/g, '<b class="slide-sub-heading">$1</b>');
+                    });
                     for (let i = 0; i < listBuffer.length; i += 4) {
                         let chunk = listBuffer.slice(i, i + 4);
                         drafts.push({ 
@@ -1587,7 +1616,6 @@ function parseContentToSlideDrafts(htmlString) {
                     if (/^[\-\•\*\✦\>]$/.test(prefix)) prefix = String(listBuffer.length + 1).padStart(2, '0');
                     listBuffer.push({ num: prefix, text: matchList[2].trim() }); 
                 } else {
-                    // 👇 核心修復三：遇到普通文字時，強制結算先前的列點，徹底分離兩者
                     flushList(); 
                     normalBuffer.push(line);
                 }
