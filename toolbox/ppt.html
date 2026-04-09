@@ -1533,93 +1533,96 @@ const kwLinkToggle = document.getElementById('kwLinkToggle');
 
         // 🌟 升級版解析器：專屬處理「列點/項目符號」
        // 替換原有的 parseContentToSlideDrafts 函數
-// 替換原有的 parseContentToSlideDrafts 函數
 function parseContentToSlideDrafts(htmlString) {
     let drafts = [];
     const tempDiv = document.createElement('div'); tempDiv.innerHTML = htmlString.replace(/<br\s*\/?>/gi, '\n');
-    let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = []; 
-    let currentExtractedTitle = ""; 
-
+    let currentTextBuffer = ""; let currentImageBuffer = []; let currentTableBuffer = [];
+    let currentExtractedTitle = "";
     const listRegex = /^(?:<\/?(?:b|strong)[^>]*>\s*)*((?:[0-9０-９]+[\.\)\]\u3001、]\s*)|(?:第[0-9０-９]+(?:[\.\)\]\u3001、]\s*|\s+))|(?:[一二三四五六七八九十]+[\.\)\]\u3001、]\s*)|(?:第[一二三四五六七八九十]+(?:[\.\)\]\u3001、]\s*|\s+))|[\-\•\*\✦\>]\s+)(.+)/;
     const urlExtractRegex = /(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)/gi;
     const pureUrlRegex = /^(https?:\/\/[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+|www\.[a-zA-Z0-9\-\.\/\?\&\=\_\%\#]+)$/i;
 
     function flushText() {
         if (currentTextBuffer.trim() || currentImageBuffer.length > 0 || currentExtractedTitle.trim()) {
-            
             let processedText = currentTextBuffer.replace(urlExtractRegex, '\n$1\n');
-            
-            // 👇 核心修復一：將副標題與「下一行的文字」強力黏合，拔除中間的所有換行與空白
-            // 讓分頁引擎永遠不可能把它們切開
-            processedText = processedText.replace(/【(.*?)】\s*[\n\r]+/g, '【$1】');
-            
+            // 🌟 修正：保留換行符 \n，確保副標題與列點分行，避免被誤認為同一行的前綴
+            processedText = processedText.replace(/【(.*?)】\s*\n/g, '【$1】\n');
             let lines = processedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
             let normalBuffer = []; let listBuffer = [];
+            let pendingSubtitle = ""; 
 
             function flushNormal() {
                 if (normalBuffer.length > 0 || currentExtractedTitle.trim()) {
                     let text = normalBuffer.join('\n');
                     let chunks = splitIntoChunks(text, 95);
                     if (chunks.length === 0) chunks = [""];
-                    chunks.forEach((c, i) => { 
-                        
-                        // 👇 核心修復二：在「分頁計算完成後」，才把【】轉為 HTML 標籤
-                        // 產生上方間距，並強制下一句話換行
+                    chunks.forEach((c, i) => {
                         let htmlContent = c.replace(/【(.*?)】/g, '<br><br><b class="slide-sub-heading">$1</b><br>');
-                        
-                        // 確保如果副標題被分到新的一頁最頂端，自動砍掉多餘的頂部空白
                         htmlContent = htmlContent.replace(/^(?:<br\s*\/?>\s*)+/gi, '');
-                        
-                        drafts.push({ 
-                            type: 'text', 
-                            content: htmlContent, 
+                        drafts.push({
+                            type: 'text',
+                            content: htmlContent,
                             images: i === 0 ? currentImageBuffer : [],
-                            customTitle: i === 0 ? currentExtractedTitle.trim() : "" 
-                        }); 
+                            customTitle: i === 0 ? currentExtractedTitle.trim() : ""
+                        });
                     });
-                    normalBuffer = []; currentImageBuffer = []; currentExtractedTitle = ""; 
+                    normalBuffer = []; currentImageBuffer = []; currentExtractedTitle = "";
                 }
             }
 
             function flushList() {
-                if (listBuffer.length > 0) {
+                if (listBuffer.length > 0 || pendingSubtitle) {
+                    let titleForList = pendingSubtitle || currentExtractedTitle.trim();
                     listBuffer.forEach(item => {
-                        // 如果列點內剛好有使用【】，只加上設計樣式，不強制換行以免破壞列點卡片結構
                         item.text = item.text.replace(/【(.*?)】/g, '<b class="slide-sub-heading">$1</b>');
                     });
                     for (let i = 0; i < listBuffer.length; i += 4) {
                         let chunk = listBuffer.slice(i, i + 4);
-                        drafts.push({ 
-                            type: 'list', 
-                            items: chunk, 
+                        drafts.push({
+                            type: 'list',
+                            items: chunk,
                             images: i === 0 ? currentImageBuffer : [],
-                            customTitle: i === 0 ? currentExtractedTitle.trim() : "" 
+                            customTitle: i === 0 ? titleForList : ""
                         });
                         currentImageBuffer = [];
                     }
-                    listBuffer = []; currentExtractedTitle = ""; 
+                    listBuffer = []; // 🌟 補上：清空清單緩衝區，防止重複推入
+                    pendingSubtitle = "";
+                    currentExtractedTitle = "";
                 }
             }
 
             if (lines.length === 0 && currentExtractedTitle.trim()) {
-                 flushNormal();
+                flushNormal();
             }
 
             for (let line of lines) {
                 let matchList = line.match(listRegex);
                 let matchUrl = line.match(pureUrlRegex);
-                
                 if (matchUrl) {
                     flushNormal(); flushList();
                     drafts.push({ type: 'link', content: matchUrl[1], images: [], customTitle: currentExtractedTitle.trim() });
                     currentExtractedTitle = "";
                 } else if (matchList) {
-                    flushNormal();
+                    if (normalBuffer.length > 0) {
+                        let lastLine = normalBuffer[normalBuffer.length - 1];
+                        let subMatch = lastLine.match(/【(.*?)】/);
+                        if (subMatch) {
+                            pendingSubtitle = subMatch[1];
+                            normalBuffer.pop(); 
+                            if (normalBuffer.length > 0) flushNormal(); 
+                        } else {
+                            flushNormal();
+                        }
+                    } else {
+                        flushNormal();
+                    }
+
                     let prefix = matchList[1].trim();
                     if (/^[\-\•\*\✦\>]$/.test(prefix)) prefix = String(listBuffer.length + 1).padStart(2, '0');
-                    listBuffer.push({ num: prefix, text: matchList[2].trim() }); 
+                    listBuffer.push({ num: prefix, text: matchList[2].trim() });
                 } else {
-                    flushList(); 
+                    flushList();
                     normalBuffer.push(line);
                 }
             }
@@ -1631,62 +1634,48 @@ function parseContentToSlideDrafts(htmlString) {
     function flushTables() {
         if (currentTableBuffer.length > 0) {
             let combined = currentTableBuffer.map(t => `<div class="table-container">${t}</div>`).join('');
-            drafts.push({ type: 'table', content: combined, images: [], customTitle: currentExtractedTitle.trim() }); 
-            currentTableBuffer = []; currentExtractedTitle = ""; 
+            drafts.push({ type: 'table', content: combined, images: [], customTitle: currentExtractedTitle.trim() });
+            currentTableBuffer = []; currentExtractedTitle = "";
         }
     }
 
     function walkDOM(node) {
         if (node.nodeType === 3) {
             let text = node.textContent;
-            let isUnderlined = false;
-            let isBold = false;
+            let isUnderlined = false; let isBold = false;
             let parent = node.parentElement;
-            
             while (parent && parent !== tempDiv) {
-                if (parent.tagName === 'U' || parent.tagName === 'INS') { isUnderlined = true; }
-                if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) { isUnderlined = true; }
-                if (parent.tagName === 'B' || parent.tagName === 'STRONG') { isBold = true; }
+                if (parent.tagName === 'U' || parent.tagName === 'INS') isUnderlined = true;
+                if (parent.style && parent.style.textDecoration && parent.style.textDecoration.toLowerCase().includes('underline')) isUnderlined = true;
+                if (parent.tagName === 'B' || parent.tagName === 'STRONG') isBold = true;
                 if (parent.style && parent.style.fontWeight) {
                     let fw = String(parent.style.fontWeight).toLowerCase();
-                    if (fw === 'bold' || fw === 'bolder' || parseInt(fw) >= 600) { isBold = true; }
+                    if (fw === 'bold' || fw === 'bolder' || parseInt(fw) >= 600) isBold = true;
                 }
                 if (isUnderlined && isBold) break;
                 parent = parent.parentElement;
             }
-
             if (isUnderlined && isBold) {
                 if (text.trim().length > 0) {
-                    if (currentTextBuffer.trim().length > 0 || currentTableBuffer.length > 0 || currentImageBuffer.length > 0) {
-                        flushTables();
-                        flushText(); 
-                    }
-                    currentExtractedTitle += text; 
+                    if (currentTextBuffer.trim().length > 0 || currentTableBuffer.length > 0 || currentImageBuffer.length > 0) { flushTables(); flushText(); }
+                    currentExtractedTitle += text;
                 }
-                return; 
+                return;
             }
-
-            if (text.trim().length > 0) flushTables(); 
-            
-            if (isBold && text.trim().length > 0) {
-                currentTextBuffer += `<b>${text}</b>`;
-            } else {
-                currentTextBuffer += text;
-            }
-            
+            if (text.trim().length > 0) flushTables();
+            if (isBold && text.trim().length > 0) currentTextBuffer += `<b>${text}</b>`;
+            else currentTextBuffer += text;
         } else if (node.nodeType === 1) {
-            if (node.tagName === 'TABLE') {
-                flushText(); currentTableBuffer.push(node.outerHTML); return;
-            } else if (node.tagName === 'IMG') {
+            if (node.tagName === 'TABLE') { flushText(); currentTableBuffer.push(node.outerHTML); return; }
+            else if (node.tagName === 'IMG') {
                 let src = node.getAttribute('src') || node.src;
-                if (src && !src.startsWith('chrome-extension')) { 
-                    flushTables(); 
+                if (src && !src.startsWith('chrome-extension')) {
+                    flushTables();
                     if (currentTextBuffer.trim().length > 0 || currentExtractedTitle.trim().length > 0) flushText();
-                    currentImageBuffer.push(src); 
+                    currentImageBuffer.push(src);
                 }
-            } else if (node.classList.contains('page-break-line')) {
-                flushText(); flushTables(); 
-            } else if (node.tagName === 'LI') {
+            } else if (node.classList.contains('page-break-line')) { flushText(); flushTables(); }
+            else if (node.tagName === 'LI') {
                 flushTables();
                 let liText = node.textContent.trim();
                 if(liText) {
@@ -1696,9 +1685,7 @@ function parseContentToSlideDrafts(htmlString) {
                         let idx = lis.indexOf(node);
                         let start = parseInt(node.parentElement.getAttribute('start')) || 1;
                         currentTextBuffer += (start + idx) + ". " + liText + "\n";
-                    } else {
-                        currentTextBuffer += "• " + liText + "\n";
-                    }
+                    } else currentTextBuffer += "• " + liText + "\n";
                 }
                 return;
             } else {
@@ -1709,7 +1696,6 @@ function parseContentToSlideDrafts(htmlString) {
             }
         }
     }
-
     Array.from(tempDiv.childNodes).forEach(walkDOM);
     flushText(); flushTables();
     return drafts;
