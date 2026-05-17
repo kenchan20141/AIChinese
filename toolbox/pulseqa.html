@@ -1627,14 +1627,22 @@ let currentQuestionId = null;
 
 
 
-// 新增：提取開首數字並優先按數字排序，沒有數字則按時間排序
+// 新增：提取開首數字（支援全形/半形）並優先按數字排序，沒有數字則按時間排序
 function sortAnswersByNumberThenTime(a, b) {
   const getStartNumber = (text) => {
     // 排除大綱表格模式 (若包含 <table 則視為無開首數字)
     if (!text || text.includes('<table')) return null;
     
-    // 清除開頭的空白或可能存在的 HTML 標籤後，尋找開頭的數字
-    const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
+    // 1. 清除開頭的空白或可能存在的 HTML 標籤
+    let cleanText = text.replace(/<[^>]*>?/gm, '').trim();
+    
+    // 2. 將全形數字 (０-９) 轉換為半形數字 (0-9)
+    // 這樣學生輸入 １２３ 就會在底層被轉換成 123 來判斷
+    cleanText = cleanText.replace(/[０-９]/g, function(s) {
+      return String.fromCharCode(s.charCodeAt(0) - 65248);
+    });
+    
+    // 3. 尋找開頭的數字
     const match = cleanText.match(/^(\d+)/);
     return match ? parseInt(match[1], 10) : null;
   };
