@@ -1625,6 +1625,42 @@ let hasSubmitted = false;
 let currentQuestionId = null;
 
 
+
+
+// 新增：提取開首數字並優先按數字排序，沒有數字則按時間排序
+function sortAnswersByNumberThenTime(a, b) {
+  const getStartNumber = (text) => {
+    // 排除大綱表格模式 (若包含 <table 則視為無開首數字)
+    if (!text || text.includes('<table')) return null;
+    
+    // 清除開頭的空白或可能存在的 HTML 標籤後，尋找開頭的數字
+    const cleanText = text.replace(/<[^>]*>?/gm, '').trim();
+    const match = cleanText.match(/^(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  };
+
+  const numA = getStartNumber(a.text);
+  const numB = getStartNumber(b.text);
+
+  // 如果兩者都有開頭數字，按數字大小排列
+  if (numA !== null && numB !== null) {
+    if (numA !== numB) return numA - numB;
+  }
+  
+  // 如果只有一個有開頭數字，有數字的優先排在前面
+  if (numA !== null && numB === null) return -1;
+  if (numA === null && numB !== null) return 1;
+
+  // 如果都沒有數字，或數字相同，則按照發送時間先後排列
+  return a.timestamp - b.timestamp;
+}
+
+
+
+
+
+	
+
 // ==========================================
 // === 新增：草稿自動同步系統 (防資料遺失) ===
 // ==========================================
@@ -1820,7 +1856,8 @@ function showSharedScreen(roomData) {
         name,
         ...answerData
       }))
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .sort(sortAnswersByNumberThenTime); // <--- 已改為數字優先排序
+
     answersArray.forEach((answer) => {
       const participant = roomData.participants?.[answer.name] || {};
       const isLate = participant.late || false;
@@ -1889,6 +1926,8 @@ function showSharedScreen(roomData) {
     });
   });
 }
+
+	
 // 隱藏同步畫面（學生端）
 function hideSharedScreen() {
   const sharedScreenContainer = document.getElementById('sharedScreenContainer');
@@ -3383,7 +3422,8 @@ function generateFullscreenAnswersHTML(answers, participants) {
       name,
       ...answerData
     }))
-    .sort((a, b) => a.timestamp - b.timestamp);
+    .sort(sortAnswersByNumberThenTime); // <--- 已改為數字優先排序
+    
   let html = '';
  
   answersArray.forEach((answer, index) => {
@@ -3438,6 +3478,9 @@ function generateFullscreenAnswersHTML(answers, participants) {
  
   return html;
 }
+
+
+	
 function setupFullscreenEditing(answers, participants) {
   const answerCards = document.querySelectorAll('.fullscreen-answer-card');
   answerCards.forEach(card => {
@@ -3463,12 +3506,14 @@ function updateAnswersList(answers, participants) {
     answersList.innerHTML += '<div class="text-center py-12 text-wabi-secondary">尚未有回答</div>';
     return;
   }
+  
   const answersArray = Object.entries(answers)
     .map(([name, answerData]) => ({
       name,
       ...answerData
     }))
-    .sort((a, b) => a.timestamp - b.timestamp);
+    .sort(sortAnswersByNumberThenTime); // <--- 已改為數字優先排序
+    
   answersArray.forEach((answer, index) => {
     const participant = participants[answer.name] || {};
     const isLate = participant.late || false;
@@ -3524,6 +3569,9 @@ function updateAnswersList(answers, participants) {
     }
   });
 }
+
+
+	
 async function startSession() {
   if (!isHost || !currentRoom) return;
   const question = document.getElementById('questionInput').value.trim();
@@ -3875,7 +3923,7 @@ function downloadAllAnswers() {
                 ...answerData,
                 late: roomData.participants?.[name]?.late || false
             }))
-            .sort((a, b) => a.timestamp - b.timestamp);
+            .sort(sortAnswersByNumberThenTime); // <--- 已改為數字優先排序
            
         answersArray.forEach((answer, index) => {
             const timestamp = new Date(answer.timestamp);
@@ -3910,6 +3958,8 @@ function downloadAllAnswers() {
         alert('下載回答失敗，請重試');
     });
 }
+
+	
 // 下載我的回答 (學生使用)
 function downloadMyAnswer() {
     if (isHost || !currentRoom || !currentUser) return;
