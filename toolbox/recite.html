@@ -1020,6 +1020,30 @@ function resetAll(stopRec = true) {
     }
 
 function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
+        // === 【度身訂造特例】莊子《庖丁解牛》：「殆而已矣」 ===
+        // 因為「而、已、矣」聲韻母極度相似，語音識別極易將三字合併為1至2個字。
+        // 當系統目標對準這三個字（y=3）時，允許輸入的語音長度較短也能直接通關！
+        if (y === 3 && targetIdx + 2 < sentenceChars.length && 
+            sentenceChars[targetIdx].char === '而' && 
+            sentenceChars[targetIdx+1].char === '已' && 
+            sentenceChars[targetIdx+2].char === '矣') {
+            
+            // 只要機器聽到的殘餘語音中，包含相關的字，或是拼音包含 'i' 韻母，無條件放行這三個字
+            let hasValidSound = false;
+            for (let k = 0; k < x; k++) {
+                let sttChar = sttData[sttIdx + k].char;
+                if ('而已矣以兒爾'.includes(sttChar)) {
+                    hasValidSound = true; break;
+                }
+                let bases = sttData[sttIdx + k].bases.length > 0 ? sttData[sttIdx + k].bases : [fuzzyJyutping(sttChar)];
+                if (bases.some(b => b.endsWith('i') || b.endsWith('ji'))) {
+                    hasValidSound = true; break;
+                }
+            }
+            if (hasValidSound) return true;
+        }
+        // ========================================================
+
         if (x === 1 && y === 1) {
             if (sttData[sttIdx].char === sentenceChars[targetIdx].char) return true;
 
