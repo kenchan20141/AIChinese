@@ -600,8 +600,25 @@
     // ==========================================
     // 語音識別、效能最佳化緩衝與即時反饋
     // ==========================================
-    let recognition;
+  let recognition;
     let isRecording = false;
+    
+    // 👇 新增：靜默計時器變數
+    let silenceTimer = null;
+    const SILENCE_LIMIT = 8000; // 8秒沒聲音就主動刷新引擎
+
+    // 👇 新增：重置計時器的函數
+    function resetSilenceTimer() {
+        clearTimeout(silenceTimer);
+        if (isRecording && !isAppleDevice) {
+            silenceTimer = setTimeout(() => {
+                if (isRecording) {
+                    // 趁用家還在停頓思考時，主動重啟引擎，保持其活躍
+                    try { recognition.stop(); } catch(e) {}
+                }
+            }, SILENCE_LIMIT);
+        }
+    }
     
     // 【全新設計】徹底解決越讀越慢的問題：不再使用無限增長的字串。
     // 我們將語音動態轉換為 Token 陣列，只要一句話配對成功，就立即將配對過的 Token 從記憶體刪除！
@@ -722,17 +739,19 @@ function updateSpeechGrammar() {
         recognition.continuous = !isAppleDevice; 
         recognition.interimResults = true;
 
-    recognition.onstart = function() { 
-            document.getElementById('btn-start').classList.add('recording'); 
-            lastClearedResultIndex = 0; // 每次啟動麥克風時歸零
-            currentMaxResultIndex = 0;
-            
-            // 👇 加入這行，強制作為視覺緩衝，讓用家看到這行字才開口
-            showSpeechFeedback('🟢 就緒，請開始朗讀...'); 
-        };
+ recognition.onstart = function() { 
+        document.getElementById('btn-start').classList.add('recording'); 
+        lastClearedResultIndex = 0; 
+        currentMaxResultIndex = 0;
+        showSpeechFeedback('🟢 就緒，請開始朗讀...'); 
         
-        recognition.onresult = function(event) {
-            currentMaxResultIndex = event.results.length; // 記錄目前引擎的總段落數
+        resetSilenceTimer(); // <--- 👇 新增這行：啟動時開始倒數
+    };
+        
+    recognition.onresult = function(event) {
+        resetSilenceTimer(); // <--- 👇 新增這行：一聽到聲音就重置倒數時間
+        
+        currentMaxResultIndex = event.results.length; 
             
             let newFinalStr = '';
             let interimStr = '';
@@ -777,25 +796,26 @@ function updateSpeechGrammar() {
             }, 80); 
         };
         
-  recognition.onend = function() {
-            if (isAppleDevice) {
-                // 蘋果設備：順應 Safari 設計，自然停頓後系統自動關閉，只需重置狀態
-                isRecording = false;
-                document.getElementById('btn-start').classList.remove('recording');
-            } else {
-                // 非蘋果設備：維持原本斷線自動重連的連續識別邏輯
-                if (isRecording) { 
-                    setTimeout(() => { 
-                        if (isRecording) { 
-                            updateSpeechGrammar(); 
-                            try { recognition.start(); } catch(e) {} 
-                        } 
-                    }, 1000); 
-                } else { 
-                    document.getElementById('btn-start').classList.remove('recording'); 
-                }
+recognition.onend = function() {
+        clearTimeout(silenceTimer); // <--- 👇 新增這行：斷線時清除計時
+
+        if (isAppleDevice) {
+            isRecording = false;
+            document.getElementById('btn-start').classList.remove('recording');
+        } else {
+            if (isRecording) { 
+                // 👇 將原本的 1000 改成 50，實現幾乎無縫的極速重啟
+                setTimeout(() => { 
+                    if (isRecording) { 
+                        updateSpeechGrammar(); 
+                        try { recognition.start(); } catch(e) {} 
+                    } 
+                }, 50); 
+            } else { 
+                document.getElementById('btn-start').classList.remove('recording'); 
             }
-        };
+        }
+    };
     } else {
         alert('此瀏覽器不支援語音識別，建議使用 Chrome 瀏覽器。');
     }
@@ -814,10 +834,11 @@ function startRecording() {
         showSpeechFeedback('');
     }
 
-    function toggleRecording() {
+   function toggleRecording() {
         if (!recognition) return;
         if (isRecording) { 
             isRecording = false; 
+            clearTimeout(silenceTimer); // <--- 👇 新增這行
             recognition.stop(); 
             showSpeechFeedback('');
         } else { 
@@ -886,6 +907,7 @@ function startRecording() {
 function resetAll(stopRec = true) {
         if (stopRec && isRecording) toggleRecording();
         clearTimeout(partialTimeout);
+        clearTimeout(silenceTimer); // <--- 👇 新增這行：重置時清除計時
         
         // 清空所有緩衝與狀態
         finalTokens = []; 
