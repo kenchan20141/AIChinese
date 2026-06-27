@@ -757,9 +757,11 @@
     // ==========================================
     // 核心比對邏輯 (DFS 動態規劃)
     // ==========================================
-    function fuzzyJyutping(str) {
+  function fuzzyJyutping(str) {
         if (!str) return '';
         let base = str.toLowerCase().replace(/[0-9\s]/g, ''); 
+        
+        // 聲母與主要母音容錯
         base = base.replace(/y/g, 'j').replace(/^ch/, 'c').replace(/^sh/, 's').replace(/ue/g, 'yu')
                    .replace(/ee/g, 'i').replace(/oo/g, 'u').replace(/ou/g, 'au');    
         if (base.startsWith('n') && !base.startsWith('ng')) base = 'l' + base.substring(1); 
@@ -767,12 +769,19 @@
         if (base === 'ng') base = 'm'; 
         if (base.startsWith('gw') && (base.includes('o') || base.includes('u'))) base = 'g' + base.substring(2);
         if (base.startsWith('kw') && (base.includes('o') || base.includes('u'))) base = 'k' + base.substring(2);
+        
         if (base.endsWith('ing')) base = base.slice(0, -3) + 'eng';
         if (base.endsWith('ik')) base = base.slice(0, -2) + 'ek';
-        if (base.endsWith('am')) base = base.slice(0, -2) + 'om';
-        if (base.endsWith('ap')) base = base.slice(0, -2) + 'op';
-        if (base === 'jut' || base === 'jyut' || base === 'jyuet') base = 'jyut';
-        base = base.replace(/(ng|m|n|p|t|k)$/, 'n'); 
+        
+        // 🌟 【關鍵修改】：韻尾大一統
+        // 將入聲韻尾 p, t 統一轉換為 k (讓「集 zaap」與「澤 zaak」完全相容)
+        base = base.replace(/[pt]$/, 'k'); 
+        // 將鼻音韻尾 m, ng 統一轉換為 n (讓「林 lam」、「冷 laang」與「蘭 laan」相容)
+        base = base.replace(/(m|ng)$/, 'n'); 
+        
+        // 特殊拼音統一
+        if (base === 'jut' || base === 'jyut' || base === 'jyuet' || base === 'jyuk') base = 'jyuk';
+        
         return base;
     }
 
@@ -864,7 +873,7 @@
                 }
             }
 
-            if (sentencePassed) {
+        if (sentencePassed) {
                 sentenceChars.forEach(n => { n.matched = true; n.isCurrentSentence = false; });
                 currentSentenceIdx++; consumedSttIdx = matchEndSttIdx; 
                 
@@ -883,7 +892,7 @@
                             chars.forEach(n => n.matched = false);
                             updateRender();
                             finalTokens = []; consumedSttIdx = 0; showSpeechFeedback('');
-                        }, 2500); 
+                        }, 500); // 👈 關鍵修改：將這裡的 2500 改為 500 (0.5秒)
                     }
                 }
 
@@ -897,7 +906,6 @@
 
         updateRender();
     }
-
     function updateRender() {
         let matchedCount = 0;
         let totalChars = 0;
