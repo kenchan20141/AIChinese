@@ -315,13 +315,13 @@
     let consumedSttIdx = 0; 
     let partialTimeout = null;
 
-    let currentCategory = "中文";
-    let currentIndex = 0;
-    
-// 用於記錄已選取的段落 (清單為空代表背誦全文)
-    let selectedParagraphs = new Set();
+  let currentCategory = "中文";
+let currentIndex = 0;
+let selectedParagraphs = new Set();
+const globalDictCache = new Map();
 
-    const globalDictCache = new Map();
+// 【新增】文章專用的記憶體快取
+const textJyutpingCache = new Map();
 
     function renderMenu() {
         const menuContainer = document.getElementById('menu-container');
@@ -412,26 +412,52 @@ window.toggleParagraph = function(idx) {
                         i++; continue;
                     }
 
-                    let jyutpings = [];
+                  let jyutpings = [];
+                    let fuzzyBases = [];
+                    let isManualOverride = false;
+
+                    // 1. 處理手動注音如：屬(zuk)
                     if (cleanText[i + 1] === '(') {
                         let endIdx = cleanText.indexOf(')', i + 1);
                         if (endIdx !== -1) {
                             jyutpings = cleanText.substring(i + 2, endIdx).split('|'); 
                             i = endIdx + 1;
+                            isManualOverride = true;
                         } else { i++; }
+                    } 
+                    
+                    // 2. 如果是手動注音，直接計算；如果不是，則檢查快取
+                    if (isManualOverride) {
+                        jyutpings = [...new Set(jyutpings)];
+                        fuzzyBases = [...new Set(jyutpings.map(jp => fuzzyJyutping(jp)))];
                     } else {
-                        if (ToJyutpingLib && typeof ToJyutpingLib.getJyutpingCandidates === 'function') {
-                            let cands = ToJyutpingLib.getJyutpingCandidates(char);
-                            if (cands && cands.length > 0 && cands[0][1]) {
-                                jyutpings = cands[0][1].map(jp => jp.replace(/[0-9]/g, ''));
+                        // 【新增】檢查是否已經查過這個字
+                        if (textJyutpingCache.has(char)) {
+                            let cached = textJyutpingCache.get(char);
+                            jyutpings = cached.jyutpings;
+                            fuzzyBases = cached.fuzzyBases;
+                            i++;
+                        } else {
+                            // 沒查過，向套件查詢
+                            if (ToJyutpingLib && typeof ToJyutpingLib.getJyutpingCandidates === 'function') {
+                                let cands = ToJyutpingLib.getJyutpingCandidates(char);
+                                if (cands && cands.length > 0 && cands[0][1]) {
+                                    jyutpings = cands[0][1].map(jp => jp.replace(/[0-9]/g, ''));
+                                }
                             }
+                            if (jyutpings.length === 0 && ToJyutpingLib && typeof ToJyutpingLib.getJyutpingList === 'function') {
+                                let list = ToJyutpingLib.getJyutpingList(char);
+                                if (list && list.length > 0) jyutpings = [list[0][1].replace(/[0-9]/g, '')];
+                            }
+                            if (jyutpings.length === 0) jyutpings = [char]; 
+                            
+                            jyutpings = [...new Set(jyutpings)];
+                            fuzzyBases = [...new Set(jyutpings.map(jp => fuzzyJyutping(jp)))];
+                            
+                            // 存入快取，下次遇到同一個字瞬間讀取！
+                            textJyutpingCache.set(char, { jyutpings: jyutpings, fuzzyBases: fuzzyBases });
+                            i++;
                         }
-                        if (jyutpings.length === 0 && ToJyutpingLib && typeof ToJyutpingLib.getJyutpingList === 'function') {
-                            let list = ToJyutpingLib.getJyutpingList(char);
-                            if (list && list.length > 0) jyutpings = [list[0][1].replace(/[0-9]/g, '')];
-                        }
-                        if (jyutpings.length === 0) jyutpings = [char]; 
-                        i++;
                     }
 
                     jyutpings = [...new Set(jyutpings)];
