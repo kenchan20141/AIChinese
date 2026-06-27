@@ -280,6 +280,19 @@
 }
 
 
+.menu-list span.completion-count {
+            font-size: 0.75rem;
+             color: #3b6b58; /* 松葉綠 */
+            background: rgba(59, 107, 88, 0.1); /* 淡綠底色 */
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-left: 10px;
+            letter-spacing: 0.05em;
+            vertical-align: middle;
+            font-weight: normal;
+        }
+        
+
         
     </style>
 </head>
@@ -405,6 +418,21 @@
    let currentSentenceIdx = 0; 
     let partialTimeout = null;
 
+
+// === 新增：背誦次數紀錄 ===
+    let recitationCounts = {};
+    try {
+        const savedCounts = localStorage.getItem('recitationCounts_v3');
+        if (savedCounts) {
+            recitationCounts = JSON.parse(savedCounts);
+        }
+    } catch (e) {
+        console.warn("無法讀取背誦次數紀錄", e);
+    }
+    // ========================
+
+
+    
     let currentCategory = "中文";
     let currentIndex = 0;
     let selectedParagraphs = new Set();
@@ -478,10 +506,17 @@
         let html = '';
         for (const [category, texts] of Object.entries(TEXT_LIBRARY)) {
             html += `<div class="menu-section"><h3>${category}</h3><ul class="menu-list">`;
-            texts.forEach((item, idx) => {
-                const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
-                html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span></button></li>`;
-            });
+           texts.forEach((item, idx) => {
+    const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
+    
+    // === 新增：讀取並生成次數徽章 ===
+    const textKey = `${category}_${idx}`;
+    const count = recitationCounts[textKey] || 0;
+    const countBadge = count > 0 ? `<span class="completion-count">已背誦 ${count} 次</span>` : '';
+    // ============================
+    
+    html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}</button></li>`;
+});
             html += `</ul></div>`;
         }
         menuContainer.innerHTML = html;
@@ -1386,10 +1421,25 @@ function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
         const progress = totalChars === 0 ? 0 : Math.round((matchedCount / totalChars) * 100);
         document.getElementById('progress-bar').style.width = progress + '%';
         
-        if (progress === 100 && totalChars > 0) {
+       const successScreen = document.getElementById('success-screen');
+        // 加入 successScreen.style.display !== 'flex' 防止重複觸發加分
+        if (progress === 100 && totalChars > 0 && successScreen.style.display !== 'flex') {
             if(isRecording) toggleRecording();
             clearTimeout(partialTimeout);
-            document.getElementById('success-screen').style.display = 'flex';
+            successScreen.style.display = 'flex';
+
+            // === 新增：記錄全篇背誦次數 ===
+            // 只有當全篇被選取時 (selectedParagraphs.size === 0) 才算一次完整背誦
+            if (selectedParagraphs.size === 0) {
+                const textKey = `${currentCategory}_${currentIndex}`;
+                recitationCounts[textKey] = (recitationCounts[textKey] || 0) + 1;
+                try {
+                    localStorage.setItem('recitationCounts_v3', JSON.stringify(recitationCounts));
+                } catch (e) {
+                    console.warn("無法儲存背誦紀錄", e);
+                }
+            }
+            // ============================
         }
     }
 
