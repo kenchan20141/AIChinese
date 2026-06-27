@@ -269,7 +269,7 @@
 <div id="speech-feedback" class="speech-feedback-container"></div>
 
 <div class="action-bar" id="action-bar">
-    <button id="btn-start" class="icon-btn" onclick="toggleRecording()" disabled title="開始/停止誦讀">
+<button id="btn-start" class="icon-btn" onclick="toggleRecording()" disabled title="開始/停止誦讀">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
@@ -680,7 +680,8 @@ const SpeechGramList = window.SpeechGrammarList || window.webkitSpeechGrammarLis
 
 // 新增：動態生成預判詞庫的函數
 function updateSpeechGrammar() {
-    if (!SpeechGramList || !recognition) return;
+    // 蘋果 Safari 注入 Grammar 會導致底層靜默崩潰，必須直接跳過
+    if (isAppleDevice || !SpeechGramList || !recognition) return;
 
     // 收集「當前句子」及「後續尚未背誦」的所有目標漢字
     let expectedChars = new Set();
@@ -711,11 +712,14 @@ function updateSpeechGrammar() {
 
     
 
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+ const isAppleDevice = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream;
+
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRec();
-        recognition.lang = 'yue-Hant-HK'; 
-        recognition.continuous = true;
+        // 蘋果設備必須使用 'zh-HK'，否則可能無法識別；其他設備維持 'yue-Hant-HK'
+        recognition.lang = isAppleDevice ? 'zh-HK' : 'yue-Hant-HK'; 
+        recognition.continuous = !isAppleDevice; 
         recognition.interimResults = true;
 
     recognition.onstart = function() { 
@@ -773,44 +777,56 @@ function updateSpeechGrammar() {
             }, 80); 
         };
         
-        recognition.onerror = function(event) {
-            if (event.error === 'not-allowed') {
-                isRecording = false; document.getElementById('btn-start').classList.remove('recording');
-                alert("未授權麥克風使用。");
-            }
-        };
-        
-   recognition.onend = function() {
-            if (isRecording) { 
-                setTimeout(() => { 
-                    if (isRecording) { 
-                        updateSpeechGrammar(); // <--- 重啟前更新預判詞庫
-                        try { 
-                            recognition.start(); 
-                        } catch(e) {
-                            console.warn("重啟語音識別失敗", e);
+  recognition.onend = function() {
+            if (isAppleDevice) {
+                // 蘋果設備：順應 Safari 設計，自然停頓後系統自動關閉，只需重置狀態
+                isRecording = false;
+                document.getElementById('btn-start').classList.remove('recording');
+            } else {
+                // 非蘋果設備：維持原本斷線自動重連的連續識別邏輯
+                if (isRecording) { 
+                    setTimeout(() => { 
+                        if (isRecording) { 
+                            updateSpeechGrammar(); 
+                            try { recognition.start(); } catch(e) {} 
                         } 
-                    } 
-                }, 1000); 
-            } else { 
-                document.getElementById('btn-start').classList.remove('recording'); 
+                    }, 1000); 
+                } else { 
+                    document.getElementById('btn-start').classList.remove('recording'); 
+                }
             }
         };
     } else {
         alert('此瀏覽器不支援語音識別，建議使用 Chrome 瀏覽器。');
     }
 
-  function toggleRecording() {
-    if (!recognition) return;
-    if (isRecording) { 
-        isRecording = false; recognition.stop(); 
-        showSpeechFeedback('');
-    } else { 
-        isRecording = true; 
-        updateSpeechGrammar(); // <--- 新增這行：啟動前預判當前進度的字詞
-        try { recognition.start(); } catch(e) {} 
+function startRecording() {
+        if (!recognition || isRecording) return;
+        isRecording = true;
+        updateSpeechGrammar();
+        try { recognition.start(); } catch(e) {}
     }
-}
+
+    function stopRecording() {
+        if (!recognition || !isRecording) return;
+        isRecording = false;
+        try { recognition.stop(); } catch(e) {}
+        showSpeechFeedback('');
+    }
+
+    function toggleRecording() {
+        if (!recognition) return;
+        if (isRecording) { 
+            isRecording = false; 
+            recognition.stop(); 
+            showSpeechFeedback('');
+        } else { 
+            isRecording = true; 
+            updateSpeechGrammar(); 
+            try { recognition.start(); } catch(e) {} 
+        }
+    }
+
 
     // ==========================================
     // 鍵盤輸入整合
