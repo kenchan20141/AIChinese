@@ -454,6 +454,16 @@ window.toggleParagraph = function(idx) {
             if (sentences.length > 0) sentences[0].forEach((n) => { n.isCurrentSentence = true; });
 
             document.getElementById('text-display').innerHTML = html;
+            
+            // 【新增】一次性快取所有字元的 DOM 元素，並紀錄先前的狀態，極大提升手機效能
+            textNodes.forEach(node => {
+                if (node.type === 'char') {
+                    node.el = document.getElementById(`char-${node.index}`);
+                    node.renderedMatched = false;
+                    node.renderedCurrent = false;
+                }
+            });
+
             document.getElementById('main-container').style.opacity = '1';
             resetAll(false);
         }, 300);
@@ -486,13 +496,19 @@ window.toggleParagraph = function(idx) {
         recognition.interimResults = true;
 
         recognition.onstart = function() { document.getElementById('btn-start').classList.add('recording'); };
+        let sttTimeout = null;
         recognition.onresult = function(event) {
             let interimTranscript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
                 else interimTranscript += event.results[i][0].transcript;
             }
-            matchAlgorithm(finalTranscript + interimTranscript);
+            
+            // 【新增】節流機制：如果在 150 毫秒內連續收到語音，只會執行最後一次，減輕手機 CPU 負擔
+            clearTimeout(sttTimeout);
+            sttTimeout = setTimeout(() => {
+                matchAlgorithm(finalTranscript + interimTranscript);
+            }, 150); 
         };
         recognition.onerror = function(event) {
             if (event.error === 'not-allowed') {
@@ -762,18 +778,34 @@ function matchAlgorithm(transcript, isTyping = false) {
         updateRender();
     }
 
-    function updateRender() {
+   function updateRender() {
         let matchedCount = 0;
-        let totalChars = textNodes.filter(n => n.type === 'char').length;
+        let totalChars = 0;
 
         textNodes.forEach(node => {
             if (node.type === 'char') {
-                const el = document.getElementById(`char-${node.index}`);
-                if (node.matched) { matchedCount++; el.classList.add('matched'); } 
-                else { el.classList.remove('matched'); }
+                totalChars++;
                 
-                if (node.isCurrentSentence) el.classList.add('current-sentence');
-                else el.classList.remove('current-sentence');
+                // 狀態有改變時，才操作 DOM (避免手機重新繪製畫面)
+                if (node.matched !== node.renderedMatched) {
+                    if (node.matched) {
+                        node.el.classList.add('matched');
+                    } else {
+                        node.el.classList.remove('matched');
+                    }
+                    node.renderedMatched = node.matched;
+                }
+                
+                if (node.isCurrentSentence !== node.renderedCurrent) {
+                    if (node.isCurrentSentence) {
+                        node.el.classList.add('current-sentence');
+                    } else {
+                        node.el.classList.remove('current-sentence');
+                    }
+                    node.renderedCurrent = node.isCurrentSentence;
+                }
+                
+                if (node.matched) matchedCount++;
             }
         });
 
