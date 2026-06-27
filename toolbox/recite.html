@@ -818,23 +818,35 @@ function updateSpeechGrammar() {
         }
     }
 
-  function resetAll(stopRec = true) {
+function resetAll(stopRec = true) {
         if (stopRec && isRecording) toggleRecording();
         clearTimeout(partialTimeout);
         
         // 清空所有緩衝與狀態
-        finalTokens = []; consumedSttIdx = 0;
+        finalTokens = []; 
+        consumedSttIdx = 0;
+        currentSentenceIdx = 0; // <--- 新增這行：將句子進度徹底歸零！
+        
         document.getElementById('manual-input').value = '';
         showSpeechFeedback('');
         
-        // 👇 新增這行：手動重置時，一併拋棄麥克風當下的殘留緩衝
+        // 手動重置時，一併拋棄麥克風當下的殘留緩衝
         lastClearedResultIndex = typeof currentMaxResultIndex !== 'undefined' ? currentMaxResultIndex : 0;
         
-        textNodes.forEach(n => { if (n.type === 'char') { n.matched = false; n.isCurrentSentence = false; } });
-        if (sentences.length > 0) { sentences[0].forEach((n) => { n.isCurrentSentence = true; }); }
+        // 將所有字元的狀態重置
+        textNodes.forEach(n => { 
+            if (n.type === 'char') { 
+                n.matched = false; 
+                n.isCurrentSentence = false; 
+            } 
+        });
+        
+        // 將第一句重新標示為當前句子
+        if (sentences.length > 0) { 
+            sentences[0].forEach((n) => { n.isCurrentSentence = true; }); 
+        }
         updateRender();
     }
-
 
 // 智能字幕校正：將同音的白話文自動轉換為文言文目標字
     function getSmartDisplayText(sttData, startIndex) {
