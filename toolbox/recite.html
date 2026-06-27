@@ -296,6 +296,18 @@
             font-weight: normal;
         }
 
+        .menu-list span.best-time {
+            font-size: 0.75rem;
+            color: #b04332; /* 硃砂紅 */
+            background: rgba(176, 67, 50, 0.1);
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-left: 6px;
+            letter-spacing: 0.05em;
+            vertical-align: middle;
+            font-weight: normal;
+        }
+
 
       /* 移除按鈕對全域顏色的依賴，保留位移與粗體效果 */
         .menu-list button:hover { transform: translateX(5px); }
@@ -399,6 +411,7 @@
 <div id="success-screen" class="success-screen" style="display: none;">
     <div class="success-content">
         <h2>功不唐捐，玉汝於成。</h2>
+        <p id="success-time" style="font-size: 1rem; color: var(--text-light); margin-bottom: 35px; letter-spacing: 0.1em;"></p>
         <button onclick="closeSuccessScreen()">重 歸</button>
     </div>
 </div>
@@ -462,6 +475,27 @@
         }
     } catch (e) {
         console.warn("無法讀取背誦次數紀錄", e);
+    }
+    // ========================
+
+
+    // === 新增：背誦時間紀錄 ===
+    let sessionStartTime = null;
+    let bestTimes = {};
+    try {
+        const savedTimes = localStorage.getItem('bestTimes_v3');
+        if (savedTimes) {
+            bestTimes = JSON.parse(savedTimes);
+        }
+    } catch (e) {
+        console.warn("無法讀取背誦時間紀錄", e);
+    }
+
+    function formatTime(ms) {
+        let totalSeconds = Math.floor(ms / 1000);
+        let minutes = Math.floor(totalSeconds / 60);
+        let seconds = totalSeconds % 60;
+        return minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
     }
     // ========================
 
@@ -548,12 +582,16 @@
                 const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
     
     // === 新增：讀取並生成次數徽章 ===
+// === 新增：讀取並生成次數與時間徽章 ===
     const textKey = `${category}_${idx}`;
     const count = recitationCounts[textKey] || 0;
     const countBadge = count > 0 ? `<span class="completion-count">已背誦 ${count} 次</span>` : '';
+    
+    const bestTime = bestTimes[textKey];
+    const timeBadge = (count > 0 && bestTime) ? `<span class="best-time">最快 ${formatTime(bestTime)}</span>` : '';
     // ============================
     
-    html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}</button></li>`;
+    html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}${timeBadge}</button></li>`;
 });
             html += `</ul></div>`;
         }
@@ -1042,9 +1080,10 @@ function resetAll(stopRec = true) {
         clearTimeout(silenceTimer); // <--- 👇 新增這行：重置時清除計時
         
         // 清空所有緩衝與狀態
-        finalTokens = []; 
+finalTokens = []; 
         consumedSttIdx = 0;
         currentSentenceIdx = 0; // <--- 新增這行：將句子進度徹底歸零！
+        sessionStartTime = null; // <--- 新增：重置時清空開始時間
         
         document.getElementById('manual-input').value = '';
         showSpeechFeedback('');
@@ -1466,31 +1505,57 @@ function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
             }
         });
 
+// 只要第一個字背對了，且尚未開始計時，就記錄開始時間
+        if (matchedCount > 0 && !sessionStartTime) {
+            sessionStartTime = Date.now();
+        }
+        
         const progress = totalChars === 0 ? 0 : Math.round((matchedCount / totalChars) * 100);
         document.getElementById('progress-bar').style.width = progress + '%';
         
      const successScreen = document.getElementById('success-screen');
-        if (progress === 100 && totalChars > 0 && successScreen.style.display !== 'flex') {
+       if (progress === 100 && totalChars > 0 && successScreen.style.display !== 'flex') {
             if(isRecording) toggleRecording();
             clearTimeout(partialTimeout);
             successScreen.style.display = 'flex';
 
-            // === 檢查是否為「默誦」模式 ===
             const isChallengeMode = document.getElementById('text-display').classList.contains('challenge-mode');
+            let timeText = "";
 
-            // === 記錄全篇背誦次數 ===
-            // 條件 1：全篇選取 (selectedParagraphs.size === 0)
-            // 條件 2：必須是默誦模式 (isChallengeMode)
+            // 只有「全篇選取」且「默誦模式」才會寫入正式紀錄
             if (selectedParagraphs.size === 0 && isChallengeMode) {
                 const textKey = `${currentCategory}_${currentIndex}`;
+                
+                // 1. 記錄次數
                 recitationCounts[textKey] = (recitationCounts[textKey] || 0) + 1;
+                
+                // 2. 計算與記錄時間
+                const timeTaken = Date.now() - sessionStartTime;
+                timeText = `本次用時：${formatTime(timeTaken)}`;
+                
+                // 判斷是否為新紀錄
+                if (!bestTimes[textKey] || timeTaken < bestTimes[textKey]) {
+                    bestTimes[textKey] = timeTaken;
+                    timeText += ` 🎉 新紀錄！`;
+                    try {
+                        localStorage.setItem('bestTimes_v3', JSON.stringify(bestTimes));
+                    } catch (e) {}
+                }
+                
+                // 儲存次數
                 try {
                     localStorage.setItem('recitationCounts_v3', JSON.stringify(recitationCounts));
                 } catch (e) {
                     console.warn("無法儲存背誦紀錄", e);
                 }
+            } else if (sessionStartTime) {
+                // 若是閱讀模式或節錄段落，只顯示時間，不破紀錄
+                const timeTaken = Date.now() - sessionStartTime;
+                timeText = `本次用時：${formatTime(timeTaken)} (閱讀/節錄模式不列入紀錄)`;
             }
-            // ============================
+
+            // 更新通關畫面上的時間文字
+            document.getElementById('success-time').innerText = timeText;
         }
     }
 
