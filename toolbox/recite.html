@@ -848,7 +848,7 @@ function resetAll(stopRec = true) {
         updateRender();
     }
 
-// 智能字幕校正：與底層的 1/2/3 分評分機制完美同步
+// 智能字幕校正：將同音的白話文自動轉換為文言文目標字
     function getSmartDisplayText(sttData, startIndex) {
         let rawTokens = sttData.slice(startIndex);
         if (rawTokens.length === 0) return "";
@@ -882,8 +882,8 @@ function resetAll(stopRec = true) {
                 let score = evaluateMatch(sttBases, targetBases);
                 let replace = false;
 
-                if (score === 3) replace = true; // 3分：完美全中，無條件換字
-                else if (score === 1 || score === 2) { // 1分或2分：驗證鄰居再換字
+                if (score === 2) replace = true; // 韻母對，換字
+                else if (score === 1) { // 聲母對，驗證鄰居再換字
                     let ctxValid = false;
                     let tIdx = eIdx, tLen = expectedNodes.length;
                     
@@ -906,6 +906,7 @@ function resetAll(stopRec = true) {
         }
         return displayText;
     }
+
 
     
 // 將拼音拆分為 "聲母:韻母" 的格式
@@ -936,7 +937,7 @@ function resetAll(stopRec = true) {
         }
     }
 
-  // 智能評分員：3分=全中，2分=僅韻母對，1分=僅聲母對，0分=不對
+    // 智能評分員：2分 = 韻母過關，1分 = 僅聲母過關，0分 = 完全不對
     function evaluateMatch(sttBases, targetBases) {
         let bestScore = 0;
         for (let sb of sttBases) {
@@ -949,24 +950,14 @@ function resetAll(stopRec = true) {
                 let tInit = tParts.length > 1 ? tParts[0] : '';
                 let tFin = tParts.length > 1 ? tParts[1] : tParts[0];
                 
-                // 3分：聲母與韻母皆完美吻合
-                if (sInit === tInit && sFin === tFin) {
-                    return 3; 
-                }
-                // 2分：只有韻母吻合
-                if (sFin === tFin) {
-                    if (bestScore < 2) bestScore = 2; 
-                } 
-                // 1分：只有聲母吻合
-                else if (sInit !== '' && sInit === tInit) {
-                    if (bestScore < 1) bestScore = 1; 
-                }
+                if (sFin === tFin) return 2; // 只要韻母對了，無條件給滿分
+                if (sInit !== '' && sInit === tInit) bestScore = 1; // 聲母對了，先保留 1 分
             }
         }
         return bestScore;
     }
 
- function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
+  function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
         if (x === 1 && y === 1) {
             if (sttData[sttIdx].char === sentenceChars[targetIdx].char) return true;
 
@@ -974,10 +965,10 @@ function resetAll(stopRec = true) {
             let targetBases = sentenceChars[targetIdx].jyutpings.map(jp => fuzzyJyutping(jp));
             
             let score = evaluateMatch(sttBases, targetBases);
-            if (score === 3) return true; // 3分：完美全中，無條件過關
+            if (score === 2) return true; // 2分：韻母正確，無條件過關
             
-            if (score === 1 || score === 2) { 
-                // 1分(僅聲母對) 或 2分(僅韻母對)：皆啟動「鄰居上下文驗證」
+            if (score === 1) { 
+                // 1分：只有聲母正確，啟動「鄰居上下文驗證」
                 const getNbScore = (sOffset, tOffset) => {
                     let s_i = sttIdx + sOffset, t_i = targetIdx + tOffset;
                     if (s_i < 0 || s_i >= sttData.length || t_i < 0 || t_i >= sentenceChars.length) return 0;
@@ -1003,36 +994,6 @@ function resetAll(stopRec = true) {
             }
             return false;
         }
-        
-        // 極端連音容錯保持只看韻母
-        let targetCombos = [''];
-        for (let k = 0; k < y; k++) {
-            let node = sentenceChars[targetIdx + k];
-            let newCombos = [];
-            for (let jp of node.jyutpings) {
-                let parts = fuzzyJyutping(jp).split(':');
-                let f = parts.length > 1 ? parts[1] : parts[0];
-                for (let tc of targetCombos) newCombos.push(tc + f);
-            }
-            targetCombos = newCombos;
-        }
-        
-        let sttCombos = [''];
-        for (let k = 0; k < x; k++) {
-            let item = sttData[sttIdx + k];
-            let newCombos = [];
-            let bases = item.bases.length > 0 ? item.bases : [fuzzyJyutping(item.char)];
-            for (let b of bases) { 
-                let parts = b.split(':');
-                let f = parts.length > 1 ? parts[1] : parts[0];
-                for (let sc of sttCombos) newCombos.push(sc + f); 
-            }
-            sttCombos = newCombos;
-        }
-        
-        for (let tc of targetCombos) { if (sttCombos.includes(tc)) return true; }
-        return false;
-    }
         
         // 應對極端連音 (x > 1 或 y > 1)，強制只比對韻母連線
         let targetCombos = [''];
@@ -1199,4 +1160,3 @@ function resetAll(stopRec = true) {
 
 </body>
 </html>
-
