@@ -701,8 +701,8 @@ function updateSpeechGrammar() {
             if (cacheUpdatedFlag) { requestSaveCache(); cacheUpdatedFlag = false; }
 
            // 讓使用者第一時間看到未處理的字幕
-            let display1 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
-            // 👇 確保有接收到聲音才更新字幕，避免空字串把「就緒提示」刷掉
+           // 讓使用者第一時間看到「已經過校正」的字幕
+            let display1 = getSmartDisplayText(currentSttData, consumedSttIdx);
             if (display1.length > 0) {
                 showSpeechFeedback(display1);
             }
@@ -711,8 +711,8 @@ function updateSpeechGrammar() {
             sttTimeout = setTimeout(() => {
                 matchAlgorithm(currentSttData);
                 
-                // 比對完成後，若有成功過關的字，字幕會立刻變更（逐句清空效果）
-                let display2 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+                // 比對完成後更新字幕
+                let display2 = getSmartDisplayText(currentSttData, consumedSttIdx);
                 if (display1 !== display2) showSpeechFeedback(display2);
                 
                 // 記憶體清理：立刻將剛才確認配對過關的 Token 從陣列徹底刪除，絕不殘留
@@ -780,12 +780,12 @@ function updateSpeechGrammar() {
         finalTokens.push(...getTokens(text));
         let currentSttData = [...finalTokens];
         
-        let display1 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+       let display1 = getSmartDisplayText(currentSttData, consumedSttIdx);
         showSpeechFeedback(display1);
         
         matchAlgorithm(currentSttData, true);
         
-        let display2 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+        let display2 = getSmartDisplayText(currentSttData, consumedSttIdx);
         if (display1 !== display2) showSpeechFeedback(display2);
         
         let safeToClear = Math.min(consumedSttIdx, finalTokens.length);
@@ -835,10 +835,52 @@ function updateSpeechGrammar() {
         updateRender();
     }
 
+
+// 智能字幕校正：將同音的白話文自動轉換為文言文目標字
+    function getSmartDisplayText(sttData, startIndex) {
+        let rawTokens = sttData.slice(startIndex);
+        if (rawTokens.length === 0) return "";
+
+        // 收集當下「尚未背出」的預期目標字
+        let expectedNodes = [];
+        for (let i = currentSentenceIdx; i < sentences.length; i++) {
+            for (let j = 0; j < sentences[i].length; j++) {
+                if (!sentences[i][j].matched) {
+                    expectedNodes.push(sentences[i][j]);
+                }
+            }
+        }
+
+        let eIdx = 0;
+        let displayText = "";
+
+        for (let i = 0; i < rawTokens.length; i++) {
+            let sttToken = rawTokens[i];
+            let useChar = sttToken.char;
+
+            if (eIdx < expectedNodes.length) {
+                let targetNode = expectedNodes[eIdx];
+                let sttBases = sttToken.bases.length > 0 ? sttToken.bases : [fuzzyJyutping(sttToken.char)];
+                let targetBases = targetNode.jyutpings.map(jp => fuzzyJyutping(jp));
+
+                // 核心：如果聽到的字，跟目標字的拼音相容，就把字幕「換成正確的字」
+                if (sttBases.some(sb => targetBases.includes(sb))) {
+                    useChar = targetNode.char; 
+                    eIdx++; // 預期指標前進
+                }
+            }
+            displayText += useChar;
+        }
+        return displayText;
+    }
+
+
+
+    
     // ==========================================
     // 核心比對邏輯 (DFS 動態規劃)
     // ==========================================
-  function fuzzyJyutping(str) {
+ function fuzzyJyutping(str) {
         if (!str) return '';
         let base = str.toLowerCase().replace(/[0-9\s]/g, ''); 
         
@@ -854,14 +896,15 @@ function updateSpeechGrammar() {
         if (base.endsWith('ing')) base = base.slice(0, -3) + 'eng';
         if (base.endsWith('ik')) base = base.slice(0, -2) + 'ek';
         
-        // 🌟 【關鍵修改】：韻尾大一統
-        // 將入聲韻尾 p, t 統一轉換為 k (讓「集 zaap」與「澤 zaak」完全相容)
+        // 韻尾大一統
         base = base.replace(/[pt]$/, 'k'); 
-        // 將鼻音韻尾 m, ng 統一轉換為 n (讓「林 lam」、「冷 laang」與「蘭 laan」相容)
         base = base.replace(/(m|ng)$/, 'n'); 
         
         // 特殊拼音統一
         if (base === 'jut' || base === 'jyut' || base === 'jyuet' || base === 'jyuk') base = 'jyuk';
+        
+        // 👇👇 新增這行：終極寬容，砍掉所有聲母，只保留韻母
+        base = base.replace(/^([bpmfdtnlgkhwjzcs]|gw|kw)(?=[aeiouy])/i, '');
         
         return base;
     }
