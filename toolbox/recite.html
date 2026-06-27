@@ -93,7 +93,7 @@
         }
         .author { font-size: 0.95rem; color: var(--text-light); letter-spacing: 0.4em; margin-right: -0.4em; }
 
-        /* 模式切換列 (文字設計) */
+        /* 模式切換列 */
         .mode-controls { display: flex; justify-content: center; gap: 40px; margin-bottom: 70px; }
         .btn-mode {
             background: none; border: none; color: var(--text-light); cursor: pointer;
@@ -105,6 +105,23 @@
         .btn-mode.active::after {
             content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
             width: 3px; height: 3px; border-radius: 50%; background-color: var(--text-dark);
+        }
+
+        /* 語音即時字幕 (更低調半透明) */
+        .speech-feedback-container {
+            position: fixed; bottom: 95px; left: 50%; transform: translateX(-50%) translateY(10px);
+            background: rgba(247, 246, 242, 0.55); 
+            backdrop-filter: blur(12px); 
+            color: rgba(44, 43, 41, 0.75); 
+            padding: 8px 20px; border-radius: 30px;
+            font-size: 0.9rem; pointer-events: none; opacity: 0;
+            transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1); white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; max-width: 80vw;
+            z-index: 90; letter-spacing: 0.1em;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); border: 1px solid rgba(0, 0, 0, 0.02);
+        }
+        .speech-feedback-container.show {
+            opacity: 1; transform: translateX(-50%) translateY(0);
         }
 
         /* 懸浮動作列 */
@@ -183,7 +200,6 @@
         .challenge-mode .char:not(.matched) { color: transparent; }
         .challenge-mode .char.matched { color: var(--accent-red); font-weight: 600; text-shadow: 0 0 1px rgba(176,67,50,0.2); }
         .challenge-mode .punct { color: var(--text-gray); opacity: 0.5; }
-        /* 在默誦模式中，未選擇的段落依然維持可見以提供語境 */
         .challenge-mode .para-block.inactive .char { color: var(--text-gray); opacity: 0.8; text-shadow: none; }
 
         /* 錯誤微震與強制現形 */
@@ -240,6 +256,9 @@
     <div id="text-display" class="text-display review-mode"></div>
 </div>
 
+<!-- 即時語音字幕顯示區 -->
+<div id="speech-feedback" class="speech-feedback-container"></div>
+
 <div class="action-bar" id="action-bar">
     <button id="btn-start" class="icon-btn" onclick="toggleRecording()" disabled title="開始/停止誦讀">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -280,10 +299,9 @@
 </div>
 
 <script>
-    // 文本資料庫：已為通假字、破音字加入手動 ( ) 注音覆寫機制
     const TEXT_LIBRARY = {
         "文學": [
-      { 
+            { 
                 title: "前赤壁賦", author: "蘇軾", 
                 content: "壬戌之秋，七月既望，蘇子與客泛舟，遊於赤壁之下。清風徐來，水波不興。舉酒屬(zuk)客，誦明月之詩，歌窈窕之章。少焉，月出於東山之上，徘徊於斗牛之間。白露橫江，水光接天。縱一葦之所如，凌萬頃之茫然。浩浩乎如馮(pang)虛御風，而不知其所止，飄飄乎如遺世獨立，羽化而登仙。\n\n於是飲酒樂甚，扣舷而歌之。歌曰：「桂棹兮蘭槳，擊空明兮泝流光。渺渺兮予懷，望美人兮天一方。」客有吹洞簫者，倚歌而和之，其聲嗚嗚然，如怨如慕，如泣如訴。餘音嫋嫋，不絕如縷。舞幽壑(kok)之潛蛟，泣孤舟之嫠婦。蘇子愀然，正襟危坐，而問客曰：「何為其然也？」客曰：「『月明星稀，烏鵲南飛。』此非曹孟德之詩乎？西望夏口，東望武昌。山川相繆(mau)，鬱乎蒼蒼。此非孟德之困於周郎者乎？方其破荊州，下江陵，順流而東也，舳艫千里，旌旗蔽空，釃酒臨江，橫槊賦詩，固一世之雄也，而今安在哉？況吾與子漁樵於江渚之上，侶魚蝦而友麋鹿。駕一葉之扁(pin)舟，舉匏尊以相屬(zuk)。寄蜉蝣於天地，渺滄海之一粟。哀吾生之須臾，羨長江之無窮。挾飛仙以遨遊，抱明月而長終。知不可乎驟得，託遺響於悲風。」\n\n蘇子曰：「客亦知夫水與月乎？逝者如斯，而未嘗往也。盈虛者如彼，而卒莫消長(zoeng)也。蓋將自其變者而觀之，則天地曾不能以一瞬。自其不變者而觀之，則物與我皆無盡也，而又何羨乎？且夫天地之間，物各有主，苟非吾之所有，雖一毫而莫取。惟江上之清風，與山間之明月，耳得之而為聲，目遇之而成色。取之無禁，用之不竭。是造物者之無盡藏(zong)也，而吾與子之所共食。」客喜而笑，洗盞更酌，肴核既盡，杯盤狼藉(zik)乎舟中，不知東方之既白。"
             }
@@ -298,7 +316,7 @@
             { title: "念奴嬌‧赤壁懷古", author: "蘇軾", content: "大江東去，浪淘盡、千古風流人物。故壘西邊，人道是、三國周郎 赤壁。亂石穿空，驚濤拍岸，捲起千堆雪。江山如畫，一時多少豪傑！\n\n遙想公瑾當年，小喬 初嫁了，雄姿英發。羽扇綸巾 ，談笑間、檣櫓 灰飛煙滅。故國 神遊，多情應笑我，早生華髮 。人間如夢，一尊 還酹 江月。" },
             { title: "青玉案", author: "辛棄疾", content: "東風夜放花千樹，更吹落，星如雨。寶馬雕車香滿路。鳳簫聲動，玉壺光轉，一夜魚龍舞。 \n\n蛾兒雪柳黃金縷，笑語盈盈暗香去。眾裏尋他千百度；驀然迴首，那人卻在，燈火闌珊處。" },
             { title: "聲聲慢", author: "李清照", content: "尋尋覓覓，冷冷清清，悽悽慘慘戚戚。乍暖還寒時候， 最難將息。 三杯兩盞淡酒，怎敵他，晚來風急？雁過也，正傷心，卻是舊時相識。\n\n滿地黃花堆積， 憔悴損，如今有誰堪摘？守著窗兒，獨自怎生得黑！梧桐更兼細雨，到黃昏、點點滴滴。這次第，怎一箇愁字了得！" },
-            { title: "逍遙遊", author: "莊子", content: "惠子 謂莊子曰：「魏王貽我大瓠之種(zung) ，我樹之成而實五石(daan) 。以盛水漿，其堅不能自舉也 。剖之以為瓢 ，則瓠落無所容 。非不呺然 大也，吾為其無用而掊之 。」莊子曰：「夫子固拙於 用大矣！宋人有善為不龜(gwan)手之藥者 ，世世以洴澼絖為事 。客聞之，請買其方百金。聚族而謀曰：『我世世為洴澼絖，不過數金；今一朝而鬻(zuk)技百金 ，請與之。』客得之，以說 吳王。越有難 ，吳王使之將 ，冬與越人水戰，大敗越人，裂地 而封之。能不龜手一也 ；或以封，或不免於洴澼絖，則所用之異也 。今子有五石之瓠，何不慮以為大樽而浮於江湖 ，而憂其瓠落無所容，則夫子猶有蓬之心也夫 ！」\n\n惠子謂莊子曰：「吾有大樹，人謂之樗 ；其大本擁(jung)腫而不中(zung)繩墨 ，其小枝卷曲而不中(zung)規矩 。立之塗 ，匠者不顧。今子之言，大而無用，衆所同去也 。」莊子曰：「子獨不見狸狌乎 ？卑身而伏，以候敖者 ；東西跳梁，不辟高下 ，中於機辟，死於罔罟 。今夫斄牛，其大若垂天之雲 ；此能為大矣，而不能執鼠 。今子有大樹，患其無用，何不樹之於無何有之鄉 ，廣莫之野 ，彷徨乎無為其側，逍遙乎寢臥其下 ；不夭斤斧，物無害者 。無所可用，安所困苦哉 ？」" },
+            { title: "逍遙遊", author: "莊子", content: "惠子 謂莊子曰：「魏王貽我大瓠之種(zung) ，我樹之成而實五石(daan) 。以盛水漿，其堅不能自舉也 。剖之以為瓢 ，則瓠落無所容 。非不呺然 大也，吾為其無用而掊之 。」莊子曰：「夫子固拙於 用大矣！宋人有善為不龜(gwan)手之藥者 ，世世以洴澼絖為事 。客聞之，請買其方百金。聚族而謀曰：『我世 স্বল্প金；今一朝而鬻(zuk)技百金 ，請與之。』客得之，以說 吳王。越有難 ，吳王使之將 ，冬與越人水戰，大敗越人，裂地 而封之。能不龜手一也 ；或以封，或不免於洴澼絖，則所用之異也 。今子有五石之瓠，何不慮以為大樽而浮於江湖 ，而憂其瓠落無所容，則夫子猶有蓬之心也夫 ！」\n\n惠子謂莊子曰：「吾有大樹，人謂之樗 ；其大本擁(jung)腫而不中(zung)繩墨 ，其小枝卷曲而不中(zung)規矩 。立之塗 ，匠者不顧。今子之言，大而無用，衆所同去也 。」莊子曰：「子獨不見狸狌乎 ？卑身而伏，以候敖者 ；東西跳梁，不辟高下 ，中於機辟，死於罔罟 。今夫斄牛，其大若垂天之雲 ；此能為大矣，而不能執鼠 。今子有大樹，患其無用，何不樹之於無何有之鄉 ，廣莫之野 ，彷徨乎無為其側，逍遙乎寢臥其下 ；不夭斤斧，物無害者 。無所可用，安所困苦哉 ？」" },
             { title: "出師表", author: "諸葛亮", content: "先帝創業未半 ，而中道崩殂 ；今天下三分 ，益州疲弊 ，此誠危急存亡之秋也﹗然侍衞之臣，不懈於內；忠志之士，忘身於外者 ，蓋追先帝之殊遇，欲報之於陛下也 。誠宜開張聖聽 ，以光先帝遺德 ，恢弘志士之氣 ﹔不宜妄自菲薄 ，引喻失義 ，以塞忠諫之路也 。\n\n宮中、府中，俱為一體 ；陟罰臧否 ，不宜異同。若有作姦、犯科，及為忠善者 ，宜付有司，論其刑賞 ，以昭陛下平明之治 ；不宜偏私，使內外異法也 。\n\n侍中、侍郎郭攸之、費禕、董允等 ，此皆良實，志慮忠純 ，是以先帝簡拔以遺(wai)陛下 。愚以為宮中之事，事無大小，悉以咨之 ，然後施行，必能裨補闕漏，有所廣益 。\n\n將軍向寵，性行淑均 ，曉暢軍事，試用於昔日，先帝稱之曰「能」，是以眾議舉寵為督 。愚以為營中之事，悉以咨之，必能使行陣和睦，優劣得所 。\n\n親賢臣，遠小人 ，此先漢所以興隆也﹔親小人，遠賢臣，此後漢所以傾頹也。先帝在時，每與臣論此事，未嘗不歎息痛恨於桓、靈也 ！侍中、尚書、長史、參軍 ，此悉貞良死節之臣，願陛下親之、信之，則漢室之隆，可計日而待也。\n\n臣本布衣，躬耕於南陽 ，苟全性命於亂世，不求聞達於諸侯 。先帝不以臣卑鄙，猥自枉屈 ，三顧臣於草廬之中，諮臣以當世之事；由是感激，遂許先帝以驅馳 。後值傾覆 ，受任於敗軍之際，奉命於危難之間，爾來二十有一(jau)年矣 。先帝知臣謹慎，故臨崩寄臣以大事也 。受命以來，夙夜憂歎，恐託付不效，以傷先帝之明 。故五月渡瀘，深入不毛 。今南方已定，兵甲已足，當獎率三軍，北定中原，庶竭駑鈍，攘除姦凶 ，興復漢室，還於舊都 。此臣所以報先帝而忠陛下之職分也。至於斟酌損益，進盡忠言，則攸之、禕、允之任也 。\n\n願陛下託臣以討賊興復之效；不效，則治臣之罪，以告先帝之靈。若無興德之言，則責攸之、禕、允等之慢，以彰其咎 。陛下亦宜自謀，以諮諏善道，察納雅言 ，深追先帝遺詔。臣不勝受恩感激。今當遠離，臨表涕零 ，不知所言 ！" },
             { title: "六國論", author: "蘇洵", content: "六國破滅 ，非兵不利 ，戰不善 ，弊在賂秦 。賂秦而力虧 ，破滅之道 也。或曰：「六國互喪 ，率(seot) 賂秦耶？」曰：「不賂者以賂者喪。」蓋失強援 ，不能獨完 ，故曰「弊在賂秦」也。\n\n秦以攻取 之外，小則獲邑 ，大則得城，較秦之所得 與戰勝而得者，其實百倍；諸侯之所亡 與戰敗而亡者，其實亦百倍。則秦之所大欲，諸侯之所大患，固不在戰矣。思厥先祖父 ，暴(puk)霜露，斬荊棘 ，以有尺寸之地 。子孫視之不甚惜，舉以予人 ，如棄草芥 。今日割五城，明日割十城，然後得一夕安寢；起視四境，而秦兵又至矣。然則諸侯之地有限，暴秦之欲無厭 ，奉之彌 繁，侵之愈急，故不戰而強弱勝負已判 矣。至於顛覆 ，理固宜然。古人 云：「以地事秦，猶抱薪救火，薪不盡，火不滅。」 此言得之。 \n\n齊人未嘗賂秦，終繼五國遷滅 ，何哉？與嬴 而不助五國也。五國既喪，齊亦不免矣。燕趙之君，始有遠略 ，能守其土，義不賂秦 。是故燕雖小國而後亡，斯用兵之效 也。至丹以荊卿為計 ，始速禍 焉。趙嘗五戰于秦 ，二敗而三勝 ；後秦擊趙者再，李牧 連卻 之；洎牧以讒誅 ，邯鄲為郡 ，惜其用武而不終 也。\n\n且燕趙處秦革滅 殆盡之際，可謂智力孤危 ，戰敗而亡，誠不得已。向使三國各愛其地 ，齊人勿附於秦，刺客不行 ，良將 猶在，則勝負之數 ，存亡之理，當(dong) 與秦相較，或未易量 。\n\n嗚呼！以賂秦之地，封天下之謀臣；以事秦之心，禮 天下之奇才；幷力西嚮 ，則吾恐秦人食之不得下嚥 也。悲夫！有如此之勢，而為秦人積威 之所劫，日削月割，以趨於亡！為國者無使為積威之所劫哉！\n\n夫六國與秦皆諸侯，其勢弱於秦，而猶有可以不賂而勝之之勢；茍以天下之大，而從六國破亡之故事 ，是又在六國下矣！" },
             { title: "勸學", author: "荀子", content: "君子曰：學不可以已 。青，取之於藍 ，而青於藍 ；冰，水為之，而寒於水。木直中(zung)繩 ，輮(jau) 以為輪，其曲中(zung)規 ；雖有(jau)槁暴(puk) 、不復挺(ting) 者，輮使之然也。故木受繩則直 ，金就礪 則利，君子博學而日參省 乎己，則知(zi) 明而行 無過矣。\n\n吾嘗終日而思矣，不如須臾 之所學也；吾嘗跂 而望矣，不如登高之博見也。登高而招，臂非加長也，而見者遠。順風而呼，聲非加疾 也，而聞者彰 。假輿馬者 ，非利足 也，而致 千里；假舟楫 者，非能水 也，而絕江河 。君子生(sing)非異 也，善假於物 也。\n\n積土成山，風雨興焉；積水成淵 ，蛟龍 生焉；積善成德，而神明 自得，聖心 備焉。故不積跬步 ，無以至千里；不積小流，無以成江海。騏驥 一躍，不能十步；駑馬十駕 ，功在不舍 。鍥 而舍之，朽木不折；鍥而不舍，金石可鏤 。螾 無爪牙之利，筋骨之強，上食埃土 ，下飲黃泉，用心一也。蟹六跪而二螯 ，非蛇蟺 之穴無可寄託者，用心躁 也。" },
@@ -312,17 +330,52 @@
     let ToJyutpingLib = null;
 
     let currentSentenceIdx = 0; 
-    let consumedSttIdx = 0; 
     let partialTimeout = null;
 
-  let currentCategory = "中文";
-let currentIndex = 0;
-let selectedParagraphs = new Set();
-const globalDictCache = new Map();
+    let currentCategory = "中文";
+    let currentIndex = 0;
+    let selectedParagraphs = new Set();
+    
+    // ==========================================
+    // 本地儲存 (LocalStorage) 字典快取機制
+    // ==========================================
+    const globalDictCache = new Map();
+    const textJyutpingCache = new Map();
+    let cacheUpdatedFlag = false;
 
-// 【新增】文章專用的記憶體快取
-const textJyutpingCache = new Map();
+    try {
+        const savedGlobal = localStorage.getItem('globalDictCache_v2');
+        if (savedGlobal) {
+            const parsed = JSON.parse(savedGlobal);
+            for (const [k, v] of Object.entries(parsed)) globalDictCache.set(k, v);
+        }
+        const savedText = localStorage.getItem('textJyutpingCache_v2');
+        if (savedText) {
+            const parsed = JSON.parse(savedText);
+            for (const [k, v] of Object.entries(parsed)) textJyutpingCache.set(k, v);
+        }
+    } catch (e) {
+        console.warn("讀取 LocalStorage 快取失敗", e);
+    }
 
+    let saveCacheTimeout;
+    function requestSaveCache() {
+        clearTimeout(saveCacheTimeout);
+        saveCacheTimeout = setTimeout(() => {
+            try {
+                if (globalDictCache.size > 5000) {
+                    const keys = Array.from(globalDictCache.keys());
+                    for (let i = 0; i < keys.length - 5000; i++) globalDictCache.delete(keys[i]);
+                }
+                localStorage.setItem('textJyutpingCache_v2', JSON.stringify(Object.fromEntries(textJyutpingCache)));
+                localStorage.setItem('globalDictCache_v2', JSON.stringify(Object.fromEntries(globalDictCache)));
+            } catch (e) { }
+        }, 1000);
+    }
+
+    // ==========================================
+    // UI 控制與文字載入邏輯
+    // ==========================================
     function renderMenu() {
         const menuContainer = document.getElementById('menu-container');
         let html = '';
@@ -347,32 +400,22 @@ const textJyutpingCache = new Map();
         }
     }
 
-  function selectText(category, idx) {
+    function selectText(category, idx) {
         if (isRecording) toggleRecording();
         currentCategory = category;
         currentIndex = idx;
-        selectedParagraphs.clear(); // 切換篇章時重置為全文模式
+        selectedParagraphs.clear();
         toggleMenu();
         loadCurrentText();
     }
 
-window.toggleParagraph = function(idx) {
-        // 檢查是否已有背誦進度 (是否有任何字元已被標記為 matched)
+    window.toggleParagraph = function(idx) {
         const hasProgress = textNodes.some(n => n.type === 'char' && n.matched);
-        
-        // 如果已有進度，則彈出確認視窗防誤觸
         if (hasProgress) {
-            const confirmReset = confirm("您目前已有背誦紀錄，選取或取消段落將會重置所有進度。確定要繼續嗎？");
-            if (!confirmReset) {
-                return; // 用家點擊取消，直接中斷執行，保留原進度
-            }
+            if (!confirm("您目前已有背誦紀錄，選取或取消段落將會重置所有進度。確定要繼續嗎？")) return;
         }
-
-        if (selectedParagraphs.has(idx)) {
-            selectedParagraphs.delete(idx); // 若已選取則點擊取消
-        } else {
-            selectedParagraphs.add(idx); // 否則加入選取名單
-        }
+        if (selectedParagraphs.has(idx)) selectedParagraphs.delete(idx);
+        else selectedParagraphs.add(idx);
         loadCurrentText();
     };
 
@@ -385,17 +428,15 @@ window.toggleParagraph = function(idx) {
         setTimeout(() => {
             textNodes = []; sentences = [];
             let html = ''; let charCount = 0;
-            
             let rawParagraphs = data.content.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
 
-          rawParagraphs.forEach((paraText, pIdx) => {
+            rawParagraphs.forEach((paraText, pIdx) => {
                 let isActivePara = (selectedParagraphs.size === 0 || selectedParagraphs.has(pIdx));
                 let paraClass = (selectedParagraphs.size > 0 && !isActivePara) ? 'inactive' : '';
                 
                 html += `<div class="para-block ${paraClass}" onclick="toggleParagraph(${pIdx})" title="${isActivePara && selectedParagraphs.size > 0 ? '點擊取消選取' : '點擊選取此段'}">`;
                 
-                let i = 0;
-                let currentSentChars = [];
+                let i = 0; let currentSentChars = [];
                 let cleanText = paraText.replace(/\(\d+\)/g, '').replace(/（.*?）/g, '');
 
                 while (i < cleanText.length) {
@@ -406,39 +447,30 @@ window.toggleParagraph = function(idx) {
                         if (isActivePara) textNodes.push({ type: 'punct', char: char });
                         html += `<span class="punct">${char}</span>`;
                         if (isActivePara && currentSentChars.length > 0) { 
-                            sentences.push(currentSentChars); 
-                            currentSentChars = []; 
+                            sentences.push(currentSentChars); currentSentChars = []; 
                         }
                         i++; continue;
                     }
 
-                  let jyutpings = [];
-                    let fuzzyBases = [];
-                    let isManualOverride = false;
+                    let jyutpings = []; let fuzzyBases = []; let isManualOverride = false;
 
-                    // 1. 處理手動注音如：屬(zuk)
                     if (cleanText[i + 1] === '(') {
                         let endIdx = cleanText.indexOf(')', i + 1);
                         if (endIdx !== -1) {
                             jyutpings = cleanText.substring(i + 2, endIdx).split('|'); 
-                            i = endIdx + 1;
-                            isManualOverride = true;
+                            i = endIdx + 1; isManualOverride = true;
                         } else { i++; }
                     } 
                     
-                    // 2. 如果是手動注音，直接計算；如果不是，則檢查快取
                     if (isManualOverride) {
                         jyutpings = [...new Set(jyutpings)];
                         fuzzyBases = [...new Set(jyutpings.map(jp => fuzzyJyutping(jp)))];
                     } else {
-                        // 【新增】檢查是否已經查過這個字
                         if (textJyutpingCache.has(char)) {
                             let cached = textJyutpingCache.get(char);
-                            jyutpings = cached.jyutpings;
-                            fuzzyBases = cached.fuzzyBases;
+                            jyutpings = cached.jyutpings; fuzzyBases = cached.fuzzyBases;
                             i++;
                         } else {
-                            // 沒查過，向套件查詢
                             if (ToJyutpingLib && typeof ToJyutpingLib.getJyutpingCandidates === 'function') {
                                 let cands = ToJyutpingLib.getJyutpingCandidates(char);
                                 if (cands && cands.length > 0 && cands[0][1]) {
@@ -454,34 +486,31 @@ window.toggleParagraph = function(idx) {
                             jyutpings = [...new Set(jyutpings)];
                             fuzzyBases = [...new Set(jyutpings.map(jp => fuzzyJyutping(jp)))];
                             
-                            // 存入快取，下次遇到同一個字瞬間讀取！
                             textJyutpingCache.set(char, { jyutpings: jyutpings, fuzzyBases: fuzzyBases });
                             i++;
                         }
                     }
 
                     jyutpings = [...new Set(jyutpings)];
-
                     let node = { type: 'char', char: char, index: charCount, matched: false, jyutpings: jyutpings, isCurrentSentence: false };
                     
                     if (isActivePara) {
                         textNodes.push(node);
                         currentSentChars.push(node);
                     }
-
                     html += `<span class="char" id="char-${charCount}" data-jp="${jyutpings.join('/')}">${char}</span>`;
                     charCount++;
                 }
-                
                 if (isActivePara && currentSentChars.length > 0) sentences.push(currentSentChars);
                 html += `</div>`;
             });
             
+            requestSaveCache();
+
             if (sentences.length > 0) sentences[0].forEach((n) => { n.isCurrentSentence = true; });
 
             document.getElementById('text-display').innerHTML = html;
             
-            // 【新增】一次性快取所有字元的 DOM 元素，並紀錄先前的狀態，極大提升手機效能
             textNodes.forEach(node => {
                 if (node.type === 'char') {
                     node.el = document.getElementById(`char-${node.index}`);
@@ -507,12 +536,82 @@ window.toggleParagraph = function(idx) {
             else { setTimeout(checkLib, 300); }
         }
     }
-
     document.addEventListener('DOMContentLoaded', () => { checkLib(); });
 
+
+    // ==========================================
+    // 語音識別、效能最佳化緩衝與即時反饋
+    // ==========================================
     let recognition;
     let isRecording = false;
-    let finalTranscript = '';
+    
+    // 【全新設計】徹底解決越讀越慢的問題：不再使用無限增長的字串。
+    // 我們將語音動態轉換為 Token 陣列，只要一句話配對成功，就立即將配對過的 Token 從記憶體刪除！
+    let finalTokens = [];
+    let consumedSttIdx = 0; 
+    let sttTimeout = null;
+    let feedbackTimeout;
+
+    function showSpeechFeedback(text) {
+        const el = document.getElementById('speech-feedback');
+        if (!text) {
+            el.classList.remove('show');
+            return;
+        }
+        // 限制顯示長度，避免干擾畫面
+        const displayLimit = 20;
+        const displayText = text.length > displayLimit ? "..." + text.slice(-displayLimit) : text;
+        el.innerText = "聽見：" + displayText;
+        el.classList.add('show');
+        
+        clearTimeout(feedbackTimeout);
+        feedbackTimeout = setTimeout(() => {
+            el.classList.remove('show');
+        }, 2000);
+    }
+
+    // 將任何文字轉化為可比對的 Token Array
+    function getTokens(str) {
+        let fixed = str.replace(/1/g, '一').replace(/2/g, '二').replace(/3/g, '三')
+                       .replace(/4/g, '四').replace(/5/g, '五').replace(/6/g, '六')
+                       .replace(/7/g, '七').replace(/8/g, '八').replace(/9/g, '九').replace(/0/g, '零');
+        let matches = fixed.toLowerCase().match(/[\u4e00-\u9fa5]|[a-z]+/g) || [];
+        let tokens = [];
+        
+        for (let token of matches) {
+            if (globalDictCache.has(token)) {
+                tokens.push({ char: token, bases: globalDictCache.get(token) });
+                continue;
+            }
+            let fuzzyBases = [];
+            if (/[a-z]+/.test(token)) {
+                fuzzyBases.push(fuzzyJyutping(token));
+            } else {
+                try {
+                    if (ToJyutpingLib && typeof ToJyutpingLib.getJyutpingCandidates === 'function') {
+                        let cands = ToJyutpingLib.getJyutpingCandidates(token);
+                        if (cands && cands[0] && cands[0][1]) {
+                            cands[0][1].forEach(jp => {
+                                let f = fuzzyJyutping(jp);
+                                if (f && !fuzzyBases.includes(f)) fuzzyBases.push(f);
+                            });
+                        }
+                    }
+                    if (fuzzyBases.length === 0 && ToJyutpingLib && typeof ToJyutpingLib.getJyutpingList === 'function') {
+                        let singleList = ToJyutpingLib.getJyutpingList(token);
+                        if (singleList && singleList[0] && singleList[0][1]) {
+                            let f = fuzzyJyutping(singleList[0][1]);
+                            if (f && !fuzzyBases.includes(f)) fuzzyBases.push(f);
+                        }
+                    }
+                } catch (e) {}
+            }
+            globalDictCache.set(token, fuzzyBases);
+            cacheUpdatedFlag = true;
+            tokens.push({ char: token, bases: fuzzyBases });
+        }
+        return tokens;
+    }
 
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -522,26 +621,52 @@ window.toggleParagraph = function(idx) {
         recognition.interimResults = true;
 
         recognition.onstart = function() { document.getElementById('btn-start').classList.add('recording'); };
-        let sttTimeout = null;
+        
         recognition.onresult = function(event) {
-            let interimTranscript = '';
+            let newFinalStr = '';
+            let interimStr = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-                else interimTranscript += event.results[i][0].transcript;
+                if (event.results[i].isFinal) newFinalStr += event.results[i][0].transcript;
+                else interimStr += event.results[i][0].transcript;
             }
             
-            // 【新增】節流機制：如果在 150 毫秒內連續收到語音，只會執行最後一次，減輕手機 CPU 負擔
+            if (newFinalStr) finalTokens.push(...getTokens(newFinalStr));
+            let interimTokens = getTokens(interimStr);
+            
+            // 系統需要處理的數據只有「尚未被成功配對的字」加上「說話當下還在變動的字」
+            // 永遠保持輕量，解決運算延遲！
+            let currentSttData = [...finalTokens, ...interimTokens];
+            
+            if (cacheUpdatedFlag) { requestSaveCache(); cacheUpdatedFlag = false; }
+
+            // 讓使用者第一時間看到未處理的字幕
+            let display1 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+            showSpeechFeedback(display1);
+
             clearTimeout(sttTimeout);
             sttTimeout = setTimeout(() => {
-                matchAlgorithm(finalTranscript + interimTranscript);
-            }, 150); 
+                matchAlgorithm(currentSttData);
+                
+                // 比對完成後，若有成功過關的字，字幕會立刻變更（逐句清空效果）
+                let display2 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+                if (display1 !== display2) showSpeechFeedback(display2);
+                
+                // 記憶體清理：立刻將剛才確認配對過關的 Token 從陣列徹底刪除，絕不殘留
+                let safeToClear = Math.min(consumedSttIdx, finalTokens.length);
+                if (safeToClear > 0) {
+                    finalTokens.splice(0, safeToClear);
+                    consumedSttIdx -= safeToClear;
+                }
+            }, 80); 
         };
+        
         recognition.onerror = function(event) {
             if (event.error === 'not-allowed') {
                 isRecording = false; document.getElementById('btn-start').classList.remove('recording');
                 alert("未授權麥克風使用。");
             }
         };
+        
         recognition.onend = function() {
             if (isRecording) { setTimeout(() => { if (isRecording) { try { recognition.start(); } catch(e) {} } }, 1000); } 
             else { document.getElementById('btn-start').classList.remove('recording'); }
@@ -552,45 +677,54 @@ window.toggleParagraph = function(idx) {
 
     function toggleRecording() {
         if (!recognition) return;
-        if (isRecording) { isRecording = false; recognition.stop(); } 
-        else { isRecording = true; try { recognition.start(); } catch(e) {} }
+        if (isRecording) { 
+            isRecording = false; recognition.stop(); 
+            showSpeechFeedback('');
+        } else { 
+            isRecording = true; try { recognition.start(); } catch(e) {} 
+        }
     }
 
+    // ==========================================
+    // 鍵盤輸入整合
+    // ==========================================
     window.toggleKeyboard = function() {
         const bar = document.getElementById('action-bar');
         const input = document.getElementById('manual-input');
         const btn = document.getElementById('btn-keyboard');
-        
         bar.classList.toggle('show-input');
-        if (bar.classList.contains('show-input')) {
-            input.focus();
-            btn.style.color = 'var(--accent-red)';
-        } else {
-            input.blur();
-            btn.style.color = '';
-        }
+        if (bar.classList.contains('show-input')) { input.focus(); btn.style.color = 'var(--accent-red)'; } 
+        else { input.blur(); btn.style.color = ''; }
     };
 
-    const manualInput = document.getElementById('manual-input');
-    
-   // 處理輸入法選字完成
-    manualInput.addEventListener('compositionend', (e) => {
-        if (e.data && e.data.trim() !== '') {
-            finalTranscript += e.data;
-            manualInput.value = '';
-            matchAlgorithm(finalTranscript, true);
+    function handleManualInput(text) {
+        if (!text) return;
+        finalTokens.push(...getTokens(text));
+        let currentSttData = [...finalTokens];
+        
+        let display1 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+        showSpeechFeedback(display1);
+        
+        matchAlgorithm(currentSttData, true);
+        
+        let display2 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
+        if (display1 !== display2) showSpeechFeedback(display2);
+        
+        let safeToClear = Math.min(consumedSttIdx, finalTokens.length);
+        if (safeToClear > 0) {
+            finalTokens.splice(0, safeToClear);
+            consumedSttIdx -= safeToClear;
         }
-    });
+    }
 
-    // 處理一般打字（如直接打字、貼上或無選字情況）
+    const manualInput = document.getElementById('manual-input');
+    manualInput.addEventListener('compositionend', (e) => {
+        if (e.data && e.data.trim() !== '') { handleManualInput(e.data); manualInput.value = ''; }
+    });
     manualInput.addEventListener('input', (e) => {
         if (e.isComposing) return;
         const val = manualInput.value;
-        if (val.trim() !== '') {
-            finalTranscript += val;
-            manualInput.value = '';
-            matchAlgorithm(finalTranscript, true);
-        }
+        if (val.trim() !== '') { handleManualInput(val); manualInput.value = ''; }
     });
 
     function setMode(mode) {
@@ -609,13 +743,20 @@ window.toggleParagraph = function(idx) {
     function resetAll(stopRec = true) {
         if (stopRec && isRecording) toggleRecording();
         clearTimeout(partialTimeout);
-        finalTranscript = ''; lastTranscript = ''; currentSentenceIdx = 0; consumedSttIdx = 0;
+        
+        // 清空所有緩衝與狀態
+        finalTokens = []; consumedSttIdx = 0;
         document.getElementById('manual-input').value = '';
+        showSpeechFeedback('');
+        
         textNodes.forEach(n => { if (n.type === 'char') { n.matched = false; n.isCurrentSentence = false; } });
         if (sentences.length > 0) { sentences[0].forEach((n) => { n.isCurrentSentence = true; }); }
         updateRender();
     }
 
+    // ==========================================
+    // 核心比對邏輯 (DFS 動態規劃)
+    // ==========================================
     function fuzzyJyutping(str) {
         if (!str) return '';
         let base = str.toLowerCase().replace(/[0-9\s]/g, ''); 
@@ -672,54 +813,8 @@ window.toggleParagraph = function(idx) {
         }
     }
 
-    let lastTranscript = '';
-
-function matchAlgorithm(transcript, isTyping = false) {
-        if (transcript === lastTranscript) return;
-        lastTranscript = transcript;
-
+    function matchAlgorithm(sttData, isTyping = false) {
         clearTimeout(partialTimeout); 
-
-        let transFixed = transcript.replace(/1/g, '一').replace(/2/g, '二').replace(/3/g, '三')
-                                   .replace(/4/g, '四').replace(/5/g, '五').replace(/6/g, '六')
-                                   .replace(/7/g, '七').replace(/8/g, '八').replace(/9/g, '九').replace(/0/g, '零');
-        
-        let tokens = transFixed.toLowerCase().match(/[\u4e00-\u9fa5]|[a-z]+/g) || [];
-        let sttData = [];
-        
-        for (let token of tokens) {
-            if (globalDictCache.has(token)) {
-                sttData.push({ char: token, bases: globalDictCache.get(token) });
-                continue;
-            }
-
-            let fuzzyBases = [];
-            if (/[a-z]+/.test(token)) {
-                fuzzyBases.push(fuzzyJyutping(token));
-            } else {
-                try {
-                    if (ToJyutpingLib && typeof ToJyutpingLib.getJyutpingCandidates === 'function') {
-                        let candidates = ToJyutpingLib.getJyutpingCandidates(token);
-                        if (candidates && candidates[0] && candidates[0][1]) {
-                            candidates[0][1].forEach(jp => {
-                                let f = fuzzyJyutping(jp);
-                                if (f && !fuzzyBases.includes(f)) fuzzyBases.push(f);
-                            });
-                        }
-                    }
-                    if (fuzzyBases.length === 0 && ToJyutpingLib && typeof ToJyutpingLib.getJyutpingList === 'function') {
-                        let singleList = ToJyutpingLib.getJyutpingList(token);
-                        if (singleList && singleList[0] && singleList[0][1]) {
-                            let f = fuzzyJyutping(singleList[0][1]);
-                            if (f && !fuzzyBases.includes(f)) fuzzyBases.push(f);
-                        }
-                    }
-                } catch (e) {}
-            }
-            globalDictCache.set(token, fuzzyBases);
-            sttData.push({ char: token, bases: fuzzyBases });
-        }
-
         let sentencePassed = false;
         
         do {
@@ -778,17 +873,18 @@ function matchAlgorithm(transcript, isTyping = false) {
                 
                 if (currentMax > 0) {
                     let junkCount = sttData.length - maxMatchEndStt;
+                    // 當讀錯卡住時，自動觸發重置機制，清空殘留記憶體
                     if (junkCount >= 4) { 
                         triggerShakeReset(sentenceChars, currentMax);
-                        consumedSttIdx = sttData.length; 
-                        maxMatched = 0;
+                        finalTokens = []; consumedSttIdx = 0; 
+                        maxMatched = 0; showSpeechFeedback('');
                     } else if (!isTyping) {
                         partialTimeout = setTimeout(() => {
                             let chars = sentences[currentSentenceIdx];
                             triggerShakeReset(chars, currentMax);
-                            consumedSttIdx = sttData.length;
                             chars.forEach(n => n.matched = false);
                             updateRender();
+                            finalTokens = []; consumedSttIdx = 0; showSpeechFeedback('');
                         }, 2500); 
                     }
                 }
@@ -804,33 +900,23 @@ function matchAlgorithm(transcript, isTyping = false) {
         updateRender();
     }
 
-   function updateRender() {
+    function updateRender() {
         let matchedCount = 0;
         let totalChars = 0;
 
         textNodes.forEach(node => {
             if (node.type === 'char') {
                 totalChars++;
-                
-                // 狀態有改變時，才操作 DOM (避免手機重新繪製畫面)
                 if (node.matched !== node.renderedMatched) {
-                    if (node.matched) {
-                        node.el.classList.add('matched');
-                    } else {
-                        node.el.classList.remove('matched');
-                    }
+                    if (node.matched) node.el.classList.add('matched');
+                    else node.el.classList.remove('matched');
                     node.renderedMatched = node.matched;
                 }
-                
                 if (node.isCurrentSentence !== node.renderedCurrent) {
-                    if (node.isCurrentSentence) {
-                        node.el.classList.add('current-sentence');
-                    } else {
-                        node.el.classList.remove('current-sentence');
-                    }
+                    if (node.isCurrentSentence) node.el.classList.add('current-sentence');
+                    else node.el.classList.remove('current-sentence');
                     node.renderedCurrent = node.isCurrentSentence;
                 }
-                
                 if (node.matched) matchedCount++;
             }
         });
