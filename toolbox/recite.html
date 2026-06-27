@@ -848,7 +848,7 @@ function resetAll(stopRec = true) {
         updateRender();
     }
 
-// 智能字幕校正：將同音的白話文自動轉換為文言文目標字
+// 智能字幕校正：與底層的 1/2/3 分評分機制完美同步
     function getSmartDisplayText(sttData, startIndex) {
         let rawTokens = sttData.slice(startIndex);
         if (rawTokens.length === 0) return "";
@@ -882,16 +882,19 @@ function resetAll(stopRec = true) {
                 let score = evaluateMatch(sttBases, targetBases);
                 let replace = false;
 
-                if (score === 2) replace = true; // 韻母對，換字
-                else if (score === 1) { // 聲母對，驗證鄰居再換字
+                if (score === 3) replace = true; // 3分：完美全中，無條件換字
+               else if (score === 1 || score === 2) { // 1分或2分：驗證鄰居再換字
                     let ctxValid = false;
                     let tIdx = eIdx, tLen = expectedNodes.length;
                     
                     if (tIdx === 0) {
-                        if (getNbScore(rawTokens, expectedNodes, i+1, tIdx+1) > 0 || getNbScore(rawTokens, expectedNodes, i+2, tIdx+2) > 0) ctxValid = true;
+                        // 第一字：只看第二字
+                        if (getNbScore(rawTokens, expectedNodes, i+1, tIdx+1) > 0) ctxValid = true;
                     } else if (tIdx === tLen - 1) {
-                        if (getNbScore(rawTokens, expectedNodes, i-1, tIdx-1) > 0 || getNbScore(rawTokens, expectedNodes, i-2, tIdx-2) > 0) ctxValid = true;
+                        // 最後一字：只看前一字
+                        if (getNbScore(rawTokens, expectedNodes, i-1, tIdx-1) > 0) ctxValid = true;
                     } else {
+                        // 一般：看前一字或後一字
                         if (getNbScore(rawTokens, expectedNodes, i-1, tIdx-1) > 0 || getNbScore(rawTokens, expectedNodes, i+1, tIdx+1) > 0) ctxValid = true;
                     }
                     if (ctxValid) replace = true;
@@ -937,7 +940,7 @@ function resetAll(stopRec = true) {
         }
     }
 
-    // 智能評分員：2分 = 韻母過關，1分 = 僅聲母過關，0分 = 完全不對
+   // 智能評分員：3分=全中，2分=僅韻母對，1分=僅聲母對，0分=不對
     function evaluateMatch(sttBases, targetBases) {
         let bestScore = 0;
         for (let sb of sttBases) {
@@ -950,14 +953,24 @@ function resetAll(stopRec = true) {
                 let tInit = tParts.length > 1 ? tParts[0] : '';
                 let tFin = tParts.length > 1 ? tParts[1] : tParts[0];
                 
-                if (sFin === tFin) return 2; // 只要韻母對了，無條件給滿分
-                if (sInit !== '' && sInit === tInit) bestScore = 1; // 聲母對了，先保留 1 分
+                // 3分：聲母與韻母皆完美吻合
+                if (sInit === tInit && sFin === tFin) {
+                    return 3; 
+                }
+                // 2分：只有韻母吻合
+                if (sFin === tFin) {
+                    if (bestScore < 2) bestScore = 2; 
+                } 
+                // 1分：只有聲母吻合
+                else if (sInit !== '' && sInit === tInit) {
+                    if (bestScore < 1) bestScore = 1; 
+                }
             }
         }
         return bestScore;
     }
 
-  function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
+function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
         if (x === 1 && y === 1) {
             if (sttData[sttIdx].char === sentenceChars[targetIdx].char) return true;
 
@@ -965,10 +978,10 @@ function resetAll(stopRec = true) {
             let targetBases = sentenceChars[targetIdx].jyutpings.map(jp => fuzzyJyutping(jp));
             
             let score = evaluateMatch(sttBases, targetBases);
-            if (score === 2) return true; // 2分：韻母正確，無條件過關
+            if (score === 3) return true; // 3分：完美全中，無條件過關
             
-            if (score === 1) { 
-                // 1分：只有聲母正確，啟動「鄰居上下文驗證」
+          if (score === 1 || score === 2) { 
+                // 1分(僅聲母對) 或 2分(僅韻母對)：皆啟動「鄰居上下文驗證」
                 const getNbScore = (sOffset, tOffset) => {
                     let s_i = sttIdx + sOffset, t_i = targetIdx + tOffset;
                     if (s_i < 0 || s_i >= sttData.length || t_i < 0 || t_i >= sentenceChars.length) return 0;
@@ -980,11 +993,11 @@ function resetAll(stopRec = true) {
 
                 let contextValid = false;
                 if (targetIdx === 0) {
-                    // 第一字：看第二及第三字
-                    if (getNbScore(1, 1) > 0 || getNbScore(2, 2) > 0) contextValid = true;
+                    // 第一字：只看第二字
+                    if (getNbScore(1, 1) > 0) contextValid = true;
                 } else if (targetIdx === sentenceChars.length - 1) {
-                    // 最後一字：看前兩字
-                    if (getNbScore(-1, -1) > 0 || getNbScore(-2, -2) > 0) contextValid = true;
+                    // 最後一字：只看前一字
+                    if (getNbScore(-1, -1) > 0) contextValid = true;
                 } else {
                     // 一般：看前一字或後一字
                     if (getNbScore(-1, -1) > 0 || getNbScore(1, 1) > 0) contextValid = true;
@@ -995,7 +1008,7 @@ function resetAll(stopRec = true) {
             return false;
         }
         
-        // 應對極端連音 (x > 1 或 y > 1)，強制只比對韻母連線
+        // 極端連音容錯保持只看韻母
         let targetCombos = [''];
         for (let k = 0; k < y; k++) {
             let node = sentenceChars[targetIdx + k];
@@ -1108,7 +1121,7 @@ function resetAll(stopRec = true) {
                             
                             // 👇 新增這行：標記當下的語音段落為「廢棄」，避免尾音帶到下一句
                             lastClearedResultIndex = currentMaxResultIndex;
-                        }, 700); // 👈 關鍵修改：將這裡的 2500 改為 500 (0.5秒)
+                        }, 1000); // 👈 關鍵修改：將這裡的 2500 改為 500 (0.5秒)
                     }
                 }
 
