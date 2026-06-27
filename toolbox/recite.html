@@ -841,18 +841,22 @@ function updateSpeechGrammar() {
         let rawTokens = sttData.slice(startIndex);
         if (rawTokens.length === 0) return "";
 
-        // 收集當下「尚未背出」的預期目標字
         let expectedNodes = [];
         for (let i = currentSentenceIdx; i < sentences.length; i++) {
             for (let j = 0; j < sentences[i].length; j++) {
-                if (!sentences[i][j].matched) {
-                    expectedNodes.push(sentences[i][j]);
-                }
+                if (!sentences[i][j].matched) expectedNodes.push(sentences[i][j]);
             }
         }
 
         let eIdx = 0;
         let displayText = "";
+
+        const getNbScore = (sttTokens, tgtNodes, sIdx, tIdx) => {
+            if (sIdx < 0 || sIdx >= sttTokens.length || tIdx < 0 || tIdx >= tgtNodes.length) return 0;
+            let sBases = sttTokens[sIdx].bases.length > 0 ? sttTokens[sIdx].bases : [fuzzyJyutping(sttTokens[sIdx].char)];
+            let tBases = tgtNodes[tIdx].jyutpings.map(jp => fuzzyJyutping(jp));
+            return evaluateMatch(sBases, tBases);
+        };
 
         for (let i = 0; i < rawTokens.length; i++) {
             let sttToken = rawTokens[i];
@@ -863,10 +867,27 @@ function updateSpeechGrammar() {
                 let sttBases = sttToken.bases.length > 0 ? sttToken.bases : [fuzzyJyutping(sttToken.char)];
                 let targetBases = targetNode.jyutpings.map(jp => fuzzyJyutping(jp));
 
-                // 核心：如果聽到的字，跟目標字的拼音相容，就把字幕「換成正確的字」
-                if (sttBases.some(sb => targetBases.includes(sb))) {
+                let score = evaluateMatch(sttBases, targetBases);
+                let replace = false;
+
+                if (score === 2) replace = true; // 韻母對，換字
+                else if (score === 1) { // 聲母對，驗證鄰居再換字
+                    let ctxValid = false;
+                    let tIdx = eIdx, tLen = expectedNodes.length;
+                    
+                    if (tIdx === 0) {
+                        if (getNbScore(rawTokens, expectedNodes, i+1, tIdx+1) > 0 || getNbScore(rawTokens, expectedNodes, i+2, tIdx+2) > 0) ctxValid = true;
+                    } else if (tIdx === tLen - 1) {
+                        if (getNbScore(rawTokens, expectedNodes, i-1, tIdx-1) > 0 || getNbScore(rawTokens, expectedNodes, i-2, tIdx-2) > 0) ctxValid = true;
+                    } else {
+                        if (getNbScore(rawTokens, expectedNodes, i-1, tIdx-1) > 0 || getNbScore(rawTokens, expectedNodes, i+1, tIdx+1) > 0) ctxValid = true;
+                    }
+                    if (ctxValid) replace = true;
+                }
+
+                if (replace) {
                     useChar = targetNode.char; 
-                    eIdx++; // 預期指標前進
+                    eIdx++; 
                 }
             }
             displayText += useChar;
@@ -875,16 +896,12 @@ function updateSpeechGrammar() {
     }
 
 
-
     
-    // ==========================================
-    // 核心比對邏輯 (DFS 動態規劃)
-    // ==========================================
- function fuzzyJyutping(str) {
-        if (!str) return '';
+// 將拼音拆分為 "聲母:韻母" 的格式
+    function fuzzyJyutping(str) {
+        if (!str) return ':';
         let base = str.toLowerCase().replace(/[0-9\s]/g, ''); 
         
-        // 聲母與主要母音容錯
         base = base.replace(/y/g, 'j').replace(/^ch/, 'c').replace(/^sh/, 's').replace(/ue/g, 'yu')
                    .replace(/ee/g, 'i').replace(/oo/g, 'u').replace(/ou/g, 'au');    
         if (base.startsWith('n') && !base.startsWith('ng')) base = 'l' + base.substring(1); 
@@ -895,29 +912,85 @@ function updateSpeechGrammar() {
         
         if (base.endsWith('ing')) base = base.slice(0, -3) + 'eng';
         if (base.endsWith('ik')) base = base.slice(0, -2) + 'ek';
-        
-        // 韻尾大一統
         base = base.replace(/[pt]$/, 'k'); 
         base = base.replace(/(m|ng)$/, 'n'); 
-        
-        // 特殊拼音統一
         if (base === 'jut' || base === 'jyut' || base === 'jyuet' || base === 'jyuk') base = 'jyuk';
         
-        // 👇👇 新增這行：終極寬容，砍掉所有聲母，只保留韻母
-        base = base.replace(/^([bpmfdtnlgkhwjzcs]|gw|kw)(?=[aeiouy])/i, '');
-        
-        return base;
+        // 提取聲母與韻母
+        let match = base.match(/^([bpmfdtnlgkhwjzcs]|gw|kw)(.*)/i);
+        if (match) {
+            return match[1] + ':' + match[2];
+        } else {
+            return ':' + base; // 無聲母（如 ok, m）
+        }
     }
 
-    function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
-        if (x === 1 && y === 1 && sttData[sttIdx].char === sentenceChars[targetIdx].char) return true;
+    // 智能評分員：2分 = 韻母過關，1分 = 僅聲母過關，0分 = 完全不對
+    function evaluateMatch(sttBases, targetBases) {
+        let bestScore = 0;
+        for (let sb of sttBases) {
+            let sParts = sb.split(':');
+            let sInit = sParts.length > 1 ? sParts[0] : '';
+            let sFin = sParts.length > 1 ? sParts[1] : sParts[0];
+            
+            for (let tb of targetBases) {
+                let tParts = tb.split(':');
+                let tInit = tParts.length > 1 ? tParts[0] : '';
+                let tFin = tParts.length > 1 ? tParts[1] : tParts[0];
+                
+                if (sFin === tFin) return 2; // 只要韻母對了，無條件給滿分
+                if (sInit !== '' && sInit === tInit) bestScore = 1; // 聲母對了，先保留 1 分
+            }
+        }
+        return bestScore;
+    }
+
+  function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
+        if (x === 1 && y === 1) {
+            if (sttData[sttIdx].char === sentenceChars[targetIdx].char) return true;
+
+            let sttBases = sttData[sttIdx].bases.length > 0 ? sttData[sttIdx].bases : [fuzzyJyutping(sttData[sttIdx].char)];
+            let targetBases = sentenceChars[targetIdx].jyutpings.map(jp => fuzzyJyutping(jp));
+            
+            let score = evaluateMatch(sttBases, targetBases);
+            if (score === 2) return true; // 2分：韻母正確，無條件過關
+            
+            if (score === 1) { 
+                // 1分：只有聲母正確，啟動「鄰居上下文驗證」
+                const getNbScore = (sOffset, tOffset) => {
+                    let s_i = sttIdx + sOffset, t_i = targetIdx + tOffset;
+                    if (s_i < 0 || s_i >= sttData.length || t_i < 0 || t_i >= sentenceChars.length) return 0;
+                    
+                    let nbSttBases = sttData[s_i].bases.length > 0 ? sttData[s_i].bases : [fuzzyJyutping(sttData[s_i].char)];
+                    let nbTargetBases = sentenceChars[t_i].jyutpings.map(jp => fuzzyJyutping(jp));
+                    return evaluateMatch(nbSttBases, nbTargetBases); // 回傳 >0 代表聲/韻任一正確
+                };
+
+                let contextValid = false;
+                if (targetIdx === 0) {
+                    // 第一字：看第二及第三字
+                    if (getNbScore(1, 1) > 0 || getNbScore(2, 2) > 0) contextValid = true;
+                } else if (targetIdx === sentenceChars.length - 1) {
+                    // 最後一字：看前兩字
+                    if (getNbScore(-1, -1) > 0 || getNbScore(-2, -2) > 0) contextValid = true;
+                } else {
+                    // 一般：看前一字或後一字
+                    if (getNbScore(-1, -1) > 0 || getNbScore(1, 1) > 0) contextValid = true;
+                }
+                
+                if (contextValid) return true;
+            }
+            return false;
+        }
         
+        // 應對極端連音 (x > 1 或 y > 1)，強制只比對韻母連線
         let targetCombos = [''];
         for (let k = 0; k < y; k++) {
             let node = sentenceChars[targetIdx + k];
             let newCombos = [];
             for (let jp of node.jyutpings) {
-                let f = fuzzyJyutping(jp);
+                let parts = fuzzyJyutping(jp).split(':');
+                let f = parts.length > 1 ? parts[1] : parts[0];
                 for (let tc of targetCombos) newCombos.push(tc + f);
             }
             targetCombos = newCombos;
@@ -928,7 +1001,11 @@ function updateSpeechGrammar() {
             let item = sttData[sttIdx + k];
             let newCombos = [];
             let bases = item.bases.length > 0 ? item.bases : [fuzzyJyutping(item.char)];
-            for (let b of bases) { for (let sc of sttCombos) newCombos.push(sc + b); }
+            for (let b of bases) { 
+                let parts = b.split(':');
+                let f = parts.length > 1 ? parts[1] : parts[0];
+                for (let sc of sttCombos) newCombos.push(sc + f); 
+            }
             sttCombos = newCombos;
         }
         
