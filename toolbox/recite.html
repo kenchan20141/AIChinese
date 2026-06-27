@@ -318,8 +318,8 @@
     let currentCategory = "中文";
     let currentIndex = 0;
     
-    // 用於指定段落背誦 (-1 代表背誦全文)
-    let targetParagraphIdx = -1;
+// 用於記錄已選取的段落 (清單為空代表背誦全文)
+    let selectedParagraphs = new Set();
 
     const globalDictCache = new Map();
 
@@ -347,20 +347,20 @@
         }
     }
 
-    function selectText(category, idx) {
+  function selectText(category, idx) {
         if (isRecording) toggleRecording();
         currentCategory = category;
         currentIndex = idx;
-        targetParagraphIdx = -1; // 切換篇章時重置為全文模式
+        selectedParagraphs.clear(); // 切換篇章時重置為全文模式
         toggleMenu();
         loadCurrentText();
     }
 
-    window.toggleParagraph = function(idx) {
-        if (targetParagraphIdx === idx) {
-            targetParagraphIdx = -1;
+  window.toggleParagraph = function(idx) {
+        if (selectedParagraphs.has(idx)) {
+            selectedParagraphs.delete(idx); // 若已選取則點擊取消
         } else {
-            targetParagraphIdx = idx;
+            selectedParagraphs.add(idx); // 否則加入選取名單
         }
         loadCurrentText();
     };
@@ -377,11 +377,11 @@
             
             let rawParagraphs = data.content.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
 
-            rawParagraphs.forEach((paraText, pIdx) => {
-                let isActivePara = (targetParagraphIdx === -1 || targetParagraphIdx === pIdx);
-                let paraClass = (targetParagraphIdx !== -1 && !isActivePara) ? 'inactive' : '';
+          rawParagraphs.forEach((paraText, pIdx) => {
+                let isActivePara = (selectedParagraphs.size === 0 || selectedParagraphs.has(pIdx));
+                let paraClass = (selectedParagraphs.size > 0 && !isActivePara) ? 'inactive' : '';
                 
-                html += `<div class="para-block ${paraClass}" onclick="toggleParagraph(${pIdx})" title="${isActivePara && targetParagraphIdx !== -1 ? '點擊取消獨立背誦' : '點擊以獨立背誦此段'}">`;
+                html += `<div class="para-block ${paraClass}" onclick="toggleParagraph(${pIdx})" title="${isActivePara && selectedParagraphs.size > 0 ? '點擊取消選取' : '點擊選取此段'}">`;
                 
                 let i = 0;
                 let currentSentChars = [];
