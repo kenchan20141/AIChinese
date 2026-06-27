@@ -1118,29 +1118,77 @@ function checkComboMatch(sttData, sttIdx, x, sentenceChars, targetIdx, y) {
             } else {
                 let currentMax = maxMatched;
                 
-                // 若有輸入但無法過關，只要停頓夠久就會觸發整句震動並重置
+              // 若有輸入但無法過關，只要停頓夠久就會觸發錯誤提示並重置進度
+         // 若有輸入但無法過關，只要停頓夠久就會觸發錯誤提示並重置進度
                 if (currentMax > 0 || sttData.length > consumedSttIdx) {
                     if (!isTyping) {
                         partialTimeout = setTimeout(() => {
                             let chars = sentences[currentSentenceIdx];
                             
-                            // === 核心改動：精準標示讀錯或卡住的字元 ===
-                            // currentMax 代表目前成功配對的字數，剛好也就是卡住（尚未配對）的那一個字的索引
-                            let errorNode = chars[currentMax]; 
-                            if (errorNode) {
-                                let el = document.getElementById(`char-${errorNode.index}`);
-                                if (el) {
-                                    el.classList.remove('shake-error');
-                                    void el.offsetWidth; // 觸發重繪以重置動畫
-                                    el.classList.add('shake-error');
-                                    
-                                    // 讓錯誤狀態（紅色、強制顯示）保留 1.5 秒，讓用家清楚看見錯字才消失
-                                    setTimeout(() => {
-                                        if (el) el.classList.remove('shake-error');
-                                    }, 1500); 
-                                }
+                            // === 核心改動：智能前瞻分析，精準豁免讀對的字 ===
+                            let targetIdx = currentMax; // 成功配對的最後一個字之後，就是潛在錯誤起點
+                            let leftoverTokens = sttData.slice(maxMatchEndStt); // 取出引擎尚未核銷的殘餘語音
+                            let errorIndices = [];
+
+                            if (leftoverTokens.length === 0) {
+                                // 用家完全沒出聲，或停頓忘了下一個字，只標示卡住的下一個字
+                                if (targetIdx < chars.length) errorIndices.push(targetIdx);
                             } else {
-                                triggerShakeReset(chars); // 防呆備用：若找不到單字才整句震動
+                                // 預測範圍：依據剩餘語音的長度，加上少許容錯緩衝
+                                let checkLimit = Math.min(chars.length, targetIdx + leftoverTokens.length + 1);
+                                
+                                for (let i = targetIdx; i < checkLimit; i++) {
+                                    let tNode = chars[i];
+                                    let tBases = tNode.jyutpings.map(jp => fuzzyJyutping(jp));
+                                    let foundMatch = false;
+                                    
+                                    // 啟動滑動視窗：在殘餘語音中，尋找附近是否其實有讀對這個字（解決錯位與連累問題）
+                                    let relativeIdx = i - targetIdx;
+                                    let startSTT = Math.max(0, relativeIdx - 2); // 往前看2個音
+                                    let endSTT = Math.min(leftoverTokens.length, relativeIdx + 3); // 往後看3個音
+
+                                    for (let j = startSTT; j < endSTT; j++) {
+                                        let sToken = leftoverTokens[j];
+                                        // 若語音轉出的字直接一樣，或是拼音相近 (>0分代表聲母或韻母對了)
+                                        if (sToken.char === tNode.char) {
+                                            foundMatch = true; break;
+                                        }
+                                        let sBases = sToken.bases.length > 0 ? sToken.bases : [fuzzyJyutping(sToken.char)];
+                                        if (evaluateMatch(sBases, tBases) > 0) {
+                                            foundMatch = true; break;
+                                        }
+                                    }
+
+                                    if (!foundMatch) {
+                                        // 附近完全找不到這個字的發音，判定為真的讀錯或漏讀！
+                                        errorIndices.push(i); 
+                                    }
+                                }
+                                
+                                // 防呆：如果用家亂唸的音剛好全部賽中容錯，導致沒抓到錯字，則強制標記卡住的第一個字
+                                if (errorIndices.length === 0 && targetIdx < chars.length) {
+                                    errorIndices.push(targetIdx);
+                                }
+                            }
+
+                            // 執行精準的視覺特效
+                            if (errorIndices.length > 0) {
+                                errorIndices.forEach(idx => {
+                                    let errorNode = chars[idx];
+                                    let el = document.getElementById(`char-${errorNode.index}`);
+                                    if (el) {
+                                        el.classList.remove('shake-error');
+                                        void el.offsetWidth; // 觸發重繪以重置動畫
+                                        el.classList.add('shake-error');
+                                        
+                                        // 讓錯誤狀態保留 1.5 秒
+                                        setTimeout(() => {
+                                            if (el) el.classList.remove('shake-error');
+                                        }, 1500); 
+                                    }
+                                });
+                            } else {
+                                triggerShakeReset(chars); // 終極防呆
                             }
                             // ========================================
 
