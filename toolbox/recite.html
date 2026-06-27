@@ -348,12 +348,19 @@
     localStorage.removeItem('textJyutpingCache_v3');
     // 如果你確定同一個域名下沒有其他專案，也可以直接暴力使用： localStorage.clear();
 
-    try {
-        // 這裡的 _v2 改成 _v3
-        const savedGlobal = localStorage.getItem('globalDictCache_v3');
+  try {
+        // 讀取文本拼音快取
+        const savedText = localStorage.getItem('textJyutpingCache_v3');
         if (savedText) {
-            const parsed = JSON.parse(savedText);
-            for (const [k, v] of Object.entries(parsed)) textJyutpingCache.set(k, v);
+            const parsedText = JSON.parse(savedText);
+            for (const [k, v] of Object.entries(parsedText)) textJyutpingCache.set(k, v);
+        }
+
+        // 讀取全域單字快取
+        const savedGlobal = localStorage.getItem('globalDictCache_v3');
+        if (savedGlobal) {
+            const parsedGlobal = JSON.parse(savedGlobal);
+            for (const [k, v] of Object.entries(parsedGlobal)) globalDictCache.set(k, v);
         }
     } catch (e) {
         console.warn("讀取 LocalStorage 快取失敗", e);
@@ -619,6 +626,42 @@ let finalTokens = [];
         return tokens;
     }
 
+// 取得瀏覽器的 Grammar 支援
+const SpeechGramList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+
+// 新增：動態生成預判詞庫的函數
+function updateSpeechGrammar() {
+    if (!SpeechGramList || !recognition) return;
+
+    // 收集「當前句子」及「後續尚未背誦」的所有目標漢字
+    let expectedChars = new Set();
+    for (let i = currentSentenceIdx; i < sentences.length; i++) {
+        sentences[i].forEach(node => {
+            if (node.type === 'char') expectedChars.add(node.char);
+        });
+    }
+
+    if (expectedChars.size > 0) {
+        // 將字元組合為 JSGF (JSpeech Grammar Format) 語法
+        const words = Array.from(expectedChars).join(' | ');
+        const grammarString = `#JSGF V1.0; grammar classical; public <word> = ${words} ;`;
+
+        try {
+            const speechRecognitionList = new SpeechGramList();
+            // 加入詞庫，參數 1 代表最高權重 (Weight)
+            speechRecognitionList.addFromString(grammarString, 1);
+            recognition.grammars = speechRecognitionList;
+            console.log("已注入預判詞庫，字數：", expectedChars.size);
+        } catch (e) {
+            console.warn("此瀏覽器不支援動態語法權重注入", e);
+        }
+    }
+}
+
+
+
+    
+
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRec();
@@ -688,23 +731,37 @@ let finalTokens = [];
             }
         };
         
-        recognition.onend = function() {
-            if (isRecording) { setTimeout(() => { if (isRecording) { try { recognition.start(); } catch(e) {} } }, 1000); } 
-            else { document.getElementById('btn-start').classList.remove('recording'); }
+   recognition.onend = function() {
+            if (isRecording) { 
+                setTimeout(() => { 
+                    if (isRecording) { 
+                        updateSpeechGrammar(); // <--- 重啟前更新預判詞庫
+                        try { 
+                            recognition.start(); 
+                        } catch(e) {
+                            console.warn("重啟語音識別失敗", e);
+                        } 
+                    } 
+                }, 1000); 
+            } else { 
+                document.getElementById('btn-start').classList.remove('recording'); 
+            }
         };
     } else {
         alert('此瀏覽器不支援語音識別，建議使用 Chrome 瀏覽器。');
     }
 
-    function toggleRecording() {
-        if (!recognition) return;
-        if (isRecording) { 
-            isRecording = false; recognition.stop(); 
-            showSpeechFeedback('');
-        } else { 
-            isRecording = true; try { recognition.start(); } catch(e) {} 
-        }
+  function toggleRecording() {
+    if (!recognition) return;
+    if (isRecording) { 
+        isRecording = false; recognition.stop(); 
+        showSpeechFeedback('');
+    } else { 
+        isRecording = true; 
+        updateSpeechGrammar(); // <--- 新增這行：啟動前預判當前進度的字詞
+        try { recognition.start(); } catch(e) {} 
     }
+}
 
     // ==========================================
     // 鍵盤輸入整合
