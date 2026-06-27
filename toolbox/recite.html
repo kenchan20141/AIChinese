@@ -549,10 +549,14 @@
     
     // 【全新設計】徹底解決越讀越慢的問題：不再使用無限增長的字串。
     // 我們將語音動態轉換為 Token 陣列，只要一句話配對成功，就立即將配對過的 Token 從記憶體刪除！
-    let finalTokens = [];
+let finalTokens = [];
     let consumedSttIdx = 0; 
     let sttTimeout = null;
     let feedbackTimeout;
+    
+    // 👇 新增這兩個變數，用來徹底拋棄讀錯時殘留的語音緩衝
+    let lastClearedResultIndex = 0;
+    let currentMaxResultIndex = 0;
 
     function showSpeechFeedback(text) {
         const el = document.getElementById('speech-feedback');
@@ -622,12 +626,24 @@
         recognition.continuous = true;
         recognition.interimResults = true;
 
-        recognition.onstart = function() { document.getElementById('btn-start').classList.add('recording'); };
+    recognition.onstart = function() { 
+            document.getElementById('btn-start').classList.add('recording'); 
+            lastClearedResultIndex = 0; // 每次啟動麥克風時歸零
+            currentMaxResultIndex = 0;
+            
+            // 👇 加入這行，強制作為視覺緩衝，讓用家看到這行字才開口
+            showSpeechFeedback('🟢 就緒，請開始朗讀...'); 
+        };
         
         recognition.onresult = function(event) {
+            currentMaxResultIndex = event.results.length; // 記錄目前引擎的總段落數
+            
             let newFinalStr = '';
             let interimStr = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
+                // 👇 關鍵阻斷：如果這個片段在「震動重置」前就已經存在，強制拋棄它！
+                if (i < lastClearedResultIndex) continue;
+                
                 if (event.results[i].isFinal) newFinalStr += event.results[i][0].transcript;
                 else interimStr += event.results[i][0].transcript;
             }
@@ -641,9 +657,12 @@
             
             if (cacheUpdatedFlag) { requestSaveCache(); cacheUpdatedFlag = false; }
 
-            // 讓使用者第一時間看到未處理的字幕
+           // 讓使用者第一時間看到未處理的字幕
             let display1 = currentSttData.slice(consumedSttIdx).map(t => t.char).join('');
-            showSpeechFeedback(display1);
+            // 👇 確保有接收到聲音才更新字幕，避免空字串把「就緒提示」刷掉
+            if (display1.length > 0) {
+                showSpeechFeedback(display1);
+            }
 
             clearTimeout(sttTimeout);
             sttTimeout = setTimeout(() => {
@@ -742,7 +761,7 @@
         }
     }
 
-    function resetAll(stopRec = true) {
+  function resetAll(stopRec = true) {
         if (stopRec && isRecording) toggleRecording();
         clearTimeout(partialTimeout);
         
@@ -750,6 +769,9 @@
         finalTokens = []; consumedSttIdx = 0;
         document.getElementById('manual-input').value = '';
         showSpeechFeedback('');
+        
+        // 👇 新增這行：手動重置時，一併拋棄麥克風當下的殘留緩衝
+        lastClearedResultIndex = typeof currentMaxResultIndex !== 'undefined' ? currentMaxResultIndex : 0;
         
         textNodes.forEach(n => { if (n.type === 'char') { n.matched = false; n.isCurrentSentence = false; } });
         if (sentences.length > 0) { sentences[0].forEach((n) => { n.isCurrentSentence = true; }); }
@@ -888,13 +910,16 @@
                 // 若有輸入但無法過關，只要停頓夠久就會觸發整句震動並重置
                 if (currentMax > 0 || sttData.length > consumedSttIdx) {
                     if (!isTyping) {
-                        partialTimeout = setTimeout(() => {
+                      partialTimeout = setTimeout(() => {
                             let chars = sentences[currentSentenceIdx];
                             triggerShakeReset(chars); // 觸發整句視覺震動
                             chars.forEach(n => n.matched = false);
                             updateRender();
                             finalTokens = []; consumedSttIdx = 0; showSpeechFeedback('');
-                        }, 500); // 👈 關鍵修改：將這裡的 2500 改為 500 (0.5秒)
+                            
+                            // 👇 新增這行：標記當下的語音段落為「廢棄」，避免尾音帶到下一句
+                            lastClearedResultIndex = currentMaxResultIndex;
+                        }, 700); // 👈 關鍵修改：將這裡的 2500 改為 500 (0.5秒)
                     }
                 }
 
