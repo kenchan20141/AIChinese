@@ -581,20 +581,37 @@
         signInWithPopup(auth, provider);
     };
 
-    window.submitName = function() {
+  window.submitName = function() {
         const val = document.getElementById('input-username').value.trim();
-      if (/^[\u4e00-\u9fa5]{2,4}$/.test(val)) {
-            update(ref(db, `users/${myUid}`), { name: val, battlePoints: 0, singlePoints: 0 }).then(() => {
+        
+        if (/^[\u4e00-\u9fa5]{2,4}$/.test(val)) {
+            // 建立多路徑更新 (Atomic Update)
+            const updates = {};
+            updates[`users/${myUid}/name`] = val;
+            
+            // 初次註冊初始化分數 (如果是未來允許改名，這裡應先檢查是否已有分數，但初次登入這樣寫沒問題)
+            updates[`users/${myUid}/battlePoints`] = 0;
+            updates[`users/${myUid}/singlePoints`] = 0;
+            
+            // 【關鍵】寫入名稱鎖定
+            updates[`usernames/${val}`] = myUid; 
+
+            // 注意：必須從根目錄 ref(db) 進行多路徑更新
+            update(ref(db), updates).then(() => {
                 myName = val;
                 document.getElementById('auth-info').innerText = myName;
                 document.getElementById('name-overlay').classList.remove('active');
                 initApp();
+            }).catch((error) => {
+                // 當 Rules 阻擋 (例如名稱 !data.exists() 條件不成立時)，會觸發這裡
+                alert("此雅號已被其他文友捷足先登，請另賜雅號！");
+                console.warn("註冊名稱失敗:", error.message);
             });
+            
         } else {
             alert("必須為兩個至四個中文字，且不得包含數字或符號。");
         }
     };
-
     window.closeOverlays = function() {
         document.querySelectorAll('.full-overlay').forEach(el => el.classList.remove('active'));
     };
