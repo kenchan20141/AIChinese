@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>範文伴誦書僮</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f7f6f2; /* 宣紙白 */
+            --text-dark: #2c2b29; /* 墨黑 */
+            --text-gray: #d1cfc7; /* 淡灰 */
+            --text-light: #8c8a82; /* 註腳灰 */
+            --accent-red: #b04332; /* 硃砂紅 */
+            --accent-purple: #6b4d73; /* 黛紫 */
+            --accent-blue: #2b5c7a; /* 靛藍 */
+        }
+        body { font-family: 'Noto Serif TC', serif; background-color: var(--bg-color); color: var(--text-dark); margin: 0; padding: 0; overflow-x: hidden; font-weight: 400; }
+        .progress-bar-container { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: transparent; z-index: 100; }
+        .progress-bar { height: 100%; background: var(--accent-red); width: 0%; transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+        .nav-bar { position: fixed; top: 20px; left: 25px; z-index: 1000; display: flex; gap: 20px; }
+        .btn-text { background: none; border: none; cursor: pointer; color: var(--text-dark); display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 0.95rem; letter-spacing: 0.1em; transition: color 0.3s; padding: 0; }
+        .btn-text:hover { color: var(--accent-red); }
+        .btn-text svg { width: 20px; height: 20px; }
+        
+        /* 浮層模態框 (登入、命名、大廳、榜單) */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(247, 246, 242, 0.98); backdrop-filter: blur(10px); z-index: 2000; display: none; flex-direction: column; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.5s ease; overflow-y: auto; }
+        .modal-overlay.active { display: flex; opacity: 1; }
+        .modal-title { font-size: 1.6rem; letter-spacing: 0.4em; margin-bottom: 40px; color: var(--text-dark); font-weight: 400; }
+        .modal-input { background: transparent; border: none; border-bottom: 1px solid var(--text-gray); font-family: inherit; font-size: 1.2rem; text-align: center; outline: none; width: 220px; padding: 8px; letter-spacing: 0.2em; margin-bottom: 30px; color: var(--text-dark); }
+        .modal-input::placeholder { color: var(--text-gray); font-size: 0.9rem; }
+        .btn-outline { background: transparent; border: 1px solid var(--text-gray); padding: 10px 30px; border-radius: 0; font-family: inherit; font-size: 0.95rem; letter-spacing: 0.2em; cursor: pointer; transition: all 0.3s; color: var(--text-dark); }
+        .btn-outline:hover { border-color: var(--text-dark); background: var(--text-dark); color: var(--bg-color); }
+        
+        /* 目錄 */
+        .menu-container { max-width: 900px; margin: 0 auto; width: 100%; display: flex; flex-wrap: wrap; gap: 60px; padding: 80px 40px; }
+        .menu-section { flex: 1; min-width: 300px; }
+        .menu-section h3 { font-size: 1.2rem; font-weight: 600; letter-spacing: 0.4em; border-bottom: 1px solid var(--text-gray); padding-bottom: 15px; margin-bottom: 25px; }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 18px; }
+        .menu-list button { background: none; border: none; font-family: inherit; font-size: 1.1rem; color: var(--text-dark); cursor: pointer; letter-spacing: 0.15em; transition: all 0.3s ease; text-align: left; padding: 0; }
+        .menu-list button:hover { transform: translateX(5px); }
+        .menu-list button.active { font-weight: 600; }
+        .author-name { font-size: 0.8rem; color: var(--text-light); margin-left: 10px; }
+        .badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 2px; margin-left: 10px; letter-spacing: 0.05em; border: 1px solid; }
+        
+        .cat-lit { background-color: var(--accent-red); }
+        .cat-chi { background-color: var(--accent-purple); }
+        .menu-section.lit h3, .menu-section.lit .menu-list button:hover, .menu-section.lit .menu-list button.active { color: var(--accent-red); }
+        .menu-section.chi h3, .menu-section.chi .menu-list button:hover, .menu-section.chi .menu-list button.active { color: var(--accent-purple); }
+
+        /* 主體區 */
+        .container { max-width: 760px; margin: 12vh auto; padding: 0 30px 120px 30px; transition: opacity 0.4s ease; }
+        header { text-align: center; margin-bottom: 50px; }
+        h1 { font-size: 2.2rem; font-weight: 400; letter-spacing: 0.5em; margin: 0 0 15px 0; margin-right: -0.5em; color: var(--text-dark); }
+        .author { font-size: 0.95rem; color: var(--text-light); letter-spacing: 0.4em; margin-right: -0.4em; }
+        .cat-indicator { display: inline-block; height: 28px; width: 6px; margin-top: -6px; margin-right: 15px; vertical-align: middle; }
+
+        .mode-controls { display: flex; justify-content: center; gap: 40px; margin-bottom: 70px; }
+        .btn-mode { background: none; border: none; color: var(--text-light); cursor: pointer; font-family: inherit; font-size: 0.95rem; letter-spacing: 0.2em; padding: 5px 0; position: relative; transition: color 0.4s ease; }
+        .btn-mode:hover, .btn-mode.active { color: var(--text-dark); }
+        .btn-mode.active::after { content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); width: 3px; height: 3px; border-radius: 50%; background-color: var(--text-dark); }
+
+        /* 文本 */
+        .text-display { font-size: 1.45rem; line-height: 2.6; letter-spacing: 0.15em; text-align: justify; }
+        .para-block { position: relative; border-radius: 8px; padding: 10px 15px; margin: 10px -15px; cursor: pointer; transition: all 0.5s ease; }
+        .para-block:hover { background: rgba(0,0,0, 0.02); }
+        .para-block.inactive { opacity: 0.25; filter: grayscale(100%); pointer-events: none; }
+        .char { position: relative; display: inline-block; transition: all 0.4s ease; border-bottom: 2px solid transparent; padding-bottom: 2px; }
+        .char:hover::after { content: attr(data-jp); position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 0.65rem; color: var(--text-light); white-space: nowrap; letter-spacing: 0; }
+        .punct { margin: 0 4px; transition: color 0.6s ease; }
+        .char.current-sentence { border-bottom: 2px solid rgba(176, 67, 50, 0.25); }
+        
+        .review-mode .char, .review-mode .punct { color: var(--text-gray); }
+        .review-mode .char.matched { color: var(--accent-red); font-weight: 600; }
+        .challenge-mode .char:not(.matched) { color: transparent; }
+        .challenge-mode .char.matched { color: var(--accent-red); font-weight: 600; }
+        .challenge-mode .punct { color: var(--text-gray); opacity: 0.5; }
+
+        @keyframes elegantShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+        .shake-error { animation: elegantShake 0.4s ease !important; color: var(--accent-blue) !important; border-bottom: 2px dashed var(--accent-blue) !important; background-color: rgba(43, 92, 122, 0.1) !important; border-radius: 4px; padding: 0 2px; opacity: 1 !important; font-weight: 600 !important; }
+
+        /* 動作列 */
+        .speech-feedback-container { position: fixed; bottom: 95px; left: 50%; transform: translateX(-50%) translateY(10px); background: rgba(247, 246, 242, 0.55); backdrop-filter: blur(12px); color: rgba(44, 43, 41, 0.75); padding: 8px 20px; border-radius: 30px; font-size: 0.9rem; pointer-events: none; opacity: 0; transition: all 0.4s; z-index: 90; letter-spacing: 0.1em; }
+        .speech-feedback-container.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .action-bar { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; align-items: center; background: rgba(247, 246, 242, 0.85); backdrop-filter: blur(10px); padding: 12px 24px; border-radius: 50px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.03); z-index: 100; transition: all 0.4s; }
+        .action-bar.show-input { width: 90vw; max-width: 600px; }
+        .icon-btn { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; background: transparent; border: 1px solid var(--text-gray); color: var(--text-dark); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.4s ease; }
+        .icon-btn:hover:not(:disabled) { background: var(--text-dark); color: var(--bg-color); }
+        .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .icon-btn.recording { border-color: var(--accent-red); color: var(--accent-red); animation: pulse-border 2s infinite cubic-bezier(0.4, 0, 0.6, 1); }
+        @keyframes pulse-border { 0%, 100% { box-shadow: 0 0 0 0 rgba(176,67,50,0.4); border-color: var(--accent-red); } 50% { box-shadow: 0 0 0 8px transparent; border-color: rgba(176,67,50,0.5); } }
+        .manual-input { flex: 0; width: 0; opacity: 0; border: none; background: transparent; font-family: inherit; font-size: 1.05rem; color: var(--text-dark); outline: none; transition: all 0.4s; padding: 0; pointer-events: none; letter-spacing: 0.05em; }
+        .action-bar.show-input .manual-input { flex: 1; width: auto; opacity: 1; padding: 0 10px; margin-left: 5px; border-left: 1px solid var(--text-gray); pointer-events: auto; }
+
+        /* 對戰大廳與狀態 */
+        .vs-status-bar { position: fixed; top: 20px; right: 25px; z-index: 1000; font-size: 0.9rem; letter-spacing: 0.1em; color: var(--text-dark); display: none; align-items: center; gap: 15px; }
+        .vs-player-list { list-style: none; padding: 0; margin: 20px 0; width: 100%; max-width: 300px; text-align: left; }
+        .vs-player-list li { padding: 10px; border-bottom: 1px solid var(--text-gray); display: flex; justify-content: space-between; font-size: 1.1rem; }
+        .stamp { border: 1px solid var(--accent-red); color: var(--accent-red); padding: 2px 6px; font-size: 0.8rem; letter-spacing: 0.1em; margin-left: 10px; vertical-align: middle; }
+        .vs-turn-indicator { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); font-size: 1rem; color: var(--text-light); letter-spacing: 0.2em; display: none; z-index: 90; }
+        
+        /* 榜單 */
+        .lb-tabs { display: flex; gap: 20px; margin-bottom: 30px; }
+        .lb-tab { background: none; border: none; font-family: inherit; font-size: 1rem; letter-spacing: 0.2em; color: var(--text-gray); cursor: pointer; padding-bottom: 5px; }
+        .lb-tab.active { color: var(--text-dark); border-bottom: 1px solid var(--text-dark); }
+        .lb-content { width: 100%; max-width: 400px; min-height: 300px; text-align: left; }
+        .lb-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.05); font-size: 0.95rem; }
+
+        .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; font-size: 12px; color: var(--text-light); z-index: 10; }
+        @media (max-width: 600px) { h1 { font-size: 1.6rem; } .action-bar.show-input { width: 95vw; } }
+    </style>
+</head>
+<body>
+
+<div class="progress-bar-container"><div id="progress-bar" class="progress-bar"></div></div>
+
+<div class="nav-bar">
+    <button class="btn-text" onclick="window.toggleMenu()">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" /></svg>
+        <span>目錄</span>
+    </button>
+    <button class="btn-text" onclick="window.showLeaderboard()"><span>榜單</span></button>
+    <button class="btn-text" onclick="window.showVersusLobby()"><span>對弈</span></button>
+</div>
+
+<div id="vs-status-bar" class="vs-status-bar">
+    <span id="vs-room-id-disp"></span>
+    <span id="vs-scores-disp"></span>
+</div>
+<div id="vs-turn-indicator" class="vs-turn-indicator"></div>
+
+<!-- 登錄模態框 -->
+<div id="auth-modal" class="modal-overlay">
+    <div class="modal-title">雅集</div>
+    <button class="btn-outline" onclick="window.doLogin()">執卷登錄</button>
+</div>
+
+<!-- 賜名模態框 -->
+<div id="name-modal" class="modal-overlay">
+    <div class="modal-title">賜名</div>
+    <input type="text" id="name-input" class="modal-input" placeholder="三至四字，純漢" maxlength="4">
+    <button class="btn-outline" onclick="window.saveName()">落筆</button>
+</div>
+
+<!-- 目錄 -->
+<div id="menu-overlay" class="modal-overlay" style="background: rgba(247, 246, 242, 0.98);">
+    <div class="menu-container" id="menu-container"></div>
+</div>
+
+<!-- 對弈大廳 -->
+<div id="versus-modal" class="modal-overlay">
+    <div class="modal-title">對弈</div>
+    <div id="vs-init-view">
+        <button class="btn-outline" onclick="window.createRoom()">立局</button>
+        <div style="margin: 30px 0; color: var(--text-gray);">或</div>
+        <input type="text" id="join-room-input" class="modal-input" placeholder="局號" maxlength="4" style="width: 100px;">
+        <br><button class="btn-outline" onclick="window.joinRoom()">入局</button>
+        <br><br><button class="btn-outline" onclick="window.closeModal('versus-modal')" style="border:none;">歸去</button>
+    </div>
+    <div id="vs-lobby-view" style="display:none; text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center;">
+        <div style="font-size:1.2rem; letter-spacing:0.2em; margin-bottom:10px;">局號：<span id="lobby-room-id" style="font-weight:600;"></span></div>
+        <div style="font-size:0.9rem; color:var(--text-light); margin-bottom:20px;">
+            同列 <select id="lobby-max-players" onchange="window.updateMaxPlayers(this.value)" style="border:none; border-bottom:1px solid var(--text-dark); background:transparent; font-family:inherit; font-size:1rem;"><option value="2">二</option><option value="3">三</option><option value="4">四</option><option value="5">五</option></select> 人方可起行
+        </div>
+        <ul id="lobby-players" class="vs-player-list"></ul>
+        <button class="btn-outline" onclick="window.leaveRoom()" style="margin-top:20px; border:none;">退局</button>
+    </div>
+</div>
+
+<!-- 榜單 -->
+<div id="leaderboard-modal" class="modal-overlay">
+    <div class="modal-title">群芳譜</div>
+    <div class="lb-tabs">
+        <button class="lb-tab active" onclick="window.switchLbTab('points')">總墨</button>
+        <button class="lb-tab" onclick="window.switchLbTab('versus')">對弈</button>
+        <button class="lb-tab" onclick="window.switchLbTab('times')">絕塵</button>
+    </div>
+    <div id="lb-content" class="lb-content">載入中...</div>
+    <button class="btn-outline" onclick="window.closeModal('leaderboard-modal')" style="margin-top:30px; border:none;">合卷</button>
+</div>
+
+<!-- 結算/通關 -->
+<div id="success-screen" class="modal-overlay">
+    <div class="modal-title" id="success-title">曲終</div>
+    <div id="success-time" style="font-size: 1.1rem; color: var(--text-dark); margin-bottom: 40px; letter-spacing: 0.2em; line-height: 2;"></div>
+    <div>
+        <button class="btn-outline" id="btn-play-again" onclick="window.playAgain()">重聚</button>
+        <button class="btn-outline" onclick="window.exitGame()">歸去</button>
+    </div>
+</div>
+
+<div id="main-container" class="container" style="opacity: 0;">
+    <header>
+        <h1 id="doc-title">載入中...</h1>
+        <div class="author" id="doc-author"></div>
+    </header>
+    <div class="mode-controls" id="mode-controls">
+        <button id="btn-mode-review" class="btn-mode active" onclick="window.setMode('review')">閱 讀</button>
+        <button id="btn-mode-challenge" class="btn-mode" onclick="window.setMode('challenge')">默 誦</button>
+    </div>
+    <div id="text-display" class="text-display review-mode"></div>
+</div>
+
+<div id="speech-feedback" class="speech-feedback-container"></div>
+
+<div class="action-bar" id="action-bar">
+    <button id="btn-start" class="icon-btn" onclick="window.toggleRecording()" disabled>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+    </button>
+    <button id="btn-keyboard" class="icon-btn" onclick="window.toggleKeyboard()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="18" y2="12"></line><line x1="8" y1="16" x2="16" y2="16"></line></svg>
+    </button>
+    <button class="icon-btn" id="btn-reset" onclick="window.resetAll(true)">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+    </button>
+    <input type="text" id="manual-input" class="manual-input" placeholder="可輸入文字作答..." autocomplete="off">
+</div>
+
+<footer class="copyright-footer"><p>Copyright © 2026 陳冠健. All rights reserved.</p></footer>
+
+<script type="module">
+    import ToJyutping from 'https://cdn.jsdelivr.net/npm/to-jyutping@3.1.1/+esm';
+    window.ToJyutping = ToJyutping;
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getDatabase, ref, set, get, update, onValue, remove, query, orderByChild, limitToLast, runTransaction, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBAvrFZCubcjq7Ytg2QUqfjYrR4xxipw04",
+        authDomain: "recite-73dfe.firebaseapp.com",
+        databaseURL: "https://recite-73dfe-default-rtdb.firebaseio.com",
+        projectId: "recite-73dfe",
+        storageBucket: "recite-73dfe.firebasestorage.app",
+        messagingSenderId: "195305754619",
+        appId: "1:195305754619:web:ed26825358c9751e87855e"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    const googleProvider = new GoogleAuthProvider();
+
+  const TEXT_LIBRARY = {
+        "文學": [
+            { title: "蒹葭", author: "詩經．秦風", content: "蒹葭蒼蒼，白露為霜。所謂伊人，在水一方。\n遡洄從之，道阻且長。遡游從之，宛在水中央。\n\n蒹葭淒淒，白露未晞。所謂伊人，在水之湄。\n遡洄從之，道阻且躋。遡游從之，宛在水中坻。\n\n蒹葭采采，白露未已。所謂伊人，在水之涘。\n遡洄從之，道阻且右。遡游從之，宛在水中沚。" },
+            { title: "涉江", author: "屈原", content: "余幼好此奇服兮，年既老而不衰。\n帶長鋏之陸離兮，冠切雲之崔嵬。\n被明月兮珮寶璐。\n世溷濁而莫余知兮，吾方高馳而不顧。\n駕青虯兮驂白螭，吾與重華遊兮瑤之圃。\n登崑崙兮食玉英，與天地兮同壽，與日月兮同光。\n哀南夷之莫吾知兮，旦余濟乎江湘。\n乘鄂渚而反顧兮，欸秋冬之緒風。\n步余馬兮山皋，邸余車兮方林。\n乘舲船余上沅兮，齊吳榜以擊汰。\n船容與而不進兮，淹回水而疑滯。\n朝發枉陼兮，夕宿辰陽。\n苟余心其端直兮，雖僻遠之何傷。\n入漵浦余儃佪兮，迷不知吾所如。\n深林杳以冥冥兮，猿狖之所居。\n山峻高以蔽日兮，下幽晦以多雨。\n霰雪紛其無垠兮，雲霏霏而承宇。\n哀吾生之無樂兮，幽獨處乎山中。\n吾不能變心而從俗兮，固將愁苦而終窮。\n接輿髡首兮，桑扈臝行。\n忠不必用兮，賢不必以。\n伍子逢殃兮，比干菹醢。\n與前世而皆然兮，吾又何怨乎今之人！\n余將董道而不豫兮，固將重昏而終身！" },
+            { title: "齊桓晉文之事章", author: "孟子", content: "齊宣王問曰：「齊桓、晉文之事，可得聞乎？」\n孟子對曰：「仲尼之徒，無道桓、文之事者，是以後世無傳焉，臣未之聞也；無以，則王乎？」\n曰：「德何如，則可以王矣？」\n曰：「保民而王，莫之能禦也。」\n曰：「若寡人者，可以保民乎哉？」\n曰：「可。」\n曰：「何由知吾可也？」\n曰：「臣聞之胡齕曰：王坐於堂上，有牽牛而過堂下者，王見之，曰：『牛何之？』對曰：『將以釁鐘。』王曰：『舍之。吾不忍其觳觫，若無罪而就死地。』對曰：『然則廢釁鐘與？』曰：『何可廢也？以羊易之。』不識有諸？」\n曰：「有之。」\n曰：「是心足以王矣。百姓皆以王為愛也，臣固知王之不忍也。」\n王曰：「然；誠有百姓者。齊國雖褊小，吾何愛一牛，即不忍其觳觫，若無罪而就死地，故以羊易之也。」\n曰：「王無異於百姓之以王為愛也。以小易大，彼惡知之？王若隱其無罪而就死地，則牛羊何擇焉？」\n王笑曰：「是誠何心哉！我非愛其財，而易之以羊也，宜乎百姓之謂我愛也。」曰：「無傷也。是乃仁術也，見牛未見羊也。君子之於禽獸也，見其生，不忍見其死；聞其聲，不忍食其肉。是以君子遠庖廚也。」\n王說曰：「『詩』云：『他人有心；予忖度之。』夫子之謂也。夫我乃行之，反而求之，不得吾心；夫子言之，於我心有戚戚焉。此心之所以合於王者，何也？」曰：「有復於王者曰：『吾力足以舉百鈞，而不足以舉一羽；明足以察秋毫之末，而不見輿薪。』則王許之乎？」曰：「否。」\n「今恩足以及禽獸，而功不至於百姓者，獨何與？然則一羽之不舉，為不用力焉；輿薪之不見，為不用明焉；百姓之不見保，為不用恩焉。故王之不王，不為也，非不能也。」\n曰：「不為者與不能者之形何以異？」\n曰：「挾太山以超北海，語人曰，『我不能』；是誠不能也。為長者折枝，語人曰，『我不能』；是不為也，非不能也，故王之不王，非挾太山以超北海之類也；王之不王，是折枝之類也。老吾老以及人之老；幼吾幼以及人之幼；天下可運於掌。《詩》云：『刑于寡妻，至于兄弟，以御于家邦。』言舉斯心加諸彼而已。故推恩，足以保四海；不推恩，無以保妻子。古之人所以大過人者，無他焉，善推其所為而已矣。今恩足以及禽獸，而功不至於百姓者，獨何與？權然後知輕重，度然後知長短；物皆然，心為甚；王請度之。」" },
+            { title: "庖丁解牛", author: "莊子", content: "吾生也有涯，而知也無涯。以有涯隨無涯，殆已！已而為知者，殆而已矣！為善無近名，為惡無近刑，緣督以為經，可以保身，可以全生，可以養親，可以盡年。\n\n庖丁為文惠君解牛，手之所觸，肩之所倚，足之所履，膝之所踦，砉然嚮然，奏刀騞然，莫不中音，合於《桑林》之舞，乃中《經首》之會。\n\n文惠君曰：「譆，善哉！技蓋至此乎？」\n\n庖丁釋刀對曰：「臣之所好者道也，進乎技矣。始臣之解牛之時，所見無非全牛者。三年之後，未嘗見全牛也。方今之時，臣以神遇而不以目視，官知止而神欲行。依乎天理，批大郤，導大窾，因其固然。技經肯綮之未嘗，而況大軱乎！良庖歲更刀，割也；族庖月更刀，折也；今臣之刀十九年矣，所解數千牛矣，而刀刃若新發於硎。彼節者有閒而刀刃者無厚；以無厚入有閒，恢恢乎其於遊刃必有餘地矣，是以十九年而刀刃若新發於硎。雖然，每至於族，吾見其難為，怵然為戒，視為止，行為遲，動刀甚微，謋然已解，如土委地。提刀而立，為之四顧，為之躊躇滿志，善刀而藏之。」\n\n文惠君曰：「善哉！吾聞庖丁之言，得養生焉。」" },
+            { title: "蘇秦約縱", author: "戰國策", content: "說秦王書十上而說不行，黑貂之裘弊，黃金百斤盡，資用乏絕，去秦而歸，羸縢履蹻，負書擔橐，形容枯槁，面目犁黑，狀有歸色。歸至家，妻不下絍，嫂不為炊，父母不與言，蘇秦喟然歎曰：「妻不以我為夫，嫂不以我為叔，父母不以我為子，是皆秦之罪也！」乃夜發書，陳篋數十，得太公《陰符》之謀，伏而誦之，簡練以為揣摩；讀書欲睡，引錐自刺其股，血流至足，曰：「安有說人主不能出其金玉錦繡，取卿相之尊者乎！」期年，揣摩成，曰：「此真可以說當世之君矣。」\n\n於是乃摩燕烏集闕，見說趙王於華屋之下，抵掌而談。趙王大悅，封為武安君，受相印；革車百乘，錦繡千純，白壁百雙，黃金萬溢，以隨其後，約從散橫，以抑強秦。故蘇秦相於趙而關不通。\n\n當此之時，天下之大，萬民之眾，王侯之威，謀臣之權，皆欲決蘇秦之策。不費斗糧，未煩一兵，未戰一士，未絕一絃，未折一矢，諸侯相親，賢於兄弟。夫賢人在而天下服，一人用而天下從，故曰：「式於政，不式於勇；式於廊廟之內，不式於四境之外。」當秦之隆，黃金萬溢為用，轉轂連騎，炫熿於道，山東之國，從風而服，使趙大重。\n\n且夫蘇秦特窮巷掘門桑戶棬樞之士耳，伏軾撙銜，橫歷天下，廷說諸侯之王，杜左右之口，天下莫之能伉。將說楚王，路過洛陽，父母聞之，清宮除道，張樂設飲，郊迎三十里；妻側目而視，傾耳而聽；嫂虵行匍伏，四拜自跪而謝。蘇秦曰：「嫂何前倨而後卑也。」嫂曰：「以季子之位尊而多金。」蘇秦曰：「嗟乎！貧窮則父母不子，富貴則親戚畏懼，人生世上，勢位富貴，蓋可忽乎哉！」" },
+            { title: "鴻門會", author: "司馬遷", content: "沛公旦日從百餘騎來見項王，至鴻門，謝曰：「臣與將軍戮力而攻秦，將軍戰河北，臣戰河南，然不自意能先入關破秦，得復見將軍於此。今者有小人之言，令將軍與臣有郤。」項王曰：「此沛公左司馬曹無傷言之；不然，籍何以至此。」\n\n項王即日因留沛公與飲。項王、項伯東嚮坐，亞父南嚮坐。亞父者，范增也。沛公北嚮坐，張良西嚮侍。范增數目項王，舉所佩玉玦以示之者三，項王默然不應。\n\n范增起，出召項莊，謂曰：「君王為人不忍，若入前為壽，壽畢，請以劍舞，因擊沛公於坐，殺之。不者，若屬皆且為所虜。」莊則入為壽。壽畢，曰：「君王與沛公飲，軍中無以為樂，請以劍舞。」項王曰：「諾。」項莊拔劍起舞，項伯亦拔劍起舞，常以身翼蔽沛公，莊不得擊。\n\n於是張良至軍門，見樊噲。樊噲曰：「今日之事何如？」良曰：「甚急。今者項莊拔劍舞，其意常在沛公也。」噲曰：「此迫矣，臣請入，與之同命。」噲即帶劍擁盾入軍門。交戟之衛士欲止不內，樊噲側其盾以撞，衛士仆地，噲遂入，披帷西嚮立，瞋目視項王，頭髮上指，目眥盡裂。項王按劍而跽曰：「客何為者？」張良曰：「沛公之參乘樊噲者也。」項王曰：「壯士，賜之卮酒。」則與斗卮酒。噲拜謝，起，立而飲之。項王曰：「賜之彘肩。」則與一生彘肩。樊噲覆其盾於地，加彘肩上，拔劍切而啗之。項王曰：「壯士，能復飲乎？」樊噲曰：「臣死且不避，卮酒安足辭！夫秦王有虎狼之心，殺人如不能舉，刑人如恐不勝，天下皆叛之。懷王與諸將約曰『先破秦入咸陽者王之』。今沛公先破秦入咸陽，豪毛不敢有所近，封閉宮室，還軍霸上，以待大王來。故遣將守關者，備他盜出入與非常也。勞苦而功高如此，未有封侯之賞，而聽細說，欲誅有功之人。此亡秦之續耳，竊為大王不取也。」項王未有以應，曰：「坐。」樊噲從良坐。坐須臾，沛公起如廁，因招樊噲出。\n\n沛公已出，項王使都尉陳平召沛公。沛公曰：「今者出，未辭也，為之奈何？」樊噲曰：「大行不顧細謹，大禮不辭小讓。如今人方為刀俎，我為魚肉，何辭為？」於是遂去。乃令張良留謝。良問曰：「大王來何操？」曰：「我持白璧一雙，欲獻項王，玉斗一雙，欲與亞父，會其怒，不敢獻。公為我獻之。」張良曰：「謹諾。」當是時，項王軍在鴻門下，沛公軍在霸上，相去四十里。沛公則置車騎，脫身獨騎，與樊噲、夏侯嬰、靳彊、紀信等四人持劍盾步走，從酈山下，道芷陽間行。沛公謂張良曰：「從此道至吾軍，不過二十里耳。度我至軍中，公乃入。」\n\n沛公已去，閒至軍中，張良入謝，曰：「沛公不勝桮杓，不能辭。謹使臣良奉白璧一雙，再拜獻大王足下；玉斗一雙，再拜奉大將軍足下。」項王曰：「沛公安在？」良曰：「聞大王有意督過之，脫身獨去，已至軍矣。」項王則受璧，置之坐上。亞父受玉斗，置之地，拔劍撞而破之，曰：「唉！豎子不足與謀。奪項王天下者，必沛公也，吾屬今為之虜矣。」\n\n沛公至軍，立誅殺曹無傷。" },
+            { title: "戰城南", author: "漢樂府", content: "戰城南，死郭北，野死不葬烏可食。為我謂烏：「且為客豪！野死諒不葬，腐肉安能去子逃？」水深激激，蒲葦冥冥。梟騎戰鬥死，駑馬徘徊鳴。\n\n梁築室，何以南？何以北？禾黍不穫君何食？願為忠臣安可得？思子良臣，良臣誠可思。朝行出攻，暮不夜歸！" },
+            { title: "短歌行", author: "曹操", content: "對酒當歌，人生幾何？譬如朝露，去日苦多。\n慨當以慷，幽思難忘。何以解憂？唯有杜康。\n青青子衿，悠悠我心。但為君故，沉吟至今。\n呦呦鹿鳴，食野之苹。我有嘉賓，鼓瑟吹笙。\n明明如月，何時可掇？憂從中來，不可斷絕。\n越陌度阡，枉用相存。契闊談讌，心念舊恩。\n月明星稀，烏鵲南飛，繞樹三匝，何枝可依？\n山不厭高，海不厭深。周公吐哺，天下歸心。" },
+            { title: "歸去來辭並序", author: "陶潛", content: "余家貧，耕植不足以自給。幼穉盈室，缾無儲粟，生生所資，未見其術，親故多勸余為長吏，脫然有懷，求之靡途。會有四方之事，諸侯以惠愛為德，家叔以余貧苦，遂見用於小邑。於時風波未靜，心憚遠役，彭澤去家百里，公田之利，足以為酒，故便求之。及少日，眷然有歸歟之情。何則？質性自然，非矯厲所得；饑凍雖切，違己交病。嘗從人事，皆口腹自役。於是悵然慷慨，深愧平生之志。猶望一稔，當斂裳宵逝。尋程氏妹喪於武昌，情在駿奔，自免去職。仲秋至冬，在官八十餘日。因事順心，命篇曰《歸去來兮》。乙巳歲十一月也。\n\n歸去來兮！田園將蕪胡不歸！既自以心為形役，奚惆悵而獨悲。悟已往之不諫，知來者之可追；實迷途其未遠，覺今是而昨非。舟搖搖以輕颺，風飄飄而吹衣，問征夫以前路，恨晨光之熹微。\n\n乃瞻衡宇，載欣載奔。僮僕歡迎，稚子候門。三徑就荒，松菊猶存；攜幼入室，有酒盈樽。引壺觴以自酌，眄庭柯以怡顏；倚南窗以寄傲，審容膝之易安。園日涉以成趣，門雖設而常關；策扶老以流憩，時矯首而遐觀。雲無心以出岫，鳥倦飛而知還；景翳翳以將入，撫孤松而盤桓。\n\n歸去來兮！請息交以絕遊。世與我而相違，復駕言兮焉求！悅親戚之情話，樂琴書以消憂。農人告余以春及，將有事於西疇。或命巾車，或棹孤舟，既窈窕以尋壑，亦崎嶇而經丘。木欣欣以向榮，泉涓涓而始流；善萬物之得時，感吾生之行休！\n\n已矣乎！寓形宇內復幾時，曷不委心任去留，胡為乎遑遑欲何之？富貴非吾願，帝鄉不可期。懷良辰以孤往，或植杖而耘籽。登東皋以舒嘯，臨清流而賦詩。聊乘化以歸盡，樂乎天命復奚疑！" },
+            { title: "將進酒", author: "李白", content: "君不見黃河之水天上來，奔流到海不復回。\n君不見高堂明鏡悲白髮，朝如青絲暮成雪。\n人生得意須盡歡，莫使金樽空對月。\n天生我材必有用，千金散盡還復來。\n烹羊宰牛且為樂，會須一飲三百杯。\n岑夫子，丹丘生，將進酒，君莫停。\n與君歌一曲，請君為我傾耳聽。\n鐘鼓饌玉不足貴，但願長醉不用醒。\n古來聖賢皆寂寞，惟有飲者留其名。\n陳王昔時宴平樂，斗酒十千恣歡謔。\n主人何為言少錢？徑須沽取對君酌。\n五花馬，千金裘。呼兒將出換美酒，與爾同銷萬古愁。" },
+            { title: "登高", author: "杜甫", content: "風急天高猿嘯哀，渚清沙白鳥飛回。\n無邊落木蕭蕭下，不盡長江滾滾來。\n萬里悲秋常作客，百年多病獨登臺。\n艱難苦恨繁霜鬢，潦倒新停濁酒杯。" },
+            { title: "醉翁亭記", author: "歐陽修", content: "環滁皆山也。其西南諸峰，林壑尤美。望之蔚然而深秀者，琅琊也。山行六七里，漸聞水聲潺潺，而瀉出於兩峰之間者，釀泉也。峰迴路轉，有亭翼然臨於泉上者，醉翁亭也。作亭者誰？山之僧智仙也。名之者誰？太守自謂也。太守與客來飲於此，飲少輒醉，而年又最高，故自號曰醉翁也。醉翁之意不在酒，在乎山水之間也。山水之樂，得之心而寓之酒也。\n\n若夫日出而林霏開，雲歸而巖穴暝，晦明變化者，山間之朝暮也。野芳發而幽香，佳木秀而繁陰，風霜高潔，水落而石出者，山間之四時也。朝而往，暮而歸，四時之景不同，而樂亦無窮也。\n\n至於負者歌於途，行者休於樹，前者呼，後者應，傴僂提攜，往來而不絕者，滁人遊也。臨溪而漁，溪深而魚肥；釀泉為酒，泉香而酒冽；山肴野蔌，雜然而前陳者，太守宴也。宴酣之樂，非絲非竹，射者中，弈者勝﹔觥籌交錯，起坐而喧嘩者，眾賓懽也。蒼然白髮，頹然乎其間者，太守醉也。\n\n已而夕陽在山，人影散亂，太守歸而賓客從也。樹林陰翳，鳴聲上下，遊人去而禽鳥樂也。然而禽鳥知山林之樂，而不知人之樂；人知從太守遊而樂，而不知太守之樂其樂也。醉能同其樂，醒能述以文者，太守也。太守謂誰？廬陵歐陽修也。" },
+            { title: "前赤壁賦", author: "蘇軾", content: "壬戌之秋，七月既望，蘇子與客泛舟，遊於赤壁之下。清風徐來，水波不興。舉酒屬(zuk)客，誦明月之詩，歌窈窕之章。少焉，月出於東山之上，徘徊於斗牛之間。白露橫江，水光接天。縱一葦之所如，凌萬頃之茫然。浩浩乎如馮(pang)虛御風，而不知其所止，飄飄乎如遺世獨立，羽化而登仙。\n\n於是飲酒樂甚，扣舷而歌之。歌曰：「桂棹兮蘭槳，擊空明兮泝流光。渺渺兮予懷，望美人兮天一方。」客有吹洞簫者，倚歌而和之，其聲嗚嗚然，如怨如慕，如泣如訴。餘音嫋嫋，不絕如縷。舞幽壑(kok)之潛蛟，泣孤舟之嫠婦。蘇子愀然，正襟危坐，而問客曰：「何為其然也？」客曰：「『月明星稀，烏鵲南飛。』此非曹孟德之詩乎？西望夏口，東望武昌。山川相繆(mau)，鬱乎蒼蒼。此非孟德之困於周郎者乎？方其破荊州，下江陵，順流而東也，舳艫千里，旌旗蔽空，釃酒臨江，橫槊賦詩，固一世之雄也，而今安在哉？況吾與子漁樵於江渚之上，侶魚蝦而友麋鹿。駕一葉之扁(pin)舟，舉匏尊以相屬(zuk)。寄蜉蝣於天地，渺滄海之一粟。哀吾生之須臾，羨長江之無窮。挾飛仙以遨遊，抱明月而長終。知不可乎驟得，託遺響於悲風。」\n\n蘇子曰：「客亦知夫水與月乎？逝者如斯，而未嘗往也。盈虛者如彼，而卒莫消長(zoeng)也。蓋將自其變者而觀之，則天地曾不能以一瞬。自其不變者而觀之，則物與我皆無盡也，而又何羨乎？且夫天地之間，物各有主，苟非吾之所有，雖一毫而莫取。惟江上之清風，與山間之明月，耳得之而為聲，目遇之而成色。取之無禁，用之不竭。是造物者之無盡藏(zong)也，而吾與子之所共食。」客喜而笑，洗盞更酌，肴核既盡，杯盤狼藉(zik)乎舟中，不知東方之既白。" },
+            { title: "齊天樂．秋思", author: "周邦彥", content: "綠蕪凋盡臺城路，殊鄉又逢秋晚。暮雨生寒，鳴蛩勸織，深閣時聞裁翦。雲窗靜掩。嘆重拂羅裀，頓疏花簟。尚有綀囊，露螢清夜照書卷。\n\n荊江留滯最久，故人相望處，離思何限。渭水西風，長安亂葉，空憶詩情宛轉。憑高眺遠，正玉液新篘，蟹螯初薦。醉倒山翁，但愁斜照斂。" },
+            { title: "南鄉子．登京口北固亭有懷", author: "辛棄疾", content: "何處望神州？滿眼風光北固樓。千古興亡多少事，悠悠。不盡長江滾滾流。\n\n年少萬兜鍪，坐斷東南戰未休。天下英雄誰敵手？曹劉。生子當如孫仲謀。" },
+            { title: "雙調．夜行船（秋思）", author: "馬致遠", content: "〈夜行船〉百歲光陰一夢蝶，重回首往事堪嗟。今日春來，明朝花謝，急罰盞夜闌燈滅。\n〈喬木查〉想秦宮漢闕，都做了衰草牛羊野。不恁麼漁樵沒話說。縱荒墳橫斷碑，不辨龍蛇。\n〈慶宣和〉投至狐踪與兔穴，多少豪傑。鼎足雖堅半腰裏折，魏耶，晉耶？\n〈落梅風〉天教你富，莫太奢，無多時好天良夜。富家兒更做道你心似鐵，爭辜負了錦堂風月。\n〈風入松〉眼前紅日又西斜，疾似下坡車。不爭鏡裏添白雪，上牀與鞋屐相別。休笑鳩巢計拙，葫蘆提一向裝呆。\n〈撥不斷〉利名竭，是非絕。紅塵不向門前惹，綠樹偏宜屋角遮，青山正補牆頭缺。更那堪竹籬茅舍。\n〈離亭宴煞〉蛩吟罷一覺才寧貼，雞鳴時萬事無休歇。何年是徹？看密匝匝蟻排兵，亂紛紛蜂釀蜜，急攘攘蠅爭血。裴公綠野堂，陶令白蓮社。愛秋來那些：和露摘黃花，帶霜分紫蟹，煮酒燒紅葉。想人生有限杯，渾幾個重陽節？人問我頑童記者：便北海探吾來，道東籬醉了也。" },
+            { title: "西湖七月半", author: "張岱", content: "西湖七月半，一無可看，只可看看七月半之人。看七月半之人，以五類看之。其一，樓船簫鼓，峨冠盛筵，燈火優傒，聲光相亂，名為看月而實不見月者，看之。其一，亦船亦樓，名娃閨秀，攜及童孌，笑啼雜之，環坐露臺，左右盼望，身在月下而實不看月者，看之。其一，亦船亦聲歌，名妓閑僧，淺斟低唱，弱管輕絲，竹肉相發，亦在月下，亦看月，而欲人看其看月者，看之。其一，不舟不車，不衫不幘，酒醉飯飽，呼群三五，躋入人叢，昭慶、斷橋，嘄呼嘈雜，裝假醉，唱無腔曲，月亦看，看月者亦看，不看月者亦看，而實無一看者，看之。其一，小船輕幌，淨几暖爐，茶鐺旋煮，素瓷靜遞，好友佳人，邀月同坐，或匿影樹下，或逃囂裏湖，看月而人不見其看月之態，亦不作意看月者，看之。\n\n杭人遊湖，巳出酉歸，避月如仇。是夕好名，逐隊爭出，多犒門軍酒錢，轎夫擎燎，列俟岸上。一入舟，速舟子急放斷橋，趕入勝會。以故二鼓以前，人聲鼓吹，如沸如撼，如魘如囈，如聾如啞。大船小船，一齊湊岸，一無所見，止見篙擊篙，舟觸舟，肩摩肩，面看面而已。少刻興盡，官府席散，皂隸喝道去。轎夫叫船上人，怖以關門，燈籠火把如列星，一一簇擁而去。岸上人亦逐隊趕門，漸稀漸薄，頃刻散盡矣。\n\n吾輩始艤舟近岸，斷橋石磴始涼，席其上，呼客縱飲。此時月如鏡新磨，山復整妝，湖復頮面，向之淺斟低唱者出，匿影樹下者亦出，吾輩往通聲氣，拉與同坐。韻友來，名妓至，杯箸安，竹肉發。月色蒼涼，東方將白，客方散去。吾輩縱舟，酣睡於十里荷花之中，香氣拍人，清夢甚愜。" },
+            { title: "死水", author: "聞一多", content: "這是一溝絕望的死水，\n清風吹不起半點漪淪。\n不如多扔些破銅爛鐵，\n爽性潑你的賸菜殘羹。\n\n也許銅的要綠成翡翠，\n鐵罐上鏽出幾瓣桃花，\n再讓油膩織一層羅綺，\n黴菌給他蒸出些雲霞。\n\n讓死水酵成一溝綠酒，\n飄滿了珍珠似的白沫；\n小珠們笑聲變成大珠，\n又被偷酒的花蚊咬破。\n\n那麼一溝絕望的死水，\n也就誇得上幾分鮮明。\n如果青蛙耐不住寂寞，\n又算死水叫出了歌聲。\n\n這是一溝絕望的死水，\n這裏斷不是美的所在，\n不如讓給醜惡來開墾，\n看他造出個甚麼世界。" },
+            { title: "錯誤", author: "鄭愁予", content: "我打江南走過\n那等在季節裏的容顏如蓮花的開落\n\n東風不來，三月的柳絮不飛\n你底心如小小的寂寞的城\n恰若青石的街道向晚\n跫音不響，三月的春帷不揭\n你底心是小小的窗扉緊掩\n\n我達達的馬蹄是美麗的錯誤\n我不是歸人，是個過客。" }
+        ],
+        "中文": [
+            { title: "山居秋暝", author: "王維", content: "空山新雨後 ，天氣晚來秋。\n明月松間照，清泉石上流。\n竹喧歸浣女，蓮動下漁舟。 \n隨意春芳歇 ，王孫自可留 。" },
+            { title: "月下獨酌", author: "李白", content: "花間一壺酒，獨酌無相親 。 \n舉杯邀明月，對影成三人 。\n月既不解 飲，影徒隨我身。\n暫伴月將 影，行樂須及春 。 \n我歌月徘徊 ，我舞影零亂 。 \n醒時同交歡 ，醉後各分散 。\n永結無情遊 ，相期邈雲漢 。" },
+            { title: "登樓", author: "杜甫", content: "花近高樓傷客心， 萬方多難此登臨。 \n錦江春色來天地， 玉壘浮雲變古今。 \n北極朝廷終不改， 西山寇盜莫相侵。 \n可憐後主還祠廟， 日暮聊為〈梁甫吟〉。" },
+            { title: "師說", author: "韓愈", content: "古之學者必有師。師者，所以傳道、受(sau)業 、解惑也。人非生而知之者 ，孰能無惑？惑而不從師，其為惑也終不解矣。\n\n生乎吾前，其聞道 也固 先乎吾，吾從而師之；生乎吾後，其聞道也亦先乎吾，吾從而師之。吾師道也，夫庸知 其年之先後生於吾乎？是故無貴無賤，無長無少，道之所存，師之所存也。\n\n嗟乎！師道之不傳也久矣！欲人之無惑也難矣！古之聖人，其出人也遠矣，猶且從師而問焉；今之眾人，其下聖人也亦遠矣，而恥學於師；是故聖益聖，愚益愚，聖人之所以為聖，愚人之所以為愚，其 皆出於此乎？\n\n愛其子，擇師而教之，於其身也，則恥師焉，惑矣！彼童子之師，授之書而習其句讀 者也，非吾所謂傳其道，解其惑者也。句讀之不知，惑之不解，或師焉，或不(fau)焉，小學而大遺，吾未見其明也。\n\n巫醫 、樂師，百工之人，不恥相師；士大夫之族，曰師、曰弟子云者，則群聚而笑之，問之，則曰：「彼與彼年相若也，道相似也。位卑則足羞，官盛則近諛 。」嗚呼！師道之不復可知矣。巫、醫、樂師、百工之人，君子 不齒 ，今其智乃反不能及，其可怪也歟！\n\n聖人無常師 ，孔子師郯子 、萇弘 、師襄 、老聃 。郯子之徒，其賢不及孔子。孔子曰：「三人行，則必有我師。」 是故弟子不必不如師，師不必賢於弟子，聞道有先後，術業有專攻，如是而已。\n\n李氏子蟠 ，年十七，好古文，六藝 經傳，皆通習之；不拘於時，學於余，余嘉其能行古道，作〈師說〉以貽之。" },
+            { title: "岳陽樓記", author: "范仲淹", content: "慶曆四年春 ，滕子京 謫守巴陵郡 。越明年，政通人和，百廢具(keoi|geoi) 興。乃重修岳陽樓，增其舊制，刻唐賢、今人詩賦於其上；屬(zuk) 予作文以記之。\n\n予觀夫巴陵勝狀 ，在洞庭一湖。銜遠山，吞長江，浩浩湯(soeng)湯 ，橫無際涯；朝暉夕陰，氣象萬千。此則岳陽樓之大觀也，前人之述備 矣。然則北通巫峽 ，南極瀟湘 ，遷客騷人 ，多會於此，覽物之情，得無異乎？\n\n若夫霪雨霏霏 ，連月不開；陰風怒號 ，濁浪排空；日星隱耀，山岳潛形；商旅不行，檣傾楫摧 ；薄暮冥冥 ，虎嘯猿啼。登斯樓也，則有去國 懷鄉，憂讒畏譏，滿目蕭然 ，感極而悲者矣。\n\n至若春和景明 ，波瀾不驚 ，上下天光，一碧萬頃；沙鷗翔集 ，錦鱗游泳，岸芷汀蘭 ，郁郁青青 。而或長煙一空 ，皓月千里，浮光躍金 ，靜影沉璧 ；漁歌互答，此樂何極！登斯樓也，則有心曠神怡 ，寵辱 皆忘，把酒臨風 ，其喜洋洋 者矣。\n\n嗟夫！予嘗求古仁人之心，或異二者之為 。何哉？不以物喜，不以己悲 。居廟堂之高 ，則憂其民；處江湖之遠 ，則憂其君。是進亦憂，退亦憂，然則何時而樂耶？其必曰：「先天下之憂而憂，後天下之樂而樂」歟！噫！微斯人 ，吾誰與歸 ！" },
+            { title: "始得西山宴遊記", author: "柳宗元", content: "自余為僇人 ，居是州，恒惴慄 。其隙也 ，則施施 而行，漫漫 而遊。日與其徒 上高山，入深林，窮迴溪 ，幽泉 怪石，無遠不到。到則披草 而坐，傾壺而醉。醉則更相枕 以臥，臥而夢。意有所極 ，夢亦同趣 。覺 而起，起而歸。以為凡是州之山有異態者，皆我有也，而未始知西山之怪特。\n\n今年九月二十八日，因坐法華西亭 ，望西山，始指異之 。遂命僕過湘江 ，緣染溪 ，斫榛莽 。焚茅茷 ，窮 山之高而止。\n\n攀援而登，箕踞而遨 ，則凡數州之土壤 ，皆在衽席 之下。其高下之勢，岈然窪然 ，若垤 若穴，尺寸千里 ，攢蹙累積 ，莫得遯隱 。縈青繚白 ，外與天際 ，四望如一。然後知是山之特出，不與培塿 為類。悠悠乎與顥氣 俱，而莫得其涯；洋洋 乎與造物者遊 ，而不知其所窮。\n\n引 觴滿酌，頹然 就醉，不知日之入。蒼然暮色 ，自遠而至，至無所見，而猶不欲歸。心凝形釋 ，與萬化冥合 。然後知吾嚮 之未始 遊，遊於是乎始，故為之文以志 。是歲元和四年 也。" },
+            { title: "念奴嬌‧赤壁懷古", author: "蘇軾", content: "大江東去，浪淘盡、千古風流人物。故壘西邊，人道是、三國周郎 赤壁。亂石穿空，驚濤拍岸，捲起千堆雪。江山如畫，一時多少豪傑！\n\n遙想公瑾當年，小喬 初嫁了，雄姿英發。羽扇綸巾 ，談笑間、檣櫓 灰飛煙滅。故國 神遊，多情應笑我，早生華髮 。人間如夢，一尊 還酹 江月。" },
+            { title: "青玉案", author: "辛棄疾", content: "東風夜放花千樹，更吹落，星如雨。寶馬雕車香滿路。鳳簫聲動，玉壺光轉，一夜魚龍舞。 \n\n蛾兒雪柳黃金縷，笑語盈盈暗香去。眾裏尋他千百度；驀然迴首，那人卻在，燈火闌珊處。" },
+            { title: "聲聲慢", author: "李清照", content: "尋尋覓覓，冷冷清清，悽悽慘慘戚戚。乍暖還寒時候， 最難將息。 三杯兩盞淡酒，怎敵他，晚來風急？雁過也，正傷心，卻是舊時相識。\n\n滿地黃花堆積， 憔悴損，如今有誰堪摘？守著窗兒，獨自怎生得黑！梧桐更兼細雨，到黃昏、點點滴滴。這次第，怎一箇愁字了得！" },
+            { title: "逍遙遊", author: "莊子", content: "惠子 謂莊子曰：「魏王貽我大瓠之種(zung) ，我樹之成而實五石(daan) 。以盛水漿，其堅不能自舉也 。剖之以為瓢 ，則瓠落無所容 。非不呺然 大也，吾為其無用而掊之 。」莊子曰：「夫子固拙於 用大矣！宋人有善為不龜(gwan)手之藥者 ，世世以洴澼絖為事 。客聞之，請買其方百金。聚族而謀曰：『我世 স্বল্প金；今一朝而鬻(zuk)技百金 ，請與之。』客得之，以說 吳王。越有難 ，吳王使之將 ，冬與越人水戰，大敗越人，裂地 而封之。能不龜手一也 ；或以封，或不免於洴澼絖，則所用之異也 。今子有五石之瓠，何不慮以為大樽而浮於江湖 ，而憂其瓠落無所容，則夫子猶有蓬之心也夫 ！」\n\n惠子謂莊子曰：「吾有大樹，人謂之樗 ；其大本擁(jung)腫而不中(zung)繩墨 ，其小枝卷曲而不中(zung)規矩 。立之塗 ，匠者不顧。今子之言，大而無用，衆所同去也 。」莊子曰：「子獨不見狸狌乎 ？卑身而伏，以候敖者 ；東西跳梁，不辟高下 ，中於機辟，死於罔罟 。今夫斄牛，其大若垂天之雲 ；此能為大矣，而不能執鼠 。今子有大樹，患其無用，何不樹之於無何有之鄉 ，廣莫之野 ，彷徨乎無為其側，逍遙乎寢臥其下 ；不夭斤斧，物無害者 。無所可用，安所困苦哉 ？」" },
+            { title: "出師表", author: "諸葛亮", content: "先帝創業未半 ，而中道崩殂 ；今天下三分 ，益州疲弊 ，此誠危急存亡之秋也﹗然侍衞之臣，不懈於內；忠志之士，忘身於外者 ，蓋追先帝之殊遇，欲報之於陛下也 。誠宜開張聖聽 ，以光先帝遺德 ，恢弘志士之氣 ﹔不宜妄自菲薄 ，引喻失義 ，以塞忠諫之路也 。\n\n宮中、府中，俱為一體 ；陟罰臧否 ，不宜異同。若有作姦、犯科，及為忠善者 ，宜付有司，論其刑賞 ，以昭陛下平明之治 ；不宜偏私，使內外異法也 。\n\n侍中、侍郎郭攸之、費禕、董允等 ，此皆良實，志慮忠純 ，是以先帝簡拔以遺(wai)陛下 。愚以為宮中之事，事無大小，悉以咨之 ，然後施行，必能裨補闕漏，有所廣益 。\n\n將軍向寵，性行淑均 ，曉暢軍事，試用於昔日，先帝稱之曰「能」，是以眾議舉寵為督 。愚以為營中之事，悉以咨之，必能使行陣和睦，優劣得所 。\n\n親賢臣，遠小人 ，此先漢所以興隆也﹔親小人，遠賢臣，此後漢所以傾頹也。先帝在時，每與臣論此事，未嘗不歎息痛恨於桓、靈也 ！侍中、尚書、長史、參軍 ，此悉貞良死節之臣，願陛下親之、信之，則漢室之隆，可計日而待也。\n\n臣本布衣，躬耕於南陽 ，苟全性命於亂世，不求聞達於諸侯 。先帝不以臣卑鄙，猥自枉屈 ，三顧臣於草廬之中，諮臣以當世之事；由是感激，遂許先帝以驅馳 。後值傾覆 ，受任於敗軍之際，奉命於危難之間，爾來二十有一(jau)年矣 。先帝知臣謹慎，故臨崩寄臣以大事也 。受命以來，夙夜憂歎，恐託付不效，以傷先帝之明 。故五月渡瀘，深入不毛 。今南方已定，兵甲已足，當獎率三軍，北定中原，庶竭駑鈍，攘除姦凶 ，興復漢室，還於舊都 。此臣所以報先帝而忠陛下之職分也。至於斟酌損益，進盡忠言，則攸之、禕、允之任也 。\n\n願陛下託臣以討賊興復之效；不效，則治臣之罪，以告先帝之靈。若無興德之言，則責攸之、禕、允等之慢，以彰其咎 。陛下亦宜自謀，以諮諏善道，察納雅言 ，深追先帝遺詔。臣不勝受恩感激。今當遠離，臨表涕零 ，不知所言 ！" },
+            { title: "六國論", author: "蘇洵", content: "六國破滅 ，非兵不利 ，戰不善 ，弊在賂秦 。賂秦而力虧 ，破滅之道 也。或曰：「六國互喪 ，率(seot) 賂秦耶？」曰：「不賂者以賂者喪。」蓋失強援 ，不能獨完 ，故曰「弊在賂秦」也。\n\n秦以攻取 之外，小則獲邑 ，大則得城，較秦之所得 與戰勝而得者，其實百倍；諸侯之所亡 與戰敗而亡者，其實亦百倍。則秦之所大欲，諸侯之所大患，固不在戰矣。思厥先祖父 ，暴(puk)霜露，斬荊棘 ，以有尺寸之地 。子孫視之不甚惜，舉以予人 ，如棄草芥 。今日割五城，明日割十城，然後得一夕安寢；起視四境，而秦兵又至矣。然則諸侯之地有限，暴秦之欲無厭 ，奉之彌 繁，侵之愈急，故不戰而強弱勝負已判 矣。至於顛覆 ，理固宜然。古人 云：「以地事秦，猶抱薪救火，薪不盡，火不滅。」 此言得之。 \n\n齊人未嘗賂秦，終繼五國遷滅 ，何哉？與嬴 而不助五國也。五國既喪，齊亦不免矣。燕趙之君，始有遠略 ，能守其土，義不賂秦 。是故燕雖小國而後亡，斯用兵之效 也。至丹以荊卿為計 ，始速禍 焉。趙嘗五戰于秦 ，二敗而三勝 ；後秦擊趙者再，李牧 連卻 之；洎牧以讒誅 ，邯鄲為郡 ，惜其用武而不終 也。\n\n且燕趙處秦革滅 殆盡之際，可謂智力孤危 ，戰敗而亡，誠不得已。向使三國各愛其地 ，齊人勿附於秦，刺客不行 ，良將 猶在，則勝負之數 ，存亡之理，當(dong) 與秦相較，或未易量 。\n\n嗚呼！以賂秦之地，封天下之謀臣；以事秦之心，禮 天下之奇才；幷力西嚮 ，則吾恐秦人食之不得下嚥 也。悲夫！有如此之勢，而為秦人積威 之所劫，日削月割，以趨於亡！為國者無使為積威之所劫哉！\n\n夫六國與秦皆諸侯，其勢弱於秦，而猶有可以不賂而勝之之勢；茍以天下之大，而從六國破亡之故事 ，是又在六國下矣！" },
+            { title: "勸學", author: "荀子", content: "君子曰：學不可以已 。青，取之於藍 ，而青於藍 ；冰，水為之，而寒於水。木直中(zung)繩 ，輮(jau) 以為輪，其曲中(zung)規 ；雖有(jau)槁暴(puk) 、不復挺(ting) 者，輮使之然也。故木受繩則直 ，金就礪 則利，君子博學而日參省 乎己，則知(zi) 明而行 無過矣。\n\n吾嘗終日而思矣，不如須臾 之所學也；吾嘗跂 而望矣，不如登高之博見也。登高而招，臂非加長也，而見者遠。順風而呼，聲非加疾 也，而聞者彰 。假輿馬者 ，非利足 也，而致 千里；假舟楫 者，非能水 也，而絕江河 。君子生(sing)非異 也，善假於物 也。\n\n積土成山，風雨興焉；積水成淵 ，蛟龍 生焉；積善成德，而神明 自得，聖心 備焉。故不積跬步 ，無以至千里；不積小流，無以成江海。騏驥 一躍，不能十步；駑馬十駕 ，功在不舍 。鍥 而舍之，朽木不折；鍥而不舍，金石可鏤 。螾 無爪牙之利，筋骨之強，上食埃土 ，下飲黃泉，用心一也。蟹六跪而二螯 ，非蛇蟺 之穴無可寄託者，用心躁 也。" },
+            { title: "論仁、論孝、論君子", author: "論語", content: "論仁\n子曰：「不仁者，不可以久處約 ，不可以長處樂。仁者安仁，知(zi)者利仁 。」\n子曰：「富與貴，是人之所欲也；不以其道得之，不處也 。貧與賤，是人之所惡也；不以其道得之 ，不去 也。君子去仁，惡(wu)乎成名 ？君子無終食之間違仁 ，造次必於是 ，顛沛必於是。」\n顏淵問仁。\n子曰：「克己復禮為仁 。一日克己復禮，天下歸仁焉。為仁由己，而由人乎哉 ？」\n顏淵曰：「請問其目 。」子曰：「非禮勿視，非禮勿聽，非禮勿言，非禮勿動 。」\n顏淵曰：「回雖不敏，請事斯語矣 。」\n子曰：「志士仁人，無求生以害仁，有殺身以成仁 。」\n\n論孝\n孟懿子 問孝。子曰：「無違 。」\n樊遲御 ，子告之曰：「孟孫問孝於我，我對曰，無違。」\n樊遲曰：「何謂也？」子曰：「生事之以禮 ；死葬之以禮，祭之以禮 。」\n子游 問孝。子曰：「今之孝者，是謂能養 。至於犬馬，皆能有養 ；不敬，何以別乎 ！」\n\n子曰：「事父母幾(gei)諫 ，見志不從，又敬不違，勞而不怨 。」\n子曰：「父母之年，不可不知也。一則以喜，一則以懼 。」\n\n論君子\n子曰：「君子不重則不威 ；學則不固 。主忠信 。無友不如己者 。過則勿憚改 。」\n子曰：「君子坦蕩蕩，小人長戚戚 。」\n司馬牛 問君子。子曰：「君子不憂不懼。」曰：「不憂不懼，斯謂之君子已乎 ？」子曰：「內省不疚，夫何憂何懼 ？」\n子曰：「君子成人之美，不成人之惡 。小人反是 。」\n子曰：「君子恥其言而過其行 。」\n子曰：「君子義以為質 ，禮以行之，孫以出之，信以成之 。君子哉！」\n子曰：「君子病無能焉，不病人之不己知也 。」\n子曰：「君子求諸己，小人求諸人 。」" },
+            { title: "魚我所欲也", author: "孟子", content: "孟子曰：「魚，我所欲也，熊掌，亦我所欲也；二者不可得兼，舍魚而取熊掌 者也。生亦我所欲也，義亦我所欲也；二者不可得兼，舍生而取義者也。\n\n生亦我所欲，所欲有甚於生者，故不為苟得 也；死亦我所惡 ，所惡有甚於死者，故患有所不辟(bik) 也。如使人之所欲莫甚於生，則凡可以得生者，何不用也？使人之所惡莫甚於死者，則凡可以辟患者，何不為也？由是則生而有不用也，由是則可以辟患而有不為也，是故所欲有甚於生者，所惡有甚於死者。非獨賢者有是有心也，人皆有之，賢者能勿喪耳 。\n\n一簞食(zi) ，一豆羹 ，得之則生，弗(fat) 得則死。嘑(fu)爾而與之 ，行道之人弗受 ；蹴(cuk)爾而與之 ，乞人不屑也 ；萬鍾 則不辯(bin) 禮義而受之。萬鍾於我何加 焉？為宮室之美、妻妾之奉 、所識窮乏者得(dak)我與(jyu) ？鄉(hoeng) 為身死而不受，今為宮室之美為之；鄉為身死而不受，今為妻妾之奉為之；鄉為身死而不受，今為所識窮乏者得我而為之，是亦不可以已 乎？此之謂失其本心 。」" }
+        ]
+    };
+
+
+    // 全局狀態
+    let currentUser = null;
+    let userData = { name: '', totalChars: 0, versusRating: 0, counts: {}, bestTimes: {} };
+    
+    // 單機與基礎引擎變數
+    let textNodes = [], sentences = [], ToJyutpingLib = null;
+    let currentSentenceIdx = 0, partialTimeout = null, sessionStartTime = null;
+    let currentCategory = "中文", currentIndex = 0, selectedParagraphs = new Set();
+    const globalDictCache = new Map(), textJyutpingCache = new Map();
+    let cacheUpdatedFlag = false;
+    let recognition, isRecording = false, silenceTimer = null;
+    const SILENCE_LIMIT = 8000;
+    let finalTokens = [], consumedSttIdx = 0, sttTimeout = null, feedbackTimeout;
+    let lastClearedResultIndex = 0, currentMaxResultIndex = 0;
+    const isAppleDevice = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream;
+    let sessionMatchedChars = new Set();
+
+    // 對戰變數
+    let isVersusMode = false;
+    let currentRoomId = null;
+    let roomData = null;
+    let roomUnsubscribe = null, liveUnsubscribe = null;
+    let versusFailedOnce = false; // 容錯機制
+    let hasRatedGame = false;
+
+    // 工具函數
+    window.closeModal = (id) => document.getElementById(id).classList.remove('active');
+    window.openModal = (id) => {
+        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    };
+    function formatTime(ms) { let s = Math.floor(ms/1000); return s >= 60 ? `${Math.floor(s/60)}分${s%60}秒` : `${s}秒`; }
+
+    // Firebase Auth
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            const snap = await get(ref(db, `users/${user.uid}`));
+            if (snap.exists() && snap.val().name) {
+                userData = snap.val();
+                if (!userData.counts) userData.counts = {};
+                if (!userData.bestTimes) userData.bestTimes = {};
+                window.closeModal('auth-modal');
+                initApp();
+            } else {
+                window.closeModal('auth-modal');
+                window.openModal('name-modal');
+            }
+        } else {
+            window.openModal('auth-modal');
+        }
+    });
+
+    window.doLogin = () => signInWithPopup(auth, googleProvider);
+    
+    window.saveName = async () => {
+        const name = document.getElementById('name-input').value.trim();
+        if (!/^[\u4e00-\u9fa5]{3,4}$/.test(name)) return alert("賜名須為三至四個純漢字。");
+        userData = { name, totalChars: 0, versusRating: 0, counts: {}, bestTimes: {} };
+        await set(ref(db, `users/${currentUser.uid}`), userData);
+        window.closeModal('name-modal');
+        initApp();
+    };
+
+    function initApp() { checkLib(); renderMenu(); }
+
+    // 榜單
+    window.showLeaderboard = () => { window.openModal('leaderboard-modal'); window.switchLbTab('points'); };
+    window.switchLbTab = async (type) => {
+        document.querySelectorAll('.lb-tab').forEach(el => el.classList.remove('active'));
+        event.target.classList.add('active');
+        const cont = document.getElementById('lb-content');
+        cont.innerHTML = '載入中...';
+        
+        let html = '';
+        if (type === 'points' || type === 'versus') {
+            const field = type === 'points' ? 'totalChars' : 'versusRating';
+            const unit = type === 'points' ? '墨' : '分';
+            const q = query(ref(db, 'users'), orderByChild(field), limitToLast(10));
+            const snap = await get(q);
+            let arr = [];
+            snap.forEach(c => { arr.push(c.val()); });
+            arr.reverse().forEach((u, i) => {
+                html += `<div class="lb-row"><span>${i+1}. ${u.name}</span><span>${u[field] || 0} ${unit}</span></div>`;
+            });
+        } else {
+            const textKey = `${currentCategory}_${currentIndex}`;
+            const q = query(ref(db, `leaderboards/bestTimes/${textKey}`), orderByChild('time'), limitToLast(10));
+            const snap = await get(q);
+            let arr = [];
+            snap.forEach(c => { arr.push(c.val()); });
+            arr.forEach((r, i) => {
+                html += `<div class="lb-row"><span>${i+1}. ${r.name}</span><span>${formatTime(r.time)}</span></div>`;
+            });
+            if(arr.length===0) html = '<div style="text-align:center; color:var(--text-light); margin-top:50px;">此卷尚無絕塵者。</div>';
+            else html = `<div style="font-size:0.8rem; color:var(--text-light); margin-bottom:10px;">當前卷宗：${TEXT_LIBRARY[currentCategory][currentIndex].title}</div>` + html;
+        }
+        cont.innerHTML = html;
+    };
+
+    // UI 控制與單機邏輯
+    window.toggleMenu = () => {
+        const menu = document.getElementById('menu-overlay');
+        if (menu.classList.contains('active')) window.closeModal('menu-overlay');
+        else { renderMenu(); window.openModal('menu-overlay'); }
+    };
+
+    function renderMenu() {
+        let html = '';
+        for (const [cat, texts] of Object.entries(TEXT_LIBRARY)) {
+            const catCls = cat === "文學" ? "lit" : "chi";
+            html += `<div class="menu-section ${catCls}"><h3>${cat}</h3><ul class="menu-list">`;
+            texts.forEach((item, idx) => {
+                const act = (cat === currentCategory && idx === currentIndex) ? 'active' : '';
+                const tk = `${cat}_${idx}`;
+                const count = userData.counts[tk] || 0;
+                const bt = userData.bestTimes[tk];
+                const bdg1 = count > 0 ? `<span class="badge" style="color:var(--accent-blue); border-color:var(--accent-blue);">熟讀 ${count} 遍</span>` : '';
+                const bdg2 = bt ? `<span class="badge" style="color:var(--accent-red); border-color:var(--accent-red);">${formatTime(bt)}</span>` : '';
+                html += `<li><button class="${act}" onclick="window.selectText('${cat}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${bdg1}${bdg2}</button></li>`;
+            });
+            html += `</ul></div>`;
+        }
+        document.getElementById('menu-container').innerHTML = html;
+    }
+
+    window.selectText = (cat, idx) => {
+        if (isRecording) window.toggleRecording();
+        currentCategory = cat; currentIndex = idx; selectedParagraphs.clear();
+        window.closeModal('menu-overlay'); loadCurrentText();
+    };
+
+    window.toggleParagraph = (idx) => {
+        if (isVersusMode) return;
+        if (textNodes.some(n => n.type === 'char' && n.matched) && !confirm("重置進度？")) return;
+        if (selectedParagraphs.has(idx)) selectedParagraphs.delete(idx); else selectedParagraphs.add(idx);
+        loadCurrentText();
+    };
+
+    function loadCurrentText() {
+        const data = TEXT_LIBRARY[currentCategory][currentIndex];
+        const isLit = currentCategory === "文學";
+        const indClass = isLit ? "cat-lit" : "cat-chi";
+        document.documentElement.style.setProperty('--accent-red', isLit ? "#b04332" : "#6b4d73");
+        document.getElementById('doc-title').innerHTML = `<span class="cat-indicator ${indClass}"></span>${data.title}`;
+        document.getElementById('doc-author').innerText = data.author;
+        document.getElementById('main-container').style.opacity = '0';
+
+        setTimeout(() => {
+            textNodes = []; sentences = []; let html = ''; let charCount = 0;
+            data.content.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0).forEach((paraText, pIdx) => {
+                let isAct = (selectedParagraphs.size === 0 || selectedParagraphs.has(pIdx));
+                html += `<div class="para-block ${isAct ? '' : 'inactive'}" onclick="window.toggleParagraph(${pIdx})">`;
+                let currentSentChars = [];
+                let cleanText = paraText.replace(/\(\d+\)/g, '').replace(/（.*?）/g, '');
+
+                for (let i = 0; i < cleanText.length; i++) {
+                    let char = cleanText[i];
+                    if (char === ' ' || char === '\r') continue;
+                    if (/[，。：「」『』？、！；〈〉‧《》]/.test(char) || char === '﹗' || char === '﹔') {
+                        if (isAct) textNodes.push({ type: 'punct', char: char });
+                        html += `<span class="punct">${char}</span>`;
+                        if (isAct && currentSentChars.length > 0) { sentences.push(currentSentChars); currentSentChars = []; }
+                        continue;
+                    }
+                    let jyutpings = [], isManual = false;
+                    if (cleanText[i + 1] === '(') {
+                        let endIdx = cleanText.indexOf(')', i + 1);
+                        if (endIdx !== -1) { jyutpings = cleanText.substring(i + 2, endIdx).split('|'); i = endIdx; isManual = true; }
+                    }
+                    if (!isManual) {
+                        if (textJyutpingCache.has(char)) { jyutpings = textJyutpingCache.get(char).jyutpings; }
+                        else {
+                            if (ToJyutpingLib && ToJyutpingLib.getJyutpingCandidates) {
+                                let c = ToJyutpingLib.getJyutpingCandidates(char);
+                                if (c && c[0][1]) jyutpings = c[0][1].map(jp => jp.replace(/[0-9]/g, ''));
+                            }
+                            if (jyutpings.length===0) jyutpings=[char];
+                            jyutpings = [...new Set(jyutpings)];
+                            textJyutpingCache.set(char, { jyutpings, fuzzyBases: jyutpings.map(fuzzyJyutping) });
+                        }
+                    }
+                    let node = { type: 'char', char, index: charCount, matched: false, jyutpings, isCurrentSentence: false };
+                    if (isAct) { textNodes.push(node); currentSentChars.push(node); }
+                    html += `<span class="char" id="char-${charCount}" data-jp="${jyutpings.join('/')}">${char}</span>`;
+                    charCount++;
+                }
+                if (isAct && currentSentChars.length > 0) sentences.push(currentSentChars);
+                html += `</div>`;
+            });
+            if (sentences.length > 0) sentences[0].forEach((n) => n.isCurrentSentence = true);
+            document.getElementById('text-display').innerHTML = html;
+            textNodes.forEach(n => { if (n.type === 'char') n.el = document.getElementById(`char-${n.index}`); });
+            document.getElementById('main-container').style.opacity = '1';
+            window.resetAll(false);
+        }, 300);
+    }
+
+    // 對戰系統
+    window.showVersusLobby = () => {
+        if (isRecording) window.toggleRecording();
+        window.openModal('versus-modal');
+        document.getElementById('vs-init-view').style.display = 'block';
+        document.getElementById('vs-lobby-view').style.display = 'none';
+    };
+
+    window.createRoom = async () => {
+        currentRoomId = Math.floor(1000 + Math.random() * 9000).toString();
+        const rRef = ref(db, `rooms/${currentRoomId}`);
+        await set(rRef, {
+            host: currentUser.uid, state: 'waiting', maxPlayers: 2, currentSentenceIdx: 0,
+            textCategory: currentCategory, textIndex: currentIndex,
+            players: { [currentUser.uid]: { name: userData.name, score: 0, readyForNext: true } }
+        });
+        enterLobby();
+    };
+
+    window.joinRoom = async () => {
+        let code = document.getElementById('join-room-input').value.trim();
+        if (!code) return;
+        const snap = await get(ref(db, `rooms/${code}`));
+        if (!snap.exists()) return alert("局號虛無。");
+        if (snap.val().state !== 'waiting') return alert("棋局已開。");
+        if (Object.keys(snap.val().players || {}).length >= snap.val().maxPlayers) return alert("局已滿座。");
+        
+        currentRoomId = code;
+        await update(ref(db, `rooms/${code}/players/${currentUser.uid}`), { name: userData.name, score: 0, readyForNext: true });
+        onDisconnect(ref(db, `rooms/${code}/players/${currentUser.uid}`)).remove();
+        enterLobby();
+    };
+
+    window.updateMaxPlayers = (val) => {
+        if (roomData && roomData.host === currentUser.uid) update(ref(db, `rooms/${currentRoomId}`), { maxPlayers: parseInt(val) });
+    };
+
+    window.leaveRoom = async () => {
+        if (currentRoomId) {
+            await remove(ref(db, `rooms/${currentRoomId}/players/${currentUser.uid}`));
+            if (roomUnsubscribe) roomUnsubscribe();
+            if (liveUnsubscribe) liveUnsubscribe();
+            currentRoomId = null; roomData = null; isVersusMode = false;
+            document.getElementById('mode-controls').style.display = 'flex';
+            document.getElementById('vs-status-bar').style.display = 'none';
+            document.getElementById('vs-turn-indicator').style.display = 'none';
+            window.resetAll();
+        }
+        window.closeModal('versus-modal');
+    };
+
+    function enterLobby() {
+        document.getElementById('vs-init-view').style.display = 'none';
+        document.getElementById('vs-lobby-view').style.display = 'flex';
+        document.getElementById('lobby-room-id').innerText = currentRoomId;
+        
+        if (roomUnsubscribe) roomUnsubscribe();
+        roomUnsubscribe = onValue(ref(db, `rooms/${currentRoomId}`), (snap) => {
+            roomData = snap.val();
+            if (!roomData) return window.leaveRoom();
+            
+            let pList = ''; let players = Object.values(roomData.players || {});
+            players.forEach(p => pList += `<li><span>${p.name}</span></li>`);
+            document.getElementById('lobby-players').innerHTML = pList;
+            
+            const isHost = roomData.host === currentUser.uid;
+            document.getElementById('lobby-max-players').disabled = !isHost;
+            document.getElementById('lobby-max-players').value = roomData.maxPlayers;
+
+            if (isHost && roomData.state === 'waiting' && players.length === roomData.maxPlayers) {
+                let pKeys = Object.keys(roomData.players);
+                update(ref(db, `rooms/${currentRoomId}`), {
+                    state: 'playing', currentSentenceIdx: 0, textCategory: currentCategory, textIndex: currentIndex,
+                    playerOrder: pKeys, turn: pKeys[0]
+                });
+                let clearScores = {}; pKeys.forEach(k => clearScores[`players/${k}/score`] = 0);
+                update(ref(db, `rooms/${currentRoomId}`), clearScores);
+                set(ref(db, `rooms/${currentRoomId}/live`), { matched: 0, error: [] });
+            }
+
+            if (roomData.state === 'playing' && !isVersusMode) startVersusLocal();
+            else if (roomData.state === 'playing' && isVersusMode) syncVersusState();
+            else if (roomData.state === 'finished' && isVersusMode) showVersusResults();
+        });
+    }
+
+    function startVersusLocal() {
+        isVersusMode = true; hasRatedGame = false;
+        window.closeModal('versus-modal');
+        document.getElementById('mode-controls').style.display = 'none';
+        window.setMode('challenge');
+        document.getElementById('vs-status-bar').style.display = 'flex';
+        document.getElementById('vs-turn-indicator').style.display = 'block';
+        
+        if (currentCategory !== roomData.textCategory || currentIndex !== roomData.textIndex) {
+            currentCategory = roomData.textCategory; currentIndex = roomData.textIndex;
+            selectedParagraphs.clear(); loadCurrentText();
+        } else { window.resetAll(true); }
+
+        if (liveUnsubscribe) liveUnsubscribe();
+        liveUnsubscribe = onValue(ref(db, `rooms/${currentRoomId}/live`), snap => {
+            if (!isVersusMode || roomData.turn === currentUser.uid) return;
+            let live = snap.val() || {};
+            if (live.matched !== undefined) syncWatchingUI(live.matched);
+            if (live.error && live.error.length > 0) { triggerShakeError(live.error); setTimeout(()=>syncWatchingUI(0), 1000); }
+        });
+    }
+
+    function syncVersusState() {
+        document.getElementById('vs-room-id-disp').innerText = `局號: ${currentRoomId}`;
+        let scores = Object.values(roomData.players).map(p => `${p.name}: ${p.score}`).join(' | ');
+        document.getElementById('vs-scores-disp').innerText = scores;
+
+        let turnName = roomData.players[roomData.turn]?.name || '';
+        let isMyTurn = roomData.turn === currentUser.uid;
+        document.getElementById('vs-turn-indicator').innerHTML = isMyTurn ? `<span style="color:var(--accent-red);">換爾背誦</span>` : `${turnName} 背誦中...`;
+        document.getElementById('btn-start').disabled = !isMyTurn;
+        if (!isMyTurn && isRecording) window.toggleRecording();
+
+        if (roomData.currentSentenceIdx !== currentSentenceIdx) {
+            currentSentenceIdx = roomData.currentSentenceIdx;
+            textNodes.forEach(n => { if(n.type==='char') { n.matched = false; n.isCurrentSentence = false; }});
+            if(currentSentenceIdx < sentences.length) sentences[currentSentenceIdx].forEach(n => n.isCurrentSentence = true);
+            updateRender();
+        }
+    }
+
+    function syncWatchingUI(matchedCount) {
+        if(currentSentenceIdx >= sentences.length) return;
+        sentences[currentSentenceIdx].forEach((n, idx) => n.matched = (idx < matchedCount));
+        updateRender();
+    }
+
+    async function passVersusTurn(success) {
+        let newIdx = currentSentenceIdx;
+        if (success) {
+            newIdx++;
+            await update(ref(db, `rooms/${currentRoomId}`), { [`players/${currentUser.uid}/score`]: roomData.players[currentUser.uid].score + 1 });
+        }
+        if (newIdx >= sentences.length) {
+            if (roomData.host === currentUser.uid) update(ref(db, `rooms/${currentRoomId}`), { state: 'finished', currentSentenceIdx: newIdx });
+            return;
+        }
+        let order = roomData.playerOrder;
+        let nextUid = order[(order.indexOf(currentUser.uid) + 1) % order.length];
+        await update(ref(db, `rooms/${currentRoomId}/live`), { matched: 0, error: null });
+        await update(ref(db, `rooms/${currentRoomId}`), { turn: nextUid, currentSentenceIdx: newIdx });
+    }
+
+    function showVersusResults() {
+        if(isRecording) window.toggleRecording();
+        let myScore = roomData.players[currentUser.uid].score;
+        let allScores = Object.values(roomData.players).map(p => p.score);
+        let max = Math.max(...allScores), min = Math.min(...allScores);
+        let diff = 0;
+        if(max > min) {
+            if(myScore === max && allScores.filter(s=>s===max).length === 1) diff = 1;
+            else if(myScore === min && allScores.filter(s=>s===min).length === 1) diff = -1;
+        }
+        
+        let resultTxt = diff === 1 ? '獨占鰲頭 <span class="stamp">破局</span>' : (diff === -1 ? '略遜一籌' : '平分秋色');
+        document.getElementById('success-title').innerHTML = resultTxt;
+        document.getElementById('success-time').innerText = `得墨：${myScore} （局分 ${diff >= 0 ? '+'+diff : diff}）`;
+        
+        if (!hasRatedGame) {
+            hasRatedGame = true;
+            if (diff !== 0) {
+                runTransaction(ref(db, `users/${currentUser.uid}/versusRating`), (rt) => Math.max(0, (rt||0)+diff));
+            }
+            update(ref(db, `users/${currentUser.uid}/totalChars`), userData.totalChars + myScore); // 簡化：對戰按句數給總墨
+        }
+        
+        document.getElementById('btn-play-again').style.display = 'inline-block';
+        window.openModal('success-screen');
+    }
+
+    window.playAgain = () => {
+        window.closeModal('success-screen');
+        update(ref(db, `rooms/${currentRoomId}/players/${currentUser.uid}`), { readyForNext: true });
+        if (roomData.host === currentUser.uid) update(ref(db, `rooms/${currentRoomId}`), { state: 'waiting' });
+        enterLobby();
+    };
+
+    window.exitGame = () => { window.closeModal('success-screen'); if(isVersusMode) window.leaveRoom(); else window.resetAll(); };
+
+    // 底層辨識與單機邏輯 (精簡版)
+    function fuzzyJyutping(str) {
+        if (!str) return ':';
+        let b = str.toLowerCase().replace(/[0-9\s]/g, '').replace(/y/g, 'j').replace(/^ch/, 'c').replace(/^sh/, 's').replace(/ue/g, 'yu').replace(/ee/g, 'i').replace(/oo/g, 'u').replace(/ou/g, 'au');    
+        if(b.startsWith('n') && !b.startsWith('ng')) b = 'l'+b.substring(1); 
+        if(b.startsWith('ng') && b.length>2) b = b.substring(2); 
+        if(b==='ng') b='m'; 
+        if(b.startsWith('gw') && (b.includes('o')||b.includes('u'))) b = 'g'+b.substring(2);
+        if(b.startsWith('kw') && (b.includes('o')||b.includes('u'))) b = 'k'+b.substring(2);
+        if(b.endsWith('ing')) b = b.slice(0,-3)+'eng'; if(b.endsWith('ik')) b = b.slice(0,-2)+'ek';
+        b = b.replace(/[pt]$/, 'k').replace(/(m|ng)$/, 'n');
+        if(['jut','jyut','jyuet','jyuk'].includes(b)) b='jyuk';
+        let m = b.match(/^([bpmfdtnlgkhwjzcs]|gw|kw)(.*)/i); return m ? m[1]+':'+m[2] : ':'+b;
+    }
+
+    function evaluateMatch(sBases, tBases) {
+        let max = 0;
+        for(let sb of sBases){
+            let [sI, sF] = sb.split(':'); if(!sF) sF=sI;
+            for(let tb of tBases){
+                let [tI, tF] = tb.split(':'); if(!tF) tF=tI;
+                if(sI===tI && sF===tF) return 3;
+                if(sF===tF) max=Math.max(max,2);
+                else if(sI!=='' && sI===tI) max=Math.max(max,1);
+            }
+        } return max;
+    }
+
+    function checkComboMatch(sttData, sIdx, x, chars, tIdx, y) {
+        if(x===1 && y===1){
+            if(sttData[sIdx].char === chars[tIdx].char) return true;
+            let sc = evaluateMatch(sttData[sIdx].bases.length?sttData[sIdx].bases:[fuzzyJyutping(sttData[sIdx].char)], chars[tIdx].jyutpings.map(fuzzyJyutping));
+            if(sc===3) return true;
+            if(sc>0){
+                let cV=false;
+                const gs = (so,to) => {
+                    let si=sIdx+so, ti=tIdx+to; if(si<0||si>=sttData.length||ti<0||ti>=chars.length) return 0;
+                    return evaluateMatch(sttData[si].bases.length?sttData[si].bases:[fuzzyJyutping(sttData[si].char)], chars[ti].jyutpings.map(fuzzyJyutping));
+                };
+                if(tIdx===0) cV = gs(1,1)>0; else if(tIdx===chars.length-1) cV = gs(-1,-1)>0; else cV = gs(-1,-1)>0 || gs(1,1)>0;
+                return cV;
+            } return false;
+        }
+        let tCb=['']; for(let k=0;k<y;k++){ let tc2=[]; chars[tIdx+k].jyutpings.forEach(jp=>{let f=fuzzyJyutping(jp).split(':'); f=f[1]||f[0]; tCb.forEach(c=>tc2.push(c+f));}); tCb=tc2;}
+        let sCb=['']; for(let k=0;k<x;k++){ let sc2=[]; (sttData[sIdx+k].bases.length?sttData[sIdx+k].bases:[fuzzyJyutping(sttData[sIdx+k].char)]).forEach(b=>{let f=b.split(':'); f=f[1]||f[0]; sCb.forEach(c=>sc2.push(c+f));}); sCb=sc2;}
+        return tCb.some(t=>sCb.includes(t));
+    }
+
+    function triggerShakeError(indices) {
+        indices.forEach(idx => {
+            let el = document.getElementById(`char-${sentences[currentSentenceIdx][idx].index}`);
+            if(el) { el.classList.remove('shake-error'); void el.offsetWidth; el.classList.add('shake-error'); setTimeout(()=>el&&el.classList.remove('shake-error'), 1500); }
+        });
+    }
+
+    function matchAlgorithm(sttData) {
+        clearTimeout(partialTimeout); let passed = false;
+        if (currentSentenceIdx >= sentences.length) return;
+        let chars = sentences[currentSentenceIdx];
+        let maxT = 0, matchEnd = consumedSttIdx, eIdxs = [];
+        
+        let dp = (s,t) => {
+            if(s-consumedSttIdx > t*3+12) return {s:false, e:s, m:t};
+            if(t===chars.length) return {s:true, e:s, m:t};
+            if(s>=sttData.length) return {s:false, e:s, m:t};
+            let bR={s:false, e:s, m:t};
+            for(let x=1;x<=3;x++) { if(s+x>sttData.length) continue; for(let y=1;y<=3;y++) { if(t+y>chars.length) continue;
+                if(checkComboMatch(sttData,s,x,chars,t,y)) { let nr=dp(s+x,t+y); if(nr.s) return nr; if(nr.m>bR.m || (nr.m===bR.m&&nr.e>bR.e)) bR=nr; }
+            }} return bR;
+        };
+
+        for(let i=consumedSttIdx; i<Math.min(sttData.length, consumedSttIdx+12); i++){
+            let r=dp(i,0); if(r.s){ matchEnd=r.e; passed=true; break; }
+            if(r.m>maxT || (r.m===maxT&&r.e>matchEnd)){ maxT=r.m; matchEnd=r.e; }
+        }
+
+        if (passed) {
+            chars.forEach(n => { n.matched = true; sessionMatchedChars.add(n.index); });
+            consumedSttIdx = matchEnd; finalTokens.splice(0, matchEnd); consumedSttIdx = 0;
+            if(isVersusMode) passVersusTurn(true);
+            else {
+                currentSentenceIdx++;
+                if(currentSentenceIdx < sentences.length) sentences[currentSentenceIdx].forEach(n=>n.isCurrentSentence=true);
+                else {
+                    let textKey = `${currentCategory}_${currentIndex}`; let time = Date.now()-sessionStartTime;
+                    userData.counts[textKey] = (userData.counts[textKey]||0)+1;
+                    if(!userData.bestTimes[textKey] || time < userData.bestTimes[textKey]) {
+                        userData.bestTimes[textKey] = time;
+                        update(ref(db, `leaderboards/bestTimes/${textKey}/${currentUser.uid}`), { time, name: userData.name });
+                    }
+                    userData.totalChars += sessionMatchedChars.size;
+                    update(ref(db, `users/${currentUser.uid}`), { counts: userData.counts, bestTimes: userData.bestTimes, totalChars: userData.totalChars });
+                    
+                    document.getElementById('success-title').innerHTML = '曲終 <span class="stamp">破局</span>';
+                    document.getElementById('success-time').innerText = `用時：${formatTime(time)}`;
+                    document.getElementById('btn-play-again').style.display = 'none';
+                    window.openModal('success-screen');
+                }
+            }
+        } else {
+            if (maxT>0 || sttData.length>consumedSttIdx) {
+                if(isVersusMode) update(ref(db, `rooms/${currentRoomId}/live`), { matched: maxT });
+                partialTimeout = setTimeout(() => {
+                    eIdxs.push(maxT<chars.length?maxT:chars.length-1);
+                    if (isVersusMode) {
+                        if (!versusFailedOnce) {
+                            versusFailedOnce = true; triggerShakeError(eIdxs);
+                            update(ref(db, `rooms/${currentRoomId}/live`), { error: eIdxs, matched: 0 });
+                            chars.forEach(n=>n.matched=false); updateRender();
+                            finalTokens=[]; consumedSttIdx=0; showSpeechFeedback(''); lastClearedResultIndex=currentMaxResultIndex;
+                        } else {
+                            triggerShakeError(eIdxs); update(ref(db, `rooms/${currentRoomId}/live`), { error: eIdxs });
+                            versusFailedOnce = false; chars.forEach(n=>n.matched=false); updateRender();
+                            setTimeout(()=>passVersusTurn(false), 1500);
+                        }
+                    } else {
+                        triggerShakeError(eIdxs); chars.forEach(n=>n.matched=false); updateRender();
+                        finalTokens=[]; consumedSttIdx=0; showSpeechFeedback(''); lastClearedResultIndex=currentMaxResultIndex;
+                    }
+                }, 1000);
+            }
+            chars.forEach((n,idx) => n.matched = idx<maxT);
+        }
+        updateRender();
+    }
+
+    function updateRender() {
+        let mC=0, tC=0;
+        textNodes.forEach(n => { if(n.type==='char'){ tC++; if(n.matched) { n.el.classList.add('matched'); mC++; } else n.el.classList.remove('matched');
+            if(n.isCurrentSentence) n.el.classList.add('current-sentence'); else n.el.classList.remove('current-sentence'); } });
+        if (mC>0 && !sessionStartTime && !isVersusMode) sessionStartTime = Date.now();
+        document.getElementById('progress-bar').style.width = tC===0 ? '0%' : Math.round((mC/tC)*100)+'%';
+    }
+
+    function showSpeechFeedback(txt) {
+        const el = document.getElementById('speech-feedback'); if(!txt) { el.classList.remove('show'); return; }
+        el.innerText = "聽見：" + (txt.length>20 ? "..."+txt.slice(-20) : txt); el.classList.add('show');
+        clearTimeout(feedbackTimeout); feedbackTimeout = setTimeout(()=>el.classList.remove('show'), 2000);
+    }
+
+    window.resetAll = (stop=true) => {
+        if(stop&&isRecording) window.toggleRecording(); clearTimeout(partialTimeout); clearTimeout(silenceTimer);
+        finalTokens=[]; consumedSttIdx=0; currentSentenceIdx=0; sessionStartTime=null; sessionMatchedChars.clear(); versusFailedOnce=false;
+        document.getElementById('manual-input').value=''; showSpeechFeedback(''); lastClearedResultIndex=currentMaxResultIndex||0;
+        textNodes.forEach(n=>{if(n.type==='char'){n.matched=false;n.isCurrentSentence=false;}});
+        if(sentences.length>0) sentences[0].forEach(n=>n.isCurrentSentence=true); updateRender();
+    };
+
+    window.setMode = (m) => {
+        document.getElementById('text-display').className = 'text-display ' + m + '-mode';
+        document.getElementById('btn-mode-review').classList.toggle('active', m==='review');
+        document.getElementById('btn-mode-challenge').classList.toggle('active', m==='challenge');
+    };
+
+    window.toggleKeyboard = () => { const b = document.getElementById('action-bar'), i = document.getElementById('manual-input'); b.classList.toggle('show-input'); if(b.classList.contains('show-input')) i.focus(); else i.blur(); };
+    document.getElementById('manual-input').addEventListener('input', e => {
+        if(isVersusMode && roomData.turn!==currentUser.uid) return;
+        if(!e.isComposing && e.target.value.trim()!=='') {
+            let matches = e.target.value.replace(/[^\u4e00-\u9fa5a-zA-Z]/g,'').match(/[\u4e00-\u9fa5]|[a-zA-Z]+/g)||[];
+            matches.forEach(t => finalTokens.push({char:t, bases:[fuzzyJyutping(t)]}));
+            e.target.value=''; matchAlgorithm(finalTokens);
+        }
+    });
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = isAppleDevice ? 'zh-HK' : 'yue-Hant-HK'; recognition.continuous = !isAppleDevice; recognition.interimResults = true;
+        recognition.onstart = () => { document.getElementById('btn-start').classList.add('recording'); lastClearedResultIndex=0; currentMaxResultIndex=0; showSpeechFeedback('🟢 就緒...'); };
+        recognition.onresult = (e) => {
+            if(isVersusMode && roomData.turn!==currentUser.uid) return;
+            currentMaxResultIndex = e.results.length; let newF='', intS='';
+            for(let i=Math.max(e.resultIndex, lastClearedResultIndex); i<e.results.length; i++) { if(e.results[i].isFinal) newF+=e.results[i][0].transcript; else intS+=e.results[i][0].transcript; }
+            const getT = s => { let m=(s.replace(/[0-9]/g,'').toLowerCase().match(/[\u4e00-\u9fa5]|[a-z]+/g)||[]); return m.map(c=>{let bs=[];if(/[a-z]/.test(c)) bs.push(fuzzyJyutping(c)); else if(ToJyutpingLib&&ToJyutpingLib.getJyutpingList) bs=ToJyutpingLib.getJyutpingList(c).map(j=>fuzzyJyutping(j[1])); return {char:c, bases:bs.length?bs:[fuzzyJyutping(c)]};});};
+            if(newF) finalTokens.push(...getT(newF));
+            let curD = [...finalTokens, ...getT(intS)]; showSpeechFeedback(curD.slice(consumedSttIdx).map(x=>x.char).join(''));
+            clearTimeout(sttTimeout); sttTimeout = setTimeout(()=>matchAlgorithm(curD), 80);
+        };
+        recognition.onend = () => { if(isRecording) setTimeout(()=>{ try{recognition.start()}catch(e){} },50); else document.getElementById('btn-start').classList.remove('recording'); };
+    }
+    window.toggleRecording = () => { if(!recognition)return; if(isRecording){isRecording=false; recognition.stop(); showSpeechFeedback('');}else{isRecording=true; try{recognition.start();}catch(e){}}};
+
+    let checkCount=0; function checkLib() { if(window.ToJyutping && ToJyutpingLib===null) { ToJyutpingLib=window.ToJyutping; document.getElementById('btn-start').disabled=false; } else if(checkCount++<20) setTimeout(checkLib,300); }
+</script>
+</body>
+</html>
