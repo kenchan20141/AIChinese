@@ -41,7 +41,7 @@
             transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
-        /* 頂部對戰資訊列 */
+        /* 頂部對戰資訊列 - 響應式優化 */
         .multiplayer-bar {
             position: fixed; top: 0; left: 0; width: 100%; background: rgba(247, 246, 242, 0.98);
             backdrop-filter: blur(8px); border-bottom: 1px solid var(--text-gray);
@@ -50,10 +50,12 @@
         }
         .multiplayer-bar.active { display: flex; transform: translateY(0); }
         .mb-top {
-            display: flex; justify-content: space-between; align-items: center; 
+            display: flex; justify-content: space-between; align-items: flex-start; 
             padding: 12px 20px; font-size: 0.95rem; letter-spacing: 0.1em;
         }
-        .mb-status-text { flex: 1; text-align: center; line-height: 1.4; }
+        .mb-status-container { flex: 1; text-align: center; display: flex; flex-direction: column; gap: 6px; }
+        .mb-turn-status { font-weight: bold; line-height: 1.2; }
+        .mb-score-status { font-size: 0.85rem; color: var(--text-light); word-break: break-word; line-height: 1.4; }
         .mb-timer-track { width: 100%; height: 3px; background: rgba(176, 67, 50, 0.15); }
         .mb-timer-fill { height: 100%; width: 100%; background: var(--accent-red); transition: width 0.5s linear; }
         .btn-icon-close { 
@@ -241,7 +243,10 @@
 
 <div id="multiplayer-bar" class="multiplayer-bar">
     <div class="mb-top">
-        <span id="mb-status-text">對戰載入中...</span>
+        <div class="mb-status-container">
+            <div id="mb-turn-status">對戰載入中...</div>
+            <div id="mb-score-status"></div>
+        </div>
         <button class="btn-icon-close" onclick="leaveRoom()" title="退出對戰">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -301,8 +306,8 @@
     <div class="overlay-content">
         <h2>文苑對戰</h2>
         <div class="tabs" style="margin-bottom: 30px;">
-            <button class="tab-btn active" id="tab-join" onclick="switchLobbyTab('join')">加入房間</button>
-            <button class="tab-btn" id="tab-create" onclick="switchLobbyTab('create')">建立房間</button>
+            <button class="tab-btn active" id="tab-create" onclick="switchLobbyTab('create')">建立房間</button>
+            <button class="tab-btn" id="tab-join" onclick="switchLobbyTab('join')">加入房間</button>
         </div>
         
         <input type="text" id="room-code-input" placeholder="輸入房號 (四位數字)" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.3em; font-weight: bold;">
@@ -310,11 +315,9 @@
         <div id="create-room-options" style="display: none;">
             <br>
             <select id="room-text-select"></select>
-            <br>
-            <input type="number" id="room-players-input" placeholder="參與人數 (最少2人)" min="2" max="10" value="2">
         </div>
         <br>
-        <button class="btn-primary" id="btn-room-action" onclick="joinRoomAction()">加入</button>
+        <button class="btn-primary" id="btn-room-action" onclick="joinRoomAction()">建立</button>
         <button class="btn-secondary" onclick="closeOverlays()">返回</button>
     </div>
 </div>
@@ -327,9 +330,7 @@
         <div id="lobby-players-list" style="text-align:left; max-width: 300px; margin: 0 auto 30px auto; line-height: 2;"></div>
         
         <div id="host-controls" class="host-settings-box" style="display: none;">
-            <p style="font-size:0.85rem; margin-top:0;">人數上限：</p>
-            <input type="number" id="host-players-input" min="2" max="10" onchange="updateRoomMaxPlayers(this.value)" style="width: 50%; padding: 8px;">
-            <p style="font-size:0.85rem; margin-top:15px;">選擇篇章：</p>
+            <p style="font-size:0.85rem; margin-top:0;">選擇篇章：</p>
             <select id="host-text-select" style="width: 80%; padding: 8px;"></select>
             <br>
             <button class="btn-primary" style="margin-top:20px;" onclick="startMultiplayerGame()">開始對戰</button>
@@ -702,7 +703,7 @@
     };
 
     // ====== 多人對戰系統 ======
-    let lobbyMode = 'join';
+    let lobbyMode = 'create';
     window.switchLobbyTab = function(mode) {
         lobbyMode = mode;
         document.getElementById('tab-join').classList.toggle('active', mode === 'join');
@@ -720,7 +721,7 @@
     window.showLobbySetup = function() {
         closeOverlays();
         document.getElementById('lobby-setup-overlay').classList.add('active');
-        switchLobbyTab('join');
+        switchLobbyTab('create');
     };
 
     window.joinRoomAction = function() {
@@ -728,7 +729,7 @@
         if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
         if (lobbyMode === 'create') {
-            const maxP = parseInt(document.getElementById('room-players-input').value) || 2;
+            const maxP = 99; // 滿足驗證規則
             const textKey = document.getElementById('room-text-select').value;
             const roomRef = ref(db, `rooms/${code}`);
             
@@ -751,7 +752,6 @@
             get(roomRef).then(snap => {
                 if(!snap.exists()) return alert("房間不存在");
                 if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
-                if(Object.keys(snap.val().players || {}).length >= snap.val().maxPlayers) return alert("房間已滿");
                 
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
                 update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
@@ -765,6 +765,12 @@
     
     window.startMultiplayerGame = function() {
         if(myUid === roomData?.host) {
+            const playersCount = Object.keys(roomData.players || {}).length;
+            if (playersCount < 2) {
+                alert("需要至少兩名玩家才能開始對戰！");
+                return;
+            }
+
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
             update(ref(db, `rooms/${currentRoomId}`), {
                 state: 'playing',
@@ -813,15 +819,15 @@
 
             if (data.state === 'waiting') {
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
+                document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
                 let pHtml = '';
                 playersList.forEach(pUid => { pHtml += `<div>${data.players[pUid].name} ${pUid===data.host?'(房主)':''}</div>`; });
                 document.getElementById('lobby-players-list').innerHTML = pHtml;
-                document.getElementById('lobby-status-text').innerText = `等待用家加入... (${playersList.length}/${data.maxPlayers})`;
+                document.getElementById('lobby-status-text').innerText = `等待用家加入... (目前 ${playersList.length} 人)`;
                 
                 if(myUid === data.host) {
                     document.getElementById('host-controls').style.display = 'block';
-                    document.getElementById('host-players-input').value = data.maxPlayers;
                     document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
                     document.getElementById('host-controls').style.display = 'none';
@@ -842,22 +848,24 @@
                 }
 
                 // 更新頂部對戰列
-                const mbText = document.getElementById('mb-status-text');
+                const mbTurn = document.getElementById('mb-turn-status');
+                const mbScore = document.getElementById('mb-score-status');
                 const mb = document.getElementById('multiplayer-bar');
                 let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
                 
                 const btnStart = document.getElementById('btn-start');
                 if (isActivePlayer) {
-                    mbText.innerHTML = `🟢 <span style="color:var(--accent-red); font-weight:bold;">輪到你了</span> —— 得分：${scoreText}`;
+                    mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
                     mb.style.borderBottom = "2px solid var(--accent-red)";
                     btnStart.disabled = false;
                     btnStart.style.opacity = '1';
                 } else {
-                    mbText.innerHTML = `🔴 等候 <b>${data.players[activeUid].name}</b> 作答 —— 得分：${scoreText}`;
+                    mbTurn.innerHTML = `🔴 等候 <b>${data.players[activeUid].name}</b> 作答`;
                     mb.style.borderBottom = "1px solid var(--text-gray)";
                     btnStart.disabled = true;
                     btnStart.style.opacity = '0.3';
                 }
+                mbScore.innerHTML = `得分：${scoreText}`;
                 mb.classList.add('active');
                 
                 // 啟動計時器
@@ -883,7 +891,6 @@
                 if (data.turn.mistakes === 0) {
                     window.lastMistakes = 0;
                 } else if (data.turn.mistakes > (window.lastMistakes || 0)) {
-                    if (isActivePlayer && data.turn.mistakes === 1) showSpeechFeedback('讀錯了！換人作答');
                     applyRemoteErrors(data.progress?.errors || []);
                     window.lastMistakes = data.turn.mistakes;
                 }
@@ -904,12 +911,6 @@
             }
         });
     }
-
-    window.updateRoomMaxPlayers = function(val) {
-        if(currentRoomId && myUid === roomData.host) {
-            update(ref(db, `rooms/${currentRoomId}`), { maxPlayers: parseInt(val) });
-        }
-    };
 
     window.leaveRoom = function() {
         if(!currentRoomId) return;
@@ -973,8 +974,15 @@
     function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
         document.getElementById('success-title').innerText = "對戰終局";
-        document.getElementById('btn-rematch').innerText = "重 戰";
-        document.getElementById('btn-rematch').disabled = false;
+        
+        if (data.players[myUid]?.rematch) {
+            document.getElementById('btn-rematch').innerText = "等候中...";
+            document.getElementById('btn-rematch').disabled = true;
+        } else {
+            document.getElementById('btn-rematch').innerText = "重 戰";
+            document.getElementById('btn-rematch').disabled = false;
+        }
+
         let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
         let html = '';
         playersList.forEach((p, idx) => {
@@ -985,7 +993,7 @@
         document.getElementById('btn-close-success').innerText = "退 出";
         sc.classList.add('active');
 
-        // Check if all want rematch -> Go back to waiting room
+        // 判斷是否所有玩家都選擇重戰
         if (myUid === data.host) {
             let allRematch = playersList.every(p => data.players[p].rematch);
             if (allRematch) {
@@ -1204,28 +1212,44 @@
     function handleMistake(isTimeout = false, errorIndex = 0) {
         if (!isMultiplayer || !isActivePlayer || !roomData) return;
         
-        if (isTimeout) showSpeechFeedback('時限已過！換人作答。');
-        
-        const errs = isTimeout ? [0] : [errorIndex]; 
-        set(ref(db, `rooms/${currentRoomId}/progress/errors`), errs);
-        const currentMistakes = roomData.turn.mistakes || 0;
-        set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes + 1);
+        const currentMistakes = (roomData.turn.mistakes || 0) + 1;
+        set(ref(db, `rooms/${currentRoomId}/progress/errors`), isTimeout ? [0] : [errorIndex]);
+        set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes);
 
-        setTimeout(() => {
-            if (!roomData) return;
-            const playersList = Object.keys(roomData.players || {}).sort();
-            const npIdx = (roomData.turn.playerIdx + 1) % playersList.length;
+        if (currentMistakes < 2) {
+            if (isTimeout) showSpeechFeedback('時限已過！剩餘一次機會。');
+            else showSpeechFeedback('讀錯了！剩餘一次機會。');
             
-            // 換下一位玩家，但保留在「同一句」
-            update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                playerIdx: npIdx, 
-                sentenceIdx: currentSentenceIdx, 
-                mistakes: 0, 
-                startTime: Date.now() 
-            });
-            set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-            window.handlingTimeout = false;
-        }, 1500);
+            setTimeout(() => {
+                if (!roomData) return;
+                // 更新進度並重置計時器，給予第二次機會
+                update(ref(db, `rooms/${currentRoomId}/turn`), { startTime: Date.now() });
+                set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
+                
+                applyRemoteMatched(0);
+                finalTokens = []; consumedSttIdx = 0;
+                window.handlingTimeout = false;
+            }, 1500);
+        } else {
+            if (isTimeout) showSpeechFeedback('時限已過！換人作答。');
+            else showSpeechFeedback('讀錯了！換人作答。');
+
+            setTimeout(() => {
+                if (!roomData) return;
+                const playersList = Object.keys(roomData.players || {}).sort();
+                const npIdx = (roomData.turn.playerIdx + 1) % playersList.length;
+                
+                // 換下一位玩家，但保留在「同一句」
+                update(ref(db, `rooms/${currentRoomId}/turn`), { 
+                    playerIdx: npIdx, 
+                    sentenceIdx: currentSentenceIdx, 
+                    mistakes: 0, 
+                    startTime: Date.now() 
+                });
+                set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
+                window.handlingTimeout = false;
+            }, 1500);
+        }
     }
 
     function matchAlgorithm(sttData) {
