@@ -529,8 +529,36 @@
     let cacheUpdatedFlag = false;
 
     // 初始化 Firebase 驗證
-    onAuthStateChanged(auth, (user) => {
+  // 初始化 Firebase 驗證與權限攔截
+    onAuthStateChanged(auth, async (user) => {
         if (user) {
+            const email = user.email || "";
+            const isEduDomain = email.endsWith('@ccckyc.edu.hk');
+            
+            let isSpecial = false;
+            try {
+                const specialSnap = await get(ref(db, `special_users`));
+                if (specialSnap.exists()) {
+                    const data = specialSnap.val();
+                    // 兼容 Firebase 限制：檢查逗號替換句號的 Key (如 test@gmail,com: true)，或直接檢查 Value
+                    const encodedEmail = email.replace(/\./g, ',');
+                    if (data[encodedEmail] === true || Object.values(data).includes(email)) {
+                        isSpecial = true;
+                    }
+                }
+            } catch(e) {
+                console.error("無法核驗特許名單", e);
+            }
+
+            // 攔截非授權用戶
+            if (!isEduDomain && !isSpecial) {
+                alert("登入失敗：只限 @ccckyc.edu.hk 師生或特許用家登入。");
+                auth.signOut();
+                document.getElementById('auth-overlay').classList.add('active');
+                return;
+            }
+
+            // 授權通過，繼續執行名稱檢查
             myUid = user.uid;
             get(ref(db, `users/${myUid}/name`)).then(snap => {
                 if(snap.exists() && /^[\u4e00-\u9fa5]{3,4}$/.test(snap.val())) {
@@ -548,7 +576,6 @@
             document.getElementById('auth-overlay').classList.add('active');
         }
     });
-
     document.getElementById('btn-google-login').onclick = () => {
         const provider = new GoogleAuthProvider();
         signInWithPopup(auth, provider);
