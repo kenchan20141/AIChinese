@@ -978,10 +978,10 @@ function populateRoomSelect() {
                     document.getElementById('host-controls').style.display = 'none';
                 }
                 clearInterval(turnTimerInterval);
-            } else if (data.state === 'playing') {
+          } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
                 document.getElementById('success-screen').classList.remove('active');
-                setMode('challenge'); // 強制挑戰模式
+               setMode('challenge', true); // 強制系統切換為默誦模式
                 document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
                 document.getElementById('mode-controls').style.display = 'none';
 
@@ -1067,7 +1067,7 @@ function populateRoomSelect() {
         exitMultiplayer();
     };
 
-    function exitMultiplayer() {
+ function exitMultiplayer() {
         isMultiplayer = false; currentRoomId = null; roomData = null;
         clearInterval(turnTimerInterval); turnTimerInterval = null;
         closeOverlays();
@@ -1078,6 +1078,7 @@ function populateRoomSelect() {
         document.getElementById('mode-controls').style.display = 'flex';
         const btnStart = document.getElementById('btn-start');
         btnStart.disabled = false; btnStart.style.opacity = '1';
+        setMode('review', true); // 退出對戰後恢復為朗讀模式
         resetAllLocalState();
     }
 
@@ -1641,13 +1642,18 @@ function populateRoomSelect() {
 
     function formatTime(ms) { let ts = Math.floor(ms / 1000); let m = Math.floor(ts / 60); let s = ts % 60; return m > 0 ? `${m}分${s}秒` : `${s}秒`; }
 
-   window.setMode = function(mode) {
-    if (isMultiplayer) return; // 加入這行，對戰模式下禁止手動切換
-    const container = document.getElementById('text-display');
+  window.setMode = function(mode, force = false) {
+        if (isMultiplayer && !force) return; // 對戰模式下禁止手動切換，但允許系統強制設置
+        const container = document.getElementById('text-display');
         document.getElementById('btn-mode-review').classList.remove('active');
         document.getElementById('btn-mode-challenge').classList.remove('active');
-        if (mode === 'challenge') { container.className = 'text-display challenge-mode'; document.getElementById('btn-mode-challenge').classList.add('active'); } 
-        else { container.className = 'text-display review-mode'; document.getElementById('btn-mode-review').classList.add('active'); }
+        if (mode === 'challenge') { 
+            container.className = 'text-display challenge-mode'; 
+            document.getElementById('btn-mode-challenge').classList.add('active'); 
+        } else { 
+            container.className = 'text-display review-mode'; 
+            document.getElementById('btn-mode-review').classList.add('active'); 
+        }
     }
 
     function checkLib() { if (window.ToJyutping) { ToJyutpingLib = window.ToJyutping; document.getElementById('btn-start').disabled = false; loadCurrentText(); } else setTimeout(checkLib, 300); }
