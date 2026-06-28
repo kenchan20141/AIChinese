@@ -248,13 +248,23 @@
             text-align: center; color: var(--text-gray); 
             padding: 5px 0; letter-spacing: 0.2em; border-bottom: 1px dashed rgba(209, 207, 199, 0.5);
         }
+        
+        /* 結算畫面 UI 優化 */
         .result-me {
-            background: rgba(176, 67, 50, 0.08); padding: 12px 15px; 
-            border-radius: 8px; border-left: 4px solid var(--accent-red); margin: 5px 0;
+            background: rgba(176, 67, 50, 0.05); padding: 16px 20px; 
+            border-radius: 4px; border-left: 4px solid var(--accent-red); margin: 8px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
         }
         .result-others {
-            padding: 10px 15px; margin: 5px 0; border-left: 4px solid transparent;
+            padding: 12px 20px; margin: 8px 0; border-left: 4px solid transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.03);
         }
+        .result-header { display: flex; justify-content: space-between; align-items: center; letter-spacing: 0.1em; }
+        .result-score { font-size: 1.2rem; font-weight: 600; color: var(--text-dark); }
+        .result-details { font-size: 0.85rem; color: var(--text-light); margin-top: 12px; display: flex; justify-content: space-between; border-top: 1px dashed rgba(209, 207, 199, 0.5); padding-top: 8px; }
+        .status-up { color: #3b6b58; font-weight: 600; }
+        .status-down { color: var(--accent-red); font-weight: 600; }
+        .status-same { color: var(--text-gray); }
 
 
 
@@ -615,14 +625,14 @@
         checkLib();
     }
 
-  function populateRoomSelect() {
+function populateRoomSelect() {
         const sel1 = document.getElementById('room-text-select');
         const sel2 = document.getElementById('host-text-select');
         sel1.innerHTML = '';
         if(sel2) sel2.innerHTML = '';
         for (const [cat, texts] of Object.entries(TEXT_LIBRARY)) {
-            // 加入分類標籤
-            let groupHtml = `<optgroup label="${cat}">`;
+            // 使用純文字符號強化視覺分隔
+            let groupHtml = `<optgroup label=" ━━━ ${cat} ━━━ ">`;
             texts.forEach((item, idx) => {
                 groupHtml += `<option value="${cat}_${idx}">${item.title}</option>`;
             });
@@ -815,8 +825,8 @@
             
             get(roomRef).then(snap => {
                 if(snap.exists()) return alert("此房號已被佔用，請重新產生");
-                const roomObj = {
-                    host: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
+               const roomObj = {
+                    host: myUid, picker: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     players: { [myUid]: { name: myName, score: 0, rematch: false } },
                     turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
@@ -877,8 +887,8 @@
         return count;
     }
 
-    window.startMultiplayerGame = function() {
-        if(myUid === roomData?.host) {
+   window.startMultiplayerGame = function() {
+        if(myUid === roomData?.picker) { // 改由 picker 控制開始
             const playersList = Object.keys(roomData.players || {}).sort();
             const playersCount = playersList.length;
             if (playersCount < 2) {
@@ -946,16 +956,22 @@
             document.getElementById('main-nav-bar').style.display = 'none';
             document.getElementById('auth-info').style.display = 'none';
 
-            if (data.state === 'waiting') {
+         if (data.state === 'waiting') {
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
                 let pHtml = '';
-                playersList.forEach(pUid => { pHtml += `<div>${data.players[pUid].name} ${pUid===data.host?'(房主)':''}</div>`; });
+                playersList.forEach(pUid => { 
+                    let role = [];
+                    if (pUid === data.host) role.push('房主');
+                    if (pUid === data.picker) role.push('選題');
+                    let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
+                    pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
+                });
                 document.getElementById('lobby-players-list').innerHTML = pHtml;
                 document.getElementById('lobby-status-text').innerText = `等待用家加入... (目前 ${playersList.length} 人)`;
                 
-                if(myUid === data.host) {
+                if(myUid === data.picker) { // 改由 picker 顯示控制面板
                     document.getElementById('host-controls').style.display = 'block';
                     document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
@@ -1100,7 +1116,7 @@
     }
 
     // ====== 多人結算 ======
-  function showMultiplayerResults(data) {
+ function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
         document.getElementById('success-title').innerText = "對戰終局";
         
@@ -1114,7 +1130,6 @@
 
         let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
         
-        // 獲取全局數據以模擬排名變化 (解決房主寫入時間差問題)
         get(ref(db, 'users')).then(snap => {
             let allUsers = [];
             snap.forEach(child => { allUsers.push({ uid: child.key, name: child.val().name, score: child.val().battlePoints || 0 }); });
@@ -1122,7 +1137,6 @@
             let matchScores = playersList.map(p => data.players[p].score);
             let maxS = Math.max(...matchScores); let minS = Math.min(...matchScores);
             
-            // 構建舊狀態與新狀態，用以對比排名
             let getDelta = (pUid) => {
                 let s = data.players[pUid].score;
                 if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
@@ -1150,24 +1164,24 @@
                 let newRank = newUsers.sort((a,b) => b.score - a.score).findIndex(u => u.uid === p) + 1;
                 let newTotal = newUsers.find(u => u.uid === p).score;
 
-                let rankIcon = '- 排名不變'; let rankColor = 'var(--text-gray)';
-                if (newRank < oldRank) { rankIcon = '▲ 排名上升'; rankColor = '#3b6b58'; }
-                else if (newRank > oldRank) { rankIcon = '▼ 排名下降'; rankColor = '#b04332'; }
-                else if (delta > 0) { rankIcon = '▲ 積分增加'; rankColor = '#3b6b58'; } 
-                else if (delta < 0) { rankIcon = '▼ 積分減少'; rankColor = '#b04332'; }
+                // 取代 Emoji 的優雅文字標籤
+                let rankText = '排名不變'; let rankClass = 'status-same';
+                if (newRank < oldRank) { rankText = '排名上升'; rankClass = 'status-up'; }
+                else if (newRank > oldRank) { rankText = '排名下降'; rankClass = 'status-down'; }
+                else if (delta > 0) { rankText = '積分增加'; rankClass = 'status-up'; } 
+                else if (delta < 0) { rankText = '積分減少'; rankClass = 'status-down'; }
 
                 let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
-                let deltaColor = delta > 0 ? '#3b6b58' : (delta < 0 ? '#b04332' : 'var(--text-gray)');
 
                 html += `<div class="${isMe ? 'result-me' : 'result-others'}">
-                            <div style="display:flex; justify-content:space-between; align-items:center; font-weight:${isMe?'bold':'normal'};">
-                                <span>第 ${idx+1} 名：${data.players[p].name}</span>
-                                <span>${pScore} 題</span>
+                            <div class="result-header">
+                                <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}</span>
+                                <span class="result-score">${pScore} 題</span>
                             </div>
                             ${isMe ? `
-                            <div style="font-size: 0.85rem; color: var(--text-light); margin-top: 8px; display:flex; justify-content:space-between;">
-                                <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> <span style="color:${deltaColor}">(${deltaStr})</span></span>
-                                <span style="color:${rankColor}; font-weight:bold;">${rankIcon}</span>
+                            <div class="result-details">
+                                <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
+                                <span class="${rankClass}">${rankText}</span>
                             </div>` : ''}
                          </div>`;
             });
@@ -1179,11 +1193,16 @@
             sc.classList.add('active');
         });
 
+        // 房主負責重置房間狀態，並隨機指派下一局選題者
         if (myUid === data.host) {
             let allRematch = playersList.every(p => data.players[p].rematch);
             if (allRematch) {
+                // 從目前房間玩家中隨機抽選一位負責選題
+                let nextPicker = playersList[Math.floor(Math.random() * playersList.length)];
+                
                 let updates = { 
                     state: 'waiting', 
+                    picker: nextPicker, // 寫入新選題者
                     turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() }, 
                     progress: { matched: 0, errors: [] }, 
                     pointsCalculated: false 
@@ -1509,7 +1528,7 @@
                     applyRemoteMatched(0); // 單機模式完美推進句子並永久固定已讀句子
                 }
             } else {
-                if (maxMatched > 0 || sttData.length > consumedSttIdx) {
+              if (maxMatched > 0 || sttData.length > consumedSttIdx) {
                     window.maxMatched = maxMatched;
                     partialTimeout = setTimeout(() => {
                         if (isMultiplayer) {
@@ -1519,6 +1538,8 @@
                             }
                             return;
                         } else {
+                            // 單機模式：讀錯或超時震動回饋
+                            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                             applyRemoteErrors([maxMatched]);
                             applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0;
                         }
