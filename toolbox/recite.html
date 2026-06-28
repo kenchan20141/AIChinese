@@ -841,7 +841,7 @@ function populateRoomSelect() {
         switchLobbyTab('create');
     };
 
-  window.joinRoomAction = function() {
+window.joinRoomAction = function() {
         const code = document.getElementById('room-code-input').value.trim();
         if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
@@ -851,13 +851,22 @@ function populateRoomSelect() {
             const roomRef = ref(db, `rooms/${code}`);
             
             get(roomRef).then(snap => {
-                if(snap.exists()) return alert("此房號已被佔用，請重新產生");
+                if(snap.exists()) {
+                    const rData = snap.val();
+                    // 【修正點】：檢查房間內是否還有玩家。若無玩家，判定為廢棄殭屍房，允許覆蓋
+                    if (rData.players && Object.keys(rData.players).length > 0) {
+                        return alert("此房號已被佔用，請重新產生");
+                    }
+                }
+                
                 const roomObj = {
                     host: myUid, picker: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     players: { [myUid]: { name: myName, score: 0, rematch: false } },
                     turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
                 };
+                
+                // set 會直接寫入或覆蓋舊的空房間，完美解決房號耗盡問題
                 set(roomRef, roomObj).then(() => {
                     currentRoomId = code; isMultiplayer = true;
                     // 斷線時只移除自己，保留房間讓其他人繼續
@@ -869,7 +878,14 @@ function populateRoomSelect() {
             const roomRef = ref(db, `rooms/${code}`);
             get(roomRef).then(snap => {
                 if(!snap.exists()) return alert("房間不存在");
-                if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
+                
+                const rData = snap.val();
+                // 【修正點】：避免玩家誤加到已經廢棄的殭屍房而卡死
+                if(!rData.players || Object.keys(rData.players).length === 0) {
+                    return alert("該房間已廢棄，請自己建立新房間");
+                }
+                
+                if(rData.state !== 'waiting') return alert("房間已開始遊戲");
                 
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
                 update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
