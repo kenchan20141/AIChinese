@@ -1057,10 +1057,9 @@ window.joinRoomAction = function() {
             if (data.state === 'playing' && window.previousPlayers.length > 0 && myUid === currentHost) {
                 let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
                 if (leftPlayers.length > 0) {
-                    leftPlayers.forEach(lp => {
-                        // 扣除逃跑者 1 分對戰積分
-                        const ptRef = ref(db, `users/${lp}/battlePoints`);
-                        runTransaction(ptRef, (cur) => Math.max(0, (cur || 0) - 1));
+                   leftPlayers.forEach(lp => {
+                        // ⚠️ 基於 Firebase 權限，純前端無法越權修改已離開玩家的節點
+                        // 這裡必須移除 runTransaction，避免 Permission Denied 報錯導致遊戲當機卡死
                     });
 
                     if (playersList.length === 1) {
@@ -1186,11 +1185,12 @@ window.joinRoomAction = function() {
                     if (!isRecording && data.state === 'playing') startRecording();
                 }
                 
-            } else if (data.state === 'finished') {
+          } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
                 clearInterval(turnTimerInterval);
                 showMultiplayerResults(data);
-                if (myUid === data.host && !data.pointsCalculated) calculateAndApplyBattlePoints(data);
+                // 👈 讓房間內所有玩家都執行計分函數
+                if (!data.pointsCalculated) calculateAndApplyBattlePoints(data); 
             }
         });
     }
@@ -1259,8 +1259,9 @@ window.joinRoomAction = function() {
     }
 
     // ====== 多人結算 ======
- function showMultiplayerResults(data) {
+function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
+        sc.classList.add('active'); // 👈 新增這一行，讓結算畫面彈出
         document.getElementById('success-title').innerText = "對戰終局";
         
         if (data.players[myUid]?.rematch) {
@@ -1344,25 +1345,30 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
         document.getElementById('btn-rematch').disabled = true;
     };
 
-    function calculateAndApplyBattlePoints(data) {
+  function calculateAndApplyBattlePoints(data) {
         let playersList = Object.keys(data.players || {});
         if(playersList.length < 2) return;
+        
         let scores = playersList.map(p => data.players[p].score);
         let maxS = Math.max(...scores); let minS = Math.min(...scores);
-        if(maxS === minS) { update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true }); return; } // 打和
 
-        playersList.forEach(p => {
-            let s = data.players[p].score;
+        // 👈 每個人只抓取、判斷並更新「自己」的對戰積分
+        let myScore = data.players[myUid]?.score;
+        if (myScore !== undefined && maxS !== minS) {
             let diff = 0;
-            if(s === maxS) diff = 1;
-            else if(s === minS) diff = -1;
+            if (myScore === maxS) diff = 1;
+            else if (myScore === minS) diff = -1;
             
-            if(diff !== 0) {
-                const ptRef = ref(db, `users/${p}/battlePoints`);
+            if (diff !== 0) {
+                const ptRef = ref(db, `users/${myUid}/battlePoints`);
                 runTransaction(ptRef, (cur) => { return Math.max(0, (cur || 0) + diff); });
             }
-        });
-        update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
+        }
+        
+        // 👈 結算完畢後，由房主負責關閉房間的計分狀態，防止重複給分
+        if (myUid === data.host) {
+            update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
+        }
     }
 
     // ====== 單機與底層共用邏輯 ======
