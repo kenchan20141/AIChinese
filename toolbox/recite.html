@@ -238,6 +238,27 @@
             border-radius: 8px; padding: 20px; margin-top: 20px; text-align: center;
         }
 
+/* 排名與結算視覺化高亮 */
+        .highlight-me {
+            background-color: rgba(176, 67, 50, 0.08) !important;
+            border-left: 4px solid var(--accent-red);
+            font-weight: 600;
+        }
+        .lb-ellipsis {
+            text-align: center; color: var(--text-gray); 
+            padding: 5px 0; letter-spacing: 0.2em; border-bottom: 1px dashed rgba(209, 207, 199, 0.5);
+        }
+        .result-me {
+            background: rgba(176, 67, 50, 0.08); padding: 12px 15px; 
+            border-radius: 8px; border-left: 4px solid var(--accent-red); margin: 5px 0;
+        }
+        .result-others {
+            padding: 10px 15px; margin: 5px 0; border-left: 4px solid transparent;
+        }
+
+
+
+        
     </style>
 </head>
 <body>
@@ -715,24 +736,48 @@
         loadLeaderboard('battle');
     };
 
-    window.loadLeaderboard = function(type) {
+   window.loadLeaderboard = function(type) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelector(`.tab-btn[onclick="loadLeaderboard('${type}')"]`).classList.add('active');
         const c = document.getElementById('lb-content'); c.innerHTML = '載入中...';
         
-        let q;
-        if(type === 'battle') q = query(ref(db, 'users'), orderByChild('battlePoints'), limitToLast(50));
-        else q = query(ref(db, 'users'), orderByChild('singlePoints'), limitToLast(50));
-
-        get(q).then(snap => {
+        // 獲取所有用戶以計算準確排名
+        get(ref(db, 'users')).then(snap => {
             let html = '';
             let arr = [];
-            snap.forEach(child => { arr.push({name: child.val().name, score: type==='battle'?child.val().battlePoints:child.val().singlePoints}); });
-            arr.sort((a,b) => b.score - a.score);
-            arr.forEach((item, idx) => {
-                html += `<div class="lb-item"><span class="lb-rank">${idx+1}.</span><span class="lb-name">${item.name}</span><span class="lb-score">${item.score} 分</span></div>`;
+            snap.forEach(child => { 
+                arr.push({ uid: child.key, name: child.val().name, score: type==='battle' ? (child.val().battlePoints||0) : (child.val().singlePoints||0) }); 
             });
+            
+            // 降序排列
+            arr.sort((a,b) => b.score - a.score);
+            
+            let myRankIndex = arr.findIndex(u => u.uid === myUid);
+            let top50 = arr.slice(0, 50);
+
+            top50.forEach((item, idx) => {
+                let isMe = (item.uid === myUid);
+                let hlClass = isMe ? 'highlight-me' : '';
+                html += `<div class="lb-item ${hlClass}" id="${isMe ? 'lb-my-row' : ''}">
+                            <span class="lb-rank">${idx+1}.</span><span class="lb-name">${item.name}</span><span class="lb-score">${item.score} 分</span>
+                         </div>`;
+            });
+
+            // 若玩家不在前 50 名，將其附在底部
+            if (myRankIndex >= 50) {
+                html += `<div class="lb-ellipsis">...</div>`;
+                html += `<div class="lb-item highlight-me" id="lb-my-row">
+                            <span class="lb-rank">${myRankIndex+1}.</span><span class="lb-name">${arr[myRankIndex].name}</span><span class="lb-score">${arr[myRankIndex].score} 分</span>
+                         </div>`;
+            }
+
             c.innerHTML = html || '尚無紀錄';
+
+            // 自動平滑滾動到玩家所在位置
+            setTimeout(() => {
+                let myRow = document.getElementById('lb-my-row');
+                if (myRow) myRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 150);
         });
     };
 
@@ -1054,7 +1099,7 @@
     }
 
     // ====== 多人結算 ======
-    function showMultiplayerResults(data) {
+  function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
         document.getElementById('success-title').innerText = "對戰終局";
         
@@ -1067,16 +1112,72 @@
         }
 
         let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
-        let html = '';
-        playersList.forEach((p, idx) => {
-            html += `<div>第 ${idx+1} 名：${data.players[p].name} (${data.players[p].score} 分)</div>`;
-        });
-        document.getElementById('success-time').innerHTML = html;
-        document.getElementById('btn-rematch').style.display = 'inline-block';
-        document.getElementById('btn-close-success').innerText = "退 出";
-        sc.classList.add('active');
+        
+        // 獲取全局數據以模擬排名變化 (解決房主寫入時間差問題)
+        get(ref(db, 'users')).then(snap => {
+            let allUsers = [];
+            snap.forEach(child => { allUsers.push({ uid: child.key, name: child.val().name, score: child.val().battlePoints || 0 }); });
 
-        // 判斷是否所有玩家都選擇重戰
+            let matchScores = playersList.map(p => data.players[p].score);
+            let maxS = Math.max(...matchScores); let minS = Math.min(...matchScores);
+            
+            // 構建舊狀態與新狀態，用以對比排名
+            let getDelta = (pUid) => {
+                let s = data.players[pUid].score;
+                if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
+                return 0;
+            };
+
+            let oldUsers = allUsers.map(u => {
+                let d = (playersList.includes(u.uid) && data.pointsCalculated) ? getDelta(u.uid) : 0;
+                return { uid: u.uid, score: Math.max(0, u.score - d) };
+            });
+
+            let newUsers = allUsers.map(u => {
+                let d = (playersList.includes(u.uid) && !data.pointsCalculated) ? getDelta(u.uid) : 0;
+                return { uid: u.uid, score: Math.max(0, u.score + d) };
+            });
+
+            let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
+            
+            playersList.forEach((p, idx) => {
+                let isMe = (p === myUid);
+                let pScore = data.players[p].score;
+                let delta = getDelta(p);
+                
+                let oldRank = oldUsers.sort((a,b) => b.score - a.score).findIndex(u => u.uid === p) + 1;
+                let newRank = newUsers.sort((a,b) => b.score - a.score).findIndex(u => u.uid === p) + 1;
+                let newTotal = newUsers.find(u => u.uid === p).score;
+
+                let rankIcon = '- 排名不變'; let rankColor = 'var(--text-gray)';
+                if (newRank < oldRank) { rankIcon = '▲ 排名上升'; rankColor = '#3b6b58'; }
+                else if (newRank > oldRank) { rankIcon = '▼ 排名下降'; rankColor = '#b04332'; }
+                else if (delta > 0) { rankIcon = '▲ 積分增加'; rankColor = '#3b6b58'; } 
+                else if (delta < 0) { rankIcon = '▼ 積分減少'; rankColor = '#b04332'; }
+
+                let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
+                let deltaColor = delta > 0 ? '#3b6b58' : (delta < 0 ? '#b04332' : 'var(--text-gray)');
+
+                html += `<div class="${isMe ? 'result-me' : 'result-others'}">
+                            <div style="display:flex; justify-content:space-between; align-items:center; font-weight:${isMe?'bold':'normal'};">
+                                <span>第 ${idx+1} 名：${data.players[p].name}</span>
+                                <span>${pScore} 題</span>
+                            </div>
+                            ${isMe ? `
+                            <div style="font-size: 0.85rem; color: var(--text-light); margin-top: 8px; display:flex; justify-content:space-between;">
+                                <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> <span style="color:${deltaColor}">(${deltaStr})</span></span>
+                                <span style="color:${rankColor}; font-weight:bold;">${rankIcon}</span>
+                            </div>` : ''}
+                         </div>`;
+            });
+            html += '</div>';
+            
+            document.getElementById('success-time').innerHTML = html;
+            document.getElementById('btn-rematch').style.display = 'inline-block';
+            document.getElementById('btn-close-success').innerText = "退 出";
+            sc.classList.add('active');
+        });
+
         if (myUid === data.host) {
             let allRematch = playersList.every(p => data.players[p].rematch);
             if (allRematch) {
