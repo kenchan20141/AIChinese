@@ -43,11 +43,11 @@
 
         /* 頂部對戰資訊列 */
         .multiplayer-bar {
-            position: fixed; top: 0; left: 0; width: 100%; background: rgba(247, 246, 242, 0.95);
-            backdrop-filter: blur(5px); border-bottom: 1px solid var(--text-gray);
-            padding: 8px 0; text-align: center; font-size: 0.9rem; letter-spacing: 0.15em;
+            position: fixed; top: 0; left: 0; width: 100%; background: rgba(247, 246, 242, 0.98);
+            backdrop-filter: blur(8px); border-bottom: 1px solid var(--text-gray);
+            padding: 10px 0; text-align: center; font-size: 0.95rem; letter-spacing: 0.15em;
             color: var(--text-dark); z-index: 90; display: none; transform: translateY(-100%);
-            transition: transform 0.4s ease;
+            transition: all 0.4s ease; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
         .multiplayer-bar.active { display: block; transform: translateY(0); }
 
@@ -141,10 +141,10 @@
         /* 語音即時字幕 */
         .speech-feedback-container {
             position: fixed; bottom: 95px; left: 50%; transform: translateX(-50%) translateY(10px);
-            background: rgba(247, 246, 242, 0.55); backdrop-filter: blur(12px); color: rgba(44, 43, 41, 0.75); 
-            padding: 8px 20px; border-radius: 30px; font-size: 0.9rem; pointer-events: none; opacity: 0;
+            background: rgba(247, 246, 242, 0.75); backdrop-filter: blur(12px); color: rgba(44, 43, 41, 0.85); 
+            padding: 8px 24px; border-radius: 30px; font-size: 1rem; pointer-events: none; opacity: 0;
             transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
-            max-width: 80vw; z-index: 90; letter-spacing: 0.1em; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03); border: 1px solid rgba(0, 0, 0, 0.02);
+            max-width: 80vw; z-index: 90; letter-spacing: 0.1em; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid rgba(0, 0, 0, 0.05);
         }
         .speech-feedback-container.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -161,7 +161,7 @@
             color: var(--text-dark); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.4s ease;
         }
         .icon-btn:hover:not(:disabled) { background: var(--text-dark); color: var(--bg-color); }
-        .icon-btn:disabled { opacity: 0.3; cursor: wait; }
+        .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
         .icon-btn svg { width: 20px; height: 20px; transition: transform 0.3s; }
         .icon-btn:hover:not(:disabled) svg { transform: scale(1.05); }
         .icon-btn.recording { border-color: var(--accent-red); color: var(--accent-red); background: transparent; animation: pulse-border 2s infinite cubic-bezier(0.4, 0, 0.6, 1); }
@@ -205,7 +205,7 @@
         /* 頁籤設計 */
         .tabs { display: flex; justify-content: center; gap: 20px; margin-bottom: 30px; }
         .tab-btn { background: none; border: none; font-family: inherit; font-size: 1rem; color: var(--text-light); letter-spacing: 0.2em; cursor: pointer; transition: color 0.3s; padding-bottom: 5px; border-bottom: 2px solid transparent;}
-        .tab-btn.active { color: var(--text-dark); border-bottom-color: var(--text-dark); }
+        .tab-btn.active { color: var(--text-dark); border-bottom-color: var(--text-dark); font-weight: 600; }
 
         .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: transparent; }
         .copyright-footer p { margin: 0; font-size: 12px; color: var(--text-light); letter-spacing: 0.1em; }
@@ -257,13 +257,21 @@
 <div id="lobby-setup-overlay" class="full-overlay">
     <div class="overlay-content">
         <h2>文苑對戰</h2>
-        <input type="text" id="room-code-input" placeholder="輸入房號 (如 1234)">
+        <div class="tabs" style="margin-bottom: 30px;">
+            <button class="tab-btn active" id="tab-join" onclick="switchLobbyTab('join')">加入房間</button>
+            <button class="tab-btn" id="tab-create" onclick="switchLobbyTab('create')">建立房間</button>
+        </div>
+        
+        <input type="text" id="room-code-input" placeholder="輸入房號 (四位數字)" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.3em; font-weight: bold;">
+        
+        <div id="create-room-options" style="display: none;">
+            <br>
+            <select id="room-text-select"></select>
+            <br>
+            <input type="number" id="room-players-input" placeholder="參與人數 (最少2人)" min="2" max="10" value="2">
+        </div>
         <br>
-        <select id="room-text-select"></select>
-        <br>
-        <input type="number" id="room-players-input" placeholder="參與人數 (最少2人)" min="2" max="10" value="2">
-        <br>
-        <button class="btn-primary" onclick="createOrJoinRoom()">加入房間</button>
+        <button class="btn-primary" id="btn-room-action" onclick="joinRoomAction()">加入</button>
         <button class="btn-secondary" onclick="closeOverlays()">返回</button>
     </div>
 </div>
@@ -340,7 +348,7 @@
             <path d="M3 3v5h5"></path>
         </svg>
     </button>
-    <input type="text" id="manual-input" class="manual-input" placeholder="可輸入文字作答..." autocomplete="off">
+    <input type="text" id="manual-input" class="manual-input" placeholder="可輸入文字作答，按 Enter 確認..." autocomplete="off">
 </div>
 
 <!-- 遊戲結束/通關畫面 -->
@@ -523,7 +531,7 @@
 
         setTimeout(() => {
             textNodes = []; sentences = []; sessionAchievedChars.clear();
-            let html = ''; let charCount = 0;
+            let html = ''; let charCount = 0; let sentenceCount = 0;
             let rawParagraphs = data.content.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
 
             rawParagraphs.forEach((paraText, pIdx) => {
@@ -544,7 +552,12 @@
                     if (/[，。：「」『』？、！；〈〉‧《》]/.test(char) || char === '﹗' || char === '﹔') {
                         if (isActivePara) textNodes.push({ type: 'punct', char: char });
                         html += `<span class="punct">${char}</span>`;
-                        if (isActivePara && currentSentChars.length > 0) { sentences.push(currentSentChars); currentSentChars = []; }
+                        if (isActivePara && currentSentChars.length > 0) { 
+                            currentSentChars.forEach((n, idx) => { n.sentenceIndex = sentenceCount; n.indexInSentence = idx; });
+                            sentences.push(currentSentChars); 
+                            sentenceCount++;
+                            currentSentChars = []; 
+                        }
                         i++; continue;
                     }
 
@@ -581,11 +594,14 @@
                     html += `<span class="char" id="char-${charCount}" data-jp="${jyutpings.join('/')}">${char}</span>`;
                     charCount++;
                 }
-                if (isActivePara && currentSentChars.length > 0) sentences.push(currentSentChars);
+                if (isActivePara && currentSentChars.length > 0) {
+                    currentSentChars.forEach((n, idx) => { n.sentenceIndex = sentenceCount; n.indexInSentence = idx; });
+                    sentences.push(currentSentChars);
+                    sentenceCount++;
+                }
                 html += `</div>`;
             });
 
-            if (sentences.length > 0) sentences[0].forEach((n) => { n.isCurrentSentence = true; });
             document.getElementById('text-display').innerHTML = html;
             
             textNodes.forEach(node => {
@@ -626,30 +642,38 @@
     };
 
     // ====== 多人對戰系統 ======
+    let lobbyMode = 'join';
+    window.switchLobbyTab = function(mode) {
+        lobbyMode = mode;
+        document.getElementById('tab-join').classList.toggle('active', mode === 'join');
+        document.getElementById('tab-create').classList.toggle('active', mode === 'create');
+        document.getElementById('create-room-options').style.display = mode === 'create' ? 'block' : 'none';
+        document.getElementById('btn-room-action').innerText = mode === 'create' ? '建立' : '加入';
+        
+        if (mode === 'create' && !document.getElementById('room-code-input').value) {
+            document.getElementById('room-code-input').value = Math.floor(1000 + Math.random() * 9000);
+        } else if (mode === 'join') {
+            document.getElementById('room-code-input').value = '';
+        }
+    };
+
     window.showLobbySetup = function() {
         closeOverlays();
         document.getElementById('lobby-setup-overlay').classList.add('active');
+        switchLobbyTab('join');
     };
 
-    window.createOrJoinRoom = function() {
+    window.joinRoomAction = function() {
         const code = document.getElementById('room-code-input').value.trim();
-        if(!code) return alert("請輸入房號");
-        const maxP = parseInt(document.getElementById('room-players-input').value) || 2;
-        const textKey = document.getElementById('room-text-select').value;
+        if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
-        const roomRef = ref(db, `rooms/${code}`);
-        get(roomRef).then(snap => {
-            if(snap.exists()) {
-                // Join
-                if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
-                if(Object.keys(snap.val().players || {}).length >= snap.val().maxPlayers) return alert("房間已滿");
-                
-                update(ref(db, `rooms/${code}/players/${myUid}`), { name: myName, score: 0, rematch: false }).then(() => {
-                    currentRoomId = code; isMultiplayer = true;
-                    listenToRoom();
-                });
-            } else {
-                // Create
+        if (lobbyMode === 'create') {
+            const maxP = parseInt(document.getElementById('room-players-input').value) || 2;
+            const textKey = document.getElementById('room-text-select').value;
+            const roomRef = ref(db, `rooms/${code}`);
+            
+            get(roomRef).then(snap => {
+                if(snap.exists()) return alert("此房號已被佔用，請重新產生");
                 const roomObj = {
                     host: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     players: { [myUid]: { name: myName, score: 0, rematch: false } },
@@ -658,11 +682,25 @@
                 };
                 set(roomRef, roomObj).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    onDisconnect(roomRef).remove(); // Host disconnected destroys room
+                    onDisconnect(roomRef).remove(); // 房主離線自動銷毀房間
                     listenToRoom();
                 });
-            }
-        });
+            });
+        } else {
+            const roomRef = ref(db, `rooms/${code}`);
+            get(roomRef).then(snap => {
+                if(!snap.exists()) return alert("房間不存在");
+                if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
+                if(Object.keys(snap.val().players || {}).length >= snap.val().maxPlayers) return alert("房間已滿");
+                
+                const pRef = ref(db, `rooms/${code}/players/${myUid}`);
+                update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
+                    currentRoomId = code; isMultiplayer = true;
+                    onDisconnect(pRef).remove(); // 參與者離線自動退出
+                    listenToRoom();
+                });
+            });
+        }
     };
 
     function listenToRoom() {
@@ -694,6 +732,7 @@
                 }
             } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
+                document.getElementById('success-screen').classList.remove('active');
                 setMode('challenge'); // 強制挑戰模式
                 document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
                 document.getElementById('mode-controls').style.display = 'none';
@@ -708,23 +747,45 @@
                 // 更新頂部對戰列
                 const mb = document.getElementById('multiplayer-bar');
                 let scoreText = playersList.map(p => `${data.players[p].name} ${data.players[p].score}`).join(' | ');
-                mb.innerText = `當前背誦：${data.players[activeUid].name} —— 得分：${scoreText}`;
+                
+                const btnStart = document.getElementById('btn-start');
+                if (isActivePlayer) {
+                    mb.innerHTML = `🟢 <span style="color:var(--accent-red); font-weight:bold;">你的回合</span> —— 得分：${scoreText}`;
+                    mb.style.borderBottom = "3px solid var(--accent-red)";
+                    btnStart.disabled = false;
+                    btnStart.style.opacity = '1';
+                } else {
+                    mb.innerHTML = `🔴 等待 <b>${data.players[activeUid].name}</b> 背誦 —— 得分：${scoreText}`;
+                    mb.style.borderBottom = "1px solid var(--text-gray)";
+                    btnStart.disabled = true;
+                    btnStart.style.opacity = '0.3';
+                }
                 mb.classList.add('active');
 
-                // 處理回合轉換
+                // 處理回合與句子轉換
                 if (currentSentenceIdx !== data.turn.sentenceIdx) {
                     currentSentenceIdx = data.turn.sentenceIdx;
-                    resetLocalSentenceState();
+                    applyRemoteMatched(0);
                     finalTokens = []; consumedSttIdx = 0; // 清空語音緩存
                 }
 
+                // 處理錯誤提示與抖動
+                if (data.turn.mistakes === 0) {
+                    window.lastMistakes = 0;
+                } else if (data.turn.mistakes > (window.lastMistakes || 0)) {
+                    if (isActivePlayer && data.turn.mistakes === 1) showSpeechFeedback('讀錯了！剩餘一次機會');
+                    applyRemoteErrors(data.progress?.errors || []);
+                    window.lastMistakes = data.turn.mistakes;
+                }
+
+                // 處理錄音與同步進度
                 if (!isActivePlayer) {
                     if (isRecording) stopRecording();
                     applyRemoteMatched(data.progress?.matched || 0);
-                    if (data.progress?.errors?.length > 0) applyRemoteErrors(data.progress.errors);
                 } else {
-                    if (!isRecording) startRecording(); // 輪到自己自動開咪
+                    if (!isRecording && data.state === 'playing') startRecording();
                 }
+                
             } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
                 showMultiplayerResults(data);
@@ -755,14 +816,27 @@
         document.getElementById('multiplayer-bar').classList.remove('active');
         document.getElementById('btn-reset').style.display = '';
         document.getElementById('mode-controls').style.display = 'flex';
+        const btnStart = document.getElementById('btn-start');
+        btnStart.disabled = false; btnStart.style.opacity = '1';
         resetAllLocalState();
     }
 
-    // ====== 多人視覺同步 ======
+    // ====== 多人與單人視覺同步 ======
     function applyRemoteMatched(count) {
-        let sc = sentences[currentSentenceIdx];
-        if(!sc) return;
-        sc.forEach((n, idx) => { n.matched = (idx < count); });
+        textNodes.forEach(n => {
+            if (n.type === 'char') {
+                if (n.sentenceIndex < currentSentenceIdx) {
+                    n.matched = true;
+                    n.isCurrentSentence = false;
+                } else if (n.sentenceIndex === currentSentenceIdx) {
+                    n.matched = (n.indexInSentence < count);
+                    n.isCurrentSentence = true;
+                } else {
+                    n.matched = false;
+                    n.isCurrentSentence = false;
+                }
+            }
+        });
         updateRenderVisuals();
     }
     
@@ -784,6 +858,8 @@
     function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
         document.getElementById('success-title').innerText = "對戰終局";
+        document.getElementById('btn-rematch').innerText = "重 戰";
+        document.getElementById('btn-rematch').disabled = false;
         let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
         let html = '';
         playersList.forEach((p, idx) => {
@@ -791,6 +867,7 @@
         });
         document.getElementById('success-time').innerHTML = html;
         document.getElementById('btn-rematch').style.display = 'inline-block';
+        document.getElementById('btn-close-success').innerText = "退 出";
         sc.classList.add('active');
 
         // Check if all want rematch
@@ -959,6 +1036,25 @@
         el.classList.add('show');
     }
 
+    // 鍵盤手動輸入處理
+    window.toggleKeyboard = function() {
+        const bar = document.getElementById('action-bar');
+        bar.classList.toggle('show-input');
+        if(bar.classList.contains('show-input')) document.getElementById('manual-input').focus();
+    };
+
+    document.getElementById('manual-input').addEventListener('keyup', function(e) {
+        if(e.key === 'Enter') {
+            const val = this.value.trim();
+            this.value = '';
+            if(val) {
+                let tokens = getTokens(val);
+                matchAlgorithm([...finalTokens, ...tokens]);
+                finalTokens.push(...tokens);
+            }
+        }
+    });
+
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRec();
@@ -1025,7 +1121,7 @@
             }
 
             if (sentencePassed) {
-                sentenceChars.forEach(n => { n.matched = true; sessionAchievedChars.add(n.index); });
+                sentenceChars.forEach(n => sessionAchievedChars.add(n.index));
                 consumedSttIdx = matchEndSttIdx; 
                 
                 if (isMultiplayer) {
@@ -1035,10 +1131,10 @@
                     if (currentSentenceIdx + 1 >= sentences.length) update(ref(db, `rooms/${currentRoomId}`), { state: 'finished' });
                     else update(ref(db, `rooms/${currentRoomId}/turn`), { playerIdx: npIdx, sentenceIdx: currentSentenceIdx + 1, mistakes: 0 });
                     set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-                    return; // 多人模式由 Listener 切換句子
+                    return; // 多人模式由 Listener 切換句子並重設狀態
                 } else {
                     currentSentenceIdx++;
-                    if (currentSentenceIdx < sentences.length) sentences[currentSentenceIdx].forEach((n) => { n.isCurrentSentence = true; });
+                    applyRemoteMatched(0); // 單機模式完美推進句子並永久固定已讀句子
                 }
             } else {
                 if (maxMatched > 0 || sttData.length > consumedSttIdx) {
@@ -1047,8 +1143,10 @@
                         
                         if (isMultiplayer) {
                             set(ref(db, `rooms/${currentRoomId}/progress/errors`), errorIndices);
-                            if (roomData.turn.mistakes === 0) {
-                                update(ref(db, `rooms/${currentRoomId}/turn/mistakes`), 1);
+                            const currentMistakes = roomData.turn.mistakes || 0;
+                            set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes + 1);
+                            
+                            if (currentMistakes === 0) {
                                 setTimeout(() => { set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] }); }, 1500);
                             } else {
                                 setTimeout(() => {
@@ -1061,8 +1159,7 @@
                             return;
                         } else {
                             applyRemoteErrors(errorIndices);
-                            sentenceChars.forEach(n => n.matched = false);
-                            updateRenderVisuals(); finalTokens = []; consumedSttIdx = 0;
+                            applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0;
                         }
                     }, 1000); 
                 }
@@ -1100,6 +1197,7 @@
             if(isRecording) stopRecording(); clearTimeout(partialTimeout);
             document.getElementById('success-screen').classList.add('active');
             document.getElementById('btn-rematch').style.display = 'none';
+            document.getElementById('btn-close-success').innerText = "重 歸";
             document.getElementById('success-title').innerText = "功不唐捐，玉汝於成。";
 
             const timeTaken = Date.now() - sessionStartTime;
@@ -1107,8 +1205,9 @@
 
             if (selectedParagraphs.size === 0 && document.getElementById('text-display').classList.contains('challenge-mode')) {
                 const textKey = `${currentCategory}_${currentIndex}`;
-                update(ref(db, `userStats/${myUid}/${textKey}`), { count: (window.increment || function(x){return x;}) }); // Simplified increment
-                get(ref(db, `userStats/${myUid}/${textKey}/count`)).then(s=> update(ref(db, `userStats/${myUid}/${textKey}`),{count: (s.val()||0)+1}));
+                const statRef = ref(db, `userStats/${myUid}/${textKey}/count`);
+                
+                get(statRef).then(s => set(statRef, (s.val() || 0) + 1));
                 
                 get(ref(db, `leaderboards/bestTimes/${textKey}/${myUid}`)).then(snap => {
                     const currentBest = snap.val();
@@ -1125,18 +1224,17 @@
         }
     }
 
-    function resetLocalSentenceState() {
-        textNodes.forEach(n => { if (n.type === 'char') { n.matched = false; n.isCurrentSentence = false; } });
-        if (sentences[currentSentenceIdx]) sentences[currentSentenceIdx].forEach((n) => { n.isCurrentSentence = true; });
-        updateRenderVisuals();
-    }
-
     function resetAllLocalState() {
         clearTimeout(partialTimeout); finalTokens = []; consumedSttIdx = 0; currentSentenceIdx = 0; sessionStartTime = null;
-        textNodes.forEach(n => { if (n.type === 'char') { n.matched = false; n.isCurrentSentence = false; } });
-        if (sentences.length > 0) sentences[0].forEach((n) => { n.isCurrentSentence = true; });
-        updateRenderVisuals();
+        applyRemoteMatched(0);
     }
+
+    window.toggleParagraph = function(pIdx) {
+        if(isMultiplayer) return;
+        if (selectedParagraphs.has(pIdx)) selectedParagraphs.delete(pIdx);
+        else selectedParagraphs.add(pIdx);
+        loadCurrentText();
+    };
 
     window.resetAll = function() {
         if(isMultiplayer) return;
