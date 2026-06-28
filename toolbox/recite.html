@@ -1289,6 +1289,7 @@ function showMultiplayerResults(data) {
         sc.classList.add('active'); // 👈 新增這一行，讓結算畫面彈出
         document.getElementById('success-title').innerText = "對戰終局";
         
+      // 【補回】判斷自己的重戰狀態，更新按鈕文字
         if (data.players[myUid]?.rematch) {
             document.getElementById('btn-rematch').innerText = "等候中...";
             document.getElementById('btn-rematch').disabled = true;
@@ -1342,13 +1343,21 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
     });
     html += '</div>';
     document.getElementById('success-time').innerHTML = html;
+
+// 【補回】確保顯示重戰與退出按鈕
+        document.getElementById('btn-rematch').style.display = 'inline-block';
+        document.getElementById('btn-close-success').innerText = "退 出";
+
+    
 });
 
         // 房主負責重置房間狀態，並隨機指派下一局選題者
-        if (myUid === data.host) {
-            let allRematch = playersList.every(p => data.players[p].rematch);
+         if (myUid === data.host) {
+            let playersList = Object.keys(data.players || {});
+            let allRematch = playersList.length > 0 && playersList.every(p => data.players[p].rematch);
+            
             if (allRematch) {
-                // 從目前房間玩家中隨機抽選一位負責選題
+                // 從目前房間玩家中隨機抽選一位負責下一局的選題
                 let nextPicker = playersList[Math.floor(Math.random() * playersList.length)];
                 
                 let updates = { 
@@ -1358,14 +1367,24 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                     progress: { matched: 0, errors: [] }, 
                     pointsCalculated: false 
                 };
-                playersList.forEach(p => { updates[`players/${p}/score`] = 0; updates[`players/${p}/rematch`] = false; });
+                
+                // 把所有人的本局分數歸零，並把重戰狀態重置為 false
+                playersList.forEach(p => { 
+                    updates[`players/${p}/score`] = 0; 
+                    updates[`players/${p}/rematch`] = false; 
+                });
+                
+                // 提交覆蓋
                 update(ref(db, `rooms/${currentRoomId}`), updates);
             }
         }
     }
 
-    window.rematchMultiplayer = function() {
+  window.rematchMultiplayer = function() {
+        if (!currentRoomId) return;
+        // 將自己的 rematch 狀態設為 true
         update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { rematch: true });
+        // 改變按鈕外觀，防止重複點擊
         document.getElementById('btn-rematch').innerText = "等候中...";
         document.getElementById('btn-rematch').disabled = true;
     };
