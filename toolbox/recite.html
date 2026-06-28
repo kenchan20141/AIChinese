@@ -619,38 +619,39 @@
 
     // 選單渲染
     function renderMenu() {
-        const menuContainer = document.getElementById('menu-container');
-        // 保留關閉按鈕，重新組裝內容
-        let html = `<button class="close-btn-overlay" onclick="toggleMenu()" title="關閉目錄">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-        </button>`;
-        get(ref(db, `userStats/${myUid}`)).then(snap => {
-            const stats = snap.val() || {};
-            get(ref(db, `leaderboards/bestTimes`)).then(lbSnap => {
-                const bests = lbSnap.val() || {};
-                for (const [category, texts] of Object.entries(TEXT_LIBRARY)) {
-                    const catClass = category === "文學" ? "lit" : "chi";
-                    html += `<div class="menu-section ${catClass}"><h3>${category}</h3><ul class="menu-list">`;
-                    texts.forEach((item, idx) => {
-                        const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
-                        const textKey = `${category}_${idx}`;
-                        const count = stats[textKey]?.count || 0;
-                        const myBest = bests[textKey]?.[myUid];
-                        
-                        const countBadge = count > 0 ? `<span class="completion-count">完成 ${count} 次</span>` : '';
-                        const timeBadge = myBest ? `<span class="best-time">耗時 ${formatTime(myBest)}</span>` : '';
-                        
-                        html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}${timeBadge}</button></li>`;
-                    });
-                    html += `</ul></div>`;
-                }
-                menuContainer.innerHTML = html;
+    const menuContainer = document.getElementById('menu-container');
+    let html = `<button class="close-btn-overlay" onclick="toggleMenu()" title="關閉目錄">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+    </button>`;
+    
+    // 【優化】只抓取自己的 userStats，裡面同時包含次數與最佳時間
+    get(ref(db, `userStats/${myUid}`)).then(snap => {
+        const stats = snap.val() || {};
+        
+        for (const [category, texts] of Object.entries(TEXT_LIBRARY)) {
+            const catClass = category === "文學" ? "lit" : "chi";
+            html += `<div class="menu-section ${catClass}"><h3>${category}</h3><ul class="menu-list">`;
+            texts.forEach((item, idx) => {
+                const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
+                const textKey = `${category}_${idx}`;
+                
+                // 從個人 stats 中提取次數和最佳時間
+                const count = stats[textKey]?.count || 0;
+                const myBest = stats[textKey]?.bestTime; 
+                
+                const countBadge = count > 0 ? `<span class="completion-count">完成 ${count} 次</span>` : '';
+                const timeBadge = myBest ? `<span class="best-time">耗時 ${formatTime(myBest)}</span>` : '';
+                
+                html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}${timeBadge}</button></li>`;
             });
-        });
-    }
-
+            html += `</ul></div>`;
+        }
+        menuContainer.innerHTML = html;
+    });
+}
+    
     window.toggleMenu = function() {
         const menu = document.getElementById('menu-overlay');
         if (menu.classList.contains('active')) menu.classList.remove('active');
@@ -791,51 +792,68 @@ function populateRoomSelect() {
         loadLeaderboard('battle');
     };
 
-   window.loadLeaderboard = function(type) {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelector(`.tab-btn[onclick="loadLeaderboard('${type}')"]`).classList.add('active');
-        const c = document.getElementById('lb-content'); c.innerHTML = '載入中...';
+window.loadLeaderboard = async function(type) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.tab-btn[onclick="loadLeaderboard('${type}')"]`).classList.add('active');
+    const c = document.getElementById('lb-content'); 
+    c.innerHTML = '載入中...';
+    
+    const pointKey = type === 'battle' ? 'battlePoints' : 'singlePoints';
+    
+    try {
+        // 【優化】只向 Firebase 請求該分數最高的前 50 名
+        const lbQuery = query(ref(db, 'users'), orderByChild(pointKey), limitToLast(50));
+        const snap = await get(lbQuery);
         
-        // 獲取所有用戶以計算準確排名
-        get(ref(db, 'users')).then(snap => {
-            let html = '';
-            let arr = [];
-            snap.forEach(child => { 
-                arr.push({ uid: child.key, name: child.val().name, score: type==='battle' ? (child.val().battlePoints||0) : (child.val().singlePoints||0) }); 
+        let arr = [];
+        // Firebase 預設是升序 (由小到大)，我們用 unshift 反轉成降序 (由大到小)
+        snap.forEach(child => {
+            arr.unshift({
+                uid: child.key, 
+                name: child.val().name, 
+                score: child.val()[pointKey] || 0
             });
-            
-            // 降序排列
-            arr.sort((a,b) => b.score - a.score);
-            
-            let myRankIndex = arr.findIndex(u => u.uid === myUid);
-            let top50 = arr.slice(0, 50);
+        });
 
-            top50.forEach((item, idx) => {
-                let isMe = (item.uid === myUid);
-                let hlClass = isMe ? 'highlight-me' : '';
-                html += `<div class="lb-item ${hlClass}" id="${isMe ? 'lb-my-row' : ''}">
-                            <span class="lb-rank">${idx+1}.</span><span class="lb-name">${item.name}</span><span class="lb-score">${item.score} 分</span>
-                         </div>`;
-            });
+        let html = '';
+        let myRankIndex = arr.findIndex(u => u.uid === myUid);
+        
+        arr.forEach((item, idx) => {
+            let isMe = (item.uid === myUid);
+            let hlClass = isMe ? 'highlight-me' : '';
+            html += `<div class="lb-item ${hlClass}" id="${isMe ? 'lb-my-row' : ''}">
+                        <span class="lb-rank">${idx+1}.</span>
+                        <span class="lb-name">${item.name}</span>
+                        <span class="lb-score">${item.score} 分</span>
+                     </div>`;
+        });
 
-            // 若玩家不在前 50 名，將其附在底部
-            if (myRankIndex >= 50) {
+        // 【優化】若玩家不在前 50 名，單獨抓取該玩家的分數，節省流量
+        if (myRankIndex === -1 && myUid) {
+            const mySnap = await get(ref(db, `users/${myUid}`));
+            if (mySnap.exists()) {
+                let myData = mySnap.val();
                 html += `<div class="lb-ellipsis">...</div>`;
                 html += `<div class="lb-item highlight-me" id="lb-my-row">
-                            <span class="lb-rank">${myRankIndex+1}.</span><span class="lb-name">${arr[myRankIndex].name}</span><span class="lb-score">${arr[myRankIndex].score} 分</span>
+                            <span class="lb-rank">50+</span>
+                            <span class="lb-name">${myData.name}</span>
+                            <span class="lb-score">${myData[pointKey] || 0} 分</span>
                          </div>`;
             }
+        }
 
-        
-            c.innerHTML = html || '尚無紀錄';
+        c.innerHTML = html || '尚無紀錄';
 
-            // 自動平滑滾動到玩家所在位置
-            setTimeout(() => {
-                let myRow = document.getElementById('lb-my-row');
-                if (myRow) myRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 150);
-        });
-    };
+        setTimeout(() => {
+            let myRow = document.getElementById('lb-my-row');
+            if (myRow) myRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 150);
+
+    } catch (error) {
+        console.error("載入排行榜失敗:", error);
+        c.innerHTML = '載入失敗';
+    }
+};
 
     // ====== 多人對戰系統 ======
     let lobbyMode = 'create';
@@ -1255,68 +1273,50 @@ window.joinRoomAction = function() {
 
         let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
         
-        get(ref(db, 'users')).then(snap => {
-            let allUsers = [];
-            snap.forEach(child => { allUsers.push({ uid: child.key, name: child.val().name, score: child.val().battlePoints || 0 }); });
+     // 【優化】只獲取房間內參戰玩家的最新資料，不下載全服 user
+Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
+    let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val().name, score: snap.val().battlePoints || 0 }));
+    
+    let matchScores = playersList.map(p => data.players[p].score);
+    let maxS = Math.max(...matchScores); 
+    let minS = Math.min(...matchScores);
+    
+    let getDelta = (pUid) => {
+        let s = data.players[pUid].score;
+        if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
+        return 0;
+    };
 
-            let matchScores = playersList.map(p => data.players[p].score);
-            let maxS = Math.max(...matchScores); let minS = Math.min(...matchScores);
-            
-            let getDelta = (pUid) => {
-                let s = data.players[pUid].score;
-                if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
-                return 0;
-            };
+    let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
+    
+    playersList.forEach((p, idx) => {
+        let isMe = (p === myUid);
+        let pScore = data.players[p].score;
+        let delta = getDelta(p);
+        
+        let userDbData = allUsers.find(u => u.uid === p);
+        // 如果還沒結算，預期最新總分 = 資料庫分數 + delta；如果已結算，資料庫分數就是最新總分
+        let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
 
-            let oldUsers = allUsers.map(u => {
-                let d = (playersList.includes(u.uid) && data.pointsCalculated) ? getDelta(u.uid) : 0;
-                return { uid: u.uid, score: Math.max(0, u.score - d) };
-            });
+        let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
+        let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
+        let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
 
-            let newUsers = allUsers.map(u => {
-                let d = (playersList.includes(u.uid) && !data.pointsCalculated) ? getDelta(u.uid) : 0;
-                return { uid: u.uid, score: Math.max(0, u.score + d) };
-            });
-
-            let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
-            
-            playersList.forEach((p, idx) => {
-                let isMe = (p === myUid);
-                let pScore = data.players[p].score;
-                let delta = getDelta(p);
-                
-                let oldRank = oldUsers.sort((a,b) => b.score - a.score).findIndex(u => u.uid === p) + 1;
-                let newRank = newUsers.sort((a,b) => b.score - a.score).findIndex(u => u.uid === p) + 1;
-                let newTotal = newUsers.find(u => u.uid === p).score;
-
-                // 取代 Emoji 的優雅文字標籤
-                let rankText = '排名不變'; let rankClass = 'status-same';
-                if (newRank < oldRank) { rankText = '排名上升'; rankClass = 'status-up'; }
-                else if (newRank > oldRank) { rankText = '排名下降'; rankClass = 'status-down'; }
-                else if (delta > 0) { rankText = '積分增加'; rankClass = 'status-up'; } 
-                else if (delta < 0) { rankText = '積分減少'; rankClass = 'status-down'; }
-
-                let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
-
-                html += `<div class="${isMe ? 'result-me' : 'result-others'}">
-                            <div class="result-header">
-                                <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}</span>
-                                <span class="result-score">${pScore} 題</span>
-                            </div>
-                            ${isMe ? `
-                            <div class="result-details">
-                                <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
-                                <span class="${rankClass}">${rankText}</span>
-                            </div>` : ''}
-                         </div>`;
-            });
-            html += '</div>';
-            
-            document.getElementById('success-time').innerHTML = html;
-            document.getElementById('btn-rematch').style.display = 'inline-block';
-            document.getElementById('btn-close-success').innerText = "退 出";
-            sc.classList.add('active');
-        });
+        html += `<div class="${isMe ? 'result-me' : 'result-others'}">
+                    <div class="result-header">
+                        <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}</span>
+                        <span class="result-score">${pScore} 題</span>
+                    </div>
+                    ${isMe ? `
+                    <div class="result-details">
+                        <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
+                        <span class="${rankClass}">${rankText}</span>
+                    </div>` : ''}
+                 </div>`;
+    });
+    html += '</div>';
+    document.getElementById('success-time').innerHTML = html;
+});
 
         // 房主負責重置房間狀態，並隨機指派下一局選題者
         if (myUid === data.host) {
@@ -1711,21 +1711,24 @@ window.joinRoomAction = function() {
             let timeText = `本次用時：${formatTime(timeTaken)}`;
 
             if (selectedParagraphs.size === 0 && document.getElementById('text-display').classList.contains('challenge-mode')) {
-                const textKey = `${currentCategory}_${currentIndex}`;
-                const statRef = ref(db, `userStats/${myUid}/${textKey}/count`);
-                
-                get(statRef).then(s => set(statRef, (s.val() || 0) + 1));
-                
-                get(ref(db, `leaderboards/bestTimes/${textKey}/${myUid}`)).then(snap => {
-                    const currentBest = snap.val();
-                    if (!currentBest || timeTaken < currentBest) {
-                        set(ref(db, `leaderboards/bestTimes/${textKey}/${myUid}`), timeTaken);
-                        document.getElementById('success-time').innerText = timeText + " 創下新紀錄";
-                    } else {
-                        document.getElementById('success-time').innerText = timeText;
-                    }
-                });
-       } else { document.getElementById('success-time').innerText = timeText + " 【不列入紀錄】"; }
+    const textKey = `${currentCategory}_${currentIndex}`;
+    const statRef = ref(db, `userStats/${myUid}/${textKey}`);
+    
+    // 【優化】將 count 和 bestTime 寫在同一個使用者的節點下
+    get(statRef).then(snap => {
+        let s = snap.val() || { count: 0 };
+        s.count = (s.count || 0) + 1;
+        
+        if (!s.bestTime || timeTaken < s.bestTime) {
+            s.bestTime = timeTaken;
+            document.getElementById('success-time').innerText = timeText + " 創下新紀錄";
+        } else {
+            document.getElementById('success-time').innerText = timeText;
+        }
+        
+        set(statRef, s);
+    });
+} else { document.getElementById('success-time').innerText = timeText + " 【不列入紀錄】"; }
             
             commitSinglePoints();
         }
