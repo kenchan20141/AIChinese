@@ -450,7 +450,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-    import { getDatabase, ref, set, get, update, onValue, runTransaction, remove, onDisconnect, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+   import { getDatabase, ref, set, get, update, onValue, runTransaction, remove, onDisconnect, query, orderByChild, limitToLast, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBAvrFZCubcjq7Ytg2QUqfjYrR4xxipw04",
@@ -523,6 +523,7 @@
     let turnTimerInterval = null;
     window.handlingTimeout = false;
     window.maxMatched = 0;
+    window.escapePenaltyHook = null;
 
     // 快取
     const globalDictCache = new Map();
@@ -1113,8 +1114,15 @@ window.joinRoomAction = function() {
                 }
                 clearInterval(turnTimerInterval);
                 
-            } else if (data.state === 'playing') {
+          } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
+
+                // 【新增】遊戲開始時，向伺服器預設「如果我斷線或關閉網頁，請自動扣我 1 分」
+                if (!window.escapePenaltyHook) {
+                    window.escapePenaltyHook = onDisconnect(ref(db, `users/${myUid}`));
+                    // 使用 increment(-1) 讓伺服器端直接扣分。若分數為 0，Firebase 規則會自動阻擋變為負數
+                    window.escapePenaltyHook.update({ battlePoints: increment(-1) });
+                }
                 document.getElementById('success-screen').classList.remove('active');
                 setMode('challenge', true); // 強制系統切換為默誦模式
                 document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
@@ -1185,8 +1193,14 @@ window.joinRoomAction = function() {
                     if (!isRecording && data.state === 'playing') startRecording();
                 }
                 
-          } else if (data.state === 'finished') {
+         } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
+
+                // 【新增】遊戲正常結束，解除斷線懲罰預設
+                if (window.escapePenaltyHook) {
+                    window.escapePenaltyHook.cancel();
+                    window.escapePenaltyHook = null;
+                }
                 clearInterval(turnTimerInterval);
                 showMultiplayerResults(data);
                 // 👈 讓房間內所有玩家都執行計分函數
@@ -1195,8 +1209,19 @@ window.joinRoomAction = function() {
         });
     }
 
-   window.leaveRoom = function() {
+ window.leaveRoom = function() {
         if(!currentRoomId) return;
+
+        // 【新增】如果在遊戲進行中主動點擊退出，立刻自我扣 1 分
+        if (roomData && roomData.state === 'playing') {
+            runTransaction(ref(db, `users/${myUid}/battlePoints`), (cur) => Math.max(0, (cur || 0) - 1));
+        }
+
+        // 【新增】解除斷線懲罰預設，以免雙重扣分
+        if (window.escapePenaltyHook) {
+            window.escapePenaltyHook.cancel();
+            window.escapePenaltyHook = null;
+        }
         
         // 僅移除自己的節點，將處理懲罰與遷移的任務交給留在房內的玩家
         remove(ref(db, `rooms/${currentRoomId}/players/${myUid}`));
