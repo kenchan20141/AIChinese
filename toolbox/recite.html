@@ -305,7 +305,7 @@
 <!-- 對戰大廳設定 -->
 <div id="lobby-setup-overlay" class="full-overlay">
     <div class="overlay-content">
-        <h2>文苑對戰</h2>
+        <h2>對戰</h2>
         <div class="tabs" style="margin-bottom: 30px;">
             <button class="tab-btn active" id="tab-create" onclick="switchLobbyTab('create')">建立房間</button>
             <button class="tab-btn" id="tab-join" onclick="switchLobbyTab('join')">加入房間</button>
@@ -594,17 +594,21 @@
         checkLib();
     }
 
-    function populateRoomSelect() {
+  function populateRoomSelect() {
         const sel1 = document.getElementById('room-text-select');
         const sel2 = document.getElementById('host-text-select');
         sel1.innerHTML = '';
         if(sel2) sel2.innerHTML = '';
         for (const [cat, texts] of Object.entries(TEXT_LIBRARY)) {
+            // 加入分類標籤
+            let groupHtml = `<optgroup label="${cat}">`;
             texts.forEach((item, idx) => {
-                const opt = `<option value="${cat}_${idx}">${item.title}</option>`;
-                sel1.innerHTML += opt;
-                if(sel2) sel2.innerHTML += opt;
+                groupHtml += `<option value="${cat}_${idx}">${item.title}</option>`;
             });
+            groupHtml += `</optgroup>`;
+            
+            sel1.innerHTML += groupHtml;
+            if(sel2) sel2.innerHTML += groupHtml;
         }
     }
 
@@ -1288,8 +1292,13 @@
     }
     
     // 獨立處理錯誤的邏輯（超時或讀錯時共用）
-    function handleMistake(isTimeout = false, errorIndex = 0) {
+   function handleMistake(isTimeout = false, errorIndex = 0) {
         if (!isMultiplayer || !isActivePlayer || !roomData) return;
+        
+        // 觸發設備震動 (若瀏覽器/設備支援，會產生短促兩下震動)
+        if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100]);
+        }
         
         const currentMistakes = (roomData.turn.mistakes || 0) + 1;
         set(ref(db, `rooms/${currentRoomId}/progress/errors`), isTimeout ? [0] : [errorIndex]);
@@ -1331,6 +1340,7 @@
         }
     }
 
+    
     function matchAlgorithm(sttData) {
         if(isMultiplayer && !isActivePlayer) return;
         clearTimeout(partialTimeout); let sentencePassed = false;
