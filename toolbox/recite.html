@@ -814,18 +814,18 @@ function populateRoomSelect() {
         switchLobbyTab('create');
     };
 
-    window.joinRoomAction = function() {
+  window.joinRoomAction = function() {
         const code = document.getElementById('room-code-input').value.trim();
         if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
         if (lobbyMode === 'create') {
-            const maxP = 99; // 滿足驗證規則
+            const maxP = 99;
             const textKey = document.getElementById('room-text-select').value;
             const roomRef = ref(db, `rooms/${code}`);
             
             get(roomRef).then(snap => {
                 if(snap.exists()) return alert("此房號已被佔用，請重新產生");
-               const roomObj = {
+                const roomObj = {
                     host: myUid, picker: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     players: { [myUid]: { name: myName, score: 0, rematch: false } },
                     turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
@@ -833,7 +833,8 @@ function populateRoomSelect() {
                 };
                 set(roomRef, roomObj).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    onDisconnect(roomRef).remove(); // 房主離線自動銷毀房間
+                    // 斷線時只移除自己，保留房間讓其他人繼續
+                    onDisconnect(ref(db, `rooms/${code}/players/${myUid}`)).remove();
                     listenToRoom();
                 });
             });
@@ -846,7 +847,8 @@ function populateRoomSelect() {
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
                 update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    onDisconnect(pRef).remove(); // 參與者離線自動退出
+                    // 斷線時自動移除自己
+                    onDisconnect(pRef).remove();
                     listenToRoom();
                 });
             });
@@ -943,27 +945,81 @@ function populateRoomSelect() {
         }, 500);
     }
 
-    function listenToRoom() {
+ function listenToRoom() {
         closeOverlays();
+        window.previousPlayers = []; // 用於比對是否有玩家中途逃跑
+
         onValue(ref(db, `rooms/${currentRoomId}`), (snap) => {
             const data = snap.val();
             if (!data) { alert("房間已關閉"); return exitMultiplayer(); }
+            
+            // 若自己已被移出玩家名單（主動退出或斷線被拔除），則安全退出
+            if (!data.players || !data.players[myUid]) {
+                return exitMultiplayer();
+            }
+
             roomData = data;
             const playersList = Object.keys(data.players || {}).sort();
+            
+            // ==========================================
+            // 【房主遷移機制】
+            // ==========================================
+            let currentHost = data.host;
+            if (!playersList.includes(currentHost) && playersList.length > 0) {
+                currentHost = playersList[0];
+                if (myUid === currentHost) {
+                    update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                }
+            }
+
+            // ==========================================
+            // 【逃跑懲罰與不戰而勝機制】(由現任房主負責執行)
+            // ==========================================
+            if (data.state === 'playing' && window.previousPlayers.length > 0 && myUid === currentHost) {
+                let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
+                if (leftPlayers.length > 0) {
+                    leftPlayers.forEach(lp => {
+                        // 扣除逃跑者 1 分對戰積分
+                        const ptRef = ref(db, `users/${lp}/battlePoints`);
+                        runTransaction(ptRef, (cur) => Math.max(0, (cur || 0) - 1));
+                    });
+
+                    if (playersList.length === 1) {
+                        // 情況A：只剩自己一人，直接獲勝並加 1 分
+                        const winPtRef = ref(db, `users/${myUid}/battlePoints`);
+                        runTransaction(winPtRef, (cur) => (cur || 0) + 1);
+                        update(ref(db, `rooms/${currentRoomId}`), { 
+                            state: 'finished', 
+                            pointsCalculated: true // 已結算，防重複給分
+                        });
+                    } else {
+                        // 情況B：還有兩人以上，遊戲繼續。若離開者剛好是當前作答者，需修正回合
+                        if (data.turn && data.turn.playerIdx >= playersList.length) {
+                            update(ref(db, `rooms/${currentRoomId}/turn`), { 
+                                playerIdx: 0,
+                                startTime: Date.now() 
+                            });
+                        }
+                    }
+                }
+            }
+            window.previousPlayers = playersList; // 更新名單供下次比對
+            // ==========================================
+
             const activeUid = playersList[data.turn?.playerIdx || 0];
             isActivePlayer = (activeUid === myUid);
             
             document.getElementById('main-nav-bar').style.display = 'none';
             document.getElementById('auth-info').style.display = 'none';
 
-         if (data.state === 'waiting') {
+            if (data.state === 'waiting') {
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
                 let pHtml = '';
                 playersList.forEach(pUid => { 
                     let role = [];
-                    if (pUid === data.host) role.push('房主');
+                    if (pUid === currentHost) role.push('房主'); // 顯示現任房主
                     if (pUid === data.picker) role.push('選題');
                     let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
                     pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
@@ -971,17 +1027,18 @@ function populateRoomSelect() {
                 document.getElementById('lobby-players-list').innerHTML = pHtml;
                 document.getElementById('lobby-status-text').innerText = `等待用家加入... (目前 ${playersList.length} 人)`;
                 
-                if(myUid === data.picker) { // 改由 picker 顯示控制面板
+                if(myUid === data.picker) { // 由 picker 顯示控制面板
                     document.getElementById('host-controls').style.display = 'block';
                     document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
                     document.getElementById('host-controls').style.display = 'none';
                 }
                 clearInterval(turnTimerInterval);
-          } else if (data.state === 'playing') {
+                
+            } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
                 document.getElementById('success-screen').classList.remove('active');
-               setMode('challenge', true); // 強制系統切換為默誦模式
+                setMode('challenge', true); // 強制系統切換為默誦模式
                 document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
                 document.getElementById('mode-controls').style.display = 'none';
 
@@ -999,6 +1056,8 @@ function populateRoomSelect() {
                 let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
                 
                 const btnStart = document.getElementById('btn-start');
+                
+                // 完整保留你的 UI 設定
                 if (isActivePlayer) {
                     mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
                     mb.style.borderBottom = "2px solid var(--accent-red)";
@@ -1057,13 +1116,17 @@ function populateRoomSelect() {
         });
     }
 
-    window.leaveRoom = function() {
+   window.leaveRoom = function() {
         if(!currentRoomId) return;
-        if(myUid === roomData?.host) {
+        
+        // 僅移除自己的節點，將處理懲罰與遷移的任務交給留在房內的玩家
+        remove(ref(db, `rooms/${currentRoomId}/players/${myUid}`));
+        
+        // 若房間本來就只剩自己一人，順手清空廢棄的房間數據
+        if (roomData && Object.keys(roomData.players || {}).length <= 1) {
             remove(ref(db, `rooms/${currentRoomId}`));
-        } else {
-            remove(ref(db, `rooms/${currentRoomId}/players/${myUid}`));
         }
+        
         exitMultiplayer();
     };
 
