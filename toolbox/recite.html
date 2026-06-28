@@ -792,22 +792,71 @@
         }
     };
     
+ // 新增計算句子總數的輔助函數，以確保對戰時先後手的公平性
+    function getSentenceCount(textKey) {
+        const [category, idx] = textKey.split('_');
+        const data = TEXT_LIBRARY[category][idx];
+        let count = 0;
+        let rawParagraphs = data.content.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
+
+        rawParagraphs.forEach((paraText) => {
+            let i = 0;
+            let currentSentChars = 0;
+            let cleanText = paraText.replace(/\(\d+\)/g, '').replace(/（.*?）/g, '');
+
+            while (i < cleanText.length) {
+                let char = cleanText[i];
+                if (char === ' ' || char === '\r') { i++; continue; }
+
+                if (/[，。：「」『』？、！；〈〉‧《》]/.test(char) || char === '﹗' || char === '﹔') {
+                    if (currentSentChars > 0) { count++; currentSentChars = 0; }
+                    i++; continue;
+                }
+
+                if (cleanText[i + 1] === '(') {
+                    let endIdx = cleanText.indexOf(')', i + 1);
+                    if (endIdx !== -1) { i = endIdx + 1; } else { i++; }
+                } else {
+                    i++;
+                }
+                currentSentChars++;
+            }
+            if (currentSentChars > 0) count++;
+        });
+        return count;
+    }
+
     window.startMultiplayerGame = function() {
         if(myUid === roomData?.host) {
-            const playersCount = Object.keys(roomData.players || {}).length;
+            const playersList = Object.keys(roomData.players || {}).sort();
+            const playersCount = playersList.length;
             if (playersCount < 2) {
                 alert("需要至少兩名玩家才能開始對戰！");
                 return;
             }
 
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
-            update(ref(db, `rooms/${currentRoomId}`), {
+            
+            // 計算補分機制 (確保全對必打和)
+            const sCount = getSentenceCount(textKey);
+            const maxTurns = Math.ceil(sCount / playersCount);
+            
+            let updates = {
                 state: 'playing',
                 textKey: textKey,
                 turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                 progress: { matched: 0, errors: [] },
                 pointsCalculated: false
+            };
+            
+            // 依據玩家順位分配初始補分
+            playersList.forEach((pUid, idx) => {
+                const expectedTurns = Math.floor(sCount / playersCount) + (idx < (sCount % playersCount) ? 1 : 0);
+                const handicap = maxTurns - expectedTurns;
+                updates[`players/${pUid}/score`] = handicap; // 寫入補分
             });
+
+            update(ref(db, `rooms/${currentRoomId}`), updates);
         }
     };
 
