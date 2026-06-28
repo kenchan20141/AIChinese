@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-HK">
 <head>
@@ -35,7 +34,7 @@
         /* 頂部極簡進度條 */
         .progress-bar-container {
             position: fixed; top: 0; left: 0; width: 100%; height: 2px;
-            background: transparent; z-index: 100;
+            background: transparent; z-index: 2000; /* 高於一切確保進度條顯示 */
         }
         .progress-bar {
             height: 100%; background: var(--accent-red); width: 0%;
@@ -46,11 +45,23 @@
         .multiplayer-bar {
             position: fixed; top: 0; left: 0; width: 100%; background: rgba(247, 246, 242, 0.98);
             backdrop-filter: blur(8px); border-bottom: 1px solid var(--text-gray);
-            padding: 10px 0; text-align: center; font-size: 0.95rem; letter-spacing: 0.15em;
-            color: var(--text-dark); z-index: 90; display: none; transform: translateY(-100%);
-            transition: all 0.4s ease; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            color: var(--text-dark); z-index: 1500; display: none; flex-direction: column; 
+            transform: translateY(-100%); transition: all 0.4s ease; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
-        .multiplayer-bar.active { display: block; transform: translateY(0); }
+        .multiplayer-bar.active { display: flex; transform: translateY(0); }
+        .mb-top {
+            display: flex; justify-content: space-between; align-items: center; 
+            padding: 12px 20px; font-size: 0.95rem; letter-spacing: 0.1em;
+        }
+        .mb-status-text { flex: 1; text-align: center; line-height: 1.4; }
+        .mb-timer-track { width: 100%; height: 3px; background: rgba(176, 67, 50, 0.15); }
+        .mb-timer-fill { height: 100%; width: 100%; background: var(--accent-red); transition: width 0.5s linear; }
+        .btn-icon-close { 
+            background: transparent; border: none; font-size: 1.2rem; cursor: pointer; 
+            color: var(--text-light); display: flex; align-items: center; justify-content: center; 
+            padding: 5px; margin-left: 10px; transition: color 0.3s;
+        }
+        .btn-icon-close:hover { color: var(--accent-red); }
 
         /* 導航列與目錄按鈕 */
         .nav-bar {
@@ -79,7 +90,7 @@
         }
         .full-overlay.active { opacity: 1; pointer-events: auto; }
         
-        .overlay-content { max-width: 600px; width: 100%; }
+        .overlay-content { max-width: 600px; width: 100%; position: relative; }
         .overlay-content h2 { font-size: 1.6rem; font-weight: 400; letter-spacing: 0.4em; color: var(--text-dark); margin-bottom: 40px; }
         .overlay-content p { line-height: 1.8; letter-spacing: 0.1em; color: var(--text-light); margin-bottom: 30px; }
         .overlay-content input, .overlay-content select {
@@ -97,9 +108,17 @@
         .btn-primary:hover { border-color: var(--text-dark); background: var(--text-dark); color: var(--bg-color); }
         .btn-secondary:hover { border-color: var(--accent-red); color: var(--accent-red); }
 
+        /* 覆蓋層關閉按鈕 */
+        .close-btn-overlay {
+            position: absolute; top: -20px; right: 0; background: none; border: none; cursor: pointer; 
+            color: var(--text-light); padding: 10px; transition: color 0.3s; display: flex;
+        }
+        .close-btn-overlay:hover { color: var(--accent-red); }
+        .close-btn-overlay svg { width: 28px; height: 28px; }
+
         /* 目錄層 */
         #menu-overlay { justify-content: flex-start; padding-top: 80px; }
-        .menu-container { max-width: 900px; margin: 0 auto; width: 100%; display: flex; flex-wrap: wrap; gap: 60px; text-align: left; }
+        .menu-container { max-width: 900px; margin: 0 auto; width: 100%; display: flex; flex-wrap: wrap; gap: 60px; text-align: left; position: relative;}
         .menu-section { flex: 1; min-width: 300px; }
         .menu-section h3 {
             font-size: 1.2rem; font-weight: 600; letter-spacing: 0.4em; color: var(--accent-red);
@@ -208,17 +227,33 @@
         .tab-btn { background: none; border: none; font-family: inherit; font-size: 1rem; color: var(--text-light); letter-spacing: 0.2em; cursor: pointer; transition: color 0.3s; padding-bottom: 5px; border-bottom: 2px solid transparent;}
         .tab-btn.active { color: var(--text-dark); border-bottom-color: var(--text-dark); font-weight: 600; }
 
-        .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: transparent; }
+        .copyright-footer { position: fixed; bottom: 0; right: 0; padding: 5px 10px; background-color: transparent; z-index: 10; }
         .copyright-footer p { margin: 0; font-size: 12px; color: var(--text-light); letter-spacing: 0.1em; }
+        
+        .host-settings-box {
+            background: rgba(0,0,0,0.02); border: 1px dashed var(--text-gray); 
+            border-radius: 8px; padding: 20px; margin-top: 20px; text-align: center;
+        }
 
     </style>
 </head>
 <body>
 
-<div id="multiplayer-bar" class="multiplayer-bar">對戰載入中...</div>
+<div id="multiplayer-bar" class="multiplayer-bar">
+    <div class="mb-top">
+        <span id="mb-status-text">對戰載入中...</span>
+        <button class="btn-icon-close" onclick="leaveRoom()" title="退出對戰">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </button>
+    </div>
+    <div class="mb-timer-track"><div id="turn-timer-bar" class="mb-timer-fill"></div></div>
+</div>
 <div class="progress-bar-container"><div id="progress-bar" class="progress-bar"></div></div>
 
-<div class="nav-bar">
+<div class="nav-bar" id="main-nav-bar">
     <button class="btn-menu" onclick="toggleMenu()">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
@@ -251,7 +286,14 @@
 
 <!-- 目錄覆蓋層 -->
 <div id="menu-overlay" class="full-overlay" style="background: rgba(247, 246, 242, 0.98);">
-    <div class="menu-container" id="menu-container"></div>
+    <div class="menu-container" id="menu-container">
+        <button class="close-btn-overlay" onclick="toggleMenu()" title="關閉目錄">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+        <!-- 內容動態加載 -->
+    </div>
 </div>
 
 <!-- 對戰大廳設定 -->
@@ -283,9 +325,14 @@
         <h2>房間：<span id="lobby-room-code"></span></h2>
         <p id="lobby-status-text">等待用家加入...</p>
         <div id="lobby-players-list" style="text-align:left; max-width: 300px; margin: 0 auto 30px auto; line-height: 2;"></div>
-        <div id="host-controls" style="display: none;">
-            <p style="font-size:0.85rem;">修改人數上限：</p>
-            <input type="number" id="host-players-input" min="2" max="10" onchange="updateRoomMaxPlayers(this.value)">
+        
+        <div id="host-controls" class="host-settings-box" style="display: none;">
+            <p style="font-size:0.85rem; margin-top:0;">人數上限：</p>
+            <input type="number" id="host-players-input" min="2" max="10" onchange="updateRoomMaxPlayers(this.value)" style="width: 50%; padding: 8px;">
+            <p style="font-size:0.85rem; margin-top:15px;">選擇篇章：</p>
+            <select id="host-text-select" style="width: 80%; padding: 8px;"></select>
+            <br>
+            <button class="btn-primary" style="margin-top:20px;" onclick="startMultiplayerGame()">開始對戰</button>
         </div>
         <br>
         <button class="btn-secondary" onclick="leaveRoom()">退出房間</button>
@@ -410,6 +457,9 @@
     let sessionStartTime = null; let currentCategory = "中文"; let currentIndex = 0;
     let selectedParagraphs = new Set();
     let sessionAchievedChars = new Set();
+    let turnTimerInterval = null;
+    window.handlingTimeout = false;
+    window.maxMatched = 0;
 
     // 快取
     const globalDictCache = new Map();
@@ -463,7 +513,12 @@
     // 選單渲染
     function renderMenu() {
         const menuContainer = document.getElementById('menu-container');
-        let html = '';
+        // 保留關閉按鈕，重新組裝內容
+        let html = `<button class="close-btn-overlay" onclick="toggleMenu()" title="關閉目錄">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>`;
         get(ref(db, `userStats/${myUid}`)).then(snap => {
             const stats = snap.val() || {};
             get(ref(db, `leaderboards/bestTimes`)).then(lbSnap => {
@@ -509,11 +564,15 @@
     }
 
     function populateRoomSelect() {
-        const sel = document.getElementById('room-text-select');
-        sel.innerHTML = '';
+        const sel1 = document.getElementById('room-text-select');
+        const sel2 = document.getElementById('host-text-select');
+        sel1.innerHTML = '';
+        if(sel2) sel2.innerHTML = '';
         for (const [cat, texts] of Object.entries(TEXT_LIBRARY)) {
             texts.forEach((item, idx) => {
-                sel.innerHTML += `<option value="${cat}_${idx}">${item.title}</option>`;
+                const opt = `<option value="${cat}_${idx}">${item.title}</option>`;
+                sel1.innerHTML += opt;
+                if(sel2) sel2.innerHTML += opt;
             });
         }
     }
@@ -678,7 +737,7 @@
                 const roomObj = {
                     host: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     players: { [myUid]: { name: myName, score: 0, rematch: false } },
-                    turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0 },
+                    turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
                 };
                 set(roomRef, roomObj).then(() => {
@@ -703,6 +762,41 @@
             });
         }
     };
+    
+    window.startMultiplayerGame = function() {
+        if(myUid === roomData?.host) {
+            const textKey = document.getElementById('host-text-select').value || roomData.textKey;
+            update(ref(db, `rooms/${currentRoomId}`), {
+                state: 'playing',
+                textKey: textKey,
+                turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
+                progress: { matched: 0, errors: [] },
+                pointsCalculated: false
+            });
+        }
+    };
+
+    function startTurnTimer() {
+        clearInterval(turnTimerInterval);
+        turnTimerInterval = setInterval(() => {
+            if (!isMultiplayer || !roomData || roomData.state !== 'playing') {
+                clearInterval(turnTimerInterval);
+                return;
+            }
+            const startTime = roomData.turn.startTime || Date.now();
+            const elapsed = Date.now() - startTime;
+            const remain = Math.max(0, 60000 - elapsed);
+            const percentage = (remain / 60000) * 100;
+            
+            const bar = document.getElementById('turn-timer-bar');
+            if(bar) bar.style.width = percentage + '%';
+
+            if (remain <= 0 && isActivePlayer && !window.handlingTimeout) {
+                window.handlingTimeout = true;
+                handleMistake(true);
+            }
+        }, 500);
+    }
 
     function listenToRoom() {
         closeOverlays();
@@ -713,6 +807,9 @@
             const playersList = Object.keys(data.players || {}).sort();
             const activeUid = playersList[data.turn?.playerIdx || 0];
             isActivePlayer = (activeUid === myUid);
+            
+            document.getElementById('main-nav-bar').style.display = 'none';
+            document.getElementById('auth-info').style.display = 'none';
 
             if (data.state === 'waiting') {
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
@@ -725,12 +822,11 @@
                 if(myUid === data.host) {
                     document.getElementById('host-controls').style.display = 'block';
                     document.getElementById('host-players-input').value = data.maxPlayers;
-                    if(playersList.length >= data.maxPlayers) {
-                        update(ref(db, `rooms/${currentRoomId}`), { state: 'playing' });
-                    }
+                    document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
                     document.getElementById('host-controls').style.display = 'none';
                 }
+                clearInterval(turnTimerInterval);
             } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
                 document.getElementById('success-screen').classList.remove('active');
@@ -746,35 +842,48 @@
                 }
 
                 // 更新頂部對戰列
+                const mbText = document.getElementById('mb-status-text');
                 const mb = document.getElementById('multiplayer-bar');
-                let scoreText = playersList.map(p => `${data.players[p].name} ${data.players[p].score}`).join(' | ');
+                let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
                 
                 const btnStart = document.getElementById('btn-start');
                 if (isActivePlayer) {
-                    mb.innerHTML = `🟢 <span style="color:var(--accent-red); font-weight:bold;">你的回合</span> —— 得分：${scoreText}`;
-                    mb.style.borderBottom = "3px solid var(--accent-red)";
+                    mbText.innerHTML = `🟢 <span style="color:var(--accent-red); font-weight:bold;">輪到你了</span> —— 得分：${scoreText}`;
+                    mb.style.borderBottom = "2px solid var(--accent-red)";
                     btnStart.disabled = false;
                     btnStart.style.opacity = '1';
                 } else {
-                    mb.innerHTML = `🔴 等待 <b>${data.players[activeUid].name}</b> 背誦 —— 得分：${scoreText}`;
+                    mbText.innerHTML = `🔴 等候 <b>${data.players[activeUid].name}</b> 作答 —— 得分：${scoreText}`;
                     mb.style.borderBottom = "1px solid var(--text-gray)";
                     btnStart.disabled = true;
                     btnStart.style.opacity = '0.3';
                 }
                 mb.classList.add('active');
+                
+                // 啟動計時器
+                if (!turnTimerInterval) startTurnTimer();
 
                 // 處理回合與句子轉換
                 if (currentSentenceIdx !== data.turn.sentenceIdx) {
                     currentSentenceIdx = data.turn.sentenceIdx;
                     applyRemoteMatched(0);
                     finalTokens = []; consumedSttIdx = 0; // 清空語音緩存
+                    window.handlingTimeout = false;
+                }
+                
+                // 更換玩家時清除 timeout 處理狀態
+                if (window.lastTurnPlayerIdx !== data.turn.playerIdx) {
+                    window.handlingTimeout = false;
+                    window.lastTurnPlayerIdx = data.turn.playerIdx;
+                    applyRemoteMatched(0);
+                    finalTokens = []; consumedSttIdx = 0; 
                 }
 
                 // 處理錯誤提示與抖動
                 if (data.turn.mistakes === 0) {
                     window.lastMistakes = 0;
                 } else if (data.turn.mistakes > (window.lastMistakes || 0)) {
-                    if (isActivePlayer && data.turn.mistakes === 1) showSpeechFeedback('讀錯了！剩餘一次機會');
+                    if (isActivePlayer && data.turn.mistakes === 1) showSpeechFeedback('讀錯了！換人作答');
                     applyRemoteErrors(data.progress?.errors || []);
                     window.lastMistakes = data.turn.mistakes;
                 }
@@ -789,6 +898,7 @@
                 
             } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
+                clearInterval(turnTimerInterval);
                 showMultiplayerResults(data);
                 if (myUid === data.host && !data.pointsCalculated) calculateAndApplyBattlePoints(data);
             }
@@ -813,8 +923,11 @@
 
     function exitMultiplayer() {
         isMultiplayer = false; currentRoomId = null; roomData = null;
+        clearInterval(turnTimerInterval); turnTimerInterval = null;
         closeOverlays();
         document.getElementById('multiplayer-bar').classList.remove('active');
+        document.getElementById('main-nav-bar').style.display = 'flex';
+        document.getElementById('auth-info').style.display = 'block';
         document.getElementById('btn-reset').style.display = '';
         document.getElementById('mode-controls').style.display = 'flex';
         const btnStart = document.getElementById('btn-start');
@@ -845,6 +958,7 @@
         let sc = sentences[currentSentenceIdx];
         if(!sc) return;
         indices.forEach(idx => {
+            if(!sc[idx]) return;
             let el = document.getElementById(`char-${sc[idx].index}`);
             if(el) {
                 el.classList.remove('shake-error');
@@ -871,11 +985,16 @@
         document.getElementById('btn-close-success').innerText = "退 出";
         sc.classList.add('active');
 
-        // Check if all want rematch
+        // Check if all want rematch -> Go back to waiting room
         if (myUid === data.host) {
             let allRematch = playersList.every(p => data.players[p].rematch);
             if (allRematch) {
-                let updates = { state: 'playing', turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0 }, progress: { matched: 0, errors: [] }, pointsCalculated: false };
+                let updates = { 
+                    state: 'waiting', 
+                    turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() }, 
+                    progress: { matched: 0, errors: [] }, 
+                    pointsCalculated: false 
+                };
                 playersList.forEach(p => { updates[`players/${p}/score`] = 0; updates[`players/${p}/rematch`] = false; });
                 update(ref(db, `rooms/${currentRoomId}`), updates);
             }
@@ -1080,6 +1199,34 @@
             else document.getElementById('btn-start').classList.remove('recording');
         };
     }
+    
+    // 獨立處理錯誤的邏輯（超時或讀錯時共用）
+    function handleMistake(isTimeout = false, errorIndex = 0) {
+        if (!isMultiplayer || !isActivePlayer || !roomData) return;
+        
+        if (isTimeout) showSpeechFeedback('時限已過！換人作答。');
+        
+        const errs = isTimeout ? [0] : [errorIndex]; 
+        set(ref(db, `rooms/${currentRoomId}/progress/errors`), errs);
+        const currentMistakes = roomData.turn.mistakes || 0;
+        set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes + 1);
+
+        setTimeout(() => {
+            if (!roomData) return;
+            const playersList = Object.keys(roomData.players || {}).sort();
+            const npIdx = (roomData.turn.playerIdx + 1) % playersList.length;
+            
+            // 換下一位玩家，但保留在「同一句」
+            update(ref(db, `rooms/${currentRoomId}/turn`), { 
+                playerIdx: npIdx, 
+                sentenceIdx: currentSentenceIdx, 
+                mistakes: 0, 
+                startTime: Date.now() 
+            });
+            set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
+            window.handlingTimeout = false;
+        }, 1500);
+    }
 
     function matchAlgorithm(sttData) {
         if(isMultiplayer && !isActivePlayer) return;
@@ -1129,8 +1276,17 @@
                     const newScore = (roomData.players[myUid].score || 0) + 1;
                     update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { score: newScore });
                     const npIdx = (roomData.turn.playerIdx + 1) % Object.keys(roomData.players).length;
-                    if (currentSentenceIdx + 1 >= sentences.length) update(ref(db, `rooms/${currentRoomId}`), { state: 'finished' });
-                    else update(ref(db, `rooms/${currentRoomId}/turn`), { playerIdx: npIdx, sentenceIdx: currentSentenceIdx + 1, mistakes: 0 });
+                    
+                    if (currentSentenceIdx + 1 >= sentences.length) {
+                        update(ref(db, `rooms/${currentRoomId}`), { state: 'finished' });
+                    } else {
+                        update(ref(db, `rooms/${currentRoomId}/turn`), { 
+                            playerIdx: npIdx, 
+                            sentenceIdx: currentSentenceIdx + 1, 
+                            mistakes: 0,
+                            startTime: Date.now()
+                        });
+                    }
                     set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
                     return; // 多人模式由 Listener 切換句子並重設狀態
                 } else {
@@ -1139,27 +1295,16 @@
                 }
             } else {
                 if (maxMatched > 0 || sttData.length > consumedSttIdx) {
+                    window.maxMatched = maxMatched;
                     partialTimeout = setTimeout(() => {
-                        let errorIndices = [maxMatched];
-                        
                         if (isMultiplayer) {
-                            set(ref(db, `rooms/${currentRoomId}/progress/errors`), errorIndices);
-                            const currentMistakes = roomData.turn.mistakes || 0;
-                            set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes + 1);
-                            
-                            if (currentMistakes === 0) {
-                                setTimeout(() => { set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] }); }, 1500);
-                            } else {
-                                setTimeout(() => {
-                                    const npIdx = (roomData.turn.playerIdx + 1) % Object.keys(roomData.players).length;
-                                    if (currentSentenceIdx + 1 >= sentences.length) update(ref(db, `rooms/${currentRoomId}`), { state: 'finished' });
-                                    else update(ref(db, `rooms/${currentRoomId}/turn`), { playerIdx: npIdx, sentenceIdx: currentSentenceIdx + 1, mistakes: 0 });
-                                    set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-                                }, 1500);
+                            if (!window.handlingTimeout) {
+                                window.handlingTimeout = true;
+                                handleMistake(false, window.maxMatched);
                             }
                             return;
                         } else {
-                            applyRemoteErrors(errorIndices);
+                            applyRemoteErrors([maxMatched]);
                             applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0;
                         }
                     }, 1000); 
@@ -1226,7 +1371,7 @@
     }
 
     function resetAllLocalState() {
-        clearTimeout(partialTimeout); finalTokens = []; consumedSttIdx = 0; currentSentenceIdx = 0; sessionStartTime = null;
+        clearTimeout(partialTimeout); finalTokens = []; consumedSttIdx = 0; currentSentenceIdx = 0; sessionStartTime = null; window.handlingTimeout = false;
         applyRemoteMatched(0);
     }
 
