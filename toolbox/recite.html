@@ -1842,11 +1842,26 @@ window.rematchMultiplayer = function() {
         if (isRecording) stopRecording(); else startRecording();
     };
 
-    function startRecording() {
+ function startRecording() {
         if (!recognition || isRecording) return;
-        isRecording = true; document.getElementById('btn-start').classList.add('recording');
-        try { recognition.start(); } catch(e) {}
-        showSpeechFeedback('就緒，請開始朗讀...');
+        try { 
+            recognition.start(); 
+            // 必須在確定沒有被瞬間報錯後，才將 UI 設為錄音狀態
+            isRecording = true; 
+            document.getElementById('btn-start').classList.add('recording');
+            showSpeechFeedback('就緒，請開始朗讀...');
+        } catch(e) {
+            // 如果麥克風已經在運作中，允許繼續
+            if (e.name === 'InvalidStateError') {
+                isRecording = true;
+                document.getElementById('btn-start').classList.add('recording');
+            } else {
+                // 如果被瀏覽器安全機制攔截，還原狀態並提示玩家手動點擊
+                isRecording = false;
+                document.getElementById('btn-start').classList.remove('recording');
+                showSpeechFeedback('系統攔截，請手動點擊下方按鈕啟動麥克風');
+            }
+        }
     }
 
     function stopRecording() {
@@ -1881,7 +1896,7 @@ window.rematchMultiplayer = function() {
         }
     });
 
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRec();
         recognition.lang = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream ? 'zh-HK' : 'yue-Hant-HK';
@@ -1903,6 +1918,14 @@ window.rematchMultiplayer = function() {
         recognition.onend = function() {
             if (isRecording) setTimeout(() => { if (isRecording) { try { recognition.start(); } catch(e) {} } }, 50);
             else document.getElementById('btn-start').classList.remove('recording');
+        };
+        // 【新增】監聽瀏覽器異步安全封殺或權限拒絕
+        recognition.onerror = function(event) {
+            if (event.error === 'not-allowed' || event.error === 'audio-capture') {
+                isRecording = false;
+                document.getElementById('btn-start').classList.remove('recording');
+                showSpeechFeedback('麥克風被瀏覽器攔截，請手動點擊下方按鈕');
+            }
         };
     }
     
