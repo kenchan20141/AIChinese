@@ -1188,13 +1188,16 @@ window.joinRoomAction = function() {
                         }
                     }
                     update(ref(db, `rooms/${currentRoomId}`), updates);
-                    return; // 【關鍵修復】立即中斷執行，防止舊狀態將結算畫面瞬間覆蓋隱藏
+                    window.previousPlayers = playersList; // 【極其關鍵】中斷前必須先更新名單，否則會觸發無限迴圈卡死！
+                    return; 
                 } else if (hostChanged) {
                     update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                    window.previousPlayers = playersList;
                     return;
                 }
             } else if (hostChanged && myUid === currentHost) {
                 update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                window.previousPlayers = playersList;
                 return;
             }
 
@@ -1305,18 +1308,27 @@ window.joinRoomAction = function() {
                 
                 isActivePlayer = isMyTurn;
 
-             const mbTurn = document.getElementById('mb-turn-status');
+            const mbTurn = document.getElementById('mb-turn-status');
                 const mbScore = document.getElementById('mb-score-status');
                 const raceTrack = document.getElementById('race-track');
                 const mb = document.getElementById('multiplayer-bar');
                 const btnStart = document.getElementById('btn-start');
                 
-                // 【新增】完全非文字的隊伍視覺標示：在對戰列頂部加上專屬顏色的粗橫幅
-                if (data.teamMode === 'team' && myTeam) {
-                    mb.style.borderTop = myTeam === 'red' ? '6px solid #b04332' : '6px solid #2b5c7a';
-                } else {
-                    mb.style.borderTop = ''; // 單人對戰或退出時清除橫幅
+                // 【全新優化】完全非文字的隊伍視覺標示：左邊緣長方形標記
+                let marker = document.getElementById('team-marker');
+                if (!marker) {
+                    marker = document.createElement('div');
+                    marker.id = 'team-marker';
+                    marker.style.cssText = 'position:absolute; top:0; left:0; width:10px; height:100%; border-radius: 0 4px 4px 0; z-index: 10; transition: background-color 0.3s;';
+                    mb.appendChild(marker);
                 }
+                if (data.teamMode === 'team' && myTeam) {
+                    marker.style.backgroundColor = myTeam === 'red' ? '#b04332' : '#2b5c7a';
+                    marker.style.display = 'block';
+                } else {
+                    marker.style.display = 'none';
+                }
+                mb.style.borderTop = ''; // 確保清除上一個版本的頂部粗橫條
                 
                 // 團體與單人計分板顯示邏輯
                 if (data.teamMode === 'team') {
@@ -1393,8 +1405,9 @@ window.joinRoomAction = function() {
                 }
 
                 // 錯誤反饋同步邏輯 (讓觀戰隊友也能看到抖動)
-                if (data.playMode === 'turn') {
-                    let currentGlobalActiveIdx = data.teamMode === 'team' ? `${data.turn.teamColor}_${data.teams[data.turn.teamColor].activeIdx}` : data.turn.playerIdx;
+               if (data.playMode === 'turn') {
+                    // 【防呆】加上 ?. 確保某方全部離場瞬間，不會因為找不到陣列而引發 TypeError 報錯卡死
+                    let currentGlobalActiveIdx = data.teamMode === 'team' ? `${data.turn.teamColor}_${data.teams?.[data.turn.teamColor]?.activeIdx || 0}` : (data.turn?.playerIdx || 0);
                     if (window.lastTurnPlayerIdx !== currentGlobalActiveIdx) {
                         window.handlingTimeout = false;
                         window.lastTurnPlayerIdx = currentGlobalActiveIdx;
