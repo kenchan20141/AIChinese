@@ -1139,27 +1139,40 @@ window.joinRoomAction = function() {
             if (data.state === 'playing' && window.previousPlayers.length > 0 && myUid === currentHost) {
                 let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
                 if (leftPlayers.length > 0) {
-                   leftPlayers.forEach(lp => {
-                        // ⚠️ 基於 Firebase 權限，純前端無法越權修改已離開玩家的節點
-                        // 這裡必須移除 runTransaction，避免 Permission Denied 報錯導致遊戲當機卡死
-                    });
+                    let updates = {};
 
-                    if (playersList.length === 1) {
-                        // 情況A：只剩自己一人，直接獲勝並加 1 分
-                        const winPtRef = ref(db, `users/${myUid}/battlePoints`);
-                        runTransaction(winPtRef, (cur) => (cur || 0) + 1);
-                        update(ref(db, `rooms/${currentRoomId}`), { 
-                            state: 'finished', 
-                            pointsCalculated: true // 已結算，防重複給分
-                        });
-                    } else {
-                        // 情況B：還有兩人以上，遊戲繼續。若離開者剛好是當前作答者，需修正回合
-                        if (data.turn && data.turn.playerIdx >= playersList.length) {
-                            update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                                playerIdx: 0,
-                                startTime: Date.now() 
-                            });
+                    if (data.teamMode === 'team') {
+                        let reds = (data.teams?.red?.playerList || []).filter(p => playersList.includes(p));
+                        let blues = (data.teams?.blue?.playerList || []).filter(p => playersList.includes(p));
+                        
+                        if (reds.length === 0 && blues.length > 0) {
+                            updates['winTeam'] = 'blue';
+                            updates['state'] = 'finished';
+                        } else if (blues.length === 0 && reds.length > 0) {
+                            updates['winTeam'] = 'red';
+                            updates['state'] = 'finished';
+                        } else if (reds.length > 0 && blues.length > 0) {
+                            updates[`teams/red/playerList`] = reds;
+                            updates[`teams/blue/playerList`] = blues;
+                            updates[`teams/red/activeIdx`] = (data.teams.red.activeIdx || 0) % reds.length;
+                            updates[`teams/blue/activeIdx`] = (data.teams.blue.activeIdx || 0) % blues.length;
+                            if (data.playMode === 'turn') {
+                                updates[`turn/startTime`] = Date.now();
+                            }
                         }
+                    } else {
+                        if (playersList.length <= 1) {
+                            updates['state'] = 'finished';
+                        } else {
+                            if (data.playMode === 'turn') {
+                                updates[`turn/playerIdx`] = (data.turn.playerIdx || 0) % playersList.length;
+                                updates[`turn/startTime`] = Date.now();
+                            }
+                        }
+                    }
+                    
+                    if (Object.keys(updates).length > 0) {
+                        update(ref(db, `rooms/${currentRoomId}`), updates);
                     }
                 }
             }
@@ -1317,10 +1330,16 @@ window.joinRoomAction = function() {
                     if (isActivePlayer) {
                         mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
                         mb.style.borderBottom = "2px solid var(--accent-red)";
-                    } else {
-                        let activeName = "";
-                        if (data.teamMode === 'team') activeName = data.players[data.teams[data.turn.teamColor].playerList[data.teams[data.turn.teamColor].activeIdx]].name;
-                        else activeName = data.players[playersList[data.turn.playerIdx]].name;
+                   } else {
+                        let activeName = "隊友";
+                        if (data.teamMode === 'team') {
+                            let tList = data.teams[data.turn.teamColor]?.playerList || [];
+                            let aIdx = data.teams[data.turn.teamColor]?.activeIdx || 0;
+                            if (tList[aIdx] && data.players[tList[aIdx]]) activeName = data.players[tList[aIdx]].name;
+                        } else {
+                            let pUid = playersList[data.turn.playerIdx || 0];
+                            if (pUid && data.players[pUid]) activeName = data.players[pUid].name;
+                        }
                         mbTurn.innerHTML = `🔴 等候 <b>${activeName}</b> 作答`;
                         mb.style.borderBottom = "1px solid var(--text-gray)";
                     }
@@ -1488,9 +1507,13 @@ function showMultiplayerResults(data) {
                     if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
                 });
                 
-                let winTeam = redScore > blueScore ? 'red' : (blueScore > redScore ? 'blue' : 'tie');
+                // 優先使用中途逃跑判定的 winTeam，否則比對雙方總分
+                let winTeam = data.winTeam || (redScore > blueScore ? 'red' : (blueScore > redScore ? 'blue' : 'tie'));
+                let titleMsg = data.winTeam ? " (對手逃脫)" : "";
+                
                 html += `<div style="text-align:center; font-size:1.2rem; font-weight:bold; margin-bottom: 10px; color:var(--text-dark);">
-                            <span style="color:#b04332;">紅隊 ${redScore} 分</span> vs <span style="color:#2b5c7a;">藍隊 ${blueScore} 分</span>
+                            <span style="color:#b04332;">紅隊 ${redScore} 分</span> vs <span style="color:#2b5c7a;">藍隊 ${blueScore} 分</span><br>
+                            <span style="font-size:0.85rem; color:var(--text-light);">${titleMsg}</span>
                          </div>`;
 
                 playersList.sort((a,b) => {
@@ -1528,6 +1551,7 @@ function showMultiplayerResults(data) {
                 let minS = Math.min(...matchScores);
                 
                 let getDelta = (pUid) => {
+                    if (playersList.length === 1) return 1; // 剩餘一人，不戰而勝
                     let s = data.players[pUid].score;
                     if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
                     return 0;
@@ -1547,7 +1571,7 @@ function showMultiplayerResults(data) {
 
                     html += `<div class="${isMe ? 'result-me' : 'result-others'}">
                                 <div class="result-header">
-                                    <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}</span>
+                                    <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}${playersList.length === 1 ? ' (不戰而勝)' : ''}</span>
                                     <span class="result-score">${pScore} 題</span>
                                 </div>
                                 ${isMe ? `
@@ -1575,7 +1599,8 @@ function showMultiplayerResults(data) {
                     picker: nextPicker, 
                     turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() }, 
                     progress: { matched: 0, errors: [] }, 
-                    pointsCalculated: false 
+                    pointsCalculated: false,
+                    winTeam: null // 清除強制勝利標記
                 };
                 if (data.teamMode === 'team') {
                     updates['teams/red/mistakes'] = 0; updates['teams/blue/mistakes'] = 0;
@@ -1592,29 +1617,37 @@ function showMultiplayerResults(data) {
 
     function calculateAndApplyBattlePoints(data) {
         let playersList = Object.keys(data.players || {});
-        if(playersList.length < 2) return;
+        if(playersList.length === 0) return;
         
         let diff = 0;
         if (data.teamMode === 'team') {
-            let redScore = 0, blueScore = 0;
-            playersList.forEach(p => {
-                if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
-                if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
-            });
+            let winTeam = data.winTeam;
+            if (!winTeam) {
+                let redScore = 0, blueScore = 0;
+                playersList.forEach(p => {
+                    if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
+                    if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
+                });
+                if (redScore !== blueScore) winTeam = redScore > blueScore ? 'red' : 'blue';
+                else winTeam = 'tie';
+            }
+            
             let myTeam = data.players[myUid]?.team;
-            if (myTeam && redScore !== blueScore) {
-                let myTeamScore = myTeam === 'red' ? redScore : blueScore;
-                let opTeamScore = myTeam === 'red' ? blueScore : redScore;
-                diff = myTeamScore > opTeamScore ? 1 : -1;
+            if (myTeam && winTeam !== 'tie') {
+                diff = myTeam === winTeam ? 1 : -1;
             }
         } else {
-            let scores = playersList.map(p => data.players[p].score);
-            let maxS = Math.max(...scores); 
-            let minS = Math.min(...scores);
-            let myScore = data.players[myUid]?.score;
-            if (myScore !== undefined && maxS !== minS) {
-                if (myScore === maxS) diff = 1;
-                else if (myScore === minS) diff = -1;
+            if (playersList.length === 1) {
+                diff = 1;
+            } else {
+                let scores = playersList.map(p => data.players[p].score);
+                let maxS = Math.max(...scores); 
+                let minS = Math.min(...scores);
+                let myScore = data.players[myUid]?.score;
+                if (myScore !== undefined && maxS !== minS) {
+                    if (myScore === maxS) diff = 1;
+                    else if (myScore === minS) diff = -1;
+                }
             }
         }
         
@@ -1628,6 +1661,7 @@ function showMultiplayerResults(data) {
         }
     }
 
+    
     // ====== 單機與底層共用邏輯 ======
     function fuzzyJyutping(str) {
         if (!str) return ':';
