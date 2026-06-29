@@ -26020,7 +26020,14 @@ function closePrivacyModal() {
 <script>
 let joystickPromiseResolver = null;
 let isJoystickActive = false;
-let joystickScene, joystickCamera, joystickRenderer, stickMesh;
+ 
+// 2D Canvas 搖桿專用變數
+let joystickCtx = null;
+let joystickCanvas = null;
+let stickPos = { x: 150, y: 150 }; // 畫布預設為 300x300
+const centerPos = { x: 150, y: 150 };
+const maxRadius = 85; // 搖桿最大可移動半徑
+ 
 let isDraggingStick = false;
 let previousAngle = 0;
 let totalRotation = 0;
@@ -26029,18 +26036,17 @@ let joystickAnimFrame = null;
  
 function startJoystickUI() {
     return new Promise(resolve => {
-        // ★ 檢查用戶身份，若是老師，直接豁免搖桿
+        // ★ 檢查用戶身份，若是老師 (System)，直接豁免搖桿
         try {
             const s = JSON.parse(localStorage.getItem('studentProfile'));
-            if (s && s.grade === 'System') { // <--- 移除了 s.grade === 'Special'
-                console.log("老師豁免搖桿等待。");
+            if (s && s.grade === 'System') {
+                console.log("老師帳號，豁免搖桿等待。");
                 resolve();
                 return;
             }
         } catch (e) {
             console.error("讀取用戶資料失敗", e);
         }
- 
         const overlay = document.getElementById('joystickOverlay');
         const counterText = document.getElementById('joystickCounter');
         if(overlay) overlay.style.display = 'flex';
@@ -26049,13 +26055,12 @@ function startJoystickUI() {
         joystickPromiseResolver = resolve;
         
         if (!isJoystickActive) {
-            initThreeJsJoystick();
+            initFlatJoystick(); // 呼叫全新 2D 搖桿
         } else {
             resetJoystick();
         }
     });
 }
- 
 function resolveJoystick() {
     const overlay = document.getElementById('joystickOverlay');
     if(overlay) overlay.style.display = 'none';
@@ -26064,7 +26069,6 @@ function resolveJoystick() {
         joystickPromiseResolver = null;
     }
 }
- 
 function forceCloseJoystick() {
     const overlay = document.getElementById('joystickOverlay');
     if (overlay) overlay.style.display = 'none';
@@ -26074,97 +26078,77 @@ function forceCloseJoystick() {
     }
     resetJoystick();
 }
- 
-function initThreeJsJoystick() {
+// 全新 HTML5 2D 扁平手提遊戲機搖桿
+function initFlatJoystick() {
     isJoystickActive = true;
-    const canvas = document.getElementById('threeJoystickCanvas');
-    if(!canvas) return;
-    joystickRenderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
-    joystickRenderer.setSize(300, 300);
- 
-    joystickScene = new THREE.Scene();
+    joystickCanvas = document.getElementById('threeJoystickCanvas');
+    if(!joystickCanvas) return;
     
-    joystickCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-    joystickCamera.position.set(0, 8, 12);
-    joystickCamera.lookAt(0, 0, 0);
- 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-    joystickScene.add(ambientLight);
-    
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    dirLight.position.set(5, 10, 5);
-    joystickScene.add(dirLight);
- 
-    const baseGeo = new THREE.CylinderGeometry(3.5, 3.5, 0.5, 32);
-    const baseMat = new THREE.MeshPhongMaterial({ color: 0xe0ddd7 });
-    const baseMesh = new THREE.Mesh(baseGeo, baseMat);
-    joystickScene.add(baseMesh);
- 
-    const stickGeo = new THREE.CylinderGeometry(0.4, 0.4, 6, 16);
-    stickGeo.translate(0, 3, 0);
-    const stickMat = new THREE.MeshPhongMaterial({ color: 0xd69a92 });
-    stickMesh = new THREE.Mesh(stickGeo, stickMat);
-    joystickScene.add(stickMesh);
- 
-    const headGeo = new THREE.SphereGeometry(1.2, 32, 32);
-    const headMat = new THREE.MeshPhongMaterial({ color: 0x8fa398 });
-    const headMesh = new THREE.Mesh(headGeo, headMat);
-    headMesh.position.y = 6;
-    stickMesh.add(headMesh);
- 
+    // 強制設定 Canvas 解析度為 300x300
+    joystickCanvas.width = 300;
+    joystickCanvas.height = 300;
+    joystickCtx = joystickCanvas.getContext('2d');
+    resetJoystick();
     const attachEvents = (element) => {
-        element.addEventListener('mousedown', onPointerDown);
+        // 滑鼠事件
+        element.onmousedown = onPointerDown;
         window.addEventListener('mousemove', onPointerMove);
         window.addEventListener('mouseup', onPointerUp);
         
-        element.addEventListener('touchstart', onPointerDown, {passive: false});
-        window.addEventListener('touchmove', onPointerMove, {passive: false});
+        // 觸控事件
+        element.ontouchstart = (e) => { e.preventDefault(); onPointerDown(e); };
+        window.addEventListener('touchmove', onPointerMove, { passive: false });
         window.addEventListener('touchend', onPointerUp);
     };
     
-    attachEvents(canvas);
- 
+    attachEvents(joystickCanvas);
     function onPointerDown(e) {
-        if(e.type === 'touchstart' && e.target === canvas) e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
+        const rect = joystickCanvas.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        // 檢查是否點擊在 Canvas 內
         if(clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom){
             isDraggingStick = true;
-            updateStickRotation(clientX, clientY, rect);
+            updateStickPosition(clientX, clientY, rect);
         }
     }
- 
     function onPointerMove(e) {
         if (!isDraggingStick) return;
-        const rect = canvas.getBoundingClientRect();
+        // 如果是觸控滑動，阻止預設螢幕滾動
+        if (e.touches && e.cancelable) e.preventDefault();
+        
+        const rect = joystickCanvas.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        updateStickRotation(clientX, clientY, rect);
+        updateStickPosition(clientX, clientY, rect);
     }
- 
     function onPointerUp() {
         isDraggingStick = false;
-        if(stickMesh){
-            stickMesh.rotation.x = 0;
-            stickMesh.rotation.z = 0;
-        }
+        // 彈回中心的邏輯交由 animate 處理
     }
- 
-    function updateStickRotation(clientX, clientY, rect) {
-        const x = ((clientX - rect.left) / rect.width) * 2 - 1;
-        const y = -((clientY - rect.top) / rect.height) * 2 + 1;
- 
-        const maxTilt = Math.PI / 4;
-        const distance = Math.min(Math.hypot(x, y), 1);
-        const angle = Math.atan2(y, x);
- 
-        stickMesh.rotation.z = -distance * Math.cos(angle) * maxTilt;
-        stickMesh.rotation.x = distance * Math.sin(angle) * maxTilt;
- 
-        const currentAzi = Math.atan2(y, x);
+    function updateStickPosition(clientX, clientY, rect) {
+        // 將滑鼠座標對應至 300x300 的內部座標
+        const scaleX = joystickCanvas.width / rect.width;
+        const scaleY = joystickCanvas.height / rect.height;
+        let targetX = (clientX - rect.left) * scaleX;
+        let targetY = (clientY - rect.top) * scaleY;
+        let dx = targetX - centerPos.x;
+        let dy = targetY - centerPos.y;
+        let distance = Math.hypot(dx, dy);
+        let angle = Math.atan2(dy, dx);
+        // 限制移動半徑
+        if (distance > maxRadius) {
+            targetX = centerPos.x + Math.cos(angle) * maxRadius;
+            targetY = centerPos.y + Math.sin(angle) * maxRadius;
+        }
+        stickPos.x = targetX;
+        stickPos.y = targetY;
+        // 轉圈計算
+        const currentAzi = angle;
         if (isDraggingStick) {
             let diff = currentAzi - previousAngle;
+            // 處理 -PI 到 PI 的極值反轉
             if (diff > Math.PI) diff -= 2 * Math.PI;
             if (diff < -Math.PI) diff += 2 * Math.PI;
             
@@ -26173,35 +26157,80 @@ function initThreeJsJoystick() {
             let newLoops = Math.floor(Math.abs(totalRotation) / (2 * Math.PI));
             if (newLoops > loopCount) {
                 loopCount = newLoops;
+                
+                // 更新數字
                 const counter = document.getElementById('joystickCounter');
                 if(counter) counter.innerText = `${Math.min(loopCount, 50)} / 50`;
+                
+                // 每次完成一圈，給予手機輕微機械震動感
+                if (navigator.vibrate) navigator.vibrate(15);
+                
                 if (loopCount >= 50) {
                     isDraggingStick = false;
-                    stickMesh.rotation.x = 0;
-                    stickMesh.rotation.z = 0;
                     resolveJoystick();
                 }
             }
         }
         previousAngle = currentAzi;
     }
- 
+    function render2DJoystick() {
+        joystickCtx.clearRect(0, 0, 300, 300);
+        // 1. 繪製底部底座 (淺灰色，類似遊戲機凹槽)
+        joystickCtx.beginPath();
+        joystickCtx.arc(centerPos.x, centerPos.y, 110, 0, Math.PI * 2);
+        joystickCtx.fillStyle = '#f0ede6';
+        joystickCtx.fill();
+        joystickCtx.lineWidth = 3;
+        joystickCtx.strokeStyle = '#dcd6c8';
+        joystickCtx.stroke();
+        // 2. 繪製內部軌道參考線 (增強機械感)
+        joystickCtx.beginPath();
+        joystickCtx.arc(centerPos.x, centerPos.y, maxRadius, 0, Math.PI * 2);
+        joystickCtx.strokeStyle = 'rgba(0,0,0,0.05)';
+        joystickCtx.lineWidth = 6;
+        joystickCtx.stroke();
+        // 3. 繪製搖桿本體 (莫蘭迪綠)
+        joystickCtx.beginPath();
+        joystickCtx.arc(stickPos.x, stickPos.y, 55, 0, Math.PI * 2);
+        
+        // 加入立體陰影
+        joystickCtx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+        joystickCtx.shadowBlur = 12;
+        joystickCtx.shadowOffsetX = 0;
+        joystickCtx.shadowOffsetY = 6;
+        joystickCtx.fillStyle = '#8fa398';
+        joystickCtx.fill();
+        // 重置陰影，繪製內部紋理
+        joystickCtx.shadowColor = 'transparent';
+        // 4. 搖桿表面的防滑同心圓 (Switch 風格)
+        joystickCtx.beginPath();
+        joystickCtx.arc(stickPos.x, stickPos.y, 42, 0, Math.PI * 2);
+        joystickCtx.fillStyle = '#7d9186';
+        joystickCtx.fill();
+        joystickCtx.beginPath();
+        joystickCtx.arc(stickPos.x, stickPos.y, 30, 0, Math.PI * 2);
+        joystickCtx.fillStyle = '#6a7e73';
+        joystickCtx.fill();
+    }
     function animate() {
+        if (!isJoystickActive) return;
         joystickAnimFrame = requestAnimationFrame(animate);
-        joystickRenderer.render(joystickScene, joystickCamera);
+        
+        // 當使用者放開手時，搖桿平滑彈回中心
+        if (!isDraggingStick) {
+            stickPos.x += (centerPos.x - stickPos.x) * 0.25;
+            stickPos.y += (centerPos.y - stickPos.y) * 0.25;
+        }
+        render2DJoystick();
     }
     animate();
 }
- 
 function resetJoystick() {
     totalRotation = 0;
     loopCount = 0;
     isDraggingStick = false;
     previousAngle = 0;
-    if (stickMesh) {
-        stickMesh.rotation.x = 0;
-        stickMesh.rotation.z = 0;
-    }
+    stickPos = { x: 150, y: 150 };
 }
 </script>
  
