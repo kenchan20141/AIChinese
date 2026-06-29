@@ -282,6 +282,33 @@
     color: transparent;
 }
 
+
+        /* 團體與競速模式樣式 */
+        .team-container { display: flex; gap: 15px; justify-content: center; margin-bottom: 20px; width: 100%; }
+        .team-box { flex: 1; border: 2px solid var(--text-gray); border-radius: 8px; padding: 10px; min-height: 120px; text-align: center; }
+        .team-box.red { border-color: #b04332; background: rgba(176, 67, 50, 0.05); }
+        .team-box.blue { border-color: #2b5c7a; background: rgba(43, 92, 122, 0.05); }
+        .team-title { font-weight: bold; margin-bottom: 10px; letter-spacing: 0.2em; }
+        .team-box.red .team-title { color: #b04332; }
+        .team-box.blue .team-title { color: #2b5c7a; }
+        .team-slot { border: 1px dashed var(--text-gray); padding: 5px; margin: 5px 0; cursor: pointer; font-size: 0.85rem; border-radius: 4px; transition: all 0.3s; letter-spacing: 0.1em; color: var(--text-light); }
+        .team-slot:hover { background: rgba(0,0,0,0.1); color: var(--text-dark); }
+        .team-slot.filled { border-style: solid; cursor: default; background: white; color: var(--text-dark); font-weight: bold; }
+        
+        .race-track-container { position: relative; width: 100%; height: 26px; background: rgba(176, 67, 50, 0.1); border-radius: 13px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+        .race-avatar { position: absolute; top: 0; left: 0; height: 26px; line-height: 26px; padding: 0 10px; border-radius: 13px; color: white; font-size: 0.75rem; font-weight: bold; white-space: nowrap; transition: left 0.4s cubic-bezier(0.22, 1, 0.36, 1); transform: translateX(-50%); box-shadow: 0 2px 5px rgba(0,0,0,0.2); letter-spacing: 0.05em; }
+       .race-avatar.me { z-index: 10; border: 2px solid #fff; }
+        .race-avatar.team-red { background: #b04332; }
+        .race-avatar.team-blue { background: #2b5c7a; }
+        .race-avatar.solo-0 { background: #b04332; } /* 硃砂紅 */
+        .race-avatar.solo-1 { background: #2b5c7a; } /* 靛洋藍 */
+        .race-avatar.solo-2 { background: #3b6b58; } /* 松葉綠 */
+        .race-avatar.solo-3 { background: #d99b38; } /* 琥珀金 */
+        .race-avatar.solo-4 { background: #6b4d73; } /* 丁香紫 */
+        .race-avatar.solo-5 { background: #555555; } /* 墨灰 */
+
+        
+
         
     </style>
 </head>
@@ -289,9 +316,10 @@
 
 <div id="multiplayer-bar" class="multiplayer-bar">
     <div class="mb-top">
-        <div class="mb-status-container">
+       <div class="mb-status-container" style="width: 100%;">
             <div id="mb-turn-status">對戰載入中...</div>
             <div id="mb-score-status"></div>
+            <div id="race-track" style="display: none;" class="race-track-container"></div>
         </div>
         <button class="btn-icon-close" onclick="leaveRoom()" title="退出對戰">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -358,9 +386,18 @@
         
         <input type="text" id="room-code-input" placeholder="輸入房號 (四位數字)" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.3em; font-weight: bold;">
         
-        <div id="create-room-options" style="display: none;">
+     <div id="create-room-options" style="display: none;">
             <br>
-            <select id="room-text-select"></select>
+            <select id="room-text-select" style="width: 80%; padding: 8px; margin-bottom: 12px;"></select>
+            <br>
+            <select id="room-play-mode" style="width: 38%; padding: 8px; margin-right: 4%;">
+                <option value="turn">回合制</option>
+                <option value="race">競速制</option>
+            </select>
+            <select id="room-team-mode" style="width: 38%; padding: 8px;">
+                <option value="solo">單人對戰</option>
+                <option value="team">團體對戰</option>
+            </select>
         </div>
         <br>
         <button class="btn-primary" id="btn-room-action" onclick="joinRoomAction()">建立</button>
@@ -373,7 +410,7 @@
     <div class="overlay-content">
         <h2>房間：<span id="lobby-room-code"></span></h2>
         <p id="lobby-status-text">等待用家加入...</p>
-        <div id="lobby-players-list" style="text-align:left; max-width: 300px; margin: 0 auto 30px auto; line-height: 2;"></div>
+     <div id="lobby-players-list" style="text-align:left; max-width: 400px; margin: 0 auto 30px auto; line-height: 2; width: 100%;"></div>
         
         <div id="host-controls" class="host-settings-box" style="display: none;">
             <p style="font-size:0.85rem; margin-top:0;">選擇篇章：</p>
@@ -899,30 +936,24 @@ window.joinRoomAction = function() {
         if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
         if (lobbyMode === 'create') {
-            const maxP = 99;
             const textKey = document.getElementById('room-text-select').value;
+            const playMode = document.getElementById('room-play-mode').value;
+            const teamMode = document.getElementById('room-team-mode').value;
             const roomRef = ref(db, `rooms/${code}`);
             
             get(roomRef).then(snap => {
-                if(snap.exists()) {
-                    const rData = snap.val();
-                    // 【修正點】：檢查房間內是否還有玩家。若無玩家，判定為廢棄殭屍房，允許覆蓋
-                    if (rData.players && Object.keys(rData.players).length > 0) {
-                        return alert("此房號已被佔用，請重新產生");
-                    }
+                if(snap.exists() && snap.val().players && Object.keys(snap.val().players).length > 0) {
+                    return alert("此房號已被佔用，請重新產生");
                 }
-                
                 const roomObj = {
-                    host: myUid, picker: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
-                    players: { [myUid]: { name: myName, score: 0, rematch: false } },
-                    turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
+                    host: myUid, picker: myUid, textKey: textKey, state: 'waiting', pointsCalculated: false,
+                    playMode: playMode, teamMode: teamMode,
+                    players: { [myUid]: { name: myName, score: 0, rematch: false, team: null, slot: null } },
+                    turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
                 };
-                
-                // set 會直接寫入或覆蓋舊的空房間，完美解決房號耗盡問題
                 set(roomRef, roomObj).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    // 斷線時只移除自己，保留房間讓其他人繼續
                     onDisconnect(ref(db, `rooms/${code}/players/${myUid}`)).remove();
                     listenToRoom();
                 });
@@ -930,25 +961,36 @@ window.joinRoomAction = function() {
         } else {
             const roomRef = ref(db, `rooms/${code}`);
             get(roomRef).then(snap => {
-                if(!snap.exists()) return alert("房間不存在");
-                
-                const rData = snap.val();
-                // 【修正點】：避免玩家誤加到已經廢棄的殭屍房而卡死
-                if(!rData.players || Object.keys(rData.players).length === 0) {
-                    return alert("該房間已廢棄，請自己建立新房間");
-                }
-                
-                if(rData.state !== 'waiting') return alert("房間已開始遊戲");
-                
+                if(!snap.exists() || !snap.val().players || Object.keys(snap.val().players).length === 0) return alert("該房間已廢棄，請自己建立新房間");
+                if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
-                update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
+                update(pRef, { name: myName, score: 0, rematch: false, team: null, slot: null }).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    // 斷線時自動移除自己
                     onDisconnect(pRef).remove();
                     listenToRoom();
                 });
             });
         }
+    };
+
+    window.joinTeamSlot = function(color, slotIdx) {
+        if (!currentRoomId || !roomData) return;
+        // 檢查該位置是否已有人佔用
+        let isTaken = false;
+        Object.values(roomData.players || {}).forEach(p => {
+            if (p.team === color && p.slot === slotIdx) isTaken = true;
+        });
+        if (isTaken) return alert("該位置已被戰友佔據！");
+        // 覆蓋並移動位置
+        update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { team: color, slot: slotIdx });
+    };
+
+    window.joinTeam = function(color) {
+        if (!currentRoomId || !roomData) return;
+        let count = 0;
+        Object.values(roomData.players || {}).forEach(p => { if (p.team === color) count++; });
+        if (count >= 3) return alert("該隊伍已滿員（最多三人）！");
+        update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { team: color });
     };
     
  // 新增計算句子總數的輔助函數，以確保對戰時先後手的公平性
@@ -985,39 +1027,76 @@ window.joinRoomAction = function() {
         return count;
     }
 
-   window.startMultiplayerGame = function() {
-        if(myUid === roomData?.picker) { // 改由 picker 控制開始
+
+ window.startMultiplayerGame = function() {
+        if(myUid === roomData?.picker) { 
             const playersList = Object.keys(roomData.players || {}).sort();
-            const playersCount = playersList.length;
-            if (playersCount < 2) {
-                alert("需要至少兩名玩家才能開始對戰！");
-                return;
+            if (playersList.length < 2) return alert("需要至少兩名玩家才能開始對戰！");
+
+            let redList = [], blueList = [];
+            if (roomData.teamMode === 'team') {
+                redList = playersList.filter(p => roomData.players[p].team === 'red').sort((a,b) => roomData.players[a].slot - roomData.players[b].slot);
+                blueList = playersList.filter(p => roomData.players[p].team === 'blue').sort((a,b) => roomData.players[a].slot - roomData.players[b].slot);
+                if (redList.length === 0 || blueList.length === 0) return alert("紅藍兩隊皆須有玩家方可開始！");
+                if (playersList.some(p => !roomData.players[p].team)) return alert("尚有玩家未選擇隊伍！");
             }
 
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
-            
-            // 計算補分機制 (確保全對必打和)
             const sCount = getSentenceCount(textKey);
-            const maxTurns = Math.ceil(sCount / playersCount);
             
             let updates = {
-                state: 'playing',
-                textKey: textKey,
-                turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
-                progress: { matched: 0, errors: [] },
-                pointsCalculated: false
+                state: 'playing', textKey: textKey, pointsCalculated: false,
+                turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
+                progress: { matched: 0, errors: [] }
             };
-            
-            // 依據玩家順位分配初始補分
-            playersList.forEach((pUid, idx) => {
-                const expectedTurns = Math.floor(sCount / playersCount) + (idx < (sCount % playersCount) ? 1 : 0);
-                const handicap = maxTurns - expectedTurns;
-                updates[`players/${pUid}/score`] = handicap; // 寫入補分
-            });
 
+            // 初始化所有人的得分為 0
+            playersList.forEach(p => updates[`players/${p}/score`] = 0);
+
+            // --- 賽局預演：精準補分系統 (Handicap) ---
+            if (roomData.playMode === 'turn') {
+                if (roomData.teamMode === 'team') {
+                    // 團體戰：以「隊伍」為單位計算總作答次數
+                    let teamExpectedTurns = { red: 0, blue: 0 };
+                    for (let i = 0; i < sCount; i++) {
+                        if (i % 2 === 0) teamExpectedTurns.red++;
+                        else teamExpectedTurns.blue++;
+                    }
+                    let maxTeamTurns = Math.max(teamExpectedTurns.red, teamExpectedTurns.blue);
+                    let redHandicap = maxTeamTurns - teamExpectedTurns.red;
+                    let blueHandicap = maxTeamTurns - teamExpectedTurns.blue;
+                    
+                    // 將補分只發給劣勢隊伍的第一名成員，確保團隊總分公平
+                    if (redHandicap > 0 && redList.length > 0) updates[`players/${redList[0]}/score`] = redHandicap;
+                    if (blueHandicap > 0 && blueList.length > 0) updates[`players/${blueList[0]}/score`] = blueHandicap;
+                } else {
+                    // 單人戰：照舊按個人順位計算
+                    let expectedTurns = {};
+                    playersList.forEach(p => expectedTurns[p] = 0);
+                    for (let i = 0; i < sCount; i++) expectedTurns[playersList[i % playersList.length]]++;
+                    
+                    let maxT = Math.max(...Object.values(expectedTurns));
+                    playersList.forEach(p => {
+                        updates[`players/${p}/score`] = maxT - expectedTurns[p];
+                    });
+                }
+            }
+
+            if (roomData.teamMode === 'team') {
+                updates['teams'] = {
+                    red: { playerList: redList, activeIdx: 0, sentenceIdx: 0, matched: 0, mistakes: 0, errors: [] },
+                    blue: { playerList: blueList, activeIdx: 0, sentenceIdx: 0, matched: 0, mistakes: 0, errors: [] }
+                };
+            }
+            if (roomData.playMode === 'race') {
+                playersList.forEach(p => { updates[`players/${p}/sentenceIdx`] = 0; updates[`players/${p}/matched`] = 0; });
+            }
+            
             update(ref(db, `rooms/${currentRoomId}`), updates);
         }
     };
+
+    
 
     function startTurnTimer() {
         clearInterval(turnTimerInterval);
@@ -1060,44 +1139,68 @@ window.joinRoomAction = function() {
             // ==========================================
             // 【房主遷移機制】
             // ==========================================
-            let currentHost = data.host;
-            if (!playersList.includes(currentHost) && playersList.length > 0) {
+             let currentHost = data.host;
+            let hostChanged = false;
+            
+            // 判斷房主是否逃跑，若逃跑則準備遷移
+           if (!playersList.includes(currentHost) && playersList.length > 0) {
                 currentHost = playersList[0];
-                if (myUid === currentHost) {
-                    update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
-                }
+                hostChanged = true;
             }
 
-            // ==========================================
-            // 【逃跑懲罰與不戰而勝機制】(由現任房主負責執行)
-            // ==========================================
+            // 只由現任（或新任）房主負責執行判定
             if (data.state === 'playing' && window.previousPlayers.length > 0 && myUid === currentHost) {
                 let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
                 if (leftPlayers.length > 0) {
-                   leftPlayers.forEach(lp => {
-                        // ⚠️ 基於 Firebase 權限，純前端無法越權修改已離開玩家的節點
-                        // 這裡必須移除 runTransaction，避免 Permission Denied 報錯導致遊戲當機卡死
-                    });
+                    let updates = {};
+                    if (hostChanged) updates['host'] = currentHost;
 
-                    if (playersList.length === 1) {
-                        // 情況A：只剩自己一人，直接獲勝並加 1 分
-                        const winPtRef = ref(db, `users/${myUid}/battlePoints`);
-                        runTransaction(winPtRef, (cur) => (cur || 0) + 1);
-                        update(ref(db, `rooms/${currentRoomId}`), { 
-                            state: 'finished', 
-                            pointsCalculated: true // 已結算，防重複給分
-                        });
+                    if (data.teamMode === 'team') {
+                        let reds = playersList.filter(p => data.players[p].team === 'red');
+                        let blues = playersList.filter(p => data.players[p].team === 'blue');
+                        
+                        // 判定是否其中一隊全軍覆沒
+                        if (reds.length === 0 && blues.length > 0) {
+                            updates['winTeam'] = 'blue';
+                            updates['state'] = 'finished';
+                        } else if (blues.length === 0 && reds.length > 0) {
+                            updates['winTeam'] = 'red';
+                            updates['state'] = 'finished';
+                        } else if (reds.length === 0 && blues.length === 0) {
+                            updates['state'] = 'finished'; // 雙方皆逃跑
+                        } else {
+                            // 遊戲繼續，重整交棒陣列
+                            updates[`teams/red/playerList`] = reds;
+                            updates[`teams/blue/playerList`] = blues;
+                            updates[`teams/red/activeIdx`] = reds.length > 0 ? ((data.teams?.red?.activeIdx || 0) % reds.length || 0) : 0;
+                            updates[`teams/blue/activeIdx`] = blues.length > 0 ? ((data.teams?.blue?.activeIdx || 0) % blues.length || 0) : 0;
+                            if (data.playMode === 'turn') updates[`turn/startTime`] = Date.now();
+                        }
                     } else {
-                        // 情況B：還有兩人以上，遊戲繼續。若離開者剛好是當前作答者，需修正回合
-                        if (data.turn && data.turn.playerIdx >= playersList.length) {
-                            update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                                playerIdx: 0,
-                                startTime: Date.now() 
-                            });
+                        // 單人模式逃跑判定
+                        if (playersList.length <= 1) {
+                            updates['state'] = 'finished';
+                        } else {
+                            if (data.playMode === 'turn') {
+                                updates[`turn/playerIdx`] = (data.turn?.playerIdx || 0) % playersList.length;
+                                updates[`turn/startTime`] = Date.now();
+                            }
                         }
                     }
+                    update(ref(db, `rooms/${currentRoomId}`), updates);
+                    window.previousPlayers = playersList; // 【極其關鍵】中斷前必須先更新名單，否則會觸發無限迴圈卡死！
+                    return; 
+                } else if (hostChanged) {
+                    update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                    window.previousPlayers = playersList;
+                    return;
                 }
+            } else if (hostChanged && myUid === currentHost) {
+                update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                window.previousPlayers = playersList;
+                return;
             }
+
             window.previousPlayers = playersList; // 更新名單供下次比對
             // ==========================================
 
@@ -1107,22 +1210,51 @@ window.joinRoomAction = function() {
             document.getElementById('main-nav-bar').style.display = 'none';
             document.getElementById('auth-info').style.display = 'none';
 
-            if (data.state === 'waiting') {
+        if (data.state === 'waiting') {
+                window.hasCalculatedPoints = false;
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
-                let pHtml = '';
-                playersList.forEach(pUid => { 
-                    let role = [];
-                    if (pUid === currentHost) role.push('房主'); // 顯示現任房主
-                    if (pUid === data.picker) role.push('選題');
-                    let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
-                    pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
-                });
-                document.getElementById('lobby-players-list').innerHTML = pHtml;
-                document.getElementById('lobby-status-text').innerText = `等待用家加入... (目前 ${playersList.length} 人)`;
                 
-                if(myUid === data.picker) { // 由 picker 顯示控制面板
+              let pHtml = '';
+                if (data.teamMode === 'team') {
+                    pHtml = `<div class="team-container">
+                        <div class="team-box red"><div class="team-title">紅隊</div>`;
+                    for(let i=0; i<3; i++) {
+                        let pInSlot = playersList.find(p => data.players[p].team === 'red' && data.players[p].slot === i);
+                        if (pInSlot) {
+                            let isMe = (pInSlot === myUid);
+                            pHtml += `<div class="team-slot filled">${data.players[pInSlot].name}${isMe ? ' (你)' : ''}</div>`;
+                        } else {
+                            pHtml += `<div class="team-slot" onclick="joinTeamSlot('red', ${i})">點擊加入</div>`;
+                        }
+                    }
+                    pHtml += `</div><div class="team-box blue"><div class="team-title">藍隊</div>`;
+                    for(let i=0; i<3; i++) {
+                        let pInSlot = playersList.find(p => data.players[p].team === 'blue' && data.players[p].slot === i);
+                        if (pInSlot) {
+                            let isMe = (pInSlot === myUid);
+                            pHtml += `<div class="team-slot filled">${data.players[pInSlot].name}${isMe ? ' (你)' : ''}</div>`;
+                        } else {
+                            pHtml += `<div class="team-slot" onclick="joinTeamSlot('blue', ${i})">點擊加入</div>`;
+                        }
+                    }
+                    pHtml += `</div></div>`;
+                } else {
+                    playersList.forEach(pUid => { 
+                        let role = [];
+                        if (pUid === currentHost) role.push('房主'); 
+                        if (pUid === data.picker) role.push('選題');
+                        let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
+                        pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
+                    });
+                }
+                
+                document.getElementById('lobby-players-list').innerHTML = pHtml;
+                let modeText = (data.playMode === 'race' ? '同步競速' : '回合制') + ' | ' + (data.teamMode === 'team' ? '團體對戰' : '單人對戰');
+                document.getElementById('lobby-status-text').innerText = `[${modeText}] 等待用家加入... (目前 ${playersList.length} 人)`;
+                
+                if(myUid === data.picker) { 
                     document.getElementById('host-controls').style.display = 'block';
                     document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
@@ -1132,84 +1264,186 @@ window.joinRoomAction = function() {
                 
           } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
-
-                // 【新增】遊戲開始時，向伺服器預設「如果我斷線或關閉網頁，請自動扣我 1 分」
                 if (!window.escapePenaltyHook) {
                     window.escapePenaltyHook = onDisconnect(ref(db, `users/${myUid}`));
-                    // 使用 increment(-1) 讓伺服器端直接扣分。若分數為 0，Firebase 規則會自動阻擋變為負數
                     window.escapePenaltyHook.update({ battlePoints: increment(-1) });
                 }
                 document.getElementById('success-screen').classList.remove('active');
-                setMode('challenge', true); // 強制系統切換為默誦模式
-                document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
+                setMode('challenge', true);
+                document.getElementById('btn-reset').style.display = 'none';
                 document.getElementById('mode-controls').style.display = 'none';
 
-                // 準備文本
                 const [c, i] = data.textKey.split('_');
                 if (currentCategory !== c || currentIndex !== parseInt(i) || textNodes.length === 0) {
                     currentCategory = c; currentIndex = parseInt(i);
                     loadCurrentText();
                 }
 
-                // 更新頂部對戰列
-                const mbTurn = document.getElementById('mb-turn-status');
-                const mbScore = document.getElementById('mb-score-status');
-                const mb = document.getElementById('multiplayer-bar');
-                let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
+                let isMyTurn = false; let myGlobalSentenceIdx = 0; let myGlobalMatched = 0;
+                let myTeam = data.players[myUid]?.team;
+
+                if (data.playMode === 'race') {
+                    if (data.teamMode === 'team') {
+                        if (myTeam && data.teams && data.teams[myTeam]) {
+                            if (data.teams[myTeam].playerList[data.teams[myTeam].activeIdx] === myUid) isMyTurn = true;
+                            myGlobalSentenceIdx = data.teams[myTeam].sentenceIdx;
+                            myGlobalMatched = data.teams[myTeam].matched;
+                        }
+                    } else {
+                        isMyTurn = true; 
+                        myGlobalSentenceIdx = data.players[myUid].sentenceIdx || 0;
+                        myGlobalMatched = data.players[myUid].matched || 0;
+                    }
+                } else {
+                    if (data.teamMode === 'team') {
+                        if (myTeam === data.turn.teamColor && data.teams && data.teams[myTeam]) {
+                            if (data.teams[myTeam].playerList[data.teams[myTeam].activeIdx] === myUid) isMyTurn = true;
+                        }
+                    } else {
+                        isMyTurn = (playersList[data.turn?.playerIdx || 0] === myUid);
+                    }
+                    myGlobalSentenceIdx = data.turn.sentenceIdx;
+                    myGlobalMatched = data.progress?.matched || 0;
+                }
                 
+                isActivePlayer = isMyTurn;
+
+            const mbTurn = document.getElementById('mb-turn-status');
+                const mbScore = document.getElementById('mb-score-status');
+                const raceTrack = document.getElementById('race-track');
+                const mb = document.getElementById('multiplayer-bar');
                 const btnStart = document.getElementById('btn-start');
                 
-                // 完整保留你的 UI 設定
-                if (isActivePlayer) {
-                    mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
-                    mb.style.borderBottom = "2px solid var(--accent-red)";
-                    btnStart.disabled = false;
-                    btnStart.style.opacity = '1';
+              // 【精緻優化】完全非文字的隊伍視覺標示：左上角 SVG 小書籤設計
+                 let marker = document.getElementById('team-marker');
+                if (!marker) {
+                    marker = document.createElement('div');
+                    marker.id = 'team-marker';
+                    // 讓標籤懸掛在頂部，與左邊界保持適當距離，並加入立體陰影
+                    marker.style.cssText = 'position:absolute; top:-2px; left:25px; z-index: 10; transition: color 0.4s ease; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));';
+                    marker.innerHTML = `<svg width="18" height="28" viewBox="0 0 24 36" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                                          <path d="M0 0h24v36l-12-8-12 8z"/>
+                                        </svg>`;
+                    mb.appendChild(marker);
+                }
+                if (data.teamMode === 'team' && myTeam) {
+                    marker.style.color = myTeam === 'red' ? '#b04332' : '#2b5c7a';
+                    marker.style.display = 'block';
                 } else {
-                    mbTurn.innerHTML = `🔴 等候 <b>${data.players[activeUid].name}</b> 作答`;
-                    mb.style.borderBottom = "1px solid var(--text-gray)";
-                    btnStart.disabled = true;
-                    btnStart.style.opacity = '0.3';
+                    marker.style.display = 'none';
                 }
-                mbScore.innerHTML = `得分：${scoreText}`;
+                mb.style.borderTop = ''; // 確保清除上一個版本的頂部粗橫條
+                
+                // 團體與單人計分板顯示邏輯
+                if (data.teamMode === 'team') {
+                    let redScore = 0, blueScore = 0;
+                    playersList.forEach(p => {
+                        if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
+                        if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
+                    });
+                    mbScore.innerHTML = `得分：<span style="color:#b04332;font-weight:bold;">紅隊 ${redScore}</span> | <span style="color:#2b5c7a;font-weight:bold;">藍隊 ${blueScore}</span>`;
+                    mbScore.style.display = 'block';
+                } else {
+                    let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
+                    mbScore.innerHTML = `得分：${scoreText}`;
+                    mbScore.style.display = data.playMode === 'race' ? 'none' : 'block';
+                }
+                
+                if (data.playMode === 'race') {
+                    document.querySelector('.mb-timer-track').style.display = 'none';
+                    raceTrack.style.display = 'block';
+                    mbTurn.innerHTML = isActivePlayer ? `🟢 <span style="color:var(--accent-red);">全力競速中！</span>` : `🔴 <span style="color:var(--text-gray);">等候隊友交棒...</span>`;
+                    
+                    let sCount = getSentenceCount(data.textKey);
+                    let trackHtml = '';
+                    if (data.teamMode === 'team') {
+                        let rP = ((data.teams?.red?.sentenceIdx || 0) / sCount) * 100;
+                        let bP = ((data.teams?.blue?.sentenceIdx || 0) / sCount) * 100;
+                        trackHtml += `<div class="race-avatar team-red" style="left: ${rP}%">紅隊</div>`;
+                        trackHtml += `<div class="race-avatar team-blue" style="left: ${bP}%">藍隊</div>`;
+                    } else {
+                        playersList.forEach((p, idx) => {
+                            let pP = ((data.players[p].sentenceIdx || 0) / sCount) * 100;
+                            let isMe = (p === myUid);
+                            let colorClass = `solo-${idx % 6}`; 
+                            trackHtml += `<div class="race-avatar solo ${colorClass} ${isMe ? 'me' : ''}" style="left: ${pP}%; ${isMe ? 'z-index: 10;' : ''}">${data.players[p].name}</div>`;
+                        });
+                    }
+                    raceTrack.innerHTML = trackHtml;
+                } else {
+                    document.querySelector('.mb-timer-track').style.display = 'block';
+                    raceTrack.style.display = 'none';
+                 if (isActivePlayer) {
+                            mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
+                            mb.style.borderBottom = "2px solid var(--accent-red)";
+                       } else {
+                            // 【修復】區分單人模式與團隊模式的預設稱呼，並加入越界保護
+                            let activeName = data.teamMode === 'team' ? "隊友" : "對手";
+                            if (data.teamMode === 'team') {
+                                let tList = data.teams[data.turn.teamColor]?.playerList || [];
+                                let aIdx = data.teams[data.turn.teamColor]?.activeIdx || 0;
+                                if (aIdx >= tList.length) aIdx = 0; // 防呆
+                                if (tList[aIdx] && data.players[tList[aIdx]]) activeName = data.players[tList[aIdx]].name;
+                            } else {
+                                let pIdx = data.turn?.playerIdx || 0;
+                                if (pIdx >= playersList.length) pIdx = 0; // 防呆
+                                let pUid = playersList[pIdx];
+                                if (pUid && data.players[pUid]) activeName = data.players[pUid].name;
+                            }
+                            mbTurn.innerHTML = `🔴 等候 <b>${activeName}</b> 作答`;
+                            mb.style.borderBottom = "1px solid var(--text-gray)";
+                        }
+                    if (!turnTimerInterval) startTurnTimer();
+                }
+                
+                if (isActivePlayer) { btnStart.disabled = false; btnStart.style.opacity = '1'; } 
+                else { btnStart.disabled = true; btnStart.style.opacity = '0.3'; }
                 mb.classList.add('active');
-                
-                // 啟動計時器
-                if (!turnTimerInterval) startTurnTimer();
 
-                // 處理回合與句子轉換
-                if (currentSentenceIdx !== data.turn.sentenceIdx) {
-                    currentSentenceIdx = data.turn.sentenceIdx;
-                    applyRemoteMatched(0);
-                    finalTokens = []; consumedSttIdx = 0; // 清空語音緩存
-                    window.handlingTimeout = false;
-                }
-                
-                // 更換玩家時清除 timeout 處理狀態
-                if (window.lastTurnPlayerIdx !== data.turn.playerIdx) {
-                    window.handlingTimeout = false;
-                    window.lastTurnPlayerIdx = data.turn.playerIdx;
+                // 處理回合轉換與同步
+                if (currentSentenceIdx !== myGlobalSentenceIdx) {
+                    currentSentenceIdx = myGlobalSentenceIdx;
                     applyRemoteMatched(0);
                     finalTokens = []; consumedSttIdx = 0; 
+                    window.handlingTimeout = false;
                 }
 
-                // 處理錯誤提示與抖動
-                if (data.turn.mistakes === 0) {
-                    window.lastMistakes = 0;
-                } else if (data.turn.mistakes > (window.lastMistakes || 0)) {
-                    applyRemoteErrors(data.progress?.errors || []);
-                    window.lastMistakes = data.turn.mistakes;
+                // 錯誤反饋同步邏輯 (讓觀戰隊友也能看到抖動)
+                 if (data.playMode === 'turn') {
+                    // 【防呆】加上 ?. 確保某方全部離場瞬間，不會因為找不到陣列而引發 TypeError 報錯卡死
+                    let currentGlobalActiveIdx = data.teamMode === 'team' ? `${data.turn.teamColor}_${data.teams?.[data.turn.teamColor]?.activeIdx || 0}` : (data.turn?.playerIdx || 0);
+                    if (window.lastTurnPlayerIdx !== currentGlobalActiveIdx) {
+                        window.handlingTimeout = false;
+                        window.lastTurnPlayerIdx = currentGlobalActiveIdx;
+                        applyRemoteMatched(0);
+                        finalTokens = []; consumedSttIdx = 0; 
+                    }
+                    if (data.turn.mistakes === 0) window.lastMistakes = 0;
+                    else if (data.turn.mistakes > (window.lastMistakes || 0)) {
+                        applyRemoteErrors(data.progress?.errors || []);
+                        window.lastMistakes = data.turn.mistakes;
+                    }
+                } else if (data.playMode === 'race' && data.teamMode === 'team') {
+                    let tData = data.teams[myTeam];
+                    // 【修復】競速模式下，只有「非作答中的隊友」才去接收雲端的錯誤更新。
+                    // 正在作答的玩家只靠本機判斷，徹底隔絕跨隊或雲端延遲帶來的交叉污染。
+                    if (tData && !isActivePlayer) {
+                        if (tData.mistakes === 0) window.lastMistakes = 0;
+                        else if (tData.mistakes > (window.lastMistakes || 0)) {
+                            applyRemoteErrors(tData.errors || []);
+                            window.lastMistakes = tData.mistakes;
+                        }
+                    }
                 }
 
-                // 處理錄音與同步進度
                 if (!isActivePlayer) {
                     if (isRecording) stopRecording();
-                    applyRemoteMatched(data.progress?.matched || 0);
+                    applyRemoteMatched(myGlobalMatched);
                 } else {
                     if (!isRecording && data.state === 'playing') startRecording();
                 }
                 
-         } else if (data.state === 'finished') {
+       } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
 
                 // 【新增】遊戲正常結束，解除斷線懲罰預設
@@ -1220,7 +1454,10 @@ window.joinRoomAction = function() {
                 clearInterval(turnTimerInterval);
                 showMultiplayerResults(data);
                 // 👈 讓房間內所有玩家都執行計分函數
-                if (!data.pointsCalculated) calculateAndApplyBattlePoints(data); 
+                if (!window.hasCalculatedPoints) {
+                    calculateAndApplyBattlePoints(data); 
+                    window.hasCalculatedPoints = true;
+                }
             }
         });
     }
@@ -1250,8 +1487,9 @@ window.joinRoomAction = function() {
         exitMultiplayer();
     };
 
- function exitMultiplayer() {
+function exitMultiplayer() {
         isMultiplayer = false; currentRoomId = null; roomData = null;
+        window.hasCalculatedPoints = false;
         clearInterval(turnTimerInterval); turnTimerInterval = null;
         closeOverlays();
         document.getElementById('multiplayer-bar').classList.remove('active');
@@ -1302,10 +1540,9 @@ window.joinRoomAction = function() {
     // ====== 多人結算 ======
 function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
-        sc.classList.add('active'); // 👈 新增這一行，讓結算畫面彈出
+        sc.classList.add('active'); 
         document.getElementById('success-title').innerText = "對戰終局";
         
-      // 【補回】判斷自己的重戰狀態，更新按鈕文字
         if (data.players[myUid]?.rematch) {
             document.getElementById('btn-rematch').innerText = "等候中...";
             document.getElementById('btn-rematch').disabled = true;
@@ -1314,89 +1551,178 @@ function showMultiplayerResults(data) {
             document.getElementById('btn-rematch').disabled = false;
         }
 
-        let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
+        let playersList = Object.keys(data.players || {});
         
-     // 【優化】只獲取房間內參戰玩家的最新資料，不下載全服 user
-Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
-    let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val().name, score: snap.val().battlePoints || 0 }));
-    
-    let matchScores = playersList.map(p => data.players[p].score);
-    let maxS = Math.max(...matchScores); 
-    let minS = Math.min(...matchScores);
-    
-    let getDelta = (pUid) => {
-        let s = data.players[pUid].score;
-        if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
-        return 0;
-    };
+        Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
+            let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val()?.name || '未知', score: snap.val()?.battlePoints || 0 }));
+            let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
 
-    let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
-    
-    playersList.forEach((p, idx) => {
-        let isMe = (p === myUid);
-        let pScore = data.players[p].score;
-        let delta = getDelta(p);
-        
-        let userDbData = allUsers.find(u => u.uid === p);
-        // 如果還沒結算，預期最新總分 = 資料庫分數 + delta；如果已結算，資料庫分數就是最新總分
-        let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
+            if (data.teamMode === 'team') {
+                let redScore = 0, blueScore = 0;
+                playersList.forEach(p => {
+                    if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
+                    if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
+                });
+                
+                // 優先使用中途逃跑判定的 winTeam，否則比對雙方總分
+                let winTeam = data.winTeam || (redScore > blueScore ? 'red' : (blueScore > redScore ? 'blue' : 'tie'));
+                let titleMsg = data.winTeam ? " (對手逃脫)" : "";
+                
+                html += `<div style="text-align:center; font-size:1.2rem; font-weight:bold; margin-bottom: 10px; color:var(--text-dark);">
+                            <span style="color:#b04332;">紅隊 ${redScore} 分</span> vs <span style="color:#2b5c7a;">藍隊 ${blueScore} 分</span><br>
+                            <span style="font-size:0.85rem; color:var(--text-light);">${titleMsg}</span>
+                         </div>`;
 
-        let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
-        let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
-        let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
+                playersList.sort((a,b) => {
+                    if (data.players[a].team !== data.players[b].team) return data.players[a].team === 'red' ? -1 : 1;
+                    return data.players[b].score - data.players[a].score;
+                }).forEach((p) => {
+                    let isMe = (p === myUid);
+                    let pTeam = data.players[p].team;
+                    let pScore = data.players[p].score;
+                    let delta = 0;
+                    if (winTeam !== 'tie') delta = (pTeam === winTeam) ? 1 : -1;
+                    
+                  let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
+                    let newTotal = window.hasCalculatedPoints ? userDbData.score : Math.max(0, userDbData.score + delta);
 
-        html += `<div class="${isMe ? 'result-me' : 'result-others'}">
-                    <div class="result-header">
-                        <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}</span>
-                        <span class="result-score">${pScore} 題</span>
-                    </div>
-                    ${isMe ? `
-                    <div class="result-details">
-                        <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
-                        <span class="${rankClass}">${rankText}</span>
-                    </div>` : ''}
-                 </div>`;
-    });
-    html += '</div>';
-    document.getElementById('success-time').innerHTML = html;
+                    let rankText = delta > 0 ? '戰勝加分' : (delta < 0 ? '戰敗扣分' : '平局不變');
+                    let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
+                    let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
 
-// 【補回】確保顯示重戰與退出按鈕
-        document.getElementById('btn-rematch').style.display = 'inline-block';
-        document.getElementById('btn-close-success').innerText = "退 出";
+                    html += `<div class="${isMe ? 'result-me' : 'result-others'}" style="border-left-color: ${pTeam==='red'?'#b04332':'#2b5c7a'}">
+                                <div class="result-header">
+                                    <span style="font-weight:${isMe?'bold':'normal'};">${pTeam==='red'?'[紅]':'[藍]'} ${data.players[p].name}</span>
+                                    <span class="result-score">${pScore} 題</span>
+                                </div>
+                                ${isMe ? `
+                                <div class="result-details">
+                                    <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
+                                    <span class="${rankClass}">${rankText}</span>
+                                </div>` : ''}
+                             </div>`;
+                });
+            } else {
+                let matchScores = playersList.map(p => data.players[p].score);
+                let maxS = Math.max(...matchScores); 
+                let minS = Math.min(...matchScores);
+                
+                let getDelta = (pUid) => {
+                    if (playersList.length === 1) return 1; // 剩餘一人，不戰而勝
+                    let s = data.players[pUid].score;
+                    if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
+                    return 0;
+                };
 
-    
-});
+                playersList.sort((a,b) => data.players[b].score - data.players[a].score).forEach((p, idx) => {
+                    let isMe = (p === myUid);
+                    let pScore = data.players[p].score;
+                    let delta = getDelta(p);
+                    
+                 let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
+                    let newTotal = window.hasCalculatedPoints ? userDbData.score : Math.max(0, userDbData.score + delta);
 
-        // 房主負責重置房間狀態，並隨機指派下一局選題者
+                    let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
+                    let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
+                    let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
+
+                    html += `<div class="${isMe ? 'result-me' : 'result-others'}">
+                                <div class="result-header">
+                                    <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}${playersList.length === 1 ? ' (不戰而勝)' : ''}</span>
+                                    <span class="result-score">${pScore} 題</span>
+                                </div>
+                                ${isMe ? `
+                                <div class="result-details">
+                                    <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
+                                    <span class="${rankClass}">${rankText}</span>
+                                </div>` : ''}
+                             </div>`;
+                });
+            }
+            html += '</div>';
+            document.getElementById('success-time').innerHTML = html;
+            document.getElementById('btn-rematch').style.display = 'inline-block';
+            document.getElementById('btn-close-success').innerText = "退 出";
+        });
+
          if (myUid === data.host) {
             let playersList = Object.keys(data.players || {});
             let allRematch = playersList.length > 0 && playersList.every(p => data.players[p].rematch);
             
             if (allRematch) {
-                // 從目前房間玩家中隨機抽選一位負責下一局的選題
                 let nextPicker = playersList[Math.floor(Math.random() * playersList.length)];
-                
                 let updates = { 
                     state: 'waiting', 
-                    picker: nextPicker, // 寫入新選題者
-                    turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() }, 
+                    picker: nextPicker, 
+                    turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() }, 
                     progress: { matched: 0, errors: [] }, 
-                    pointsCalculated: false 
+                    pointsCalculated: false,
+                    winTeam: null // 清除強制勝利標記
                 };
-                
-                // 把所有人的本局分數歸零，並把重戰狀態重置為 false
+                if (data.teamMode === 'team') {
+                    updates['teams/red/mistakes'] = 0; updates['teams/blue/mistakes'] = 0;
+                    updates['teams/red/errors'] = []; updates['teams/blue/errors'] = [];
+                }
                 playersList.forEach(p => { 
                     updates[`players/${p}/score`] = 0; 
                     updates[`players/${p}/rematch`] = false; 
                 });
-                
-                // 提交覆蓋
                 update(ref(db, `rooms/${currentRoomId}`), updates);
             }
         }
     }
 
-  window.rematchMultiplayer = function() {
+    function calculateAndApplyBattlePoints(data) {
+        let playersList = Object.keys(data.players || {});
+        if(playersList.length === 0) return;
+        
+        let diff = 0;
+        if (data.teamMode === 'team') {
+            let winTeam = data.winTeam;
+            if (!winTeam) {
+                let redScore = 0, blueScore = 0;
+                playersList.forEach(p => {
+                    if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
+                    if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
+                });
+                if (redScore !== blueScore) winTeam = redScore > blueScore ? 'red' : 'blue';
+                else winTeam = 'tie';
+            }
+            
+            let myTeam = data.players[myUid]?.team;
+            if (myTeam && winTeam !== 'tie') {
+                diff = myTeam === winTeam ? 1 : -1;
+            }
+        } else {
+            if (playersList.length === 1) {
+                diff = 1;
+            } else {
+                let scores = playersList.map(p => data.players[p].score);
+                let maxS = Math.max(...scores); 
+                let minS = Math.min(...scores);
+                let myScore = data.players[myUid]?.score;
+                if (myScore !== undefined && maxS !== minS) {
+                    if (myScore === maxS) diff = 1;
+                    else if (myScore === minS) diff = -1;
+                }
+            }
+        }
+        
+      if (diff !== 0) {
+            const ptRef = ref(db, `users/${myUid}/battlePoints`);
+            runTransaction(ptRef, (cur) => { return Math.max(0, (cur || 0) + diff); });
+        }
+        // 刪除了原本在這裡的 update pointsCalculated: true
+    }
+
+window.rematchMultiplayer = function() {
+        
+        if (myUid === data.host) {
+            update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
+        }
+    }
+
+window.rematchMultiplayer = function() {
         if (!currentRoomId) return;
         // 將自己的 rematch 狀態設為 true
         update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { rematch: true });
@@ -1405,32 +1731,9 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
         document.getElementById('btn-rematch').disabled = true;
     };
 
-  function calculateAndApplyBattlePoints(data) {
-        let playersList = Object.keys(data.players || {});
-        if(playersList.length < 2) return;
-        
-        let scores = playersList.map(p => data.players[p].score);
-        let maxS = Math.max(...scores); let minS = Math.min(...scores);
 
-        // 👈 每個人只抓取、判斷並更新「自己」的對戰積分
-        let myScore = data.players[myUid]?.score;
-        if (myScore !== undefined && maxS !== minS) {
-            let diff = 0;
-            if (myScore === maxS) diff = 1;
-            else if (myScore === minS) diff = -1;
-            
-            if (diff !== 0) {
-                const ptRef = ref(db, `users/${myUid}/battlePoints`);
-                runTransaction(ptRef, (cur) => { return Math.max(0, (cur || 0) + diff); });
-            }
-        }
-        
-        // 👈 結算完畢後，由房主負責關閉房間的計分狀態，防止重複給分
-        if (myUid === data.host) {
-            update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
-        }
-    }
-
+    
+    
     // ====== 單機與底層共用邏輯 ======
     function fuzzyJyutping(str) {
         if (!str) return ':';
@@ -1604,12 +1907,30 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
     }
     
     // 獨立處理錯誤的邏輯（超時或讀錯時共用）
-   function handleMistake(isTimeout = false, errorIndex = 0) {
+function handleMistake(isTimeout = false, errorIndex = 0) {
         if (!isMultiplayer || !isActivePlayer || !roomData) return;
-        
-        // 觸發設備震動 (若瀏覽器/設備支援，會產生短促兩下震動)
-        if (navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+     if (roomData.playMode === 'race') {
+            showSpeechFeedback(isTimeout ? '繼續努力！' : '讀錯了，請重試！');
+            applyRemoteErrors([errorIndex]); // 讓本地玩家立刻看到文字抖動
+            
+            // 讓觀戰的同隊隊友也能同步看到錯在哪裡
+            if (roomData.teamMode === 'team') {
+                 let myTeam = roomData.players[myUid].team;
+                 const currentMistakes = (roomData.teams[myTeam]?.mistakes || 0) + 1;
+                 // 【修復】將分兩次 set 寫入改為原子的 update 寫入，避免 Firebase 瞬間發送兩次不完整的狀態觸發 BUG
+                 update(ref(db, `rooms/${currentRoomId}/teams/${myTeam}`), {
+                     errors: [errorIndex],
+                     mistakes: currentMistakes
+                 });
+            }
+            
+            setTimeout(() => {
+                applyRemoteMatched(0);
+                finalTokens = []; consumedSttIdx = 0; window.handlingTimeout = false;
+            }, 1000);
+            return;
         }
         
         const currentMistakes = (roomData.turn.mistakes || 0) + 1;
@@ -1617,41 +1938,33 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
         set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes);
 
         if (currentMistakes < 2) {
-            if (isTimeout) showSpeechFeedback('時限已過！剩餘一次機會。');
-            else showSpeechFeedback('讀錯了！剩餘一次機會。');
-            
+            showSpeechFeedback(isTimeout ? '時限已過！剩餘一次機會。' : '讀錯了！剩餘一次機會。');
+            applyRemoteErrors([errorIndex]); // 確保本地端第一時間觸發抖動
             setTimeout(() => {
                 if (!roomData) return;
-                // 更新進度並重置計時器，給予第二次機會
                 update(ref(db, `rooms/${currentRoomId}/turn`), { startTime: Date.now() });
                 set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-                
-                applyRemoteMatched(0);
-                finalTokens = []; consumedSttIdx = 0;
-                window.handlingTimeout = false;
+                applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0; window.handlingTimeout = false;
             }, 1500);
         } else {
-            if (isTimeout) showSpeechFeedback('時限已過！換人作答。');
-            else showSpeechFeedback('讀錯了！換人作答。');
-
+            showSpeechFeedback(isTimeout ? '時限已過！換人作答。' : '讀錯了！換人作答。');
+            applyRemoteErrors([errorIndex]); 
             setTimeout(() => {
                 if (!roomData) return;
-                const playersList = Object.keys(roomData.players || {}).sort();
-                const npIdx = (roomData.turn.playerIdx + 1) % playersList.length;
-                
-                // 換下一位玩家，但保留在「同一句」
-                update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                    playerIdx: npIdx, 
-                    sentenceIdx: currentSentenceIdx, 
-                    mistakes: 0, 
-                    startTime: Date.now() 
-                });
+                let updates = { sentenceIdx: currentSentenceIdx, mistakes: 0, startTime: Date.now() };
+                if (roomData.teamMode === 'team') {
+                    let otherTeam = roomData.turn.teamColor === 'red' ? 'blue' : 'red';
+                    updates.teamColor = otherTeam;
+                } else {
+                    const playersList = Object.keys(roomData.players || {}).sort();
+                    updates.playerIdx = (roomData.turn.playerIdx + 1) % playersList.length;
+                }
+                update(ref(db, `rooms/${currentRoomId}/turn`), updates);
                 set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
                 window.handlingTimeout = false;
             }, 1500);
         }
     }
-
     
     function matchAlgorithm(sttData) {
         if(isMultiplayer && !isActivePlayer) return;
@@ -1693,33 +2006,72 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                 }
             }
 
-            if (sentencePassed) {
+         if (sentencePassed) {
                 sentenceChars.forEach(n => sessionAchievedChars.add(n.index));
                 consumedSttIdx = matchEndSttIdx; 
                 
                 if (isMultiplayer) {
-                    const newScore = (roomData.players[myUid].score || 0) + 1;
-                    update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { score: newScore });
-                    const npIdx = (roomData.turn.playerIdx + 1) % Object.keys(roomData.players).length;
+                    const isFinish = (currentSentenceIdx + 1 >= sentences.length);
+                    let updates = {};
+                    // 所有模式通用：得分增加
+                    updates[`players/${myUid}/score`] = (roomData.players[myUid].score || 0) + 1;
                     
-                    if (currentSentenceIdx + 1 >= sentences.length) {
-                        update(ref(db, `rooms/${currentRoomId}`), { state: 'finished' });
-                    } else {
-                        update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                            playerIdx: npIdx, 
-                            sentenceIdx: currentSentenceIdx + 1, 
-                            mistakes: 0,
-                            startTime: Date.now()
-                        });
+                    if (roomData.playMode === 'race') {
+                        if (roomData.teamMode === 'team') {
+                            // 團體競速
+                            let myTeam = roomData.players[myUid].team;
+                            let tData = roomData.teams[myTeam];
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`teams/${myTeam}/activeIdx`] = (tData.activeIdx + 1) % tData.playerList.length;
+                                updates[`teams/${myTeam}/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`teams/${myTeam}/matched`] = 0;
+                            }
+                        } else {
+                            // 單人競速
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`players/${myUid}/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`players/${myUid}/matched`] = 0;
+                            }
+                        }
+                    } else { 
+                        if (roomData.teamMode === 'team') {
+                            // 團體回合
+                            let myTeam = roomData.players[myUid].team;
+                            let tData = roomData.teams[myTeam];
+                            updates[`teams/${myTeam}/activeIdx`] = (tData.activeIdx + 1) % tData.playerList.length;
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`turn/teamColor`] = myTeam === 'red' ? 'blue' : 'red'; // 換隊
+                                updates[`turn/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`turn/mistakes`] = 0;
+                                updates[`turn/startTime`] = Date.now();
+                                updates[`progress/matched`] = 0;
+                                updates[`progress/errors`] = [];
+                            }
+                        } else {
+                            // 單人回合 (原有邏輯)
+                            const npIdx = (roomData.turn.playerIdx + 1) % Object.keys(roomData.players).length;
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`turn/playerIdx`] = npIdx;
+                                updates[`turn/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`turn/mistakes`] = 0;
+                                updates[`turn/startTime`] = Date.now();
+                                updates[`progress/matched`] = 0;
+                                updates[`progress/errors`] = [];
+                            }
+                        }
                     }
-                    set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-                    return; // 多人模式由 Listener 切換句子並重設狀態
+                    update(ref(db, `rooms/${currentRoomId}`), updates);
+                    return; 
                 } else {
                     currentSentenceIdx++;
-                    applyRemoteMatched(0); // 單機模式完美推進句子並永久固定已讀句子
+                    applyRemoteMatched(0); // 單機模式推進
                 }
             } else {
-              if (maxMatched > 0 || sttData.length > consumedSttIdx) {
+                if (maxMatched > 0 || sttData.length > consumedSttIdx) {
                     window.maxMatched = maxMatched;
                     partialTimeout = setTimeout(() => {
                         if (isMultiplayer) {
@@ -1729,7 +2081,6 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                             }
                             return;
                         } else {
-                            // 單機模式：讀錯或超時震動回饋
                             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                             applyRemoteErrors([maxMatched]);
                             applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0;
@@ -1738,7 +2089,15 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                 }
 
                 sentenceChars.forEach((n, idx) => { n.matched = (idx < maxMatched); n.isCurrentSentence = true; });
-                if(isMultiplayer) set(ref(db, `rooms/${currentRoomId}/progress/matched`), maxMatched);
+                
+                if(isMultiplayer) {
+                    if (roomData.playMode === 'race') {
+                        if (roomData.teamMode === 'team') set(ref(db, `rooms/${currentRoomId}/teams/${roomData.players[myUid].team}/matched`), maxMatched);
+                        else set(ref(db, `rooms/${currentRoomId}/players/${myUid}/matched`), maxMatched);
+                    } else {
+                        set(ref(db, `rooms/${currentRoomId}/progress/matched`), maxMatched);
+                    }
+                }
             }
         } while (sentencePassed); 
 
