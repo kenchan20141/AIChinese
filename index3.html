@@ -26119,54 +26119,77 @@ function initFlatJoystick() {
     joystickCanvas.height = 300;
     joystickCtx = joystickCanvas.getContext('2d');
     resetJoystick();
-    const attachEvents = (element) => {
-        element.onmousedown = onPointerDown;
-        window.addEventListener('mousemove', onPointerMove);
-        window.addEventListener('mouseup', onPointerUp);
-        
-        element.ontouchstart = (e) => { e.preventDefault(); onPointerDown(e); };
-        window.addEventListener('touchmove', onPointerMove, { passive: false });
-        window.addEventListener('touchend', onPointerUp);
+   const attachEvents = (element) => {
+        // 使用現代 Pointer Events 統一處理滑鼠與觸控
+        element.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointermove', onPointerMove, { passive: false });
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
     };
     
     attachEvents(joystickCanvas);
+
     function onPointerDown(e) {
+        // 排除滑鼠右鍵點擊
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+
         const rect = joystickCanvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        
-        if(clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom){
+        // 取得畫布上的相對座標
+        const scaleX = joystickCanvas.width / rect.width;
+        const scaleY = joystickCanvas.height / rect.height;
+        let canvasX = (e.clientX - rect.left) * scaleX;
+        let canvasY = (e.clientY - rect.top) * scaleY;
+
+        // 計算點擊位置距離中心的距離
+        let distFromCenter = Math.hypot(canvasX - centerPos.x, canvasY - centerPos.y);
+
+        // 只有點擊在中心半徑 100px 內（即綠色旋鈕及周圍）才允許抓取，防止按到空白邊緣
+        if (distFromCenter <= 100) {
             isDraggingStick = true;
-            updateStickPosition(clientX, clientY, rect);
+            // ★ 核心修復：鎖定觸控，即使手指滑出畫布範圍外也能繼續感應
+            try { joystickCanvas.setPointerCapture(e.pointerId); } catch(err) {}
+            updateStickPosition(e.clientX, e.clientY, rect);
         }
     }
+
     function onPointerMove(e) {
         if (!isDraggingStick) return;
-        if (e.touches && e.cancelable) e.preventDefault();
+        
+        // 防止手機畫面跟著一起滾動
+        if (e.cancelable) e.preventDefault();
         
         const rect = joystickCanvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        updateStickPosition(clientX, clientY, rect);
+        updateStickPosition(e.clientX, e.clientY, rect);
     }
-    function onPointerUp() {
-        isDraggingStick = false;
+
+    function onPointerUp(e) {
+        if (isDraggingStick) {
+            isDraggingStick = false;
+            // 釋放觸控鎖定
+            try { joystickCanvas.releasePointerCapture(e.pointerId); } catch(err) {}
+        }
     }
+
     function updateStickPosition(clientX, clientY, rect) {
         const scaleX = joystickCanvas.width / rect.width;
         const scaleY = joystickCanvas.height / rect.height;
         let targetX = (clientX - rect.left) * scaleX;
         let targetY = (clientY - rect.top) * scaleY;
+        
         let dx = targetX - centerPos.x;
         let dy = targetY - centerPos.y;
         let distance = Math.hypot(dx, dy);
         let angle = Math.atan2(dy, dx);
+        
+        // maxRadius 我們已經在前一步改為 65 了
         if (distance > maxRadius) {
             targetX = centerPos.x + Math.cos(angle) * maxRadius;
             targetY = centerPos.y + Math.sin(angle) * maxRadius;
         }
+        
         stickPos.x = targetX;
         stickPos.y = targetY;
+        
         const currentAzi = angle;
         if (isDraggingStick) {
             let diff = currentAzi - previousAngle;
@@ -26175,7 +26198,6 @@ function initFlatJoystick() {
             
             totalRotation += diff;
             
-            // ★★★ 新增：搖動時的段落震動感 (每轉動約 15 度，發出 5ms 的微震動) ★★★
             if (Math.abs(totalRotation - lastVibrateRotation) > Math.PI / 12) {
                 if (navigator.vibrate) navigator.vibrate(5);
                 lastVibrateRotation = totalRotation;
@@ -26188,7 +26210,6 @@ function initFlatJoystick() {
                 const counter = document.getElementById('joystickCounter');
                 if(counter) counter.innerText = `${Math.min(loopCount, 50)} / 50`;
                 
-                // 轉完一整圈，給予較強的 20ms 震動回饋
                 if (navigator.vibrate) navigator.vibrate(20);
                 
                 if (loopCount >= 50) {
