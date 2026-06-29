@@ -1315,19 +1315,18 @@ window.joinRoomAction = function() {
                 const btnStart = document.getElementById('btn-start');
                 
               // 【精緻優化】完全非文字的隊伍視覺標示：左上角 SVG 小書籤設計
-                let marker = document.getElementById('team-marker');
+                 let marker = document.getElementById('team-marker');
                 if (!marker) {
                     marker = document.createElement('div');
                     marker.id = 'team-marker';
-                    // 讓標籤懸掛在頂部，與左邊界保持距離，並加入一點立體陰影
-                    marker.style.cssText = 'position:absolute; top:0; left:25px; z-index: 10; transition: color 0.4s ease; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));';
-                    marker.innerHTML = `<svg width="14" height="24" viewBox="0 0 16 26" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                                          <path d="M0 0H16V26L8 20L0 26V0Z"/>
+                    // 讓標籤懸掛在頂部，與左邊界保持適當距離，並加入立體陰影
+                    marker.style.cssText = 'position:absolute; top:-2px; left:25px; z-index: 10; transition: color 0.4s ease; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));';
+                    marker.innerHTML = `<svg width="18" height="28" viewBox="0 0 24 36" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                                          <path d="M0 0h24v36l-12-8-12 8z"/>
                                         </svg>`;
                     mb.appendChild(marker);
                 }
                 if (data.teamMode === 'team' && myTeam) {
-                    // 根據隊別改變書籤的顏色 (currentColor 會自動繼承這裡的 color)
                     marker.style.color = myTeam === 'red' ? '#b04332' : '#2b5c7a';
                     marker.style.display = 'block';
                 } else {
@@ -1410,7 +1409,7 @@ window.joinRoomAction = function() {
                 }
 
                 // 錯誤反饋同步邏輯 (讓觀戰隊友也能看到抖動)
-               if (data.playMode === 'turn') {
+                 if (data.playMode === 'turn') {
                     // 【防呆】加上 ?. 確保某方全部離場瞬間，不會因為找不到陣列而引發 TypeError 報錯卡死
                     let currentGlobalActiveIdx = data.teamMode === 'team' ? `${data.turn.teamColor}_${data.teams?.[data.turn.teamColor]?.activeIdx || 0}` : (data.turn?.playerIdx || 0);
                     if (window.lastTurnPlayerIdx !== currentGlobalActiveIdx) {
@@ -1426,7 +1425,9 @@ window.joinRoomAction = function() {
                     }
                 } else if (data.playMode === 'race' && data.teamMode === 'team') {
                     let tData = data.teams[myTeam];
-                    if (tData) {
+                    // 【修復】競速模式下，只有「非作答中的隊友」才去接收雲端的錯誤更新。
+                    // 正在作答的玩家只靠本機判斷，徹底隔絕跨隊或雲端延遲帶來的交叉污染。
+                    if (tData && !isActivePlayer) {
                         if (tData.mistakes === 0) window.lastMistakes = 0;
                         else if (tData.mistakes > (window.lastMistakes || 0)) {
                             applyRemoteErrors(tData.errors || []);
@@ -1910,15 +1911,19 @@ function handleMistake(isTimeout = false, errorIndex = 0) {
         if (!isMultiplayer || !isActivePlayer || !roomData) return;
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
-        if (roomData.playMode === 'race') {
+     if (roomData.playMode === 'race') {
             showSpeechFeedback(isTimeout ? '繼續努力！' : '讀錯了，請重試！');
             applyRemoteErrors([errorIndex]); // 讓本地玩家立刻看到文字抖動
             
             // 讓觀戰的同隊隊友也能同步看到錯在哪裡
             if (roomData.teamMode === 'team') {
-                 const currentMistakes = (roomData.teams[roomData.players[myUid].team]?.mistakes || 0) + 1;
-                 set(ref(db, `rooms/${currentRoomId}/teams/${roomData.players[myUid].team}/errors`), [errorIndex]);
-                 set(ref(db, `rooms/${currentRoomId}/teams/${roomData.players[myUid].team}/mistakes`), currentMistakes);
+                 let myTeam = roomData.players[myUid].team;
+                 const currentMistakes = (roomData.teams[myTeam]?.mistakes || 0) + 1;
+                 // 【修復】將分兩次 set 寫入改為原子的 update 寫入，避免 Firebase 瞬間發送兩次不完整的狀態觸發 BUG
+                 update(ref(db, `rooms/${currentRoomId}/teams/${myTeam}`), {
+                     errors: [errorIndex],
+                     mistakes: currentMistakes
+                 });
             }
             
             setTimeout(() => {
