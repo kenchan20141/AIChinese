@@ -1145,7 +1145,7 @@ window.joinRoomAction = function() {
             let hostChanged = false;
             
             // 判斷房主是否逃跑，若逃跑則準備遷移
-            if (!playersList.includes(currentHost) && playersList.length > 0) {
+           if (!playersList.includes(currentHost) && playersList.length > 0) {
                 currentHost = playersList[0];
                 hostChanged = true;
             }
@@ -1155,32 +1155,29 @@ window.joinRoomAction = function() {
                 let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
                 if (leftPlayers.length > 0) {
                     let updates = {};
-                    if (hostChanged) updates['host'] = currentHost; // 將更新打包，確保原子化寫入
+                    if (hostChanged) updates['host'] = currentHost;
 
                     if (data.teamMode === 'team') {
-                        // 【關鍵修復】直接從存活的玩家名單中統計紅藍隊人數，絕不漏判
                         let reds = playersList.filter(p => data.players[p].team === 'red');
                         let blues = playersList.filter(p => data.players[p].team === 'blue');
                         
                         // 判定是否其中一隊全軍覆沒
-                       if (reds.length === 0 && blues.length > 0) {
-                        updates['winTeam'] = 'blue';
-                        updates['state'] = 'finished';
-                    } else if (blues.length === 0 && reds.length > 0) {
-                        updates['winTeam'] = 'red';
-                        updates['state'] = 'finished';
-                    } else if (reds.length === 0 && blues.length === 0) {
-                        // 【修復】雙方皆逃跑（罕見情況）直接結束
-                        updates['state'] = 'finished';
-                    } else {
-                        // 遊戲繼續，重整交棒陣列
-                        updates[`teams/red/playerList`] = reds;
-                        updates[`teams/blue/playerList`] = blues;
-                        // 【修復】加上 || 0 確保不會算出 NaN 導致 Firebase 拒絕寫入
-                        updates[`teams/red/activeIdx`] = reds.length > 0 ? ((data.teams?.red?.activeIdx || 0) % reds.length || 0) : 0;
-                        updates[`teams/blue/activeIdx`] = blues.length > 0 ? ((data.teams?.blue?.activeIdx || 0) % blues.length || 0) : 0;
-                        if (data.playMode === 'turn') updates[`turn/startTime`] = Date.now(); // 補回交棒秒數
-                    }
+                        if (reds.length === 0 && blues.length > 0) {
+                            updates['winTeam'] = 'blue';
+                            updates['state'] = 'finished';
+                        } else if (blues.length === 0 && reds.length > 0) {
+                            updates['winTeam'] = 'red';
+                            updates['state'] = 'finished';
+                        } else if (reds.length === 0 && blues.length === 0) {
+                            updates['state'] = 'finished'; // 雙方皆逃跑
+                        } else {
+                            // 遊戲繼續，重整交棒陣列
+                            updates[`teams/red/playerList`] = reds;
+                            updates[`teams/blue/playerList`] = blues;
+                            updates[`teams/red/activeIdx`] = reds.length > 0 ? ((data.teams?.red?.activeIdx || 0) % reds.length || 0) : 0;
+                            updates[`teams/blue/activeIdx`] = blues.length > 0 ? ((data.teams?.blue?.activeIdx || 0) % blues.length || 0) : 0;
+                            if (data.playMode === 'turn') updates[`turn/startTime`] = Date.now();
+                        }
                     } else {
                         // 單人模式逃跑判定
                         if (playersList.length <= 1) {
@@ -1192,15 +1189,17 @@ window.joinRoomAction = function() {
                             }
                         }
                     }
-                    // 一次性寫入所有狀態，保證所有人的客戶端同時收到通知
                     update(ref(db, `rooms/${currentRoomId}`), updates);
+                    return; // 【關鍵修復】立即中斷執行，防止舊狀態將結算畫面瞬間覆蓋隱藏
                 } else if (hostChanged) {
                     update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                    return;
                 }
             } else if (hostChanged && myUid === currentHost) {
                 update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                return;
             }
-            
+
             window.previousPlayers = playersList; // 更新名單供下次比對
             // ==========================================
 
@@ -1353,28 +1352,26 @@ window.joinRoomAction = function() {
                 } else {
                     document.querySelector('.mb-timer-track').style.display = 'block';
                     raceTrack.style.display = 'none';
-                  if (isActivePlayer) {
-                        mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
-                        mb.style.borderBottom = "2px solid var(--accent-red)";
-                   } else {
-                        // 【修復】單人模式沒有隊友，預設改為對手
-                        let activeName = data.teamMode === 'team' ? "隊友" : "對手";
-                        if (data.teamMode === 'team') {
-                            let tList = data.teams[data.turn.teamColor]?.playerList || [];
-                            let aIdx = data.teams[data.turn.teamColor]?.activeIdx || 0;
-                            // 防呆：確保索引不會因為隊友離場而越界
-                            if (aIdx >= tList.length) aIdx = 0; 
-                            if (tList[aIdx] && data.players[tList[aIdx]]) activeName = data.players[tList[aIdx]].name;
-                        } else {
-                            let pIdx = data.turn?.playerIdx || 0;
-                            // 防呆：確保索引不會因為對手離場而越界
-                            if (pIdx >= playersList.length) pIdx = 0; 
-                            let pUid = playersList[pIdx];
-                            if (pUid && data.players[pUid]) activeName = data.players[pUid].name;
+                 if (isActivePlayer) {
+                            mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
+                            mb.style.borderBottom = "2px solid var(--accent-red)";
+                       } else {
+                            // 【修復】區分單人模式與團隊模式的預設稱呼，並加入越界保護
+                            let activeName = data.teamMode === 'team' ? "隊友" : "對手";
+                            if (data.teamMode === 'team') {
+                                let tList = data.teams[data.turn.teamColor]?.playerList || [];
+                                let aIdx = data.teams[data.turn.teamColor]?.activeIdx || 0;
+                                if (aIdx >= tList.length) aIdx = 0; // 防呆
+                                if (tList[aIdx] && data.players[tList[aIdx]]) activeName = data.players[tList[aIdx]].name;
+                            } else {
+                                let pIdx = data.turn?.playerIdx || 0;
+                                if (pIdx >= playersList.length) pIdx = 0; // 防呆
+                                let pUid = playersList[pIdx];
+                                if (pUid && data.players[pUid]) activeName = data.players[pUid].name;
+                            }
+                            mbTurn.innerHTML = `🔴 等候 <b>${activeName}</b> 作答`;
+                            mb.style.borderBottom = "1px solid var(--text-gray)";
                         }
-                        mbTurn.innerHTML = `🔴 等候 <b>${activeName}</b> 作答`;
-                        mb.style.borderBottom = "1px solid var(--text-gray)";
-                    }
                     if (!turnTimerInterval) startTurnTimer();
                 }
                 
