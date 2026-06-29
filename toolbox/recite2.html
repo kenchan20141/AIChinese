@@ -282,6 +282,26 @@
     color: transparent;
 }
 
+
+        /* 團體與競速模式樣式 */
+        .team-container { display: flex; gap: 15px; justify-content: center; margin-bottom: 20px; width: 100%; }
+        .team-box { flex: 1; border: 2px solid var(--text-gray); border-radius: 8px; padding: 10px; min-height: 120px; text-align: center; }
+        .team-box.red { border-color: #b04332; background: rgba(176, 67, 50, 0.05); }
+        .team-box.blue { border-color: #2b5c7a; background: rgba(43, 92, 122, 0.05); }
+        .team-title { font-weight: bold; margin-bottom: 10px; letter-spacing: 0.2em; }
+        .team-box.red .team-title { color: #b04332; }
+        .team-box.blue .team-title { color: #2b5c7a; }
+        .team-slot { border: 1px dashed var(--text-gray); padding: 5px; margin: 5px 0; cursor: pointer; font-size: 0.85rem; border-radius: 4px; transition: all 0.3s; letter-spacing: 0.1em; color: var(--text-light); }
+        .team-slot:hover { background: rgba(0,0,0,0.1); color: var(--text-dark); }
+        .team-slot.filled { border-style: solid; cursor: default; background: white; color: var(--text-dark); font-weight: bold; }
+        
+        .race-track-container { position: relative; width: 100%; height: 26px; background: rgba(176, 67, 50, 0.1); border-radius: 13px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
+        .race-avatar { position: absolute; top: 0; left: 0; height: 26px; line-height: 26px; padding: 0 10px; border-radius: 13px; color: white; font-size: 0.75rem; font-weight: bold; white-space: nowrap; transition: left 0.4s cubic-bezier(0.22, 1, 0.36, 1); transform: translateX(-50%); box-shadow: 0 2px 5px rgba(0,0,0,0.2); letter-spacing: 0.05em; }
+        .race-avatar.me { z-index: 10; border: 2px solid #fff; }
+        .race-avatar.team-red { background: #b04332; }
+        .race-avatar.team-blue { background: #2b5c7a; }
+        .race-avatar.solo { background: #6b4d73; }
+
         
     </style>
 </head>
@@ -289,9 +309,10 @@
 
 <div id="multiplayer-bar" class="multiplayer-bar">
     <div class="mb-top">
-        <div class="mb-status-container">
+       <div class="mb-status-container" style="width: 100%;">
             <div id="mb-turn-status">對戰載入中...</div>
             <div id="mb-score-status"></div>
+            <div id="race-track" style="display: none;" class="race-track-container"></div>
         </div>
         <button class="btn-icon-close" onclick="leaveRoom()" title="退出對戰">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -358,9 +379,18 @@
         
         <input type="text" id="room-code-input" placeholder="輸入房號 (四位數字)" maxlength="4" style="font-size: 1.2rem; letter-spacing: 0.3em; font-weight: bold;">
         
-        <div id="create-room-options" style="display: none;">
+     <div id="create-room-options" style="display: none;">
             <br>
-            <select id="room-text-select"></select>
+            <select id="room-text-select" style="width: 80%; padding: 8px; margin-bottom: 12px;"></select>
+            <br>
+            <select id="room-play-mode" style="width: 38%; padding: 8px; margin-right: 4%;">
+                <option value="turn">回合制</option>
+                <option value="race">競速制</option>
+            </select>
+            <select id="room-team-mode" style="width: 38%; padding: 8px;">
+                <option value="solo">單人對戰</option>
+                <option value="team">團體對戰</option>
+            </select>
         </div>
         <br>
         <button class="btn-primary" id="btn-room-action" onclick="joinRoomAction()">建立</button>
@@ -373,7 +403,7 @@
     <div class="overlay-content">
         <h2>房間：<span id="lobby-room-code"></span></h2>
         <p id="lobby-status-text">等待用家加入...</p>
-        <div id="lobby-players-list" style="text-align:left; max-width: 300px; margin: 0 auto 30px auto; line-height: 2;"></div>
+     <div id="lobby-players-list" style="text-align:left; max-width: 400px; margin: 0 auto 30px auto; line-height: 2; width: 100%;"></div>
         
         <div id="host-controls" class="host-settings-box" style="display: none;">
             <p style="font-size:0.85rem; margin-top:0;">選擇篇章：</p>
@@ -899,30 +929,24 @@ window.joinRoomAction = function() {
         if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
         if (lobbyMode === 'create') {
-            const maxP = 99;
             const textKey = document.getElementById('room-text-select').value;
+            const playMode = document.getElementById('room-play-mode').value;
+            const teamMode = document.getElementById('room-team-mode').value;
             const roomRef = ref(db, `rooms/${code}`);
             
             get(roomRef).then(snap => {
-                if(snap.exists()) {
-                    const rData = snap.val();
-                    // 【修正點】：檢查房間內是否還有玩家。若無玩家，判定為廢棄殭屍房，允許覆蓋
-                    if (rData.players && Object.keys(rData.players).length > 0) {
-                        return alert("此房號已被佔用，請重新產生");
-                    }
+                if(snap.exists() && snap.val().players && Object.keys(snap.val().players).length > 0) {
+                    return alert("此房號已被佔用，請重新產生");
                 }
-                
                 const roomObj = {
-                    host: myUid, picker: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
-                    players: { [myUid]: { name: myName, score: 0, rematch: false } },
-                    turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
+                    host: myUid, picker: myUid, textKey: textKey, state: 'waiting', pointsCalculated: false,
+                    playMode: playMode, teamMode: teamMode,
+                    players: { [myUid]: { name: myName, score: 0, rematch: false, team: null } },
+                    turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
                 };
-                
-                // set 會直接寫入或覆蓋舊的空房間，完美解決房號耗盡問題
                 set(roomRef, roomObj).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    // 斷線時只移除自己，保留房間讓其他人繼續
                     onDisconnect(ref(db, `rooms/${code}/players/${myUid}`)).remove();
                     listenToRoom();
                 });
@@ -930,25 +954,24 @@ window.joinRoomAction = function() {
         } else {
             const roomRef = ref(db, `rooms/${code}`);
             get(roomRef).then(snap => {
-                if(!snap.exists()) return alert("房間不存在");
-                
-                const rData = snap.val();
-                // 【修正點】：避免玩家誤加到已經廢棄的殭屍房而卡死
-                if(!rData.players || Object.keys(rData.players).length === 0) {
-                    return alert("該房間已廢棄，請自己建立新房間");
-                }
-                
-                if(rData.state !== 'waiting') return alert("房間已開始遊戲");
-                
+                if(!snap.exists() || !snap.val().players || Object.keys(snap.val().players).length === 0) return alert("該房間已廢棄，請自己建立新房間");
+                if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
-                update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
+                update(pRef, { name: myName, score: 0, rematch: false, team: null }).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    // 斷線時自動移除自己
                     onDisconnect(pRef).remove();
                     listenToRoom();
                 });
             });
         }
+    };
+
+    window.joinTeam = function(color) {
+        if (!currentRoomId || !roomData) return;
+        let count = 0;
+        Object.values(roomData.players || {}).forEach(p => { if (p.team === color) count++; });
+        if (count >= 3) return alert("該隊伍已滿員（最多三人）！");
+        update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { team: color });
     };
     
  // 新增計算句子總數的輔助函數，以確保對戰時先後手的公平性
@@ -985,35 +1008,38 @@ window.joinRoomAction = function() {
         return count;
     }
 
-   window.startMultiplayerGame = function() {
-        if(myUid === roomData?.picker) { // 改由 picker 控制開始
+
+    window.startMultiplayerGame = function() {
+        if(myUid === roomData?.picker) { 
             const playersList = Object.keys(roomData.players || {}).sort();
-            const playersCount = playersList.length;
-            if (playersCount < 2) {
-                alert("需要至少兩名玩家才能開始對戰！");
-                return;
+            if (playersList.length < 2) return alert("需要至少兩名玩家才能開始對戰！");
+
+            if (roomData.teamMode === 'team') {
+                let redCount = 0, blueCount = 0;
+                playersList.forEach(p => { 
+                    if (roomData.players[p].team === 'red') redCount++; 
+                    if (roomData.players[p].team === 'blue') blueCount++; 
+                });
+                if (redCount === 0 || blueCount === 0) return alert("紅藍兩隊皆須有玩家方可開始！");
+                if (playersList.some(p => !roomData.players[p].team)) return alert("尚有玩家未選擇隊伍！");
             }
 
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
-            
-            // 計算補分機制 (確保全對必打和)
-            const sCount = getSentenceCount(textKey);
-            const maxTurns = Math.ceil(sCount / playersCount);
-            
             let updates = {
-                state: 'playing',
-                textKey: textKey,
-                turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
-                progress: { matched: 0, errors: [] },
-                pointsCalculated: false
+                state: 'playing', textKey: textKey, pointsCalculated: false,
+                turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
+                progress: { matched: 0, errors: [] }
             };
-            
-            // 依據玩家順位分配初始補分
-            playersList.forEach((pUid, idx) => {
-                const expectedTurns = Math.floor(sCount / playersCount) + (idx < (sCount % playersCount) ? 1 : 0);
-                const handicap = maxTurns - expectedTurns;
-                updates[`players/${pUid}/score`] = handicap; // 寫入補分
-            });
+
+            if (roomData.teamMode === 'team') {
+                updates['teams'] = {
+                    red: { playerList: playersList.filter(p => roomData.players[p].team === 'red'), activeIdx: 0, sentenceIdx: 0, matched: 0 },
+                    blue: { playerList: playersList.filter(p => roomData.players[p].team === 'blue'), activeIdx: 0, sentenceIdx: 0, matched: 0 }
+                };
+            }
+            if (roomData.playMode === 'race') {
+                playersList.forEach(p => { updates[`players/${p}/sentenceIdx`] = 0; updates[`players/${p}/matched`] = 0; });
+            }
 
             update(ref(db, `rooms/${currentRoomId}`), updates);
         }
@@ -1107,22 +1133,42 @@ window.joinRoomAction = function() {
             document.getElementById('main-nav-bar').style.display = 'none';
             document.getElementById('auth-info').style.display = 'none';
 
-            if (data.state === 'waiting') {
+          if (data.state === 'waiting') {
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
-                let pHtml = '';
-                playersList.forEach(pUid => { 
-                    let role = [];
-                    if (pUid === currentHost) role.push('房主'); // 顯示現任房主
-                    if (pUid === data.picker) role.push('選題');
-                    let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
-                    pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
-                });
-                document.getElementById('lobby-players-list').innerHTML = pHtml;
-                document.getElementById('lobby-status-text').innerText = `等待用家加入... (目前 ${playersList.length} 人)`;
                 
-                if(myUid === data.picker) { // 由 picker 顯示控制面板
+                let pHtml = '';
+                if (data.teamMode === 'team') {
+                    pHtml = `<div class="team-container">
+                        <div class="team-box red"><div class="team-title">紅隊</div>`;
+                    let reds = playersList.filter(p => data.players[p].team === 'red');
+                    for(let i=0; i<3; i++) {
+                        if (reds[i]) pHtml += `<div class="team-slot filled">${data.players[reds[i]].name}</div>`;
+                        else pHtml += `<div class="team-slot" onclick="joinTeam('red')">點擊加入</div>`;
+                    }
+                    pHtml += `</div><div class="team-box blue"><div class="team-title">藍隊</div>`;
+                    let blues = playersList.filter(p => data.players[p].team === 'blue');
+                    for(let i=0; i<3; i++) {
+                        if (blues[i]) pHtml += `<div class="team-slot filled">${data.players[blues[i]].name}</div>`;
+                        else pHtml += `<div class="team-slot" onclick="joinTeam('blue')">點擊加入</div>`;
+                    }
+                    pHtml += `</div></div>`;
+                } else {
+                    playersList.forEach(pUid => { 
+                        let role = [];
+                        if (pUid === currentHost) role.push('房主'); 
+                        if (pUid === data.picker) role.push('選題');
+                        let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
+                        pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
+                    });
+                }
+                
+                document.getElementById('lobby-players-list').innerHTML = pHtml;
+                let modeText = (data.playMode === 'race' ? '同步競速' : '回合制') + ' | ' + (data.teamMode === 'team' ? '團體對戰' : '單人對戰');
+                document.getElementById('lobby-status-text').innerText = `[${modeText}] 等待用家加入... (目前 ${playersList.length} 人)`;
+                
+                if(myUid === data.picker) { 
                     document.getElementById('host-controls').style.display = 'block';
                     document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
@@ -1132,79 +1178,129 @@ window.joinRoomAction = function() {
                 
           } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
-
-                // 【新增】遊戲開始時，向伺服器預設「如果我斷線或關閉網頁，請自動扣我 1 分」
                 if (!window.escapePenaltyHook) {
                     window.escapePenaltyHook = onDisconnect(ref(db, `users/${myUid}`));
-                    // 使用 increment(-1) 讓伺服器端直接扣分。若分數為 0，Firebase 規則會自動阻擋變為負數
                     window.escapePenaltyHook.update({ battlePoints: increment(-1) });
                 }
                 document.getElementById('success-screen').classList.remove('active');
-                setMode('challenge', true); // 強制系統切換為默誦模式
-                document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
+                setMode('challenge', true);
+                document.getElementById('btn-reset').style.display = 'none';
                 document.getElementById('mode-controls').style.display = 'none';
 
-                // 準備文本
                 const [c, i] = data.textKey.split('_');
                 if (currentCategory !== c || currentIndex !== parseInt(i) || textNodes.length === 0) {
                     currentCategory = c; currentIndex = parseInt(i);
                     loadCurrentText();
                 }
 
-                // 更新頂部對戰列
+                // 判斷是否為當前作答者
+                let isMyTurn = false; let myGlobalSentenceIdx = 0; let myGlobalMatched = 0;
+                let myTeam = data.players[myUid]?.team;
+
+                if (data.playMode === 'race') {
+                    if (data.teamMode === 'team') {
+                        if (myTeam && data.teams && data.teams[myTeam]) {
+                            if (data.teams[myTeam].playerList[data.teams[myTeam].activeIdx] === myUid) isMyTurn = true;
+                            myGlobalSentenceIdx = data.teams[myTeam].sentenceIdx;
+                            myGlobalMatched = data.teams[myTeam].matched;
+                        }
+                    } else {
+                        isMyTurn = true; 
+                        myGlobalSentenceIdx = data.players[myUid].sentenceIdx || 0;
+                        myGlobalMatched = data.players[myUid].matched || 0;
+                    }
+                } else {
+                    if (data.teamMode === 'team') {
+                        if (myTeam === data.turn.teamColor && data.teams && data.teams[myTeam]) {
+                            if (data.teams[myTeam].playerList[data.teams[myTeam].activeIdx] === myUid) isMyTurn = true;
+                        }
+                    } else {
+                        isMyTurn = (playersList[data.turn?.playerIdx || 0] === myUid);
+                    }
+                    myGlobalSentenceIdx = data.turn.sentenceIdx;
+                    myGlobalMatched = data.progress?.matched || 0;
+                }
+                
+                isActivePlayer = isMyTurn;
+
+                // 渲染頂部資訊列
                 const mbTurn = document.getElementById('mb-turn-status');
                 const mbScore = document.getElementById('mb-score-status');
+                const raceTrack = document.getElementById('race-track');
                 const mb = document.getElementById('multiplayer-bar');
-                let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
-                
                 const btnStart = document.getElementById('btn-start');
                 
-                // 完整保留你的 UI 設定
-                if (isActivePlayer) {
-                    mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
-                    mb.style.borderBottom = "2px solid var(--accent-red)";
-                    btnStart.disabled = false;
-                    btnStart.style.opacity = '1';
+                if (data.playMode === 'race') {
+                    document.querySelector('.mb-timer-track').style.display = 'none';
+                    mbScore.style.display = 'none';
+                    raceTrack.style.display = 'block';
+                    mbTurn.innerHTML = isActivePlayer ? `🟢 <span style="color:var(--accent-red);">全力競速中！</span>` : `🔴 <span style="color:var(--text-gray);">等候隊友交棒...</span>`;
+                    
+                    let sCount = getSentenceCount(data.textKey);
+                    let trackHtml = '';
+                    if (data.teamMode === 'team') {
+                        let rP = ((data.teams?.red?.sentenceIdx || 0) / sCount) * 100;
+                        let bP = ((data.teams?.blue?.sentenceIdx || 0) / sCount) * 100;
+                        trackHtml += `<div class="race-avatar team-red" style="left: ${rP}%">紅隊</div>`;
+                        trackHtml += `<div class="race-avatar team-blue" style="left: ${bP}%">藍隊</div>`;
+                    } else {
+                        playersList.forEach(p => {
+                            let pP = ((data.players[p].sentenceIdx || 0) / sCount) * 100;
+                            let isMe = (p === myUid);
+                            trackHtml += `<div class="race-avatar solo ${isMe ? 'me' : ''}" style="left: ${pP}%; ${isMe ? 'z-index: 10;' : ''}">${data.players[p].name}</div>`;
+                        });
+                    }
+                    raceTrack.innerHTML = trackHtml;
                 } else {
-                    mbTurn.innerHTML = `🔴 等候 <b>${data.players[activeUid].name}</b> 作答`;
-                    mb.style.borderBottom = "1px solid var(--text-gray)";
-                    btnStart.disabled = true;
-                    btnStart.style.opacity = '0.3';
+                    document.querySelector('.mb-timer-track').style.display = 'block';
+                    mbScore.style.display = 'block';
+                    raceTrack.style.display = 'none';
+                    let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
+                    mbScore.innerHTML = `得分：${scoreText}`;
+                    
+                    if (isActivePlayer) {
+                        mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
+                        mb.style.borderBottom = "2px solid var(--accent-red)";
+                    } else {
+                        let activeName = "";
+                        if (data.teamMode === 'team') activeName = data.players[data.teams[data.turn.teamColor].playerList[data.teams[data.turn.teamColor].activeIdx]].name;
+                        else activeName = data.players[playersList[data.turn.playerIdx]].name;
+                        mbTurn.innerHTML = `🔴 等候 <b>${activeName}</b> 作答`;
+                        mb.style.borderBottom = "1px solid var(--text-gray)";
+                    }
+                    if (!turnTimerInterval) startTurnTimer();
                 }
-                mbScore.innerHTML = `得分：${scoreText}`;
+                
+                if (isActivePlayer) { btnStart.disabled = false; btnStart.style.opacity = '1'; } 
+                else { btnStart.disabled = true; btnStart.style.opacity = '0.3'; }
                 mb.classList.add('active');
-                
-                // 啟動計時器
-                if (!turnTimerInterval) startTurnTimer();
 
-                // 處理回合與句子轉換
-                if (currentSentenceIdx !== data.turn.sentenceIdx) {
-                    currentSentenceIdx = data.turn.sentenceIdx;
-                    applyRemoteMatched(0);
-                    finalTokens = []; consumedSttIdx = 0; // 清空語音緩存
-                    window.handlingTimeout = false;
-                }
-                
-                // 更換玩家時清除 timeout 處理狀態
-                if (window.lastTurnPlayerIdx !== data.turn.playerIdx) {
-                    window.handlingTimeout = false;
-                    window.lastTurnPlayerIdx = data.turn.playerIdx;
+                // 處理回合轉換與同步
+                if (currentSentenceIdx !== myGlobalSentenceIdx) {
+                    currentSentenceIdx = myGlobalSentenceIdx;
                     applyRemoteMatched(0);
                     finalTokens = []; consumedSttIdx = 0; 
+                    window.handlingTimeout = false;
                 }
 
-                // 處理錯誤提示與抖動
-                if (data.turn.mistakes === 0) {
-                    window.lastMistakes = 0;
-                } else if (data.turn.mistakes > (window.lastMistakes || 0)) {
-                    applyRemoteErrors(data.progress?.errors || []);
-                    window.lastMistakes = data.turn.mistakes;
+                if (data.playMode === 'turn') {
+                    let currentGlobalActiveIdx = data.teamMode === 'team' ? `${data.turn.teamColor}_${data.teams[data.turn.teamColor].activeIdx}` : data.turn.playerIdx;
+                    if (window.lastTurnPlayerIdx !== currentGlobalActiveIdx) {
+                        window.handlingTimeout = false;
+                        window.lastTurnPlayerIdx = currentGlobalActiveIdx;
+                        applyRemoteMatched(0);
+                        finalTokens = []; consumedSttIdx = 0; 
+                    }
+                    if (data.turn.mistakes === 0) window.lastMistakes = 0;
+                    else if (data.turn.mistakes > (window.lastMistakes || 0)) {
+                        applyRemoteErrors(data.progress?.errors || []);
+                        window.lastMistakes = data.turn.mistakes;
+                    }
                 }
 
-                // 處理錄音與同步進度
                 if (!isActivePlayer) {
                     if (isRecording) stopRecording();
-                    applyRemoteMatched(data.progress?.matched || 0);
+                    applyRemoteMatched(myGlobalMatched);
                 } else {
                     if (!isRecording && data.state === 'playing') startRecording();
                 }
@@ -1604,12 +1700,18 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
     }
     
     // 獨立處理錯誤的邏輯（超時或讀錯時共用）
-   function handleMistake(isTimeout = false, errorIndex = 0) {
+ function handleMistake(isTimeout = false, errorIndex = 0) {
         if (!isMultiplayer || !isActivePlayer || !roomData) return;
-        
-        // 觸發設備震動 (若瀏覽器/設備支援，會產生短促兩下震動)
-        if (navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+        if (roomData.playMode === 'race') {
+            showSpeechFeedback(isTimeout ? '繼續努力！' : '讀錯了，請重試！');
+            setTimeout(() => {
+                applyRemoteMatched(0);
+                finalTokens = []; consumedSttIdx = 0;
+                window.handlingTimeout = false;
+            }, 1000);
+            return;
         }
         
         const currentMistakes = (roomData.turn.mistakes || 0) + 1;
@@ -1617,41 +1719,31 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
         set(ref(db, `rooms/${currentRoomId}/turn/mistakes`), currentMistakes);
 
         if (currentMistakes < 2) {
-            if (isTimeout) showSpeechFeedback('時限已過！剩餘一次機會。');
-            else showSpeechFeedback('讀錯了！剩餘一次機會。');
-            
+            showSpeechFeedback(isTimeout ? '時限已過！剩餘一次機會。' : '讀錯了！剩餘一次機會。');
             setTimeout(() => {
                 if (!roomData) return;
-                // 更新進度並重置計時器，給予第二次機會
                 update(ref(db, `rooms/${currentRoomId}/turn`), { startTime: Date.now() });
                 set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-                
-                applyRemoteMatched(0);
-                finalTokens = []; consumedSttIdx = 0;
-                window.handlingTimeout = false;
+                applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0; window.handlingTimeout = false;
             }, 1500);
         } else {
-            if (isTimeout) showSpeechFeedback('時限已過！換人作答。');
-            else showSpeechFeedback('讀錯了！換人作答。');
-
+            showSpeechFeedback(isTimeout ? '時限已過！換人作答。' : '讀錯了！換人作答。');
             setTimeout(() => {
                 if (!roomData) return;
-                const playersList = Object.keys(roomData.players || {}).sort();
-                const npIdx = (roomData.turn.playerIdx + 1) % playersList.length;
-                
-                // 換下一位玩家，但保留在「同一句」
-                update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                    playerIdx: npIdx, 
-                    sentenceIdx: currentSentenceIdx, 
-                    mistakes: 0, 
-                    startTime: Date.now() 
-                });
+                let updates = { sentenceIdx: currentSentenceIdx, mistakes: 0, startTime: Date.now() };
+                if (roomData.teamMode === 'team') {
+                    let otherTeam = roomData.turn.teamColor === 'red' ? 'blue' : 'red';
+                    updates.teamColor = otherTeam;
+                } else {
+                    const playersList = Object.keys(roomData.players || {}).sort();
+                    updates.playerIdx = (roomData.turn.playerIdx + 1) % playersList.length;
+                }
+                update(ref(db, `rooms/${currentRoomId}/turn`), updates);
                 set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
                 window.handlingTimeout = false;
             }, 1500);
         }
     }
-
     
     function matchAlgorithm(sttData) {
         if(isMultiplayer && !isActivePlayer) return;
@@ -1693,33 +1785,72 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                 }
             }
 
-            if (sentencePassed) {
+         if (sentencePassed) {
                 sentenceChars.forEach(n => sessionAchievedChars.add(n.index));
                 consumedSttIdx = matchEndSttIdx; 
                 
                 if (isMultiplayer) {
-                    const newScore = (roomData.players[myUid].score || 0) + 1;
-                    update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { score: newScore });
-                    const npIdx = (roomData.turn.playerIdx + 1) % Object.keys(roomData.players).length;
+                    const isFinish = (currentSentenceIdx + 1 >= sentences.length);
+                    let updates = {};
+                    // 所有模式通用：得分增加
+                    updates[`players/${myUid}/score`] = (roomData.players[myUid].score || 0) + 1;
                     
-                    if (currentSentenceIdx + 1 >= sentences.length) {
-                        update(ref(db, `rooms/${currentRoomId}`), { state: 'finished' });
-                    } else {
-                        update(ref(db, `rooms/${currentRoomId}/turn`), { 
-                            playerIdx: npIdx, 
-                            sentenceIdx: currentSentenceIdx + 1, 
-                            mistakes: 0,
-                            startTime: Date.now()
-                        });
+                    if (roomData.playMode === 'race') {
+                        if (roomData.teamMode === 'team') {
+                            // 團體競速
+                            let myTeam = roomData.players[myUid].team;
+                            let tData = roomData.teams[myTeam];
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`teams/${myTeam}/activeIdx`] = (tData.activeIdx + 1) % tData.playerList.length;
+                                updates[`teams/${myTeam}/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`teams/${myTeam}/matched`] = 0;
+                            }
+                        } else {
+                            // 單人競速
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`players/${myUid}/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`players/${myUid}/matched`] = 0;
+                            }
+                        }
+                    } else { 
+                        if (roomData.teamMode === 'team') {
+                            // 團體回合
+                            let myTeam = roomData.players[myUid].team;
+                            let tData = roomData.teams[myTeam];
+                            updates[`teams/${myTeam}/activeIdx`] = (tData.activeIdx + 1) % tData.playerList.length;
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`turn/teamColor`] = myTeam === 'red' ? 'blue' : 'red'; // 換隊
+                                updates[`turn/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`turn/mistakes`] = 0;
+                                updates[`turn/startTime`] = Date.now();
+                                updates[`progress/matched`] = 0;
+                                updates[`progress/errors`] = [];
+                            }
+                        } else {
+                            // 單人回合 (原有邏輯)
+                            const npIdx = (roomData.turn.playerIdx + 1) % Object.keys(roomData.players).length;
+                            if (isFinish) updates['state'] = 'finished';
+                            else {
+                                updates[`turn/playerIdx`] = npIdx;
+                                updates[`turn/sentenceIdx`] = currentSentenceIdx + 1;
+                                updates[`turn/mistakes`] = 0;
+                                updates[`turn/startTime`] = Date.now();
+                                updates[`progress/matched`] = 0;
+                                updates[`progress/errors`] = [];
+                            }
+                        }
                     }
-                    set(ref(db, `rooms/${currentRoomId}/progress`), { matched: 0, errors: [] });
-                    return; // 多人模式由 Listener 切換句子並重設狀態
+                    update(ref(db, `rooms/${currentRoomId}`), updates);
+                    return; 
                 } else {
                     currentSentenceIdx++;
-                    applyRemoteMatched(0); // 單機模式完美推進句子並永久固定已讀句子
+                    applyRemoteMatched(0); // 單機模式推進
                 }
             } else {
-              if (maxMatched > 0 || sttData.length > consumedSttIdx) {
+                if (maxMatched > 0 || sttData.length > consumedSttIdx) {
                     window.maxMatched = maxMatched;
                     partialTimeout = setTimeout(() => {
                         if (isMultiplayer) {
@@ -1729,7 +1860,6 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                             }
                             return;
                         } else {
-                            // 單機模式：讀錯或超時震動回饋
                             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                             applyRemoteErrors([maxMatched]);
                             applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0;
@@ -1738,7 +1868,15 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
                 }
 
                 sentenceChars.forEach((n, idx) => { n.matched = (idx < maxMatched); n.isCurrentSentence = true; });
-                if(isMultiplayer) set(ref(db, `rooms/${currentRoomId}/progress/matched`), maxMatched);
+                
+                if(isMultiplayer) {
+                    if (roomData.playMode === 'race') {
+                        if (roomData.teamMode === 'team') set(ref(db, `rooms/${currentRoomId}/teams/${roomData.players[myUid].team}/matched`), maxMatched);
+                        else set(ref(db, `rooms/${currentRoomId}/players/${myUid}/matched`), maxMatched);
+                    } else {
+                        set(ref(db, `rooms/${currentRoomId}/progress/matched`), maxMatched);
+                    }
+                }
             }
         } while (sentencePassed); 
 
