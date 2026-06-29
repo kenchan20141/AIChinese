@@ -1066,9 +1066,9 @@ window.joinRoomAction = function() {
                     let redHandicap = maxTeamTurns - teamExpectedTurns.red;
                     let blueHandicap = maxTeamTurns - teamExpectedTurns.blue;
                     
-                    // 將補分只發給劣勢隊伍的第一名成員，確保團隊總分公平
-                    if (redHandicap > 0 && redList.length > 0) updates[`players/${redList[0]}/score`] = redHandicap;
-                    if (blueHandicap > 0 && blueList.length > 0) updates[`players/${blueList[0]}/score`] = blueHandicap;
+                 // 將補分直接記在全局變數，稍後直接賦予團隊總分
+                    window.tempRedHandicap = redHandicap;
+                    window.tempBlueHandicap = blueHandicap;
                 } else {
                     // 單人戰：照舊按個人順位計算
                     let expectedTurns = {};
@@ -1082,11 +1082,12 @@ window.joinRoomAction = function() {
                 }
             }
 
-            if (roomData.teamMode === 'team') {
+           if (roomData.teamMode === 'team') {
                 updates['teams'] = {
-                    red: { playerList: redList, activeIdx: 0, sentenceIdx: 0, matched: 0, mistakes: 0, errors: [] },
-                    blue: { playerList: blueList, activeIdx: 0, sentenceIdx: 0, matched: 0, mistakes: 0, errors: [] }
+                    red: { playerList: redList, activeIdx: 0, sentenceIdx: 0, matched: 0, mistakes: 0, errors: [], score: window.tempRedHandicap || 0 },
+                    blue: { playerList: blueList, activeIdx: 0, sentenceIdx: 0, matched: 0, mistakes: 0, errors: [], score: window.tempBlueHandicap || 0 }
                 };
+                window.tempRedHandicap = 0; window.tempBlueHandicap = 0;
             }
             if (roomData.playMode === 'race') {
                 playersList.forEach(p => { updates[`players/${p}/sentenceIdx`] = 0; updates[`players/${p}/matched`] = 0; });
@@ -1335,12 +1336,9 @@ window.joinRoomAction = function() {
                 mb.style.borderTop = ''; // 確保清除上一個版本的頂部粗橫條
                 
                 // 團體與單人計分板顯示邏輯
-                if (data.teamMode === 'team') {
-                    let redScore = 0, blueScore = 0;
-                    playersList.forEach(p => {
-                        if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
-                        if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
-                    });
+                 if (data.teamMode === 'team') {
+                    let redScore = data.teams?.red?.score || 0;
+                    let blueScore = data.teams?.blue?.score || 0;
                     mbScore.innerHTML = `得分：<span style="color:#b04332;font-weight:bold;">紅隊 ${redScore}</span> | <span style="color:#2b5c7a;font-weight:bold;">藍隊 ${blueScore}</span>`;
                     mbScore.style.display = 'block';
                 } else {
@@ -1557,14 +1555,11 @@ function showMultiplayerResults(data) {
             let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val()?.name || '未知', score: snap.val()?.battlePoints || 0 }));
             let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
 
-            if (data.teamMode === 'team') {
-                let redScore = 0, blueScore = 0;
-                playersList.forEach(p => {
-                    if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
-                    if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
-                });
+           if (data.teamMode === 'team') {
+                let redScore = data.teams?.red?.score || 0;
+                let blueScore = data.teams?.blue?.score || 0;
                 
-                // 優先使用中途逃跑判定的 winTeam，否則比對雙方總分
+                // 優先使用中途逃跑判定的 winTeam，否則比對雙方獨立統計的隊伍總分
                 let winTeam = data.winTeam || (redScore > blueScore ? 'red' : (blueScore > redScore ? 'blue' : 'tie'));
                 let titleMsg = data.winTeam ? " (對手逃脫)" : "";
                 
@@ -1677,14 +1672,11 @@ function showMultiplayerResults(data) {
         if(playersList.length === 0) return;
         
         let diff = 0;
-        if (data.teamMode === 'team') {
+       if (data.teamMode === 'team') {
             let winTeam = data.winTeam;
             if (!winTeam) {
-                let redScore = 0, blueScore = 0;
-                playersList.forEach(p => {
-                    if (data.players[p].team === 'red') redScore += data.players[p].score || 0;
-                    if (data.players[p].team === 'blue') blueScore += data.players[p].score || 0;
-                });
+                let redScore = data.teams?.red?.score || 0;
+                let blueScore = data.teams?.blue?.score || 0;
                 if (redScore !== blueScore) winTeam = redScore > blueScore ? 'red' : 'blue';
                 else winTeam = 'tie';
             }
@@ -2068,9 +2060,13 @@ function handleMistake(isTimeout = false, errorIndex = 0) {
                 
                 if (isMultiplayer) {
                     const isFinish = (currentSentenceIdx + 1 >= sentences.length);
-                    let updates = {};
-                    // 所有模式通用：得分增加
+                 let updates = {};
+                    // 單人模式增加個人分，團體模式同時增加隊伍專屬分
                     updates[`players/${myUid}/score`] = (roomData.players[myUid].score || 0) + 1;
+                    if (roomData.teamMode === 'team') {
+                        let myTeam = roomData.players[myUid].team;
+                        updates[`teams/${myTeam}/score`] = (roomData.teams[myTeam]?.score || 0) + 1;
+                    }
                     
                     if (roomData.playMode === 'race') {
                         if (roomData.teamMode === 'team') {
