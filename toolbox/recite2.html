@@ -1139,7 +1139,7 @@ window.joinRoomAction = function() {
             // ==========================================
             // 【房主遷移機制】
             // ==========================================
-           let currentHost = data.host;
+             let currentHost = data.host;
             let hostChanged = false;
             
             // 判斷房主是否逃跑，若逃跑則準備遷移
@@ -1156,8 +1156,9 @@ window.joinRoomAction = function() {
                     if (hostChanged) updates['host'] = currentHost; // 將更新打包，確保原子化寫入
 
                     if (data.teamMode === 'team') {
-                        let reds = (data.teams?.red?.playerList || []).filter(p => playersList.includes(p));
-                        let blues = (data.teams?.blue?.playerList || []).filter(p => playersList.includes(p));
+                        // 【關鍵修復】直接從存活的玩家名單中統計紅藍隊人數，絕不漏判
+                        let reds = playersList.filter(p => data.players[p].team === 'red');
+                        let blues = playersList.filter(p => data.players[p].team === 'blue');
                         
                         // 判定是否其中一隊全軍覆沒
                         if (reds.length === 0 && blues.length > 0) {
@@ -1170,8 +1171,8 @@ window.joinRoomAction = function() {
                             // 遊戲繼續，重整交棒陣列
                             updates[`teams/red/playerList`] = reds;
                             updates[`teams/blue/playerList`] = blues;
-                            updates[`teams/red/activeIdx`] = reds.length > 0 ? ((data.teams.red.activeIdx || 0) % reds.length) : 0;
-                            updates[`teams/blue/activeIdx`] = blues.length > 0 ? ((data.teams.blue.activeIdx || 0) % blues.length) : 0;
+                            updates[`teams/red/activeIdx`] = reds.length > 0 ? ((data.teams?.red?.activeIdx || 0) % reds.length) : 0;
+                            updates[`teams/blue/activeIdx`] = blues.length > 0 ? ((data.teams?.blue?.activeIdx || 0) % blues.length) : 0;
                             if (data.playMode === 'turn') updates[`turn/startTime`] = Date.now(); // 補回交棒秒數
                         }
                     } else {
@@ -1180,7 +1181,7 @@ window.joinRoomAction = function() {
                             updates['state'] = 'finished';
                         } else {
                             if (data.playMode === 'turn') {
-                                updates[`turn/playerIdx`] = (data.turn.playerIdx || 0) % playersList.length;
+                                updates[`turn/playerIdx`] = (data.turn?.playerIdx || 0) % playersList.length;
                                 updates[`turn/startTime`] = Date.now();
                             }
                         }
@@ -1515,7 +1516,7 @@ function showMultiplayerResults(data) {
         let playersList = Object.keys(data.players || {});
         
         Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
-            let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val().name, score: snap.val().battlePoints || 0 }));
+            let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val()?.name || '未知', score: snap.val()?.battlePoints || 0 }));
             let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
 
             if (data.teamMode === 'team') {
@@ -1544,7 +1545,7 @@ function showMultiplayerResults(data) {
                     let delta = 0;
                     if (winTeam !== 'tie') delta = (pTeam === winTeam) ? 1 : -1;
                     
-                    let userDbData = allUsers.find(u => u.uid === p);
+                    let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
                     let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
 
                     let rankText = delta > 0 ? '戰勝加分' : (delta < 0 ? '戰敗扣分' : '平局不變');
@@ -1580,7 +1581,7 @@ function showMultiplayerResults(data) {
                     let pScore = data.players[p].score;
                     let delta = getDelta(p);
                     
-                    let userDbData = allUsers.find(u => u.uid === p);
+                    let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
                     let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
 
                     let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
