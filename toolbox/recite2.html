@@ -297,10 +297,17 @@
         
         .race-track-container { position: relative; width: 100%; height: 26px; background: rgba(176, 67, 50, 0.1); border-radius: 13px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); }
         .race-avatar { position: absolute; top: 0; left: 0; height: 26px; line-height: 26px; padding: 0 10px; border-radius: 13px; color: white; font-size: 0.75rem; font-weight: bold; white-space: nowrap; transition: left 0.4s cubic-bezier(0.22, 1, 0.36, 1); transform: translateX(-50%); box-shadow: 0 2px 5px rgba(0,0,0,0.2); letter-spacing: 0.05em; }
-        .race-avatar.me { z-index: 10; border: 2px solid #fff; }
+       .race-avatar.me { z-index: 10; border: 2px solid #fff; }
         .race-avatar.team-red { background: #b04332; }
         .race-avatar.team-blue { background: #2b5c7a; }
-        .race-avatar.solo { background: #6b4d73; }
+        .race-avatar.solo-0 { background: #b04332; } /* 硃砂紅 */
+        .race-avatar.solo-1 { background: #2b5c7a; } /* 靛洋藍 */
+        .race-avatar.solo-2 { background: #3b6b58; } /* 松葉綠 */
+        .race-avatar.solo-3 { background: #d99b38; } /* 琥珀金 */
+        .race-avatar.solo-4 { background: #6b4d73; } /* 丁香紫 */
+        .race-avatar.solo-5 { background: #555555; } /* 墨灰 */
+
+        
 
         
     </style>
@@ -941,7 +948,7 @@ window.joinRoomAction = function() {
                 const roomObj = {
                     host: myUid, picker: myUid, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     playMode: playMode, teamMode: teamMode,
-                    players: { [myUid]: { name: myName, score: 0, rematch: false, team: null } },
+                    players: { [myUid]: { name: myName, score: 0, rematch: false, team: null, slot: null } },
                     turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
                 };
@@ -957,13 +964,25 @@ window.joinRoomAction = function() {
                 if(!snap.exists() || !snap.val().players || Object.keys(snap.val().players).length === 0) return alert("該房間已廢棄，請自己建立新房間");
                 if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
-                update(pRef, { name: myName, score: 0, rematch: false, team: null }).then(() => {
+                update(pRef, { name: myName, score: 0, rematch: false, team: null, slot: null }).then(() => {
                     currentRoomId = code; isMultiplayer = true;
                     onDisconnect(pRef).remove();
                     listenToRoom();
                 });
             });
         }
+    };
+
+    window.joinTeamSlot = function(color, slotIdx) {
+        if (!currentRoomId || !roomData) return;
+        // 檢查該位置是否已有人佔用
+        let isTaken = false;
+        Object.values(roomData.players || {}).forEach(p => {
+            if (p.team === color && p.slot === slotIdx) isTaken = true;
+        });
+        if (isTaken) return alert("該位置已被戰友佔據！");
+        // 覆蓋並移動位置
+        update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { team: color, slot: slotIdx });
     };
 
     window.joinTeam = function(color) {
@@ -1009,32 +1028,61 @@ window.joinRoomAction = function() {
     }
 
 
-    window.startMultiplayerGame = function() {
+   window.startMultiplayerGame = function() {
         if(myUid === roomData?.picker) { 
             const playersList = Object.keys(roomData.players || {}).sort();
             if (playersList.length < 2) return alert("需要至少兩名玩家才能開始對戰！");
 
+            let redList = [], blueList = [];
             if (roomData.teamMode === 'team') {
-                let redCount = 0, blueCount = 0;
-                playersList.forEach(p => { 
-                    if (roomData.players[p].team === 'red') redCount++; 
-                    if (roomData.players[p].team === 'blue') blueCount++; 
-                });
-                if (redCount === 0 || blueCount === 0) return alert("紅藍兩隊皆須有玩家方可開始！");
+                // 確保兩隊順序是依據玩家選擇的位置 (slot) 來排序
+                redList = playersList.filter(p => roomData.players[p].team === 'red').sort((a,b) => roomData.players[a].slot - roomData.players[b].slot);
+                blueList = playersList.filter(p => roomData.players[p].team === 'blue').sort((a,b) => roomData.players[a].slot - roomData.players[b].slot);
+                
+                if (redList.length === 0 || blueList.length === 0) return alert("紅藍兩隊皆須有玩家方可開始！");
                 if (playersList.some(p => !roomData.players[p].team)) return alert("尚有玩家未選擇隊伍！");
             }
 
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
+            
+            // --- 賽局預演：精準補分系統 (Handicap) ---
+            const sCount = getSentenceCount(textKey);
+            let expectedTurns = {};
+            playersList.forEach(p => expectedTurns[p] = 0);
+
+            if (roomData.playMode === 'turn') {
+                if (roomData.teamMode === 'team') {
+                    let rIdx = 0, bIdx = 0;
+                    for (let i = 0; i < sCount; i++) {
+                        if (i % 2 === 0) { expectedTurns[redList[rIdx]]++; rIdx = (rIdx + 1) % redList.length; } 
+                        else { expectedTurns[blueList[bIdx]]++; bIdx = (bIdx + 1) % blueList.length; }
+                    }
+                } else {
+                    for (let i = 0; i < sCount; i++) {
+                        expectedTurns[playersList[i % playersList.length]]++;
+                    }
+                }
+            }
+
+            // 尋找全場最辛苦、作答次數最多的玩家作為基準
+            let maxT = roomData.playMode === 'turn' ? Math.max(...Object.values(expectedTurns)) : 0;
+            
             let updates = {
                 state: 'playing', textKey: textKey, pointsCalculated: false,
                 turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                 progress: { matched: 0, errors: [] }
             };
 
+            // 每位玩家獲得的補分 = 最多作答次數 - 該玩家預計作答次數
+            playersList.forEach(p => {
+                let handicap = roomData.playMode === 'turn' ? (maxT - expectedTurns[p]) : 0;
+                updates[`players/${p}/score`] = handicap; 
+            });
+
             if (roomData.teamMode === 'team') {
                 updates['teams'] = {
-                    red: { playerList: playersList.filter(p => roomData.players[p].team === 'red'), activeIdx: 0, sentenceIdx: 0, matched: 0 },
-                    blue: { playerList: playersList.filter(p => roomData.players[p].team === 'blue'), activeIdx: 0, sentenceIdx: 0, matched: 0 }
+                    red: { playerList: redList, activeIdx: 0, sentenceIdx: 0, matched: 0 },
+                    blue: { playerList: blueList, activeIdx: 0, sentenceIdx: 0, matched: 0 }
                 };
             }
             if (roomData.playMode === 'race') {
@@ -1138,20 +1186,28 @@ window.joinRoomAction = function() {
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
                 
-                let pHtml = '';
+              let pHtml = '';
                 if (data.teamMode === 'team') {
                     pHtml = `<div class="team-container">
                         <div class="team-box red"><div class="team-title">紅隊</div>`;
-                    let reds = playersList.filter(p => data.players[p].team === 'red');
                     for(let i=0; i<3; i++) {
-                        if (reds[i]) pHtml += `<div class="team-slot filled">${data.players[reds[i]].name}</div>`;
-                        else pHtml += `<div class="team-slot" onclick="joinTeam('red')">點擊加入</div>`;
+                        let pInSlot = playersList.find(p => data.players[p].team === 'red' && data.players[p].slot === i);
+                        if (pInSlot) {
+                            let isMe = (pInSlot === myUid);
+                            pHtml += `<div class="team-slot filled">${data.players[pInSlot].name}${isMe ? ' (你)' : ''}</div>`;
+                        } else {
+                            pHtml += `<div class="team-slot" onclick="joinTeamSlot('red', ${i})">點擊加入</div>`;
+                        }
                     }
                     pHtml += `</div><div class="team-box blue"><div class="team-title">藍隊</div>`;
-                    let blues = playersList.filter(p => data.players[p].team === 'blue');
                     for(let i=0; i<3; i++) {
-                        if (blues[i]) pHtml += `<div class="team-slot filled">${data.players[blues[i]].name}</div>`;
-                        else pHtml += `<div class="team-slot" onclick="joinTeam('blue')">點擊加入</div>`;
+                        let pInSlot = playersList.find(p => data.players[p].team === 'blue' && data.players[p].slot === i);
+                        if (pInSlot) {
+                            let isMe = (pInSlot === myUid);
+                            pHtml += `<div class="team-slot filled">${data.players[pInSlot].name}${isMe ? ' (你)' : ''}</div>`;
+                        } else {
+                            pHtml += `<div class="team-slot" onclick="joinTeamSlot('blue', ${i})">點擊加入</div>`;
+                        }
                     }
                     pHtml += `</div></div>`;
                 } else {
@@ -1193,7 +1249,6 @@ window.joinRoomAction = function() {
                     loadCurrentText();
                 }
 
-                // 判斷是否為當前作答者
                 let isMyTurn = false; let myGlobalSentenceIdx = 0; let myGlobalMatched = 0;
                 let myTeam = data.players[myUid]?.team;
 
@@ -1223,7 +1278,6 @@ window.joinRoomAction = function() {
                 
                 isActivePlayer = isMyTurn;
 
-                // 渲染頂部資訊列
                 const mbTurn = document.getElementById('mb-turn-status');
                 const mbScore = document.getElementById('mb-score-status');
                 const raceTrack = document.getElementById('race-track');
@@ -1244,10 +1298,11 @@ window.joinRoomAction = function() {
                         trackHtml += `<div class="race-avatar team-red" style="left: ${rP}%">紅隊</div>`;
                         trackHtml += `<div class="race-avatar team-blue" style="left: ${bP}%">藍隊</div>`;
                     } else {
-                        playersList.forEach(p => {
+                        playersList.forEach((p, idx) => {
                             let pP = ((data.players[p].sentenceIdx || 0) / sCount) * 100;
                             let isMe = (p === myUid);
-                            trackHtml += `<div class="race-avatar solo ${isMe ? 'me' : ''}" style="left: ${pP}%; ${isMe ? 'z-index: 10;' : ''}">${data.players[p].name}</div>`;
+                            let colorClass = `solo-${idx % 6}`; // 動態分配不同顏色
+                            trackHtml += `<div class="race-avatar solo ${colorClass} ${isMe ? 'me' : ''}" style="left: ${pP}%; ${isMe ? 'z-index: 10;' : ''}">${data.players[p].name}</div>`;
                         });
                     }
                     raceTrack.innerHTML = trackHtml;
