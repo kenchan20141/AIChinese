@@ -2060,12 +2060,15 @@ function handleMistake(isTimeout = false, errorIndex = 0) {
                 
                 if (isMultiplayer) {
                     const isFinish = (currentSentenceIdx + 1 >= sentences.length);
-                 let updates = {};
-                    // 單人模式增加個人分，團體模式同時增加隊伍專屬分
-                    updates[`players/${myUid}/score`] = (roomData.players[myUid].score || 0) + 1;
+                let updates = {};
+                    // 以團隊為單位計分：使用 increment(1) 確保伺服器端精準遞增，不受本地延遲影響
                     if (roomData.teamMode === 'team') {
                         let myTeam = roomData.players[myUid].team;
-                        updates[`teams/${myTeam}/score`] = (roomData.teams[myTeam]?.score || 0) + 1;
+                        updates[`teams/${myTeam}/score`] = increment(1);      // 團隊總分穩固 +1
+                        updates[`players/${myUid}/score`] = increment(1);     // 保留個人貢獻度，僅供結算畫面顯示
+                    } else {
+                        // 單人模式
+                        updates[`players/${myUid}/score`] = increment(1);
                     }
                     
                     if (roomData.playMode === 'race') {
