@@ -26080,7 +26080,7 @@ function startJoystickUI() {
         }
     });
 }
-// ★★★ 核心修改：強制等待 2 秒的邏輯 ★★★
+// ★★★ 強制等待 2 秒的邏輯 ★★★
 function resolveJoystick() {
     // 1. 先把搖桿介面收起來，讓背後的「生成中 GIF」露出來
     const overlay = document.getElementById('joystickOverlay');
@@ -26099,7 +26099,7 @@ function forceCloseJoystick() {
     const overlay = document.getElementById('joystickOverlay');
     if (overlay) overlay.style.display = 'none';
     
-    // 如果是強制中斷（例如發生錯誤或按了取消），則不需要等2秒，直接放行
+    // 如果是強制中斷，直接放行
     if (joystickPromiseResolver) {
         joystickPromiseResolver();
         joystickPromiseResolver = null;
@@ -26192,44 +26192,62 @@ function initFlatJoystick() {
         }
         previousAngle = currentAzi;
     }
-    // ★★★ 核心修改：精緻化的繪圖邏輯 ★★★
+    // ★★★ 核心修改：徹底去除有機感的「遊戲搖桿」機械設計 ★★★
     function render2DJoystick() {
         joystickCtx.clearRect(0, 0, 300, 300);
-        // 1. 繪製底部凹槽 (極簡設計)
+        // 1. 繪製底部凹槽底座
         joystickCtx.beginPath();
         joystickCtx.arc(centerPos.x, centerPos.y, 110, 0, Math.PI * 2);
         joystickCtx.fillStyle = '#eae7df'; // 暖灰色底座
         joystickCtx.fill();
-        joystickCtx.lineWidth = 4;
-        joystickCtx.strokeStyle = 'rgba(0,0,0,0.03)'; // 淡淡的內緣陰影
+        // 凹槽內邊緣的暗角陰影
+        joystickCtx.lineWidth = 6;
+        joystickCtx.strokeStyle = 'rgba(0,0,0,0.06)';
         joystickCtx.stroke();
-        // 2. 繪製搖桿本體 (加入漸層與柔和外陰影)
+        // 2. 搖桿外環 (塑膠邊緣)
         joystickCtx.beginPath();
         joystickCtx.arc(stickPos.x, stickPos.y, 55, 0, Math.PI * 2);
         
-        // 懸浮立體陰影
-        joystickCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-        joystickCtx.shadowBlur = 15;
+        // 懸浮立體陰影 (只讓整體浮起，不用漸層)
+        joystickCtx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+        joystickCtx.shadowBlur = 12;
         joystickCtx.shadowOffsetX = 0;
-        joystickCtx.shadowOffsetY = 8;
-        // 莫蘭迪綠漸層 (打造微凸的磨砂塑膠感)
-        let grad = joystickCtx.createRadialGradient(
-            stickPos.x - 15, stickPos.y - 15, 10, // 光源偏左上
-            stickPos.x, stickPos.y, 55
-        );
-        grad.addColorStop(0, '#a5b8ae'); // 高光色
-        grad.addColorStop(1, '#7d9186'); // 暗部色
-        
-        joystickCtx.fillStyle = grad;
+        joystickCtx.shadowOffsetY = 6;
+        joystickCtx.fillStyle = '#6a7e73'; // 較深硬朗的莫蘭迪綠
         joystickCtx.fill();
-        // 重置陰影
-        joystickCtx.shadowColor = 'transparent';
-        // 3. 點綴：一條極細的高光邊線 (代替粗糙的同心圓，提升精緻度)
+        joystickCtx.shadowColor = 'transparent'; // 重置陰影
+        // 3. 搖桿內圈 (創造拇指放置的平底/微凹感)
         joystickCtx.beginPath();
-        joystickCtx.arc(stickPos.x, stickPos.y, 48, 0, Math.PI * 2);
+        joystickCtx.arc(stickPos.x, stickPos.y, 42, 0, Math.PI * 2);
+        // 使用從上到下的簡單線性過渡，創造硬質塑膠感，而非肉感
+        let innerGrad = joystickCtx.createLinearGradient(stickPos.x, stickPos.y - 42, stickPos.x, stickPos.y + 42);
+        innerGrad.addColorStop(0, '#7d9186');
+        innerGrad.addColorStop(1, '#8fa398');
+        joystickCtx.fillStyle = innerGrad;
+        joystickCtx.fill();
+        
+        // 內圈加深邊界 (強化凹陷感)
         joystickCtx.lineWidth = 1.5;
-        joystickCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        joystickCtx.strokeStyle = 'rgba(0,0,0,0.3)';
         joystickCtx.stroke();
+ 
+        // 4. 方向防滑刻紋 (十字定位線：上下左右) - 這是打破視覺錯覺的關鍵
+        joystickCtx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        joystickCtx.lineWidth = 4;
+        joystickCtx.lineCap = 'round';
+        
+        for (let i = 0; i < 4; i++) {
+            const angle = (i * Math.PI) / 2;
+            const startX = stickPos.x + Math.cos(angle) * 45; // 從內圈邊緣開始
+            const startY = stickPos.y + Math.sin(angle) * 45;
+            const endX = stickPos.x + Math.cos(angle) * 51;   // 延伸到外圈
+            const endY = stickPos.y + Math.sin(angle) * 51;
+            
+            joystickCtx.beginPath();
+            joystickCtx.moveTo(startX, startY);
+            joystickCtx.lineTo(endX, endY);
+            joystickCtx.stroke();
+        }
     }
     function animate() {
         if (!isJoystickActive) return;
@@ -26237,8 +26255,8 @@ function initFlatJoystick() {
         
         // 平滑彈回中心
         if (!isDraggingStick) {
-            stickPos.x += (centerPos.x - stickPos.x) * 0.25;
-            stickPos.y += (centerPos.y - stickPos.y) * 0.25;
+            stickPos.x += (centerPos.x - stickPos.x) * 0.3;
+            stickPos.y += (centerPos.y - stickPos.y) * 0.3;
         }
         render2DJoystick();
     }
