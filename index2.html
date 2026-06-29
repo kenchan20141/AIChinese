@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -60,7 +61,8 @@ form-action 'self';
 	
 <!-- 引入 Chart.js 以繪製雷達圖 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+ 
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
@@ -13659,7 +13661,8 @@ async function submitArgumentGuide() {
             return;
         }
  
-        showLoading("陳SIR 正在編寫指引...");
+      showLoading("陳SIR 正在編寫指引...");
+        const joystickPromise = startJoystickUI();
         
         // 傳送數據至後端 (已移除 categories 引用)
         const payload = {
@@ -13705,8 +13708,9 @@ async function submitArgumentGuide() {
  
         guideHTML += `</div>`;
  
-        // 加入追問聊天室
+         // 加入追問聊天室
         guideHTML += getCanvasChatHTML('argument_guide');
+        await joystickPromise;
  
         // 開啟結果畫布
         openResultCanvas("議論文寫作指引");
@@ -13715,22 +13719,19 @@ async function submitArgumentGuide() {
         // 儲存至歷史紀錄
         await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
-    } catch (error) {
+ } catch (error) {
         console.error("提交指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
 
-// ==========================================
-// === 議論文提交函式 (單系統) ===
-// ==========================================
 
-// ==========================================
-// === 議論文提交函式 (單系統) ===
-// ==========================================
+
+	
 
 // ==========================================
 // === 議論文提交函式 (單系統) ===
@@ -13764,8 +13765,9 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-        showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
-
+          showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
+        const joystickPromise = startJoystickUI();
+ 
         // ★★★ RAG 邏輯 (已更新) ★★★
         const ragReference = await searchSimilarEssays(topic, content, 'argument');
 
@@ -13802,11 +13804,13 @@ ${content}
         };
         
         // 議論文通常使用 Reading API (DeepSeek) 處理複雜邏輯
-        const response = await callReadingAPI(payload, 0); 
+         const response = await callReadingAPI(payload, 0);
         
         currentContextContent = content;
         currentContextReview = response;
-
+ 
+        await joystickPromise; // <--- 確保在這裡等待用家搖完 50 圈
+ 
         if (isFullReview) {
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
         } else {
@@ -13816,9 +13820,10 @@ ${content}
             let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
             if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
             if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-            if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
+              if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
             
             initialReviewHTML += getCanvasChatHTML('argument_writing');
+            await joystickPromise;
             openResultCanvas("聚焦點評結果");
             document.getElementById("resultCanvasBody").innerHTML = initialReviewHTML;
             
@@ -13827,11 +13832,12 @@ ${content}
 			appendGoToSubmitButton(); // <--- ★ 加入這行
         }
 
-    } catch (error) {
+  } catch (error) {
         console.error("提交文章時出錯:", error);
         alert("點評生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -13870,8 +13876,9 @@ async function submitArgumentOutline() {
             }
         }
 
-        showLoading("陳SIR 正在審視大綱...");
-
+       showLoading("陳SIR 正在審視大綱...");
+        const joystickPromise = startJoystickUI();
+ 
         const payload = {
             action: "grade_argument",
             data: {
@@ -13887,7 +13894,9 @@ async function submitArgumentOutline() {
         // 設定聊天室上下文 (這是詳細版，給 AI 看的)
         currentContextContent = readableContext;
         currentContextReview = response;
-
+ 
+        await joystickPromise;
+ 
         // 顯示結果
         displayArgumentOutlineComment(response, outlineData);
         
@@ -13904,6 +13913,7 @@ async function submitArgumentOutline() {
         alert("生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -14755,8 +14765,9 @@ async function submitWritingGuide() {
         return;
     }
 
-    submitBtn.disabled = true;
+   submitBtn.disabled = true;
     showLoading("陳SIR 正在拆解題目...");
+    const joystickPromise = startJoystickUI();
     
     const prompt = `你是一位深諳中國文學的寫作顧問。使用者輸入題目：「${inputTopic}」。
 
@@ -14867,6 +14878,8 @@ async function submitWritingGuide() {
         // 這會自動生成對話框，並且 sendCanvasMessage 會讀取上面的 currentContext 變數
         finalHTML += getCanvasChatHTML('narrative_guide');
 
+        await joystickPromise;
+ 
         // === 打開畫布並寫入內容 ===
         openResultCanvas("解題指引");
         const resultContainer = document.getElementById("resultCanvasBody");
@@ -14887,6 +14900,7 @@ await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inpu
         alert("生成失敗，請稍後再試。");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -14943,7 +14957,8 @@ async function submitWriting() {
                 return { part, focus, plot };
             });
 
-            showLoading("陳SIR 正在點評大綱..."); 
+           showLoading("陳SIR 正在點評大綱...");
+            const joystickPromise = startJoystickUI();
             
             const payload = {
                 action: "grade_narrative",
@@ -14960,6 +14975,7 @@ async function submitWriting() {
             
             currentContextContent = outlineRawText;
             currentContextReview = response;
+            await joystickPromise;
             displayOutlineComment(response, outlineData);
             
             saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
@@ -14967,9 +14983,10 @@ async function submitWriting() {
 
         } 
         // === 模式二：敘事物象 ===
-        else if (writingType === "敘事物象") {
+      else if (writingType === "敘事物象") {
             content = document.getElementById("narrativeElements").value.trim();
             showLoading("陳SIR 正在生成物象...");
+            const joystickPromise = startJoystickUI();
             
             const payload = {
                 action: "grade_narrative",
@@ -14985,12 +15002,13 @@ async function submitWriting() {
             currentContextContent = `題目：${topic}\n背景：${content}`;
             currentContextReview = response;
 
-            const elements = response.split("\n").map(item => item.replace(/^\d+\.|^-\s*/, '').trim()).filter(item => item);
+           const elements = response.split("\n").map(item => item.replace(/^\d+\.|^-\s*/, '').replace(/[.…。]/g, '').trim()).filter(item => item);
             let elementsHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>生成的物象（${elements.length}項）：</h3><div class="vocab-grid">`;
             elements.forEach(element => { elementsHTML += `<div class="vocab-item">${element}</div>`; });
-            elementsHTML += `</div></div></div>`; 
+          elementsHTML += `</div></div></div>`;
             elementsHTML += getCanvasChatHTML('narrative_elements');
-
+ 
+            await joystickPromise;
             openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
@@ -15007,8 +15025,9 @@ async function submitWriting() {
             const selectedScopes = Array.from(document.querySelectorAll('input[name="reviewScope"]:checked')).map(cb => cb.value);
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-            showLoading(`${currentReviewerName} 正在點評...`);
-
+         showLoading(`${currentReviewerName} 正在點評...`);
+            const joystickPromise = startJoystickUI();
+ 
             // RAG 邏輯
          const ragReference = await searchSimilarEssays(topic, content, 'narrative');
             
@@ -15071,7 +15090,8 @@ try {
 
                 currentContextContent = content;
                 currentContextReview = originalApiResponse;
-
+ 
+                await joystickPromise;
                 await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
             
             } else {
@@ -15088,6 +15108,7 @@ try {
                 if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
                 
                 initialReviewHTML += getCanvasChatHTML('narrative_writing');
+                await joystickPromise;
                 openResultCanvas("聚焦點評結果");
                 document.getElementById("resultCanvasBody").innerHTML = initialReviewHTML;
                 
@@ -15101,6 +15122,7 @@ try {
         alert("點評生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -15232,7 +15254,8 @@ async function submitReading() {
         }
 
         showLoading("陳SIR 正在分析篇章...");
-
+        const joystickPromise = startJoystickUI();
+ 
         // ★ 建構 Payload
         const payload = {
             action: "grade_reading",
@@ -15303,6 +15326,7 @@ async function submitReading() {
             });
             
             finalHTML += getCanvasChatHTML('reading_comment');
+            await joystickPromise;
             openResultCanvas("閱讀理解點評");
             document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             saveToHistory("閱讀", "點評", question || "閱讀練習", `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, finalHTML);
@@ -15346,18 +15370,20 @@ async function submitReading() {
                 }
             });
             
-            guideHTML += getCanvasChatHTML('reading_guide');
+           guideHTML += getCanvasChatHTML('reading_guide');
+            await joystickPromise;
             openResultCanvas("閱讀理解指引");
             document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             await saveToHistory("閱讀", "指引", question || "閱讀指引", `篇章：${passage}\n題目：${question}`, guideHTML);
 			appendGoToSubmitButton(); // <--- ★ 加入這行
         }
 
-    } catch (error) {
+     } catch (error) {
         console.error("提交閱讀時出錯:", error);
         alert("生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -15899,7 +15925,8 @@ async function submitExpandComment() {
 
         const tone = document.getElementById("expandTone").value;
 
-        showLoading("陳SIR 正在審視拓展方向...");
+      showLoading("陳SIR 正在審視拓展方向...");
+        const joystickPromise = startJoystickUI();
         
         // ★★★ 建構 Payload 傳給後端 (取代本地 Prompt) ★★★
         const payload = {
@@ -15944,9 +15971,10 @@ async function submitExpandComment() {
             }
         });
 
-        // 加入聊天室
+         // 加入聊天室
         finalHTML += getCanvasChatHTML('expand_comment');
-
+ 
+        await joystickPromise;
         openResultCanvas("整合拓展點評");
         document.getElementById("resultCanvasBody").innerHTML = finalHTML;
         
@@ -15963,11 +15991,12 @@ async function submitExpandComment() {
         );
 		appendGoToSubmitButton(); // <--- ★ 加入這行
 
-    } catch (error) {
+     } catch (error) {
         console.error("提交整合拓展點評時出錯:", error);
         alert("點評生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -15991,6 +16020,7 @@ async function submitExpandGuide() {
         }
 
         showLoading("陳SIR 正在思考指引...");
+        const joystickPromise = startJoystickUI();
         
         // ★★★ 建構 Payload 傳給後端 (取代本地 Prompt) ★★★
         const payload = {
@@ -16038,9 +16068,10 @@ async function submitExpandGuide() {
             guideHTML += `</div></div>`;
         });
 
-        // 加入聊天室
+          // 加入聊天室
         guideHTML += getCanvasChatHTML('expand_guide');
-
+ 
+        await joystickPromise;
         openResultCanvas("整合拓展指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
         
@@ -16053,7 +16084,8 @@ async function submitExpandGuide() {
         console.error("提交整合拓展指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
-        submitBtn.disabled = false; 
+        submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -25994,7 +26026,269 @@ function closePrivacyModal() {
 </div>
  
 	
-	<!-- 隱形語音導航介面 -->
+<!-- === 搖桿等待覆蓋層 === -->
+<div id="joystickOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); z-index: 9999999; flex-direction: column; justify-content: center; align-items: center;">
+    <h2 style="color: #5d4037; font-family: 'Noto Serif TC', serif; margin-bottom: 20px;">請轉動搖桿 50 圈以獲取結果</h2>
+  <!-- 將虛線圈縮小為 140px，並加上 margin 上下推開空間，避免畫布蓋到文字 -->
+    <div style="position: relative; width: 140px; height: 140px; border-radius: 50%; border: 4px dashed #8fa398; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 20px rgba(143, 163, 152, 0.2); margin: 80px 0;">
+        <!-- 畫布保持 300px 夠大，並用絕對定位讓它懸浮於虛線圈正上方 -->
+        <canvas id="threeJoystickCanvas" style="position: absolute; width: 300px; height: 300px; top: 50%; left: 50%; transform: translate(-50%, -50%); touch-action: none;"></canvas>
+    </div>
+    <div id="joystickCounter" style="font-size: 2.5rem; color: #8fa398; font-family: 'Courier New', monospace; font-weight: bold; margin-top: 30px;">0 / 50</div>
+</div>
+ 
+<script>
+let joystickPromiseResolver = null;
+let isJoystickActive = false;
+ 
+// 2D Canvas 搖桿專用變數
+let joystickCtx = null;
+let joystickCanvas = null;
+let stickPos = { x: 150, y: 150 }; // 畫布預設為 300x300
+const centerPos = { x: 150, y: 150 };
+const maxRadius = 65; // ★ 將這裡改為 65
+ 
+let isDraggingStick = false;
+let previousAngle = 0;
+let totalRotation = 0;
+let lastVibrateRotation = 0; // ★ 新增：用於記錄上次發出微震動的角度
+let loopCount = 0;
+let joystickAnimFrame = null;
+ 
+function startJoystickUI() {
+    return new Promise(resolve => {
+        // ★ 檢查用戶身份，若是老師 (System)，直接豁免搖桿
+        try {
+            const s = JSON.parse(localStorage.getItem('studentProfile'));
+            if (s && s.grade === 'System') {
+                console.log("老師帳號，豁免搖桿等待。");
+                resolve();
+                return;
+            }
+        } catch (e) {
+            console.error("讀取用戶資料失敗", e);
+        }
+        const overlay = document.getElementById('joystickOverlay');
+        const counterText = document.getElementById('joystickCounter');
+        
+        // 確保外框是透明的
+        const container = document.querySelector('#joystickOverlay > div');
+        if (container) container.style.border = 'none';
+ 
+        if(overlay) overlay.style.display = 'flex';
+        if(counterText) counterText.innerText = '0 / 50';
+        
+        joystickPromiseResolver = resolve;
+        
+        if (!isJoystickActive) {
+            initFlatJoystick();
+        } else {
+            resetJoystick();
+        }
+    });
+}
+// ★★★ 強制等待 2 秒的邏輯 ★★★
+function resolveJoystick() {
+    const overlay = document.getElementById('joystickOverlay');
+    if(overlay) overlay.style.display = 'none';
+ 
+    setTimeout(() => {
+        if (joystickPromiseResolver) {
+            joystickPromiseResolver();
+            joystickPromiseResolver = null;
+        }
+    }, 2500);
+}
+function forceCloseJoystick() {
+    const overlay = document.getElementById('joystickOverlay');
+    if (overlay) overlay.style.display = 'none';
+    
+    if (joystickPromiseResolver) {
+        joystickPromiseResolver();
+        joystickPromiseResolver = null;
+    }
+    resetJoystick();
+}
+ 
+function initFlatJoystick() {
+    isJoystickActive = true;
+    joystickCanvas = document.getElementById('threeJoystickCanvas');
+    if(!joystickCanvas) return;
+    
+    joystickCanvas.width = 300;
+    joystickCanvas.height = 300;
+    joystickCtx = joystickCanvas.getContext('2d');
+    resetJoystick();
+   const attachEvents = (element) => {
+        // 使用現代 Pointer Events 統一處理滑鼠與觸控
+        element.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointermove', onPointerMove, { passive: false });
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+    };
+    
+    attachEvents(joystickCanvas);
+
+    function onPointerDown(e) {
+        // 排除滑鼠右鍵點擊
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+        const rect = joystickCanvas.getBoundingClientRect();
+        // 取得畫布上的相對座標
+        const scaleX = joystickCanvas.width / rect.width;
+        const scaleY = joystickCanvas.height / rect.height;
+        let canvasX = (e.clientX - rect.left) * scaleX;
+        let canvasY = (e.clientY - rect.top) * scaleY;
+
+        // 計算點擊位置距離中心的距離
+        let distFromCenter = Math.hypot(canvasX - centerPos.x, canvasY - centerPos.y);
+
+        // 只有點擊在中心半徑 100px 內（即綠色旋鈕及周圍）才允許抓取，防止按到空白邊緣
+        if (distFromCenter <= 100) {
+            isDraggingStick = true;
+            // ★ 核心修復：鎖定觸控，即使手指滑出畫布範圍外也能繼續感應
+            try { joystickCanvas.setPointerCapture(e.pointerId); } catch(err) {}
+            updateStickPosition(e.clientX, e.clientY, rect);
+        }
+    }
+
+    function onPointerMove(e) {
+        if (!isDraggingStick) return;
+        
+        // 防止手機畫面跟著一起滾動
+        if (e.cancelable) e.preventDefault();
+        
+        const rect = joystickCanvas.getBoundingClientRect();
+        updateStickPosition(e.clientX, e.clientY, rect);
+    }
+
+    function onPointerUp(e) {
+        if (isDraggingStick) {
+            isDraggingStick = false;
+            // 釋放觸控鎖定
+            try { joystickCanvas.releasePointerCapture(e.pointerId); } catch(err) {}
+        }
+    }
+
+    function updateStickPosition(clientX, clientY, rect) {
+        const scaleX = joystickCanvas.width / rect.width;
+        const scaleY = joystickCanvas.height / rect.height;
+        let targetX = (clientX - rect.left) * scaleX;
+        let targetY = (clientY - rect.top) * scaleY;
+        
+        let dx = targetX - centerPos.x;
+        let dy = targetY - centerPos.y;
+        let distance = Math.hypot(dx, dy);
+        let angle = Math.atan2(dy, dx);
+        
+        // maxRadius 我們已經在前一步改為 65 了
+        if (distance > maxRadius) {
+            targetX = centerPos.x + Math.cos(angle) * maxRadius;
+            targetY = centerPos.y + Math.sin(angle) * maxRadius;
+        }
+        
+        stickPos.x = targetX;
+        stickPos.y = targetY;
+        
+        const currentAzi = angle;
+        if (isDraggingStick) {
+            let diff = currentAzi - previousAngle;
+            if (diff > Math.PI) diff -= 2 * Math.PI;
+            if (diff < -Math.PI) diff += 2 * Math.PI;
+            
+            totalRotation += diff;
+            
+             if (Math.abs(totalRotation - lastVibrateRotation) > Math.PI / 8) {
+                try {
+                    if (navigator.vibrate) navigator.vibrate(13); 
+                } catch(e) {}
+                lastVibrateRotation = totalRotation;
+            }
+            
+            let newLoops = Math.floor(Math.abs(totalRotation) / (2 * Math.PI));
+            if (newLoops > loopCount) {
+                loopCount = newLoops;
+                
+                const counter = document.getElementById('joystickCounter');
+                if(counter) counter.innerText = `${Math.min(loopCount, 50)} / 50`;
+                
+                if (navigator.vibrate) navigator.vibrate(20);
+                
+                if (loopCount >= 50) {
+                    isDraggingStick = false;
+                    resolveJoystick();
+                }
+            }
+        }
+        previousAngle = currentAzi;
+    }
+    // ★★★ 核心修改：移除所有背景，只保留單一高質感綠色旋鈕 ★★★
+  function render2DJoystick() {
+        joystickCtx.clearRect(0, 0, 300, 300);
+        // 1. 旋鈕本體 (單一圓形)
+        const radius = 63; // ★ 將這裡改為 63（因為虛線圈寬度140px，90%是126px，半徑即為63）
+        
+        joystickCtx.beginPath();
+        joystickCtx.arc(stickPos.x, stickPos.y, radius, 0, Math.PI * 2);
+        
+        // 懸浮立體陰影 (沒有底座，所以陰影要明顯一點)
+        joystickCtx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+        joystickCtx.shadowBlur = 15;
+        joystickCtx.shadowOffsetX = 0;
+        joystickCtx.shadowOffsetY = 8;
+        // 金屬拉絲漸層 (斜向光影，營造圓柱立體感)
+        let grad = joystickCtx.createLinearGradient(
+            stickPos.x - radius, stickPos.y - radius,
+            stickPos.x + radius, stickPos.y + radius
+        );
+        grad.addColorStop(0, '#a3b5ab'); // 亮部
+        grad.addColorStop(0.5, '#7d9186'); // 莫蘭迪原色
+        grad.addColorStop(1, '#56665d'); // 暗部
+        joystickCtx.fillStyle = grad;
+        joystickCtx.fill();
+        joystickCtx.shadowColor = 'transparent'; // 重置陰影
+        // 2. 邊緣高光倒角 (讓邊緣看起來像拋光過)
+        joystickCtx.lineWidth = 2;
+        joystickCtx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+        joystickCtx.stroke();
+ 
+      // 3. 表面細節：單一的環形雕刻線 (極簡工業風)
+        joystickCtx.beginPath();
+        joystickCtx.arc(stickPos.x, stickPos.y, radius - 10, 0, Math.PI * 2);
+        joystickCtx.lineWidth = 1;
+        joystickCtx.strokeStyle = 'rgba(0, 0, 0, 0.2)'; // 內凹陰影
+        joystickCtx.stroke();
+ 
+        joystickCtx.beginPath();
+        joystickCtx.arc(stickPos.x, stickPos.y, radius - 11, 0, Math.PI * 2);
+        joystickCtx.lineWidth = 1;
+        joystickCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; // 內凹高光
+        joystickCtx.stroke();
+    }
+    function animate() {
+        if (!isJoystickActive) return;
+        joystickAnimFrame = requestAnimationFrame(animate);
+        
+        // 平滑彈回中心
+        if (!isDraggingStick) {
+            stickPos.x += (centerPos.x - stickPos.x) * 0.3;
+            stickPos.y += (centerPos.y - stickPos.y) * 0.3;
+        }
+        render2DJoystick();
+    }
+    animate();
+}
+function resetJoystick() {
+    totalRotation = 0;
+    loopCount = 0;
+    lastVibrateRotation = 0; // 重置震動基準
+    isDraggingStick = false;
+    previousAngle = 0;
+    stickPos = { x: 150, y: 150 };
+}
+</script>
+ 
+<!-- 隱形語音導航介面 -->
 <div id="voice-overlay">
     <div class="voice-circle">
         <div class="voice-ripple-ring"></div>
