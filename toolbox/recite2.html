@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>範文伴誦書僮</title>
+    <title>範文爭誦</title>
     
     <script type="module">
         import ToJyutping from 'https://cdn.jsdelivr.net/npm/to-jyutping@3.1.1/+esm';
@@ -237,6 +238,51 @@
             border-radius: 8px; padding: 20px; margin-top: 20px; text-align: center;
         }
 
+/* 排名與結算視覺化高亮 */
+        .highlight-me {
+            background-color: rgba(176, 67, 50, 0.08) !important;
+            border-left: 4px solid var(--accent-red);
+            font-weight: 600;
+        }
+        .lb-ellipsis {
+            text-align: center; color: var(--text-gray); 
+            padding: 5px 0; letter-spacing: 0.2em; border-bottom: 1px dashed rgba(209, 207, 199, 0.5);
+        }
+        
+        /* 結算畫面 UI 優化 */
+        .result-me {
+            background: rgba(176, 67, 50, 0.05); padding: 16px 20px; 
+            border-radius: 4px; border-left: 4px solid var(--accent-red); margin: 8px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
+        .result-others {
+            padding: 12px 20px; margin: 8px 0; border-left: 4px solid transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.03);
+        }
+        .result-header { display: flex; justify-content: space-between; align-items: center; letter-spacing: 0.1em; }
+        .result-score { font-size: 1.2rem; font-weight: 600; color: var(--text-dark); }
+        .result-details { font-size: 0.85rem; color: var(--text-light); margin-top: 12px; display: flex; justify-content: space-between; border-top: 1px dashed rgba(209, 207, 199, 0.5); padding-top: 8px; }
+        .status-up { color: #3b6b58; font-weight: 600; }
+        .status-down { color: var(--accent-red); font-weight: 600; }
+        .status-same { color: var(--text-gray); }
+
+/* 禁止在默誦模式下選取文字，防止作弊 */
+.challenge-mode {
+    -webkit-user-select: none; /* Safari */
+    user-select: none;         /* 現代瀏覽器標準語法 */
+}
+
+/* 雙重保險：萬一用家透過其他方式觸發反白，選取狀態下依然保持透明 */
+.challenge-mode .char:not(.matched)::selection {
+    background-color: transparent;
+    color: transparent;
+}
+.challenge-mode .char:not(.matched)::-moz-selection {
+    background-color: transparent;
+    color: transparent;
+}
+
+        
     </style>
 </head>
 <body>
@@ -272,8 +318,8 @@
 <!-- 登入模態框 -->
 <div id="auth-overlay" class="full-overlay">
     <div class="overlay-content">
-        <h2>登入書僮</h2>
-        <p>記錄背誦進程，與文友對弈切磋。</p>
+        <h2>登入</h2>
+        <p>熟誦範文，與文友對決切磋。</p>
         <button class="btn-primary" id="btn-google-login">Google 登入</button>
     </div>
 </div>
@@ -281,8 +327,8 @@
 <!-- 名稱設定模態框 -->
 <div id="name-overlay" class="full-overlay">
     <div class="overlay-content">
-        <h2>賜予雅號</h2>
-        <p>請以三至四個純中文字為名，不得使用標點與數字。</p>
+        <h2>帳號命名</h2>
+        <p>請以兩個至四個中文字為名，不得使用標點與數字。</p>
         <input type="text" id="input-username" placeholder="輸入名號..." maxlength="4">
         <br>
         <button class="btn-primary" onclick="submitName()">確認</button>
@@ -304,7 +350,7 @@
 <!-- 對戰大廳設定 -->
 <div id="lobby-setup-overlay" class="full-overlay">
     <div class="overlay-content">
-        <h2>文苑對戰</h2>
+        <h2>對戰</h2>
         <div class="tabs" style="margin-bottom: 30px;">
             <button class="tab-btn active" id="tab-create" onclick="switchLobbyTab('create')">建立房間</button>
             <button class="tab-btn" id="tab-join" onclick="switchLobbyTab('join')">加入房間</button>
@@ -359,9 +405,12 @@
         <h1 id="doc-title">載入中...</h1>
         <div class="author" id="doc-author"></div>
     </header>
-    <div class="mode-controls" id="mode-controls">
-     <button id="btn-mode-review" class="btn-mode active" onclick="setMode('review')">朗 讀</button>
-<button id="btn-mode-challenge" class="btn-mode" onclick="setMode('challenge')">默 誦</button>
+   <div class="mode-controls" id="mode-controls" style="gap: 30px;">
+        <button id="btn-mode-review" class="btn-mode active" onclick="setMode('review')">朗 讀</button>
+        <button id="btn-mode-challenge" class="btn-mode" onclick="setMode('challenge')">默 誦</button>
+        <span style="border-left: 1px solid var(--text-gray); opacity: 0.5; align-self: stretch; margin: 5px 0;"></span>
+        <button id="btn-lang-yue" class="btn-mode active" onclick="setLanguage('yue')">粵</button>
+        <button id="btn-lang-cmn" class="btn-mode" onclick="setLanguage('cmn')">普</button>
     </div>
     <div id="text-display" class="text-display review-mode"></div>
 </div>
@@ -405,7 +454,7 @@
     <div class="overlay-content">
         <h2 id="success-title">功不唐捐，玉汝於成。</h2>
         <div id="success-time" style="font-size: 1rem; color: var(--text-dark); margin-bottom: 35px; letter-spacing: 0.1em; line-height:2;"></div>
-        <button class="btn-primary" onclick="closeSuccessScreen()" id="btn-close-success">重 歸</button>
+        <button class="btn-primary" onclick="closeSuccessScreen()" id="btn-close-success">退 出</button>
         <button class="btn-primary" onclick="rematchMultiplayer()" id="btn-rematch" style="display:none;">重 戰</button>
     </div>
 </div>
@@ -417,7 +466,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-    import { getDatabase, ref, set, get, update, onValue, runTransaction, remove, onDisconnect, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+   import { getDatabase, ref, set, get, update, onValue, runTransaction, remove, onDisconnect, query, orderByChild, limitToLast, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBAvrFZCubcjq7Ytg2QUqfjYrR4xxipw04",
@@ -490,6 +539,7 @@
     let turnTimerInterval = null;
     window.handlingTimeout = false;
     window.maxMatched = 0;
+    window.escapePenaltyHook = null;
 
     // 快取
     const globalDictCache = new Map();
@@ -497,11 +547,39 @@
     let cacheUpdatedFlag = false;
 
     // 初始化 Firebase 驗證
-    onAuthStateChanged(auth, (user) => {
+  // 初始化 Firebase 驗證與權限攔截
+    onAuthStateChanged(auth, async (user) => {
         if (user) {
+            const email = user.email || "";
+            const isEduDomain = email.endsWith('@ccckyc.edu.hk');
+            
+            let isSpecial = false;
+            try {
+                const specialSnap = await get(ref(db, `special_users`));
+                if (specialSnap.exists()) {
+                    const data = specialSnap.val();
+                    // 兼容 Firebase 限制：檢查逗號替換句號的 Key (如 test@gmail,com: true)，或直接檢查 Value
+                    const encodedEmail = email.replace(/\./g, ',');
+                    if (data[encodedEmail] === true || Object.values(data).includes(email)) {
+                        isSpecial = true;
+                    }
+                }
+            } catch(e) {
+                console.error("無法核驗特許名單", e);
+            }
+
+            // 攔截非授權用戶
+            if (!isEduDomain && !isSpecial) {
+                alert("登入失敗：只限 @ccckyc.edu.hk 師生或特許用家登入。");
+                auth.signOut();
+                document.getElementById('auth-overlay').classList.add('active');
+                return;
+            }
+
+            // 授權通過，繼續執行名稱檢查
             myUid = user.uid;
             get(ref(db, `users/${myUid}/name`)).then(snap => {
-                if(snap.exists() && /^[\u4e00-\u9fa5]{3,4}$/.test(snap.val())) {
+               if(snap.exists() && /^[\u4e00-\u9fa5]{2,4}$/.test(snap.val())) {
                     myName = snap.val();
                     document.getElementById('auth-info').innerText = myName;
                     document.getElementById('auth-overlay').classList.remove('active');
@@ -516,64 +594,81 @@
             document.getElementById('auth-overlay').classList.add('active');
         }
     });
-
     document.getElementById('btn-google-login').onclick = () => {
         const provider = new GoogleAuthProvider();
         signInWithPopup(auth, provider);
     };
 
-    window.submitName = function() {
+  window.submitName = function() {
         const val = document.getElementById('input-username').value.trim();
-        if (/^[\u4e00-\u9fa5]{3,4}$/.test(val)) {
-            update(ref(db, `users/${myUid}`), { name: val, battlePoints: 0, singlePoints: 0 }).then(() => {
+        
+        if (/^[\u4e00-\u9fa5]{2,4}$/.test(val)) {
+            // 建立多路徑更新 (Atomic Update)
+            const updates = {};
+            updates[`users/${myUid}/name`] = val;
+            
+            // 初次註冊初始化分數 (如果是未來允許改名，這裡應先檢查是否已有分數，但初次登入這樣寫沒問題)
+            updates[`users/${myUid}/battlePoints`] = 0;
+            updates[`users/${myUid}/singlePoints`] = 0;
+            
+            // 【關鍵】寫入名稱鎖定
+            updates[`usernames/${val}`] = myUid; 
+
+            // 注意：必須從根目錄 ref(db) 進行多路徑更新
+            update(ref(db), updates).then(() => {
                 myName = val;
                 document.getElementById('auth-info').innerText = myName;
                 document.getElementById('name-overlay').classList.remove('active');
                 initApp();
+            }).catch((error) => {
+                // 當 Rules 阻擋 (例如名稱 !data.exists() 條件不成立時)，會觸發這裡
+                alert("此雅號已被其他文友捷足先登，請另賜雅號！");
+                console.warn("註冊名稱失敗:", error.message);
             });
+            
         } else {
-            alert("必須為三至四個中文字，且不得包含數字或符號。");
+            alert("必須為兩個至四個中文字，且不得包含數字或符號。");
         }
     };
-
     window.closeOverlays = function() {
         document.querySelectorAll('.full-overlay').forEach(el => el.classList.remove('active'));
     };
 
     // 選單渲染
     function renderMenu() {
-        const menuContainer = document.getElementById('menu-container');
-        // 保留關閉按鈕，重新組裝內容
-        let html = `<button class="close-btn-overlay" onclick="toggleMenu()" title="關閉目錄">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-        </button>`;
-        get(ref(db, `userStats/${myUid}`)).then(snap => {
-            const stats = snap.val() || {};
-            get(ref(db, `leaderboards/bestTimes`)).then(lbSnap => {
-                const bests = lbSnap.val() || {};
-                for (const [category, texts] of Object.entries(TEXT_LIBRARY)) {
-                    const catClass = category === "文學" ? "lit" : "chi";
-                    html += `<div class="menu-section ${catClass}"><h3>${category}</h3><ul class="menu-list">`;
-                    texts.forEach((item, idx) => {
-                        const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
-                        const textKey = `${category}_${idx}`;
-                        const count = stats[textKey]?.count || 0;
-                        const myBest = bests[textKey]?.[myUid];
-                        
-                        const countBadge = count > 0 ? `<span class="completion-count">完成 ${count} 次</span>` : '';
-                        const timeBadge = myBest ? `<span class="best-time">極速 ${formatTime(myBest)}</span>` : '';
-                        
-                        html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}${timeBadge}</button></li>`;
-                    });
-                    html += `</ul></div>`;
-                }
-                menuContainer.innerHTML = html;
+    const menuContainer = document.getElementById('menu-container');
+    let html = `<button class="close-btn-overlay" onclick="toggleMenu()" title="關閉目錄">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+    </button>`;
+    
+    // 【優化】只抓取自己的 userStats，裡面同時包含次數與最佳時間
+    get(ref(db, `userStats/${myUid}`)).then(snap => {
+        const stats = snap.val() || {};
+        
+        for (const [category, texts] of Object.entries(TEXT_LIBRARY)) {
+            const catClass = category === "文學" ? "lit" : "chi";
+            html += `<div class="menu-section ${catClass}"><h3>${category}</h3><ul class="menu-list">`;
+            texts.forEach((item, idx) => {
+                const isActive = (category === currentCategory && idx === currentIndex) ? 'active' : '';
+                const textKey = `${category}_${idx}`;
+                
+                // 從個人 stats 中提取次數和最佳時間
+                const count = stats[textKey]?.count || 0;
+                const myBest = stats[textKey]?.bestTime; 
+                
+                const countBadge = count > 0 ? `<span class="completion-count">完成 ${count} 次</span>` : '';
+                const timeBadge = myBest ? `<span class="best-time">耗時 ${formatTime(myBest)}</span>` : '';
+                
+                html += `<li><button class="${isActive}" onclick="selectText('${category}', ${idx})">${item.title} <span class="author-name">${item.author}</span>${countBadge}${timeBadge}</button></li>`;
             });
-        });
-    }
-
+            html += `</ul></div>`;
+        }
+        menuContainer.innerHTML = html;
+    });
+}
+    
     window.toggleMenu = function() {
         const menu = document.getElementById('menu-overlay');
         if (menu.classList.contains('active')) menu.classList.remove('active');
@@ -593,17 +688,21 @@
         checkLib();
     }
 
-    function populateRoomSelect() {
+function populateRoomSelect() {
         const sel1 = document.getElementById('room-text-select');
         const sel2 = document.getElementById('host-text-select');
         sel1.innerHTML = '';
         if(sel2) sel2.innerHTML = '';
         for (const [cat, texts] of Object.entries(TEXT_LIBRARY)) {
+            // 使用純文字符號強化視覺分隔
+            let groupHtml = `<optgroup label=" ━━━ ${cat} ━━━ ">`;
             texts.forEach((item, idx) => {
-                const opt = `<option value="${cat}_${idx}">${item.title}</option>`;
-                sel1.innerHTML += opt;
-                if(sel2) sel2.innerHTML += opt;
+                groupHtml += `<option value="${cat}_${idx}">${item.title}</option>`;
             });
+            groupHtml += `</optgroup>`;
+            
+            sel1.innerHTML += groupHtml;
+            if(sel2) sel2.innerHTML += groupHtml;
         }
     }
 
@@ -710,26 +809,68 @@
         loadLeaderboard('battle');
     };
 
-    window.loadLeaderboard = function(type) {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelector(`.tab-btn[onclick="loadLeaderboard('${type}')"]`).classList.add('active');
-        const c = document.getElementById('lb-content'); c.innerHTML = '載入中...';
+window.loadLeaderboard = async function(type) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.tab-btn[onclick="loadLeaderboard('${type}')"]`).classList.add('active');
+    const c = document.getElementById('lb-content'); 
+    c.innerHTML = '載入中...';
+    
+    const pointKey = type === 'battle' ? 'battlePoints' : 'singlePoints';
+    
+    try {
+        // 【優化】只向 Firebase 請求該分數最高的前 50 名
+        const lbQuery = query(ref(db, 'users'), orderByChild(pointKey), limitToLast(50));
+        const snap = await get(lbQuery);
         
-        let q;
-        if(type === 'battle') q = query(ref(db, 'users'), orderByChild('battlePoints'), limitToLast(50));
-        else q = query(ref(db, 'users'), orderByChild('singlePoints'), limitToLast(50));
-
-        get(q).then(snap => {
-            let html = '';
-            let arr = [];
-            snap.forEach(child => { arr.push({name: child.val().name, score: type==='battle'?child.val().battlePoints:child.val().singlePoints}); });
-            arr.sort((a,b) => b.score - a.score);
-            arr.forEach((item, idx) => {
-                html += `<div class="lb-item"><span class="lb-rank">${idx+1}.</span><span class="lb-name">${item.name}</span><span class="lb-score">${item.score} 分</span></div>`;
+        let arr = [];
+        // Firebase 預設是升序 (由小到大)，我們用 unshift 反轉成降序 (由大到小)
+        snap.forEach(child => {
+            arr.unshift({
+                uid: child.key, 
+                name: child.val().name, 
+                score: child.val()[pointKey] || 0
             });
-            c.innerHTML = html || '尚無紀錄';
         });
-    };
+
+        let html = '';
+        let myRankIndex = arr.findIndex(u => u.uid === myUid);
+        
+        arr.forEach((item, idx) => {
+            let isMe = (item.uid === myUid);
+            let hlClass = isMe ? 'highlight-me' : '';
+            html += `<div class="lb-item ${hlClass}" id="${isMe ? 'lb-my-row' : ''}">
+                        <span class="lb-rank">${idx+1}.</span>
+                        <span class="lb-name">${item.name}</span>
+                        <span class="lb-score">${item.score} 分</span>
+                     </div>`;
+        });
+
+        // 【優化】若玩家不在前 50 名，單獨抓取該玩家的分數，節省流量
+        if (myRankIndex === -1 && myUid) {
+            const mySnap = await get(ref(db, `users/${myUid}`));
+            if (mySnap.exists()) {
+                let myData = mySnap.val();
+                html += `<div class="lb-ellipsis">...</div>`;
+                html += `<div class="lb-item highlight-me" id="lb-my-row">
+                            <span class="lb-rank">50+</span>
+                            <span class="lb-name">${myData.name}</span>
+                            <span class="lb-score">${myData[pointKey] || 0} 分</span>
+                         </div>`;
+            }
+        }
+
+        c.innerHTML = html || '尚無紀錄';
+
+        setTimeout(() => {
+            let myRow = document.getElementById('lb-my-row');
+            if (myRow) myRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 150);
+
+    } catch (error) {
+        console.error("載入排行榜失敗:", error);
+        c.innerHTML = '載入失敗';
+    }
+};
 
     // ====== 多人對戰系統 ======
     let lobbyMode = 'create';
@@ -753,26 +894,36 @@
         switchLobbyTab('create');
     };
 
-    window.joinRoomAction = function() {
+window.joinRoomAction = function() {
         const code = document.getElementById('room-code-input').value.trim();
         if(!code || code.length !== 4) return alert("請輸入四位數字房號");
         
         if (lobbyMode === 'create') {
-            const maxP = 99; // 滿足驗證規則
+            const maxP = 99;
             const textKey = document.getElementById('room-text-select').value;
             const roomRef = ref(db, `rooms/${code}`);
             
             get(roomRef).then(snap => {
-                if(snap.exists()) return alert("此房號已被佔用，請重新產生");
+                if(snap.exists()) {
+                    const rData = snap.val();
+                    // 【修正點】：檢查房間內是否還有玩家。若無玩家，判定為廢棄殭屍房，允許覆蓋
+                    if (rData.players && Object.keys(rData.players).length > 0) {
+                        return alert("此房號已被佔用，請重新產生");
+                    }
+                }
+                
                 const roomObj = {
-                    host: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
+                    host: myUid, picker: myUid, maxPlayers: maxP, textKey: textKey, state: 'waiting', pointsCalculated: false,
                     players: { [myUid]: { name: myName, score: 0, rematch: false } },
                     turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                     progress: { matched: 0, errors: [] }
                 };
+                
+                // set 會直接寫入或覆蓋舊的空房間，完美解決房號耗盡問題
                 set(roomRef, roomObj).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    onDisconnect(roomRef).remove(); // 房主離線自動銷毀房間
+                    // 斷線時只移除自己，保留房間讓其他人繼續
+                    onDisconnect(ref(db, `rooms/${code}/players/${myUid}`)).remove();
                     listenToRoom();
                 });
             });
@@ -780,34 +931,91 @@
             const roomRef = ref(db, `rooms/${code}`);
             get(roomRef).then(snap => {
                 if(!snap.exists()) return alert("房間不存在");
-                if(snap.val().state !== 'waiting') return alert("房間已開始遊戲");
+                
+                const rData = snap.val();
+                // 【修正點】：避免玩家誤加到已經廢棄的殭屍房而卡死
+                if(!rData.players || Object.keys(rData.players).length === 0) {
+                    return alert("該房間已廢棄，請自己建立新房間");
+                }
+                
+                if(rData.state !== 'waiting') return alert("房間已開始遊戲");
                 
                 const pRef = ref(db, `rooms/${code}/players/${myUid}`);
                 update(pRef, { name: myName, score: 0, rematch: false }).then(() => {
                     currentRoomId = code; isMultiplayer = true;
-                    onDisconnect(pRef).remove(); // 參與者離線自動退出
+                    // 斷線時自動移除自己
+                    onDisconnect(pRef).remove();
                     listenToRoom();
                 });
             });
         }
     };
     
-    window.startMultiplayerGame = function() {
-        if(myUid === roomData?.host) {
-            const playersCount = Object.keys(roomData.players || {}).length;
+ // 新增計算句子總數的輔助函數，以確保對戰時先後手的公平性
+    function getSentenceCount(textKey) {
+        const [category, idx] = textKey.split('_');
+        const data = TEXT_LIBRARY[category][idx];
+        let count = 0;
+        let rawParagraphs = data.content.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
+
+        rawParagraphs.forEach((paraText) => {
+            let i = 0;
+            let currentSentChars = 0;
+            let cleanText = paraText.replace(/\(\d+\)/g, '').replace(/（.*?）/g, '');
+
+            while (i < cleanText.length) {
+                let char = cleanText[i];
+                if (char === ' ' || char === '\r') { i++; continue; }
+
+                if (/[，。：「」『』？、！；〈〉‧《》]/.test(char) || char === '﹗' || char === '﹔') {
+                    if (currentSentChars > 0) { count++; currentSentChars = 0; }
+                    i++; continue;
+                }
+
+                if (cleanText[i + 1] === '(') {
+                    let endIdx = cleanText.indexOf(')', i + 1);
+                    if (endIdx !== -1) { i = endIdx + 1; } else { i++; }
+                } else {
+                    i++;
+                }
+                currentSentChars++;
+            }
+            if (currentSentChars > 0) count++;
+        });
+        return count;
+    }
+
+   window.startMultiplayerGame = function() {
+        if(myUid === roomData?.picker) { // 改由 picker 控制開始
+            const playersList = Object.keys(roomData.players || {}).sort();
+            const playersCount = playersList.length;
             if (playersCount < 2) {
                 alert("需要至少兩名玩家才能開始對戰！");
                 return;
             }
 
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
-            update(ref(db, `rooms/${currentRoomId}`), {
+            
+            // 計算補分機制 (確保全對必打和)
+            const sCount = getSentenceCount(textKey);
+            const maxTurns = Math.ceil(sCount / playersCount);
+            
+            let updates = {
                 state: 'playing',
                 textKey: textKey,
                 turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                 progress: { matched: 0, errors: [] },
                 pointsCalculated: false
+            };
+            
+            // 依據玩家順位分配初始補分
+            playersList.forEach((pUid, idx) => {
+                const expectedTurns = Math.floor(sCount / playersCount) + (idx < (sCount % playersCount) ? 1 : 0);
+                const handicap = maxTurns - expectedTurns;
+                updates[`players/${pUid}/score`] = handicap; // 寫入補分
             });
+
+            update(ref(db, `rooms/${currentRoomId}`), updates);
         }
     };
 
@@ -833,13 +1041,66 @@
         }, 500);
     }
 
-    function listenToRoom() {
+ function listenToRoom() {
         closeOverlays();
+        window.previousPlayers = []; // 用於比對是否有玩家中途逃跑
+
         onValue(ref(db, `rooms/${currentRoomId}`), (snap) => {
             const data = snap.val();
             if (!data) { alert("房間已關閉"); return exitMultiplayer(); }
+            
+            // 若自己已被移出玩家名單（主動退出或斷線被拔除），則安全退出
+            if (!data.players || !data.players[myUid]) {
+                return exitMultiplayer();
+            }
+
             roomData = data;
             const playersList = Object.keys(data.players || {}).sort();
+            
+            // ==========================================
+            // 【房主遷移機制】
+            // ==========================================
+            let currentHost = data.host;
+            if (!playersList.includes(currentHost) && playersList.length > 0) {
+                currentHost = playersList[0];
+                if (myUid === currentHost) {
+                    update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
+                }
+            }
+
+            // ==========================================
+            // 【逃跑懲罰與不戰而勝機制】(由現任房主負責執行)
+            // ==========================================
+            if (data.state === 'playing' && window.previousPlayers.length > 0 && myUid === currentHost) {
+                let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
+                if (leftPlayers.length > 0) {
+                   leftPlayers.forEach(lp => {
+                        // ⚠️ 基於 Firebase 權限，純前端無法越權修改已離開玩家的節點
+                        // 這裡必須移除 runTransaction，避免 Permission Denied 報錯導致遊戲當機卡死
+                    });
+
+                    if (playersList.length === 1) {
+                        // 情況A：只剩自己一人，直接獲勝並加 1 分
+                        const winPtRef = ref(db, `users/${myUid}/battlePoints`);
+                        runTransaction(winPtRef, (cur) => (cur || 0) + 1);
+                        update(ref(db, `rooms/${currentRoomId}`), { 
+                            state: 'finished', 
+                            pointsCalculated: true // 已結算，防重複給分
+                        });
+                    } else {
+                        // 情況B：還有兩人以上，遊戲繼續。若離開者剛好是當前作答者，需修正回合
+                        if (data.turn && data.turn.playerIdx >= playersList.length) {
+                            update(ref(db, `rooms/${currentRoomId}/turn`), { 
+                                playerIdx: 0,
+                                startTime: Date.now() 
+                            });
+                        }
+                    }
+                }
+            }
+            window.previousPlayers = playersList; // 更新名單供下次比對
+            // ==========================================
+
             const activeUid = playersList[data.turn?.playerIdx || 0];
             isActivePlayer = (activeUid === myUid);
             
@@ -851,21 +1112,35 @@
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
                 let pHtml = '';
-                playersList.forEach(pUid => { pHtml += `<div>${data.players[pUid].name} ${pUid===data.host?'(房主)':''}</div>`; });
+                playersList.forEach(pUid => { 
+                    let role = [];
+                    if (pUid === currentHost) role.push('房主'); // 顯示現任房主
+                    if (pUid === data.picker) role.push('選題');
+                    let roleText = role.length > 0 ? ` <span style="font-size:0.75rem; color:var(--text-light);">[${role.join('/')}]</span>` : '';
+                    pHtml += `<div>${data.players[pUid].name}${roleText}</div>`; 
+                });
                 document.getElementById('lobby-players-list').innerHTML = pHtml;
                 document.getElementById('lobby-status-text').innerText = `等待用家加入... (目前 ${playersList.length} 人)`;
                 
-                if(myUid === data.host) {
+                if(myUid === data.picker) { // 由 picker 顯示控制面板
                     document.getElementById('host-controls').style.display = 'block';
                     document.getElementById('host-text-select').value = data.textKey || "文學_0";
                 } else {
                     document.getElementById('host-controls').style.display = 'none';
                 }
                 clearInterval(turnTimerInterval);
-            } else if (data.state === 'playing') {
+                
+          } else if (data.state === 'playing') {
                 document.getElementById('lobby-waiting-overlay').classList.remove('active');
+
+                // 【新增】遊戲開始時，向伺服器預設「如果我斷線或關閉網頁，請自動扣我 1 分」
+                if (!window.escapePenaltyHook) {
+                    window.escapePenaltyHook = onDisconnect(ref(db, `users/${myUid}`));
+                    // 使用 increment(-1) 讓伺服器端直接扣分。若分數為 0，Firebase 規則會自動阻擋變為負數
+                    window.escapePenaltyHook.update({ battlePoints: increment(-1) });
+                }
                 document.getElementById('success-screen').classList.remove('active');
-                setMode('challenge'); // 強制挑戰模式
+                setMode('challenge', true); // 強制系統切換為默誦模式
                 document.getElementById('btn-reset').style.display = 'none'; // 隱藏單機重置
                 document.getElementById('mode-controls').style.display = 'none';
 
@@ -883,6 +1158,8 @@
                 let scoreText = playersList.map(p => `${data.players[p].name}: ${data.players[p].score}`).join(' | ');
                 
                 const btnStart = document.getElementById('btn-start');
+                
+                // 完整保留你的 UI 設定
                 if (isActivePlayer) {
                     mbTurn.innerHTML = `🟢 <span style="color:var(--accent-red);">輪到你了</span>`;
                     mb.style.borderBottom = "2px solid var(--accent-red)";
@@ -932,26 +1209,48 @@
                     if (!isRecording && data.state === 'playing') startRecording();
                 }
                 
-            } else if (data.state === 'finished') {
+         } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
+
+                // 【新增】遊戲正常結束，解除斷線懲罰預設
+                if (window.escapePenaltyHook) {
+                    window.escapePenaltyHook.cancel();
+                    window.escapePenaltyHook = null;
+                }
                 clearInterval(turnTimerInterval);
                 showMultiplayerResults(data);
-                if (myUid === data.host && !data.pointsCalculated) calculateAndApplyBattlePoints(data);
+                // 👈 讓房間內所有玩家都執行計分函數
+                if (!data.pointsCalculated) calculateAndApplyBattlePoints(data); 
             }
         });
     }
 
-    window.leaveRoom = function() {
+ window.leaveRoom = function() {
         if(!currentRoomId) return;
-        if(myUid === roomData?.host) {
-            remove(ref(db, `rooms/${currentRoomId}`));
-        } else {
-            remove(ref(db, `rooms/${currentRoomId}/players/${myUid}`));
+
+        // 【新增】如果在遊戲進行中主動點擊退出，立刻自我扣 1 分
+        if (roomData && roomData.state === 'playing') {
+            runTransaction(ref(db, `users/${myUid}/battlePoints`), (cur) => Math.max(0, (cur || 0) - 1));
         }
+
+        // 【新增】解除斷線懲罰預設，以免雙重扣分
+        if (window.escapePenaltyHook) {
+            window.escapePenaltyHook.cancel();
+            window.escapePenaltyHook = null;
+        }
+        
+        // 僅移除自己的節點，將處理懲罰與遷移的任務交給留在房內的玩家
+        remove(ref(db, `rooms/${currentRoomId}/players/${myUid}`));
+        
+        // 若房間本來就只剩自己一人，順手清空廢棄的房間數據
+        if (roomData && Object.keys(roomData.players || {}).length <= 1) {
+            remove(ref(db, `rooms/${currentRoomId}`));
+        }
+        
         exitMultiplayer();
     };
 
-    function exitMultiplayer() {
+ function exitMultiplayer() {
         isMultiplayer = false; currentRoomId = null; roomData = null;
         clearInterval(turnTimerInterval); turnTimerInterval = null;
         closeOverlays();
@@ -962,6 +1261,7 @@
         document.getElementById('mode-controls').style.display = 'flex';
         const btnStart = document.getElementById('btn-start');
         btnStart.disabled = false; btnStart.style.opacity = '1';
+        setMode('review', true); // 退出對戰後恢復為朗讀模式
         resetAllLocalState();
     }
 
@@ -1000,10 +1300,12 @@
     }
 
     // ====== 多人結算 ======
-    function showMultiplayerResults(data) {
+function showMultiplayerResults(data) {
         const sc = document.getElementById('success-screen');
+        sc.classList.add('active'); // 👈 新增這一行，讓結算畫面彈出
         document.getElementById('success-title').innerText = "對戰終局";
         
+      // 【補回】判斷自己的重戰狀態，更新按鈕文字
         if (data.players[myUid]?.rematch) {
             document.getElementById('btn-rematch').innerText = "等候中...";
             document.getElementById('btn-rematch').disabled = true;
@@ -1013,56 +1315,120 @@
         }
 
         let playersList = Object.keys(data.players || {}).sort((a,b) => data.players[b].score - data.players[a].score);
-        let html = '';
-        playersList.forEach((p, idx) => {
-            html += `<div>第 ${idx+1} 名：${data.players[p].name} (${data.players[p].score} 分)</div>`;
-        });
-        document.getElementById('success-time').innerHTML = html;
+        
+     // 【優化】只獲取房間內參戰玩家的最新資料，不下載全服 user
+Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
+    let allUsers = snaps.map(snap => ({ uid: snap.key, name: snap.val().name, score: snap.val().battlePoints || 0 }));
+    
+    let matchScores = playersList.map(p => data.players[p].score);
+    let maxS = Math.max(...matchScores); 
+    let minS = Math.min(...matchScores);
+    
+    let getDelta = (pUid) => {
+        let s = data.players[pUid].score;
+        if (playersList.length > 1 && maxS !== minS) return (s === maxS) ? 1 : ((s === minS) ? -1 : 0);
+        return 0;
+    };
+
+    let html = '<div style="text-align:left; line-height:1.6; display:flex; flex-direction:column; gap:8px;">';
+    
+    playersList.forEach((p, idx) => {
+        let isMe = (p === myUid);
+        let pScore = data.players[p].score;
+        let delta = getDelta(p);
+        
+        let userDbData = allUsers.find(u => u.uid === p);
+        // 如果還沒結算，預期最新總分 = 資料庫分數 + delta；如果已結算，資料庫分數就是最新總分
+        let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
+
+        let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
+        let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
+        let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
+
+        html += `<div class="${isMe ? 'result-me' : 'result-others'}">
+                    <div class="result-header">
+                        <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}</span>
+                        <span class="result-score">${pScore} 題</span>
+                    </div>
+                    ${isMe ? `
+                    <div class="result-details">
+                        <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
+                        <span class="${rankClass}">${rankText}</span>
+                    </div>` : ''}
+                 </div>`;
+    });
+    html += '</div>';
+    document.getElementById('success-time').innerHTML = html;
+
+// 【補回】確保顯示重戰與退出按鈕
         document.getElementById('btn-rematch').style.display = 'inline-block';
         document.getElementById('btn-close-success').innerText = "退 出";
-        sc.classList.add('active');
 
-        // 判斷是否所有玩家都選擇重戰
-        if (myUid === data.host) {
-            let allRematch = playersList.every(p => data.players[p].rematch);
+    
+});
+
+        // 房主負責重置房間狀態，並隨機指派下一局選題者
+         if (myUid === data.host) {
+            let playersList = Object.keys(data.players || {});
+            let allRematch = playersList.length > 0 && playersList.every(p => data.players[p].rematch);
+            
             if (allRematch) {
+                // 從目前房間玩家中隨機抽選一位負責下一局的選題
+                let nextPicker = playersList[Math.floor(Math.random() * playersList.length)];
+                
                 let updates = { 
                     state: 'waiting', 
+                    picker: nextPicker, // 寫入新選題者
                     turn: { playerIdx: 0, sentenceIdx: 0, mistakes: 0, startTime: Date.now() }, 
                     progress: { matched: 0, errors: [] }, 
                     pointsCalculated: false 
                 };
-                playersList.forEach(p => { updates[`players/${p}/score`] = 0; updates[`players/${p}/rematch`] = false; });
+                
+                // 把所有人的本局分數歸零，並把重戰狀態重置為 false
+                playersList.forEach(p => { 
+                    updates[`players/${p}/score`] = 0; 
+                    updates[`players/${p}/rematch`] = false; 
+                });
+                
+                // 提交覆蓋
                 update(ref(db, `rooms/${currentRoomId}`), updates);
             }
         }
     }
 
-    window.rematchMultiplayer = function() {
+  window.rematchMultiplayer = function() {
+        if (!currentRoomId) return;
+        // 將自己的 rematch 狀態設為 true
         update(ref(db, `rooms/${currentRoomId}/players/${myUid}`), { rematch: true });
+        // 改變按鈕外觀，防止重複點擊
         document.getElementById('btn-rematch').innerText = "等候中...";
         document.getElementById('btn-rematch').disabled = true;
     };
 
-    function calculateAndApplyBattlePoints(data) {
+  function calculateAndApplyBattlePoints(data) {
         let playersList = Object.keys(data.players || {});
         if(playersList.length < 2) return;
+        
         let scores = playersList.map(p => data.players[p].score);
         let maxS = Math.max(...scores); let minS = Math.min(...scores);
-        if(maxS === minS) { update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true }); return; } // 打和
 
-        playersList.forEach(p => {
-            let s = data.players[p].score;
+        // 👈 每個人只抓取、判斷並更新「自己」的對戰積分
+        let myScore = data.players[myUid]?.score;
+        if (myScore !== undefined && maxS !== minS) {
             let diff = 0;
-            if(s === maxS) diff = 1;
-            else if(s === minS) diff = -1;
+            if (myScore === maxS) diff = 1;
+            else if (myScore === minS) diff = -1;
             
-            if(diff !== 0) {
-                const ptRef = ref(db, `users/${p}/battlePoints`);
+            if (diff !== 0) {
+                const ptRef = ref(db, `users/${myUid}/battlePoints`);
                 runTransaction(ptRef, (cur) => { return Math.max(0, (cur || 0) + diff); });
             }
-        });
-        update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
+        }
+        
+        // 👈 結算完畢後，由房主負責關閉房間的計分狀態，防止重複給分
+        if (myUid === data.host) {
+            update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
+        }
     }
 
     // ====== 單機與底層共用邏輯 ======
@@ -1238,8 +1604,13 @@
     }
     
     // 獨立處理錯誤的邏輯（超時或讀錯時共用）
-    function handleMistake(isTimeout = false, errorIndex = 0) {
+   function handleMistake(isTimeout = false, errorIndex = 0) {
         if (!isMultiplayer || !isActivePlayer || !roomData) return;
+        
+        // 觸發設備震動 (若瀏覽器/設備支援，會產生短促兩下震動)
+        if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100]);
+        }
         
         const currentMistakes = (roomData.turn.mistakes || 0) + 1;
         set(ref(db, `rooms/${currentRoomId}/progress/errors`), isTimeout ? [0] : [errorIndex]);
@@ -1281,6 +1652,7 @@
         }
     }
 
+    
     function matchAlgorithm(sttData) {
         if(isMultiplayer && !isActivePlayer) return;
         clearTimeout(partialTimeout); let sentencePassed = false;
@@ -1347,7 +1719,7 @@
                     applyRemoteMatched(0); // 單機模式完美推進句子並永久固定已讀句子
                 }
             } else {
-                if (maxMatched > 0 || sttData.length > consumedSttIdx) {
+              if (maxMatched > 0 || sttData.length > consumedSttIdx) {
                     window.maxMatched = maxMatched;
                     partialTimeout = setTimeout(() => {
                         if (isMultiplayer) {
@@ -1357,6 +1729,8 @@
                             }
                             return;
                         } else {
+                            // 單機模式：讀錯或超時震動回饋
+                            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                             applyRemoteErrors([maxMatched]);
                             applyRemoteMatched(0); finalTokens = []; consumedSttIdx = 0;
                         }
@@ -1403,21 +1777,24 @@
             let timeText = `本次用時：${formatTime(timeTaken)}`;
 
             if (selectedParagraphs.size === 0 && document.getElementById('text-display').classList.contains('challenge-mode')) {
-                const textKey = `${currentCategory}_${currentIndex}`;
-                const statRef = ref(db, `userStats/${myUid}/${textKey}/count`);
-                
-                get(statRef).then(s => set(statRef, (s.val() || 0) + 1));
-                
-                get(ref(db, `leaderboards/bestTimes/${textKey}/${myUid}`)).then(snap => {
-                    const currentBest = snap.val();
-                    if (!currentBest || timeTaken < currentBest) {
-                        set(ref(db, `leaderboards/bestTimes/${textKey}/${myUid}`), timeTaken);
-                        document.getElementById('success-time').innerText = timeText + " 創下新紀錄";
-                    } else {
-                        document.getElementById('success-time').innerText = timeText;
-                    }
-                });
-            } else { document.getElementById('success-time').innerText = timeText + " (節錄模式不列紀錄)"; }
+    const textKey = `${currentCategory}_${currentIndex}`;
+    const statRef = ref(db, `userStats/${myUid}/${textKey}`);
+    
+    // 【優化】將 count 和 bestTime 寫在同一個使用者的節點下
+    get(statRef).then(snap => {
+        let s = snap.val() || { count: 0 };
+        s.count = (s.count || 0) + 1;
+        
+        if (!s.bestTime || timeTaken < s.bestTime) {
+            s.bestTime = timeTaken;
+            document.getElementById('success-time').innerText = timeText + " 創下新紀錄";
+        } else {
+            document.getElementById('success-time').innerText = timeText;
+        }
+        
+        set(statRef, s);
+    });
+} else { document.getElementById('success-time').innerText = timeText + " 【不列入紀錄】"; }
             
             commitSinglePoints();
         }
@@ -1458,13 +1835,41 @@
 
     function formatTime(ms) { let ts = Math.floor(ms / 1000); let m = Math.floor(ts / 60); let s = ts % 60; return m > 0 ? `${m}分${s}秒` : `${s}秒`; }
 
-   window.setMode = function(mode) {
-    if (isMultiplayer) return; // 加入這行，對戰模式下禁止手動切換
-    const container = document.getElementById('text-display');
+ window.setLanguage = function(lang) {
+        document.getElementById('btn-lang-yue').classList.toggle('active', lang === 'yue');
+        document.getElementById('btn-lang-cmn').classList.toggle('active', lang === 'cmn');
+        
+        if (recognition) {
+            const wasRecording = isRecording; // 記錄切換前是否正在錄音
+            if (wasRecording) stopRecording();
+            
+            if (lang === 'yue') {
+                recognition.lang = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream ? 'zh-HK' : 'yue-Hant-HK';
+            } else {
+                // 普通話設定為 zh-TW (台灣國語)，這樣能保證 API 吐出的是「繁體中文字」
+                // 從而完美銜接原有的 ToJyutping 繁體轉粵拼容錯機制
+                recognition.lang = 'zh-TW';
+            }
+            
+            // 如果剛才正在錄音，無縫重新啟動以套用新語言
+            if (wasRecording) {
+                setTimeout(() => startRecording(), 300);
+            }
+        }
+    };
+ 
+    window.setMode = function(mode, force = false) {
+        if (isMultiplayer && !force) return; // 對戰模式下禁止手動切換，但允許系統強制設置
+        const container = document.getElementById('text-display');
         document.getElementById('btn-mode-review').classList.remove('active');
         document.getElementById('btn-mode-challenge').classList.remove('active');
-        if (mode === 'challenge') { container.className = 'text-display challenge-mode'; document.getElementById('btn-mode-challenge').classList.add('active'); } 
-        else { container.className = 'text-display review-mode'; document.getElementById('btn-mode-review').classList.add('active'); }
+        if (mode === 'challenge') {
+            container.className = 'text-display challenge-mode';
+            document.getElementById('btn-mode-challenge').classList.add('active');
+        } else {
+            container.className = 'text-display review-mode';
+            document.getElementById('btn-mode-review').classList.add('active');
+        }
     }
 
     function checkLib() { if (window.ToJyutping) { ToJyutpingLib = window.ToJyutping; document.getElementById('btn-start').disabled = false; loadCurrentText(); } else setTimeout(checkLib, 300); }
