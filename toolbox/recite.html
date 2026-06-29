@@ -66,9 +66,11 @@
         }
         .btn-icon-close:hover { color: var(--accent-red); }
 
-        /* 導航列與目錄按鈕 */
+    /* 導航列與頂部毛玻璃遮罩 (防止文字捲動重疊) */
         .nav-bar {
-            position: fixed; top: 20px; left: 25px; z-index: 1000; display: flex; gap: 20px;
+            position: fixed; top: 0; left: 0; width: 100%; height: 65px;
+            background: rgba(247, 246, 242, 0.95); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(0,0,0,0.03);
+            z-index: 1000; display: flex; gap: 20px; align-items: center; padding: 0 25px; box-sizing: border-box;
         }
         .btn-menu {
             background: none; border: none; cursor: pointer; color: var(--text-dark);
@@ -79,7 +81,8 @@
         .btn-menu svg { width: 20px; height: 20px; }
 
         .auth-info {
-            position: fixed; top: 20px; right: 25px; z-index: 1000;
+            position: fixed; top: 0; right: 25px; height: 65px; z-index: 1001;
+            display: flex; align-items: center;
             font-size: 0.85rem; letter-spacing: 0.1em; color: var(--text-light);
         }
 
@@ -250,7 +253,21 @@
         }
         
         /* 結算畫面 UI 優化 */
+        /* 結算畫面古典勝負印章 */
+        .result-stamp {
+            position: absolute; right: 15px; top: 50%; transform: translateY(-50%) rotate(-15deg);
+            font-size: 2rem; font-weight: bold; border: 3px solid; border-radius: 50%;
+            width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;
+            opacity: 0.85; letter-spacing: 0; font-family: 'PMingLiU', 'MingLiU', serif;
+            box-shadow: inset 0 0 4px rgba(0,0,0,0.05); pointer-events: none;
+        }
+        .stamp-win { color: #b04332; border-color: #b04332; background: rgba(176, 67, 50, 0.05); }
+        .stamp-lose { color: #2b5c7a; border-color: #2b5c7a; opacity: 0.6; background: rgba(43, 92, 122, 0.05); }
+        .stamp-tie { color: #3b6b58; border-color: #3b6b58; background: rgba(59, 107, 88, 0.05); }
+
+        /* 結算畫面 UI 優化 (增加相對定位以容納印章) */
         .result-me {
+            position: relative; overflow: hidden;
             background: rgba(176, 67, 50, 0.05); padding: 16px 20px; 
             border-radius: 4px; border-left: 4px solid var(--accent-red); margin: 8px 0;
             box-shadow: 0 2px 8px rgba(0,0,0,0.02);
@@ -1585,13 +1602,21 @@ function showMultiplayerResults(data) {
                     let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
                     let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
 
+                    let stampHtml = '';
+                    if (isMe) {
+                        let stampChar = delta > 0 ? '勝' : (delta < 0 ? '負' : '平');
+                        let stampColor = delta > 0 ? 'stamp-win' : (delta < 0 ? 'stamp-lose' : 'stamp-tie');
+                        stampHtml = `<div class="result-stamp ${stampColor}">${stampChar}</div>`;
+                    }
+
                     html += `<div class="${isMe ? 'result-me' : 'result-others'}" style="border-left-color: ${pTeam==='red'?'#b04332':'#2b5c7a'}">
+                                ${stampHtml}
                                 <div class="result-header">
-                                    <span style="font-weight:${isMe?'bold':'normal'};">${pTeam==='red'?'[紅]':'[藍]'} ${data.players[p].name}</span>
-                                    <span class="result-score">${pScore} 題</span>
+                                    <span style="font-weight:${isMe?'bold':'normal'}; position:relative; z-index:2;">${pTeam==='red'?'[紅]':'[藍]'} ${data.players[p].name}</span>
+                                    <span class="result-score" style="position:relative; z-index:2;">${pScore} 題</span>
                                 </div>
                                 ${isMe ? `
-                                <div class="result-details">
+                                <div class="result-details" style="position:relative; z-index:2;">
                                     <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
                                     <span class="${rankClass}">${rankText}</span>
                                 </div>` : ''}
@@ -1617,17 +1642,25 @@ function showMultiplayerResults(data) {
                  let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
                     let newTotal = window.hasCalculatedPoints ? userDbData.score : Math.max(0, userDbData.score + delta);
 
-                    let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
+                 let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
                     let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
                     let deltaStr = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : '0');
 
+                    let stampHtml = '';
+                    if (isMe) {
+                        let stampChar = delta > 0 ? '勝' : (delta < 0 ? '負' : '平');
+                        let stampColor = delta > 0 ? 'stamp-win' : (delta < 0 ? 'stamp-lose' : 'stamp-tie');
+                        stampHtml = `<div class="result-stamp ${stampColor}">${stampChar}</div>`;
+                    }
+
                     html += `<div class="${isMe ? 'result-me' : 'result-others'}">
+                                ${stampHtml}
                                 <div class="result-header">
-                                    <span style="font-weight:${isMe?'bold':'normal'};">第 ${idx+1} 名：${data.players[p].name}${playersList.length === 1 ? ' (不戰而勝)' : ''}</span>
-                                    <span class="result-score">${pScore} 題</span>
+                                    <span style="font-weight:${isMe?'bold':'normal'}; position:relative; z-index:2;">第 ${idx+1} 名：${data.players[p].name}${playersList.length === 1 ? ' (不戰而勝)' : ''}</span>
+                                    <span class="result-score" style="position:relative; z-index:2;">${pScore} 題</span>
                                 </div>
                                 ${isMe ? `
-                                <div class="result-details">
+                                <div class="result-details" style="position:relative; z-index:2;">
                                     <span>總積分：<span style="color:var(--text-dark); font-weight:bold;">${newTotal}</span> (${deltaStr})</span>
                                     <span class="${rankClass}">${rankText}</span>
                                 </div>` : ''}
