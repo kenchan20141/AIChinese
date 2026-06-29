@@ -405,9 +405,12 @@
         <h1 id="doc-title">載入中...</h1>
         <div class="author" id="doc-author"></div>
     </header>
-    <div class="mode-controls" id="mode-controls">
-     <button id="btn-mode-review" class="btn-mode active" onclick="setMode('review')">朗 讀</button>
-<button id="btn-mode-challenge" class="btn-mode" onclick="setMode('challenge')">默 誦</button>
+   <div class="mode-controls" id="mode-controls" style="gap: 30px;">
+        <button id="btn-mode-review" class="btn-mode active" onclick="setMode('review')">朗 讀</button>
+        <button id="btn-mode-challenge" class="btn-mode" onclick="setMode('challenge')">默 誦</button>
+        <span style="border-left: 1px solid var(--text-gray); opacity: 0.5; align-self: stretch; margin: 5px 0;"></span>
+        <button id="btn-lang-yue" class="btn-mode active" onclick="setLanguage('yue')">粵</button>
+        <button id="btn-lang-cmn" class="btn-mode" onclick="setLanguage('cmn')">普</button>
     </div>
     <div id="text-display" class="text-display review-mode"></div>
 </div>
@@ -1832,17 +1835,40 @@ Promise.all(playersList.map(p => get(ref(db, `users/${p}`)))).then(snaps => {
 
     function formatTime(ms) { let ts = Math.floor(ms / 1000); let m = Math.floor(ts / 60); let s = ts % 60; return m > 0 ? `${m}分${s}秒` : `${s}秒`; }
 
-  window.setMode = function(mode, force = false) {
+ window.setLanguage = function(lang) {
+        document.getElementById('btn-lang-yue').classList.toggle('active', lang === 'yue');
+        document.getElementById('btn-lang-cmn').classList.toggle('active', lang === 'cmn');
+        
+        if (recognition) {
+            const wasRecording = isRecording; // 記錄切換前是否正在錄音
+            if (wasRecording) stopRecording();
+            
+            if (lang === 'yue') {
+                recognition.lang = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream ? 'zh-HK' : 'yue-Hant-HK';
+            } else {
+                // 普通話設定為 zh-TW (台灣國語)，這樣能保證 API 吐出的是「繁體中文字」
+                // 從而完美銜接原有的 ToJyutping 繁體轉粵拼容錯機制
+                recognition.lang = 'zh-TW';
+            }
+            
+            // 如果剛才正在錄音，無縫重新啟動以套用新語言
+            if (wasRecording) {
+                setTimeout(() => startRecording(), 300);
+            }
+        }
+    };
+ 
+    window.setMode = function(mode, force = false) {
         if (isMultiplayer && !force) return; // 對戰模式下禁止手動切換，但允許系統強制設置
         const container = document.getElementById('text-display');
         document.getElementById('btn-mode-review').classList.remove('active');
         document.getElementById('btn-mode-challenge').classList.remove('active');
-        if (mode === 'challenge') { 
-            container.className = 'text-display challenge-mode'; 
-            document.getElementById('btn-mode-challenge').classList.add('active'); 
-        } else { 
-            container.className = 'text-display review-mode'; 
-            document.getElementById('btn-mode-review').classList.add('active'); 
+        if (mode === 'challenge') {
+            container.className = 'text-display challenge-mode';
+            document.getElementById('btn-mode-challenge').classList.add('active');
+        } else {
+            container.className = 'text-display review-mode';
+            document.getElementById('btn-mode-review').classList.add('active');
         }
     }
 
