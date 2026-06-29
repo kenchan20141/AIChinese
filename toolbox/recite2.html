@@ -1205,7 +1205,8 @@ window.joinRoomAction = function() {
             document.getElementById('main-nav-bar').style.display = 'none';
             document.getElementById('auth-info').style.display = 'none';
 
-          if (data.state === 'waiting') {
+        if (data.state === 'waiting') {
+                window.hasCalculatedPoints = false;
                 document.getElementById('lobby-waiting-overlay').classList.add('active');
                 document.getElementById('success-screen').classList.remove('active');
                 document.getElementById('lobby-room-code').innerText = currentRoomId;
@@ -1410,7 +1411,7 @@ window.joinRoomAction = function() {
                     if (!isRecording && data.state === 'playing') startRecording();
                 }
                 
-         } else if (data.state === 'finished') {
+       } else if (data.state === 'finished') {
                 if(isRecording) stopRecording();
 
                 // 【新增】遊戲正常結束，解除斷線懲罰預設
@@ -1421,7 +1422,10 @@ window.joinRoomAction = function() {
                 clearInterval(turnTimerInterval);
                 showMultiplayerResults(data);
                 // 👈 讓房間內所有玩家都執行計分函數
-                if (!data.pointsCalculated) calculateAndApplyBattlePoints(data); 
+                if (!window.hasCalculatedPoints) {
+                    calculateAndApplyBattlePoints(data); 
+                    window.hasCalculatedPoints = true;
+                }
             }
         });
     }
@@ -1451,8 +1455,9 @@ window.joinRoomAction = function() {
         exitMultiplayer();
     };
 
- function exitMultiplayer() {
+function exitMultiplayer() {
         isMultiplayer = false; currentRoomId = null; roomData = null;
+        window.hasCalculatedPoints = false;
         clearInterval(turnTimerInterval); turnTimerInterval = null;
         closeOverlays();
         document.getElementById('multiplayer-bar').classList.remove('active');
@@ -1546,8 +1551,8 @@ function showMultiplayerResults(data) {
                     let delta = 0;
                     if (winTeam !== 'tie') delta = (pTeam === winTeam) ? 1 : -1;
                     
-                    let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
-                    let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
+                  let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
+                    let newTotal = window.hasCalculatedPoints ? userDbData.score : Math.max(0, userDbData.score + delta);
 
                     let rankText = delta > 0 ? '戰勝加分' : (delta < 0 ? '戰敗扣分' : '平局不變');
                     let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
@@ -1582,8 +1587,8 @@ function showMultiplayerResults(data) {
                     let pScore = data.players[p].score;
                     let delta = getDelta(p);
                     
-                    let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
-                    let newTotal = data.pointsCalculated ? userDbData.score : Math.max(0, userDbData.score + delta);
+                 let userDbData = allUsers.find(u => u.uid === p) || { score: 0 };
+                    let newTotal = window.hasCalculatedPoints ? userDbData.score : Math.max(0, userDbData.score + delta);
 
                     let rankText = delta > 0 ? '積分增加' : (delta < 0 ? '積分減少' : '積分不變');
                     let rankClass = delta > 0 ? 'status-up' : (delta < 0 ? 'status-down' : 'status-same');
@@ -1671,10 +1676,14 @@ function showMultiplayerResults(data) {
             }
         }
         
-        if (diff !== 0) {
+      if (diff !== 0) {
             const ptRef = ref(db, `users/${myUid}/battlePoints`);
             runTransaction(ptRef, (cur) => { return Math.max(0, (cur || 0) + diff); });
         }
+        // 刪除了原本在這裡的 update pointsCalculated: true
+    }
+
+window.rematchMultiplayer = function() {
         
         if (myUid === data.host) {
             update(ref(db, `rooms/${currentRoomId}`), { pointsCalculated: true });
