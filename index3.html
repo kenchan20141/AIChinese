@@ -26049,6 +26049,7 @@ const maxRadius = 85;
 let isDraggingStick = false;
 let previousAngle = 0;
 let totalRotation = 0;
+let lastVibrateRotation = 0; // ★ 新增：用於記錄上次發出微震動的角度
 let loopCount = 0;
 let joystickAnimFrame = null;
  
@@ -26086,12 +26087,9 @@ function startJoystickUI() {
 }
 // ★★★ 強制等待 2 秒的邏輯 ★★★
 function resolveJoystick() {
-    // 1. 先把搖桿介面收起來，讓背後的「生成中 GIF」露出來
     const overlay = document.getElementById('joystickOverlay');
     if(overlay) overlay.style.display = 'none';
  
-    // 2. 強制等待 2 秒 (2000ms) 後，才放行 Promise
-    // 如果生成還沒完成，畫面會繼續卡在 GIF；如果生成已完成，也會硬等這 2 秒才展示結果
     setTimeout(() => {
         if (joystickPromiseResolver) {
             joystickPromiseResolver();
@@ -26103,7 +26101,6 @@ function forceCloseJoystick() {
     const overlay = document.getElementById('joystickOverlay');
     if (overlay) overlay.style.display = 'none';
     
-    // 如果是強制中斷，直接放行
     if (joystickPromiseResolver) {
         joystickPromiseResolver();
         joystickPromiseResolver = null;
@@ -26116,7 +26113,6 @@ function initFlatJoystick() {
     joystickCanvas = document.getElementById('threeJoystickCanvas');
     if(!joystickCanvas) return;
     
-    // 強制設定 Canvas 解析度為 300x300
     joystickCanvas.width = 300;
     joystickCanvas.height = 300;
     joystickCtx = joystickCanvas.getContext('2d');
@@ -26163,7 +26159,6 @@ function initFlatJoystick() {
         let dy = targetY - centerPos.y;
         let distance = Math.hypot(dx, dy);
         let angle = Math.atan2(dy, dx);
-        // 限制移動半徑
         if (distance > maxRadius) {
             targetX = centerPos.x + Math.cos(angle) * maxRadius;
             targetY = centerPos.y + Math.sin(angle) * maxRadius;
@@ -26178,6 +26173,12 @@ function initFlatJoystick() {
             
             totalRotation += diff;
             
+            // ★★★ 新增：搖動時的段落震動感 (每轉動約 15 度，發出 5ms 的微震動) ★★★
+            if (Math.abs(totalRotation - lastVibrateRotation) > Math.PI / 12) {
+                if (navigator.vibrate) navigator.vibrate(5);
+                lastVibrateRotation = totalRotation;
+            }
+            
             let newLoops = Math.floor(Math.abs(totalRotation) / (2 * Math.PI));
             if (newLoops > loopCount) {
                 loopCount = newLoops;
@@ -26185,33 +26186,26 @@ function initFlatJoystick() {
                 const counter = document.getElementById('joystickCounter');
                 if(counter) counter.innerText = `${Math.min(loopCount, 50)} / 50`;
                 
-                if (navigator.vibrate) navigator.vibrate(15);
+                // 轉完一整圈，給予較強的 20ms 震動回饋
+                if (navigator.vibrate) navigator.vibrate(20);
                 
                 if (loopCount >= 50) {
                     isDraggingStick = false;
-                    resolveJoystick(); // 呼叫改寫後的放行邏輯
+                    resolveJoystick();
                 }
             }
         }
         previousAngle = currentAzi;
     }
-    // ★★★ 核心修改：高質感單一圓形旋鈕設計 ★★★
+    // ★★★ 核心修改：移除所有背景，只保留單一高質感綠色旋鈕 ★★★
     function render2DJoystick() {
         joystickCtx.clearRect(0, 0, 300, 300);
-        // 1. 繪製底部凹槽底座 (淺米色)
-        joystickCtx.beginPath();
-        joystickCtx.arc(centerPos.x, centerPos.y, 110, 0, Math.PI * 2);
-        joystickCtx.fillStyle = '#f5f4f0';
-        joystickCtx.fill();
-        joystickCtx.lineWidth = 3;
-        joystickCtx.strokeStyle = 'rgba(0,0,0,0.05)';
-        joystickCtx.stroke();
-        // 2. 旋鈕本體 (單一圓形)
+        // 1. 旋鈕本體 (單一圓形)
         const radius = 55;
         joystickCtx.beginPath();
         joystickCtx.arc(stickPos.x, stickPos.y, radius, 0, Math.PI * 2);
         
-        // 懸浮立體陰影
+        // 懸浮立體陰影 (沒有底座，所以陰影要明顯一點)
         joystickCtx.shadowColor = 'rgba(0, 0, 0, 0.25)';
         joystickCtx.shadowBlur = 15;
         joystickCtx.shadowOffsetX = 0;
@@ -26222,17 +26216,17 @@ function initFlatJoystick() {
             stickPos.x + radius, stickPos.y + radius
         );
         grad.addColorStop(0, '#a3b5ab'); // 亮部
-        grad.addColorStop(0.5, '#7d9186'); // 原色
+        grad.addColorStop(0.5, '#7d9186'); // 莫蘭迪原色
         grad.addColorStop(1, '#56665d'); // 暗部
         joystickCtx.fillStyle = grad;
         joystickCtx.fill();
         joystickCtx.shadowColor = 'transparent'; // 重置陰影
-        // 3. 邊緣高光倒角 (讓邊緣看起來像拋光過)
+        // 2. 邊緣高光倒角 (讓邊緣看起來像拋光過)
         joystickCtx.lineWidth = 2;
         joystickCtx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
         joystickCtx.stroke();
  
-        // 4. 表面細節：單一的環形雕刻線 (極簡工業風，杜絕肉感聯想)
+        // 3. 表面細節：單一的環形雕刻線 (極簡工業風)
         joystickCtx.beginPath();
         joystickCtx.arc(stickPos.x, stickPos.y, radius - 10, 0, Math.PI * 2);
         joystickCtx.lineWidth = 1;
@@ -26261,6 +26255,7 @@ function initFlatJoystick() {
 function resetJoystick() {
     totalRotation = 0;
     loopCount = 0;
+    lastVibrateRotation = 0; // 重置震動基準
     isDraggingStick = false;
     previousAngle = 0;
     stickPos = { x: 150, y: 150 };
