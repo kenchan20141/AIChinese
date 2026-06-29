@@ -1042,34 +1042,45 @@ window.joinRoomAction = function() {
             }
 
             const textKey = document.getElementById('host-text-select').value || roomData.textKey;
-            
             const sCount = getSentenceCount(textKey);
-            let expectedTurns = {};
-            playersList.forEach(p => expectedTurns[p] = 0);
-
-            if (roomData.playMode === 'turn') {
-                if (roomData.teamMode === 'team') {
-                    let rIdx = 0, bIdx = 0;
-                    for (let i = 0; i < sCount; i++) {
-                        if (i % 2 === 0) { expectedTurns[redList[rIdx]]++; rIdx = (rIdx + 1) % redList.length; } 
-                        else { expectedTurns[blueList[bIdx]]++; bIdx = (bIdx + 1) % blueList.length; }
-                    }
-                } else {
-                    for (let i = 0; i < sCount; i++) { expectedTurns[playersList[i % playersList.length]]++; }
-                }
-            }
-
-            let maxT = roomData.playMode === 'turn' ? Math.max(...Object.values(expectedTurns)) : 0;
+            
             let updates = {
                 state: 'playing', textKey: textKey, pointsCalculated: false,
                 turn: { playerIdx: 0, teamColor: 'red', sentenceIdx: 0, mistakes: 0, startTime: Date.now() },
                 progress: { matched: 0, errors: [] }
             };
 
-            playersList.forEach(p => {
-                let handicap = roomData.playMode === 'turn' ? (maxT - expectedTurns[p]) : 0;
-                updates[`players/${p}/score`] = handicap; 
-            });
+            // 初始化所有人的得分為 0
+            playersList.forEach(p => updates[`players/${p}/score`] = 0);
+
+            // --- 賽局預演：精準補分系統 (Handicap) ---
+            if (roomData.playMode === 'turn') {
+                if (roomData.teamMode === 'team') {
+                    // 團體戰：以「隊伍」為單位計算總作答次數
+                    let teamExpectedTurns = { red: 0, blue: 0 };
+                    for (let i = 0; i < sCount; i++) {
+                        if (i % 2 === 0) teamExpectedTurns.red++;
+                        else teamExpectedTurns.blue++;
+                    }
+                    let maxTeamTurns = Math.max(teamExpectedTurns.red, teamExpectedTurns.blue);
+                    let redHandicap = maxTeamTurns - teamExpectedTurns.red;
+                    let blueHandicap = maxTeamTurns - teamExpectedTurns.blue;
+                    
+                    // 將補分只發給劣勢隊伍的第一名成員，確保團隊總分公平
+                    if (redHandicap > 0 && redList.length > 0) updates[`players/${redList[0]}/score`] = redHandicap;
+                    if (blueHandicap > 0 && blueList.length > 0) updates[`players/${blueList[0]}/score`] = blueHandicap;
+                } else {
+                    // 單人戰：照舊按個人順位計算
+                    let expectedTurns = {};
+                    playersList.forEach(p => expectedTurns[p] = 0);
+                    for (let i = 0; i < sCount; i++) expectedTurns[playersList[i % playersList.length]]++;
+                    
+                    let maxT = Math.max(...Object.values(expectedTurns));
+                    playersList.forEach(p => {
+                        updates[`players/${p}/score`] = maxT - expectedTurns[p];
+                    });
+                }
+            }
 
             if (roomData.teamMode === 'team') {
                 updates['teams'] = {
@@ -1080,9 +1091,12 @@ window.joinRoomAction = function() {
             if (roomData.playMode === 'race') {
                 playersList.forEach(p => { updates[`players/${p}/sentenceIdx`] = 0; updates[`players/${p}/matched`] = 0; });
             }
+            
             update(ref(db, `rooms/${currentRoomId}`), updates);
         }
     };
+
+    
 
     function startTurnTimer() {
         clearInterval(turnTimerInterval);
@@ -1125,42 +1139,43 @@ window.joinRoomAction = function() {
             // ==========================================
             // 【房主遷移機制】
             // ==========================================
-            let currentHost = data.host;
+           let currentHost = data.host;
+            let hostChanged = false;
+            
+            // 判斷房主是否逃跑，若逃跑則準備遷移
             if (!playersList.includes(currentHost) && playersList.length > 0) {
                 currentHost = playersList[0];
-                if (myUid === currentHost) {
-                    update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
-                }
+                hostChanged = true;
             }
 
-            // ==========================================
-            // 【逃跑懲罰與不戰而勝機制】(由現任房主負責執行)
-            // ==========================================
+            // 只由現任（或新任）房主負責執行判定
             if (data.state === 'playing' && window.previousPlayers.length > 0 && myUid === currentHost) {
                 let leftPlayers = window.previousPlayers.filter(p => !playersList.includes(p));
                 if (leftPlayers.length > 0) {
                     let updates = {};
+                    if (hostChanged) updates['host'] = currentHost; // 將更新打包，確保原子化寫入
 
                     if (data.teamMode === 'team') {
                         let reds = (data.teams?.red?.playerList || []).filter(p => playersList.includes(p));
                         let blues = (data.teams?.blue?.playerList || []).filter(p => playersList.includes(p));
                         
+                        // 判定是否其中一隊全軍覆沒
                         if (reds.length === 0 && blues.length > 0) {
                             updates['winTeam'] = 'blue';
                             updates['state'] = 'finished';
                         } else if (blues.length === 0 && reds.length > 0) {
                             updates['winTeam'] = 'red';
                             updates['state'] = 'finished';
-                        } else if (reds.length > 0 && blues.length > 0) {
+                        } else {
+                            // 遊戲繼續，重整交棒陣列
                             updates[`teams/red/playerList`] = reds;
                             updates[`teams/blue/playerList`] = blues;
-                            updates[`teams/red/activeIdx`] = (data.teams.red.activeIdx || 0) % reds.length;
-                            updates[`teams/blue/activeIdx`] = (data.teams.blue.activeIdx || 0) % blues.length;
-                            if (data.playMode === 'turn') {
-                                updates[`turn/startTime`] = Date.now();
-                            }
+                            updates[`teams/red/activeIdx`] = reds.length > 0 ? ((data.teams.red.activeIdx || 0) % reds.length) : 0;
+                            updates[`teams/blue/activeIdx`] = blues.length > 0 ? ((data.teams.blue.activeIdx || 0) % blues.length) : 0;
+                            if (data.playMode === 'turn') updates[`turn/startTime`] = Date.now(); // 補回交棒秒數
                         }
                     } else {
+                        // 單人模式逃跑判定
                         if (playersList.length <= 1) {
                             updates['state'] = 'finished';
                         } else {
@@ -1170,12 +1185,15 @@ window.joinRoomAction = function() {
                             }
                         }
                     }
-                    
-                    if (Object.keys(updates).length > 0) {
-                        update(ref(db, `rooms/${currentRoomId}`), updates);
-                    }
+                    // 一次性寫入所有狀態，保證所有人的客戶端同時收到通知
+                    update(ref(db, `rooms/${currentRoomId}`), updates);
+                } else if (hostChanged) {
+                    update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
                 }
+            } else if (hostChanged && myUid === currentHost) {
+                update(ref(db, `rooms/${currentRoomId}`), { host: currentHost });
             }
+            
             window.previousPlayers = playersList; // 更新名單供下次比對
             // ==========================================
 
