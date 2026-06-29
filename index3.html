@@ -13661,7 +13661,8 @@ async function submitArgumentGuide() {
             return;
         }
  
-        showLoading("陳SIR 正在編寫指引...");
+      showLoading("陳SIR 正在編寫指引...");
+        const joystickPromise = startJoystickUI();
         
         // 傳送數據至後端 (已移除 categories 引用)
         const payload = {
@@ -13707,8 +13708,9 @@ async function submitArgumentGuide() {
  
         guideHTML += `</div>`;
  
-        // 加入追問聊天室
+         // 加入追問聊天室
         guideHTML += getCanvasChatHTML('argument_guide');
+        await joystickPromise;
  
         // 開啟結果畫布
         openResultCanvas("議論文寫作指引");
@@ -13717,22 +13719,19 @@ async function submitArgumentGuide() {
         // 儲存至歷史紀錄
         await saveToHistory("議論", "指引", topic, `題目：${topic}\n論點：${point}\n論據：${evidence}\n論證：${argument}`, guideHTML);
         
-    } catch (error) {
+ } catch (error) {
         console.error("提交指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
 
-// ==========================================
-// === 議論文提交函式 (單系統) ===
-// ==========================================
 
-// ==========================================
-// === 議論文提交函式 (單系統) ===
-// ==========================================
+
+	
 
 // ==========================================
 // === 議論文提交函式 (單系統) ===
@@ -13766,8 +13765,9 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-        showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
-
+          showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
+        const joystickPromise = startJoystickUI();
+ 
         // ★★★ RAG 邏輯 (已更新) ★★★
         const ragReference = await searchSimilarEssays(topic, content, 'argument');
 
@@ -13804,11 +13804,13 @@ ${content}
         };
         
         // 議論文通常使用 Reading API (DeepSeek) 處理複雜邏輯
-        const response = await callReadingAPI(payload, 0); 
+         const response = await callReadingAPI(payload, 0);
         
         currentContextContent = content;
         currentContextReview = response;
-
+ 
+        await joystickPromise; // <--- 確保在這裡等待用家搖完 50 圈
+ 
         if (isFullReview) {
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
         } else {
@@ -13818,9 +13820,10 @@ ${content}
             let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
             if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
             if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-            if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
+              if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
             
             initialReviewHTML += getCanvasChatHTML('argument_writing');
+            await joystickPromise;
             openResultCanvas("聚焦點評結果");
             document.getElementById("resultCanvasBody").innerHTML = initialReviewHTML;
             
@@ -13829,11 +13832,12 @@ ${content}
 			appendGoToSubmitButton(); // <--- ★ 加入這行
         }
 
-    } catch (error) {
+  } catch (error) {
         console.error("提交文章時出錯:", error);
         alert("點評生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -13872,8 +13876,9 @@ async function submitArgumentOutline() {
             }
         }
 
-        showLoading("陳SIR 正在審視大綱...");
-
+       showLoading("陳SIR 正在審視大綱...");
+        const joystickPromise = startJoystickUI();
+ 
         const payload = {
             action: "grade_argument",
             data: {
@@ -13889,7 +13894,9 @@ async function submitArgumentOutline() {
         // 設定聊天室上下文 (這是詳細版，給 AI 看的)
         currentContextContent = readableContext;
         currentContextReview = response;
-
+ 
+        await joystickPromise;
+ 
         // 顯示結果
         displayArgumentOutlineComment(response, outlineData);
         
@@ -13906,6 +13913,7 @@ async function submitArgumentOutline() {
         alert("生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -15246,7 +15254,8 @@ async function submitReading() {
         }
 
         showLoading("陳SIR 正在分析篇章...");
-
+        const joystickPromise = startJoystickUI();
+ 
         // ★ 建構 Payload
         const payload = {
             action: "grade_reading",
@@ -15317,6 +15326,7 @@ async function submitReading() {
             });
             
             finalHTML += getCanvasChatHTML('reading_comment');
+            await joystickPromise;
             openResultCanvas("閱讀理解點評");
             document.getElementById("resultCanvasBody").innerHTML = finalHTML;
             saveToHistory("閱讀", "點評", question || "閱讀練習", `篇章：${passage}\n題目：${question}\n答案：${studentAnswer}`, finalHTML);
@@ -15360,18 +15370,20 @@ async function submitReading() {
                 }
             });
             
-            guideHTML += getCanvasChatHTML('reading_guide');
+           guideHTML += getCanvasChatHTML('reading_guide');
+            await joystickPromise;
             openResultCanvas("閱讀理解指引");
             document.getElementById("resultCanvasBody").innerHTML = guideHTML;
             await saveToHistory("閱讀", "指引", question || "閱讀指引", `篇章：${passage}\n題目：${question}`, guideHTML);
 			appendGoToSubmitButton(); // <--- ★ 加入這行
         }
 
-    } catch (error) {
+     } catch (error) {
         console.error("提交閱讀時出錯:", error);
         alert("生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -15913,7 +15925,8 @@ async function submitExpandComment() {
 
         const tone = document.getElementById("expandTone").value;
 
-        showLoading("陳SIR 正在審視拓展方向...");
+      showLoading("陳SIR 正在審視拓展方向...");
+        const joystickPromise = startJoystickUI();
         
         // ★★★ 建構 Payload 傳給後端 (取代本地 Prompt) ★★★
         const payload = {
@@ -15958,9 +15971,10 @@ async function submitExpandComment() {
             }
         });
 
-        // 加入聊天室
+         // 加入聊天室
         finalHTML += getCanvasChatHTML('expand_comment');
-
+ 
+        await joystickPromise;
         openResultCanvas("整合拓展點評");
         document.getElementById("resultCanvasBody").innerHTML = finalHTML;
         
@@ -15977,11 +15991,12 @@ async function submitExpandComment() {
         );
 		appendGoToSubmitButton(); // <--- ★ 加入這行
 
-    } catch (error) {
+     } catch (error) {
         console.error("提交整合拓展點評時出錯:", error);
         alert("點評生成失敗，請重試");
     } finally {
         submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
@@ -16005,6 +16020,7 @@ async function submitExpandGuide() {
         }
 
         showLoading("陳SIR 正在思考指引...");
+        const joystickPromise = startJoystickUI();
         
         // ★★★ 建構 Payload 傳給後端 (取代本地 Prompt) ★★★
         const payload = {
@@ -16052,9 +16068,10 @@ async function submitExpandGuide() {
             guideHTML += `</div></div>`;
         });
 
-        // 加入聊天室
+          // 加入聊天室
         guideHTML += getCanvasChatHTML('expand_guide');
-
+ 
+        await joystickPromise;
         openResultCanvas("整合拓展指引");
         document.getElementById("resultCanvasBody").innerHTML = guideHTML;
         
@@ -16067,7 +16084,8 @@ async function submitExpandGuide() {
         console.error("提交整合拓展指引時出錯:", error);
         alert("指引生成失敗，請重試");
     } finally {
-        submitBtn.disabled = false; 
+        submitBtn.disabled = false;
+        forceCloseJoystick();
         hideLoading();
     }
 }
