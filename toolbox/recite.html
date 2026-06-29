@@ -1842,24 +1842,24 @@ window.rematchMultiplayer = function() {
         if (isRecording) stopRecording(); else startRecording();
     };
 
- function startRecording() {
+function startRecording() {
         if (!recognition || isRecording) return;
         try { 
             recognition.start(); 
-            // 必須在確定沒有被瞬間報錯後，才將 UI 設為錄音狀態
             isRecording = true; 
             document.getElementById('btn-start').classList.add('recording');
             showSpeechFeedback('就緒，請開始朗讀...');
         } catch(e) {
-            // 如果麥克風已經在運作中，允許繼續
             if (e.name === 'InvalidStateError') {
-                isRecording = true;
-                document.getElementById('btn-start').classList.add('recording');
-            } else {
-                // 如果被瀏覽器安全機制攔截，還原狀態並提示玩家手動點擊
+                // 【修復】實例卡死了，強制銷毀重建再啟動，而不是假裝成功
                 isRecording = false;
                 document.getElementById('btn-start').classList.remove('recording');
-                showSpeechFeedback('系統攔截，請手動點擊下方按鈕啟動麥克風');
+                if (typeof initSpeech === 'function') initSpeech();
+                showSpeechFeedback('正在重置麥克風，請再點擊一次');
+            } else {
+                isRecording = false;
+                document.getElementById('btn-start').classList.remove('recording');
+                showSpeechFeedback('啟動失敗，請手動點擊按鈕');
             }
         }
     }
@@ -1867,7 +1867,8 @@ window.rematchMultiplayer = function() {
     function stopRecording() {
         if (!recognition || !isRecording) return;
         isRecording = false; document.getElementById('btn-start').classList.remove('recording');
-        try { recognition.stop(); } catch(e) {} showSpeechFeedback('');
+        try { recognition.abort(); } catch(e) {} // 【修復】改用 abort() 直接硬切斷，防止背景卡死
+        showSpeechFeedback('');
     }
 
     function showSpeechFeedback(text) {
@@ -1896,10 +1897,15 @@ window.rematchMultiplayer = function() {
         }
     });
 
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+ const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    function initSpeech() {
+        if (!SpeechRec) return;
+        if (recognition) { try { recognition.abort(); } catch(e) {} } // 砍掉舊實例
+        
         recognition = new SpeechRec();
-        recognition.lang = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream ? 'zh-HK' : 'yue-Hant-HK';
+        // 繼承目前的語言設定
+        let isCmn = document.getElementById('btn-lang-cmn') && document.getElementById('btn-lang-cmn').classList.contains('active');
+        recognition.lang = isCmn ? 'zh-TW' : (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && !window.MSStream ? 'zh-HK' : 'yue-Hant-HK');
         recognition.continuous = true; recognition.interimResults = true;
         
         recognition.onresult = function(event) {
@@ -1916,18 +1922,45 @@ window.rematchMultiplayer = function() {
             if (safeToClear > 0) { finalTokens.splice(0, safeToClear); consumedSttIdx -= safeToClear; }
         };
         recognition.onend = function() {
-            if (isRecording) setTimeout(() => { if (isRecording) { try { recognition.start(); } catch(e) {} } }, 50);
-            else document.getElementById('btn-start').classList.remove('recording');
+            if (isRecording) {
+                setTimeout(() => { 
+                    if (isRecording) { 
+                        try { recognition.start(); } 
+                        // 如果重啟失敗，自動重建實例再試
+                        catch(e) { initSpeech(); if(isRecording) setTimeout(()=> {try{recognition.start();}catch(err){}}, 100); } 
+                    } 
+                }, 50);
+            } else {
+                document.getElementById('btn-start').classList.remove('recording');
+            }
         };
-        // 【新增】監聽瀏覽器異步安全封殺或權限拒絕
         recognition.onerror = function(event) {
-            if (event.error === 'not-allowed' || event.error === 'audio-capture') {
+            // 遇到嚴重錯誤直接重建實例
+            if (event.error === 'not-allowed' || event.error === 'audio-capture' || event.error === 'aborted') {
                 isRecording = false;
                 document.getElementById('btn-start').classList.remove('recording');
-                showSpeechFeedback('麥克風被瀏覽器攔截，請手動點擊下方按鈕');
+                if (event.error !== 'aborted') showSpeechFeedback('麥克風失效，請手動點擊下方按鈕');
+                initSpeech(); 
             }
         };
     }
+    initSpeech();
+
+    // 【全新機制】解決切換頁面（離開再回來）麥克風永久失效問題
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            if (isRecording) {
+                window.wasRecordingBeforeHidden = true;
+                stopRecording(); // 離開頁面時主動切斷，防止被系統視為異常佔用
+            }
+        } else {
+            if (window.wasRecordingBeforeHidden) {
+                window.wasRecordingBeforeHidden = false;
+                initSpeech(); // 回來時，強行重建實例
+                showSpeechFeedback('已重置麥克風，請點擊按鈕恢復作答');
+            }
+        }
+    });
     
     // 獨立處理錯誤的邏輯（超時或讀錯時共用）
 function handleMistake(isTimeout = false, errorIndex = 0) {
