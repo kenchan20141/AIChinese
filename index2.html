@@ -20829,6 +20829,7 @@ document.addEventListener('DOMContentLoaded', initClassNumbers);
 
 
 // === 修改後：學校電郵處理函式 (區分模式) ===
+// === 修改後：學校電郵處理函式 (區分模式 + 前端防篡改) ===
 async function handleSchoolLogin(authMode = 'login') { 
     
     // 1. 準備暫存資料
@@ -20844,6 +20845,16 @@ async function handleSchoolLogin(authMode = 'login') {
         if (!manualName) {
             alert("請務必填寫您的「中文姓名」才能進行註冊！");
             document.getElementById('studentNameInput').focus();
+            return;
+        }
+
+        // 【安全防護 1】前端攔截：檢查年級和班別是否為常規學生值
+        // 防止學生透過瀏覽器開發者工具(F12)把 value 改成 "System" 或 "Special"
+        const validGrades = ['1', '2', '3', '4', '5', '6'];
+        const isValidClass = /^[A-Za-z]$/.test(cls); // 允許任意英文字母作為班別
+
+        if (!validGrades.includes(grade) || !isValidClass) {
+            alert("⚠️ 檢測到非法的年級或班別設定，請勿竄改網頁元素！");
             return;
         }
         
@@ -20917,7 +20928,7 @@ async function findProfileByEmail(targetEmail) {
 
 	
 
-// === 修正版：處理登入結果 (已修復權限驗證順序) ===
+// === 修正版：處理登入結果 (修復權限驗證順序與核心越權防護) ===
 async function processLoginResult(user, btn, originalContent) {
     let manualName, grade, cls, number, authMode = 'login';
     
@@ -20947,7 +20958,7 @@ async function processLoginResult(user, btn, originalContent) {
     let isTeacher = false;
     let isSpecialUser = false;
  
-    // ★★★ 步驟 1：先去資料庫檢查權限 (移到最前面) ★★★
+    // ★★★ 步驟 1：先去資料庫檢查真實權限 (移到最前面) ★★★
     try {
         const safeEmailKey = email.replace(/\./g, ',');
  
@@ -20960,9 +20971,6 @@ async function processLoginResult(user, btn, originalContent) {
             isTeacher = true;
         } else if (specialSnap.exists() && specialSnap.val() === true) {
             isSpecialUser = true;
-            if (authMode === 'register') { 
-                grade = "Special"; cls = "User"; 
-            }
         }
         else {
             // 硬編碼的測試帳號檢查
@@ -20992,12 +21000,28 @@ async function processLoginResult(user, btn, originalContent) {
          return;
     }
  
-    // 提示訊息
+    // 【安全防護 2】依據真實伺服器權限分配群組，並攔截惡意學生
     if (isTeacher) { 
         if (authMode === 'register') { grade = "System"; cls = "Test"; number = "99"; }
         alert("👋 老師您好，進入測試班。"); 
     }
-    if (isSpecialUser) { alert("👋 歡迎特許用家。"); }
+    else if (isSpecialUser) { 
+        if (authMode === 'register') { grade = "Special"; cls = "User"; number = "99"; }
+        alert("👋 歡迎特許用家。"); 
+    }
+    else {
+        // 如果是普通學生，做最終防線檢查：強制剔除任何企圖註冊為管理員的行為
+        if (authMode === 'register') {
+            const validGrades = ['1', '2', '3', '4', '5', '6'];
+            if (!validGrades.includes(grade) || grade === 'System' || grade === 'Special') {
+                await auth.signOut();
+                alert("⛔ 嚴重違規！一般帳號不允許註冊系統或特許群組，您的行為已被攔截。");
+                sessionStorage.removeItem('sansi_temp_student_data');
+                if (btn) { btn.innerHTML = originalContent; btn.disabled = false; }
+                return;
+            }
+        }
+    }
  
     // --- 步驟 3：搜尋舊資料與登入邏輯 ---
     let existingProfile = await findProfileByEmail(email);
@@ -21061,7 +21085,6 @@ async function processLoginResult(user, btn, originalContent) {
         }
     }
 }
-
 // 輔助函式：統一處理登入成功的 UI 切換
 async function finishLoginUI() {
     sessionStorage.removeItem('sansi_temp_student_data');
