@@ -17564,21 +17564,30 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     
  // 4.1 提取兩個模型的 JSON 字串 (強化容錯：即使沒有標籤，也嘗試硬抓 JSON 結構)
+// 4.1 提取兩個模型的 JSON 字串 (無極限容錯版)
     let rawJsonA = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     let rawJsonB = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
     
     let jsonStrA = rawJsonA ? rawJsonA[1] : null;
     let jsonStrB = rawJsonB ? rawJsonB[1] : null;
 
-    // 【終極容錯機制】如果 AI 忘記打標籤，直接在全文尋找特徵 JSON 區塊
-    const fallbackRegex = /\{[\s\S]*?"content"[\s\S]*?"expression"[\s\S]*?"structure"[\s\S]*?\}/i;
+    // 【容錯機制 1】尋找 Markdown 的 json 區塊 (```json ... ```)
+    const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
+    if (!jsonStrA) { const m = originalApiResponse.match(mdRegex); if(m) jsonStrA = m[1]; }
+    if (!jsonStrB && llama3ApiResponse) { const m = llama3ApiResponse.match(mdRegex); if(m) jsonStrB = m[1]; }
+
+    // 【容錯機制 2】尋找帶有中英關鍵字的 {} 區塊 (放寬英文 Key 限制)
+    const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
+    if (!jsonStrA) { const m = originalApiResponse.match(fallbackRegex); if (m) jsonStrA = m[0]; }
+    if (!jsonStrB && llama3ApiResponse) { const m = llama3ApiResponse.match(fallbackRegex); if (m) jsonStrB = m[0]; }
+
+    // 【絕地求生機制】如果 AI 連 {} 都懶得打，直接把原始回應的前 1500 字餵給 safeJSONParse 進行暴力挖掘
     if (!jsonStrA) {
-        const fallbackMatchA = originalApiResponse.match(fallbackRegex);
-        if (fallbackMatchA) jsonStrA = fallbackMatchA[0];
+        console.warn("🛡️ 啟動絕地求生機制：直接掃描原始純文字抓取分數...");
+        jsonStrA = originalApiResponse.substring(0, 1500);
     }
     if (!jsonStrB && llama3ApiResponse) {
-        const fallbackMatchB = llama3ApiResponse.match(fallbackRegex);
-        if (fallbackMatchB) jsonStrB = fallbackMatchB[0];
+        jsonStrB = llama3ApiResponse.substring(0, 1500);
     }
  
     // 4.2 解析為物件 (若解析失敗給予預設空結構)
