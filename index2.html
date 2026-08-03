@@ -14197,40 +14197,37 @@ function handleAllScopeChange(checkbox) {
 
 
 
-// ★★★ 新增：統一處理 Log 顏色的輔助函數 ★★★
-// ★★★ 修改後的 Log 函式 (支援 GAS 回傳格式) ★★★
+// ★★★ 修改後的 Log 函式 (支援 GAS 回傳格式與備援除錯) ★★★
 function logProviderInfo(dataOrResponse, apiName) {
     let provider = null;
     let debugTraceStr = null;
 
     // 判斷傳入的是 Response 物件(舊版/Worker) 還是 Data 物件(新版/GAS)
     if (dataOrResponse.headers && typeof dataOrResponse.headers.get === 'function') {
-        // 舊版邏輯 (保留以防萬一)
+        // 舊版邏輯
         provider = dataOrResponse.headers.get('X-Provider-Log');
         debugTraceStr = dataOrResponse.headers.get('X-Debug-Trace');
     } else if (dataOrResponse._provider_log) {
-        // ★ 新版 GAS 邏輯：從 JSON 內容讀取 ★
+        // ★ 新版 GAS 邏輯：從 JSON 內容讀取
         provider = dataOrResponse._provider_log;
-        // 如果你有傳回 trace 也可以在這裡讀取
+        debugTraceStr = dataOrResponse._debug_trace; // 讀取後端傳來的失效紀錄
     }
 
-    // 1. 顯示失敗的嘗試 (如果有)
-    if (debugTraceStr) {
+    // 1. 顯示失敗的嘗試 (GLM 失效轉備援的詳細原因)
+    if (debugTraceStr && debugTraceStr.length > 0) {
         try {
-            const traces = JSON.parse(debugTraceStr);
+            const traces = Array.isArray(debugTraceStr) ? debugTraceStr : JSON.parse(debugTraceStr);
             traces.forEach(trace => {
-                console.log(`%c[${apiName} Fail] ${trace}`, "color: #ffeb3b; background: #333; padding: 2px 5px;");
+                console.warn(`%c⚠️ [${apiName} Fallback] ${trace}`, "color: #ffeb3b; background: #333; padding: 2px 5px; border-radius: 3px;");
             });
         } catch(e) {}
     }
 
-    // 2. 顯示成功的調用 (顏色設定與原版一致)
+    // 2. 顯示成功的調用
     if (provider) {
         if (provider.includes("OFFICIAL DEEPSEEK")) {
-            // 官方 DeepSeek：橙紅風格
             console.log(`%c🚀 [${apiName}] SUCCESS via ${provider}`, "color: #fff; background: #e64a19; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
         } else {
-            // Pollinations：藍綠風格
             console.log(`%c🌿 [${apiName}] SUCCESS via ${provider}`, "color: #fff; background: #009688; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
         }
     }
