@@ -13907,8 +13907,62 @@ ${content}
  
         await joystickPromise; // <--- 確保在這裡等待用家搖完 50 圈
  
-        if (isFullReview) {
-            await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
+       if (isFullReview) {
+            let originalApiResponse = "";
+
+            try {
+                // ==========================================
+                // 階段 1：呼叫 AI 進行客觀評分
+                // ==========================================
+                showLoading(`${currentReviewerName} 正在進行嚴格扣題檢測 (1/2)...`);
+                const payloadStep1 = {
+                    action: "grade_argument",
+                    data: {
+                        subType: "writing_step1",
+                        isFullReview: true,
+                        topic: topic,
+                        content: finalPromptContent,
+                        reviewer: document.getElementById('argumentReviewer').value
+                    }
+                };
+                
+                const resStep1 = await callReadingAPI(payloadStep1, 0);
+
+                let jsonStr = resStep1.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
+                if (!jsonStr) jsonStr = resStep1.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+                const parsedScores = safeJSONParse(jsonStr ? jsonStr[1] || jsonStr[0] : resStep1.substring(0, 1500));
+
+                // ==========================================
+                // 階段 2：帶著定案的分數，請 AI 撰寫評語
+                // ==========================================
+                showLoading(`${currentReviewerName} 正在撰寫評語 (2/2)...`);
+                const payloadStep2 = {
+                    action: "grade_argument",
+                    data: {
+                        subType: "writing_step2",
+                        isFullReview: true,
+                        topic: topic,
+                        content: finalPromptContent,
+                        reviewer: document.getElementById('argumentReviewer').value,
+                        tone: tone,
+                        parsedScores: parsedScores
+                    }
+                };
+
+                const resStep2 = await callReadingAPI(payloadStep2, 0);
+
+                originalApiResponse = resStep1 + "\n\n" + resStep2;
+
+            } catch (e) {
+                console.error("分步運算失敗:", e);
+                throw e;
+            }
+
+            currentContextContent = content;
+            currentContextReview = originalApiResponse;
+            
+            await joystickPromise;
+            await displayFullCommentWithGrading('argumentGradingResult', originalApiResponse, null, 'argument', content);
         } else {
             // 聚焦點評處理
             const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
@@ -15215,42 +15269,71 @@ ${content}
                 }
             };
 
-   if (isFullReview) {
+        if (isFullReview) {
             let originalApiResponse = "";
-            let llama3ApiResponse = null;
-             
-           try {
-                // 1. 立即啟動主模型請求 (Promise A)
-                const promiseA = callAPI(payload, 0);
+
+            try {
+                // ==========================================
+                // 階段 1：呼叫 AI 進行客觀評分
+                // ==========================================
+                showLoading(`${currentReviewerName} 正在評估文章分數 (1/2)...`);
+                const payloadStep1 = {
+                    action: "grade_narrative",
+                    data: {
+                        subType: "片段描寫_step1", // 呼叫 Step 1
+                        isFullReview: true,
+                        topic: topic,
+                        focus: localStorage.getItem("currentFocus"), 
+                        plot: localStorage.getItem("currentPlot"),   
+                        content: finalPromptContent, 
+                        reviewer: document.getElementById('writingReviewer').value
+                    }
+                };
                 
-                // 2. 輔助模型請求 (Promise B) - 【目前改為單模型模式，故直接回傳 null】
-                // 💡 若未來想恢復雙模型，請註解掉下面這行，並取消下方區塊的註解
-                const promiseB = Promise.resolve(null); 
+                // 取得評分結果 (只有 Worksheet 和 JSON)
+                const resStep1 = await callAPI(payloadStep1, 0);
+
+                // 從結果中挖出 JSON 分數
+                let jsonStr = resStep1.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
+                if (!jsonStr) jsonStr = resStep1.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
                 
-                /* ================= 雙模型備用代碼 (需要時解開註解) =================
-                const promiseB = new Promise(resolve => setTimeout(resolve, 1500))
-                    .then(() => callLlama3API(payload, 0))
-                    .catch(err => {
-                        console.warn("Llama3 輔助評分失敗 (已忽略):", err);
-                        return null; 
-                    });
-                ================================================================*/
-             
-                // 3. 同時等待兩個模型完成 (因為 B 是 null，實際上只等 A)
-                const [resA, resB] = await Promise.all([promiseA, promiseB]);
-                
-                originalApiResponse = resA;
-                llama3ApiResponse = resB;
-             
+                // 使用你原有的安全解析函數
+                const parsedScores = safeJSONParse(jsonStr ? jsonStr[1] || jsonStr[0] : resStep1.substring(0, 1500));
+
+                // ==========================================
+                // 階段 2：帶著定案的分數，請 AI 撰寫評語
+                // ==========================================
+                showLoading(`${currentReviewerName} 正在撰寫詳細評語 (2/2)...`);
+                const payloadStep2 = {
+                    action: "grade_narrative",
+                    data: {
+                        subType: "片段描寫_step2", // 呼叫 Step 2
+                        isFullReview: true,
+                        topic: topic,
+                        content: finalPromptContent, 
+                        reviewer: document.getElementById('writingReviewer').value,
+                        tone: tone,
+                        parsedScores: parsedScores // 傳入已定案的分數！
+                    }
+                };
+
+                // 取得評語結果
+                const resStep2 = await callAPI(payloadStep2, 0);
+
+                // 將第一步的 JSON 和第二步的評語拼起來，送給舊的渲染系統
+                originalApiResponse = resStep1 + "\n\n" + resStep2;
+
             } catch (e) {
-                // 如果主模型 (callAPI) 失敗，Promise.all 會立刻來到這裡，中斷流程
-                throw e;
+                console.error("分步運算失敗:", e);
+                throw e; // 讓外面的 catch 攔截
             }
-                currentContextContent = content;
-                currentContextReview = originalApiResponse;
- 
-                await joystickPromise;
-                await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
+
+            currentContextContent = content;
+            currentContextReview = originalApiResponse;
+
+            await joystickPromise;
+            // 這裡 llama3ApiResponse 傳 null 即可，因為我們在 step 2 已經強制修復了邏輯
+            await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, null, 'narrative', content);
             
             } else {
                 const response = await callAPI(payload, 0);
