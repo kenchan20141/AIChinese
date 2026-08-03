@@ -17447,29 +17447,18 @@ ${basePrompt}
 
 
 /**
- * 嘗試從骯髒的字串中提取並解析 JSON
- * 能處理 AI 在 JSON 前後添加的廢話、Markdown 代碼塊等
- */
-/**
- * 嘗試從骯髒的字串中提取並解析 JSON (增強容錯版)
- * 能處理 AI 在 JSON 前後添加的廢話、Markdown 代碼塊
- * ★ 修復：自動將缺失的數值 (如 "key":,) 補為 0
- */
-/**
- * 嘗試從骯髒的字串中提取並解析 JSON (終極暴力防呆版)
- * 即使 AI 加上了 []、""、"分" 等導致 JSON.parse 崩潰的字眼，也能強行取出數字
- */
-/**
- * 嘗試從骯髒的字串中提取並解析 JSON (中英雙語 + 終極防呆版)
+ * 嘗試從骯髒的字串中提取並解析 JSON (終極容錯 + 雙語正則挖取)
  */
 function safeJSONParse(rawString) {
-    if (!rawString) return null;
+    if (!rawString || rawString.trim() === '') return null;
  
     let cleanString = rawString.replace(/```json/g, '').replace(/```/g, '');
     cleanString = cleanString.replace(/:\s*,/g, ': 0,').replace(/:\s*}/g, ': 0}').replace(/:\s*NaN/gi, ': 0');
  
+    // 1. 嘗試直接解析
     try { return JSON.parse(cleanString); } catch (e) {}
  
+    // 2. 嘗試抓取 {} 區塊解析
     const firstBrace = cleanString.indexOf('{');
     const lastBrace = cleanString.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -17477,19 +17466,24 @@ function safeJSONParse(rawString) {
         try { return JSON.parse(extracted); } catch (e) {}
     }
  
-    console.warn("⚠️ JSON 語法損壞，啟動雙語暴力數值提取...");
+    console.warn("⚠️ JSON 格式失效，啟動智能字串挖掘...");
     
-    // 輔助提取函數：同時比對英文Key與中文Key
+    // 3. 終極絕招：不顧一切從文字中挖出 0-10 的數字
     const extractVal = (enKey, zhKey) => {
-        // 匹配規則：找 英文Key 或 中文Key，接著找冒號(中英皆可)，抓取第一個數字
-        const regex = new RegExp(`"?(${enKey}|${zhKey})"?\\s*[:：]\\s*[^\\d]*(\\d+)`, 'i');
-        const match = cleanString.match(regex);
-        if(match) return parseInt(match[2], 10);
+        // 策略 A: 找 JSON 格式的殘骸 (例如 "content": 7 或 "內容": 7)
+        let r1 = new RegExp(`"?(${enKey}|${zhKey})"?\\s*[:：]\\s*(\\d+)`, 'i');
+        let m1 = cleanString.match(r1);
+        if (m1 && parseInt(m1[2], 10) <= 10) return parseInt(m1[2], 10);
         
-        // 如果上面找不到，做最後掙扎：只找中文關鍵字附近的數字
-        const fallbackRegex = new RegExp(`${zhKey}[^\\d]*(\\d+)`, 'i');
-        const fallbackMatch = cleanString.match(fallbackRegex);
-        return fallbackMatch ? parseInt(fallbackMatch[1], 10) : 0;
+        // 策略 B: 找文字敘述 (例如「最終內容分數：7」或「內容得分 7」)
+        // 這裡會跳過可能夾在中間的滿分提示 (例如 40分)
+        let r2 = new RegExp(`${zhKey}[^\\d:：]*?(?:\\(\\d+\\)[^\\d:：]*?)?[:：]?\\s*(\\d+)`, 'i');
+        let m2 = cleanString.match(r2);
+        if (m2) {
+            let val = parseInt(m2[1], 10);
+            if (val <= 10) return val; // 確保抓到的不是 40分 的 40
+        }
+        return 0; // 真的找不到就給 0
     };
  
     return {
