@@ -8222,7 +8222,7 @@ button, .btn, .anime-card, .side-menu-item {
 // =========================================
 
 // ★ API 網址
-const NOTICE_API_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec"; 
+const NOTICE_API_URL = "https://script.google.com/macros/s/AKfycbyC0fIhN8juwOtGy-WLm9hqgrDN817JnyroLnMkapMvf4hzLEF7LEp06sjXDdX246_0/exec"; 
 
 // ★ 新增：存放所有從 API 抓取的原始通告
 let allFetchedNotices = [];
@@ -12461,7 +12461,7 @@ clickedButton.classList.add('active');
 
 
 // ★ 設定 Worker 後端網址 ★
-const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbzFDPwRSHOpFyiY8sRaJZFcpE-SQNuvccVh7WUxDhKCAiMjCWZ5zZcGxSGO0YQTCLa6NQ/exec";
+const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbydKB8YMOXDetzNr12TTLuJoH5i8SjCfHmsmiwkoAJpQ_ZLXztGyIGscLxkzcYraOu5Ag/exec";
  
 // 以下維持不變，它們都會自動使用上面這條新路徑
 const API_URL = CLOUDFLARE_WORKER_URL;         
@@ -12469,9 +12469,9 @@ const READING_API_URL = CLOUDFLARE_WORKER_URL;
 const LLAMA3_API_URL = CLOUDFLARE_WORKER_URL;  
  
 // 模型設定保持不變
-const MODEL = "deepseek";
-const READING_MODEL = "deepseek";
-const LLAMA3_MODEL = "deepseek";
+const MODEL = "deepseek-v4-flash";
+const READING_MODEL = "deepseek-v4-flash";
+const LLAMA3_MODEL = "deepseek-v4-flash";
 
 
 // =======================================================
@@ -14270,7 +14270,7 @@ async function callAPI(input, temperature = null) {
                 token: token, // ★ 加入 Token
                 model: MODEL,
                 messages: [{ role: "user", content: input }],
-                max_tokens: 1300
+                max_tokens: 1500
             };
         } else if (typeof input === 'object' && input.action) {
             requestBody = {
@@ -14278,7 +14278,7 @@ async function callAPI(input, temperature = null) {
                 model: MODEL,
                 action: input.action,
                 data: input.data,
-                max_tokens: 1300
+                max_tokens: 1500
             };
         }
  
@@ -14286,12 +14286,12 @@ async function callAPI(input, temperature = null) {
             requestBody.temperature = temperature;
         }
  
-        const response = await fetch(API_URL, {
+      const response = await fetch(API_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(requestBody),
-              signal: controller.signal,
-			redirect: "follow" // <--- 強制加入這行
+            signal: controller.signal,
+            redirect: "follow"  // ★ 1. 新增此行：強制跟隨導向，保持 POST 狀態
         });
  
         clearTimeout(timeoutId);
@@ -14300,7 +14300,20 @@ async function callAPI(input, temperature = null) {
             throw new Error(`API 調用失敗: ${response.status}`);
         }
  
-        const data = await response.json();
+        // ★ 2. 新增防崩潰與錯誤攔截機制
+        const responseText = await response.text(); 
+        
+        if (responseText.includes("神思後端 (GAS Mode) 運作中")) {
+            throw new Error("API 路由錯誤：收到 GET 回應，請確認 Apps Script 已部署為「新版本」。");
+        }
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            console.error("後端回傳了非 JSON 格式的資料:", responseText);
+            throw new Error("API 回傳格式異常，請檢查 Console 日誌。");
+        }
 
         // 如果後端驗證失敗回傳錯誤
         if (data.error && data.error.includes("Unauthorized")) {
@@ -14345,7 +14358,7 @@ async function callReadingAPI(input, temperature = null) {
                 token: token, // ★ 加入 Token
                 model: READING_MODEL,
                 messages: [{ role: "user", content: input }],
-                max_tokens: 1300
+                max_tokens: 1500
             };
         } else if (typeof input === 'object' && input.action) {
             requestBody = {
@@ -14353,7 +14366,7 @@ async function callReadingAPI(input, temperature = null) {
                 model: READING_MODEL,
                 action: input.action,
                 data: input.data,
-                max_tokens: 1300
+                max_tokens: 1500
             };
         }
  
@@ -14361,21 +14374,34 @@ async function callReadingAPI(input, temperature = null) {
             requestBody.temperature = temperature;
         }
  
-        const response = await fetch(READING_API_URL, {
+      const response = await fetch(READING_API_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(requestBody),
-             signal: controller.signal,
-    redirect: "follow" // <--- 強制加入這行
+            signal: controller.signal,
+            redirect: "follow"  // <--- 加入這一行，強制跟隨導向且保持 POST 狀態
         });
  
         clearTimeout(timeoutId);
  
-        if (!response.ok) {
+      if (!response.ok) {
             throw new Error(`閱讀 API 調用失敗: ${response.status}`);
         }
- 
-        const data = await response.json();
+        
+        const responseText = await response.text(); // 先以純文字讀取
+        
+        // 檢查是否不小心收到了 doGet 的回應
+        if (responseText.includes("神思後端 (GAS Mode) 運作中")) {
+            throw new Error("API 路由錯誤：收到 GET 回應，請確認 Apps Script 已部署為最新版本。");
+        }
+
+        let data;
+        try {
+            data = JSON.parse(responseText); // 手動轉換為 JSON
+        } catch (e) {
+            console.error("後端回傳了非 JSON 格式的資料:", responseText);
+            throw new Error("後端回傳格式異常，請檢查 Console 日誌。");
+        }
 
         if (data.error && data.error.includes("Unauthorized")) {
             throw new Error(data.error);
@@ -14415,31 +14441,47 @@ async function callLlama3API(input, temperature = null) {
                 model: LLAMA3_MODEL,
                 action: input.action,
                 data: input.data,     
-                max_tokens: 1300
+                max_tokens: 1500
             };
         } else if (typeof input === 'string') {
              requestBody = {
                 token: token,
                 model: LLAMA3_MODEL,
                 messages: [{ role: "user", content: input }],
-                max_tokens: 1300
+                max_tokens: 1500
             };
         }
         if (temperature !== null) {
             requestBody.temperature = temperature;
         }
-        const response = await fetch(LLAMA3_API_URL, {
+       const response = await fetch(LLAMA3_API_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(requestBody),
             signal: controller.signal,
-    redirect: "follow" // <--- 強制加入這行
+            redirect: "follow"  // ★ 1. 新增此行：強制跟隨導向
         });
+        
         clearTimeout(timeoutId);
+        
         if (!response.ok) {
             throw new Error(`驗證 API 調用失敗: ${response.status}`);
         }
-        const data = await response.json();
+        
+        // ★ 2. 新增防崩潰與錯誤攔截機制
+        const responseText = await response.text(); 
+        
+        if (responseText.includes("神思後端 (GAS Mode) 運作中")) {
+            throw new Error("API 路由錯誤：收到 GET 回應，請確認 Apps Script 已部署為「新版本」。");
+        }
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            console.error("後端回傳了非 JSON 格式的資料:", responseText);
+            throw new Error("Llama3 API 回傳格式異常，請檢查 Console 日誌。");
+        }
  
         // 檢查權限錯誤
         if (data.error && typeof data.error === 'string' && data.error.includes("Unauthorized")) {
@@ -14514,8 +14556,7 @@ async function callCatAPI(input, temperature = null) {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify(requestBody),
-             signal: controller.signal,
-    redirect: "follow" // <--- 強制加入這行
+            signal: controller.signal
         });
  
         clearTimeout(timeoutId);
@@ -15164,29 +15205,31 @@ ${content}
                 }
             };
 
-            if (isFullReview) {
-             // 使用 Promise.allSettled 或個別 catch，確保即使 Llama3 失敗，主程式也能繼續
-let originalApiResponse = "";
-let llama3ApiResponse = null;
- 
-try {
-    // 平行執行，但對 Llama3 加入 catch
-    const results = await Promise.all([
-        callAPI(payload, 0),
-        callLlama3API(payload, 0).catch(err => {
-            console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
-            return null; // 回傳 null 代表失敗
-        })
-    ]);
-    
-    originalApiResponse = results[0];
-    llama3ApiResponse = results[1];
- 
-} catch (e) {
-    // 如果連主模型 (callAPI) 都失敗，那才是真的失敗
-    throw e;
-}
-
+     if (isFullReview) {
+            let originalApiResponse = "";
+            let llama3ApiResponse = null;
+             
+           try {
+                // 改為循序執行：先呼叫主模型，等待完成後再呼叫輔助模型，徹底解決併發 404 問題
+                
+                // 1. 先呼叫主模型 (Gemini / DeepSeek)
+                originalApiResponse = await callAPI(payload, 0);
+                
+                // 2. 主模型完成後，安全起見稍微停頓 1 秒，讓 GAS 伺服器喘息
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 3. 接著才呼叫輔助模型 (Llama3)
+                try {
+                    llama3ApiResponse = await callLlama3API(payload, 0);
+                } catch (err) {
+                    console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
+                    llama3ApiResponse = null; 
+                }
+             
+            } catch (e) {
+                // 如果主模型 (callAPI) 失敗，直接拋出錯誤中斷流程
+                throw e;
+            }
                 currentContextContent = content;
                 currentContextReview = originalApiResponse;
  
