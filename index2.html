@@ -12461,7 +12461,7 @@ clickedButton.classList.add('active');
 
 
 // ★ 設定 Worker 後端網址 ★
-const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbweSj-GY7tk4FWEev8wzJp5a8ZaLgWTPU_HN-CnAbPdXnkvAHE3_TwXBHQV99a1iSmyQQ/exec";
+const CLOUDFLARE_WORKER_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec";
  
 // 以下維持不變，它們都會自動使用上面這條新路徑
 const API_URL = CLOUDFLARE_WORKER_URL;         
@@ -12469,9 +12469,9 @@ const READING_API_URL = CLOUDFLARE_WORKER_URL;
 const LLAMA3_API_URL = CLOUDFLARE_WORKER_URL;  
  
 // 模型設定保持不變
-const MODEL = "glm-4.7-flash";
-const READING_MODEL = "glm-4.7-flash";
-const LLAMA3_MODEL = "glm-4.7-flash";
+const MODEL = "deepseek";
+const READING_MODEL = "deepseek";
+const LLAMA3_MODEL = "deepseek";
 
 
 // =======================================================
@@ -14197,33 +14197,34 @@ function handleAllScopeChange(checkbox) {
 
 
 
-// ★★★ 修改後的 Log 函式 (支援 GAS 回傳格式與備援除錯) ★★★
+// ★★★ 新增：統一處理 Log 顏色的輔助函數 ★★★
+// ★★★ 修改後的 Log 函式 (支援 GAS 回傳格式) ★★★
 function logProviderInfo(dataOrResponse, apiName) {
     let provider = null;
     let debugTraceStr = null;
 
     // 判斷傳入的是 Response 物件(舊版/Worker) 還是 Data 物件(新版/GAS)
     if (dataOrResponse.headers && typeof dataOrResponse.headers.get === 'function') {
-        // 舊版邏輯
+        // 舊版邏輯 (保留以防萬一)
         provider = dataOrResponse.headers.get('X-Provider-Log');
         debugTraceStr = dataOrResponse.headers.get('X-Debug-Trace');
     } else if (dataOrResponse._provider_log) {
-        // ★ 新版 GAS 邏輯：從 JSON 內容讀取
+        // ★ 新版 GAS 邏輯：從 JSON 內容讀取 ★
         provider = dataOrResponse._provider_log;
-        debugTraceStr = dataOrResponse._debug_trace; // 讀取後端傳來的失效紀錄
+        // 如果你有傳回 trace 也可以在這裡讀取
     }
 
-    // 1. 顯示失敗的嘗試 (GLM 失效轉備援的詳細原因)
-    if (debugTraceStr && debugTraceStr.length > 0) {
+    // 1. 顯示失敗的嘗試 (如果有)
+    if (debugTraceStr) {
         try {
-            const traces = Array.isArray(debugTraceStr) ? debugTraceStr : JSON.parse(debugTraceStr);
+            const traces = JSON.parse(debugTraceStr);
             traces.forEach(trace => {
-                console.warn(`%c⚠️ [${apiName} Fallback] ${trace}`, "color: #ffeb3b; background: #333; padding: 2px 5px; border-radius: 3px;");
+                console.log(`%c[${apiName} Fail] ${trace}`, "color: #ffeb3b; background: #333; padding: 2px 5px;");
             });
         } catch(e) {}
     }
 
-    // 2. 顯示成功的調用
+    // 2. 顯示成功的調用 (顏色設定與原版一致)
     if (provider) {
         if (provider.includes("OFFICIAL DEEPSEEK")) {
             // 官方 DeepSeek：橙紅風格
@@ -14256,7 +14257,7 @@ async function callAPI(input, temperature = null) {
     // 獲取最新的 ID Token
     const token = await user.getIdToken();
 
-    const TIMEOUT_MS = 240000;
+    const TIMEOUT_MS = 100000;
     const controller = new AbortController();
     globalAbortController = controller;
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -14269,7 +14270,7 @@ async function callAPI(input, temperature = null) {
                 token: token, // ★ 加入 Token
                 model: MODEL,
                 messages: [{ role: "user", content: input }],
-                max_tokens: 4096
+                max_tokens: 8000
             };
         } else if (typeof input === 'object' && input.action) {
             requestBody = {
@@ -14277,7 +14278,7 @@ async function callAPI(input, temperature = null) {
                 model: MODEL,
                 action: input.action,
                 data: input.data,
-                max_tokens: 4096
+                max_tokens: 8000
             };
         }
  
@@ -14330,7 +14331,7 @@ async function callReadingAPI(input, temperature = null) {
     }
     const token = await user.getIdToken();
  
-    const TIMEOUT_MS = 240000;
+    const TIMEOUT_MS = 100000;
     const controller = new AbortController();
     globalAbortController = controller;
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -14343,7 +14344,7 @@ async function callReadingAPI(input, temperature = null) {
                 token: token, // ★ 加入 Token
                 model: READING_MODEL,
                 messages: [{ role: "user", content: input }],
-                max_tokens: 4096
+                max_tokens: 4000
             };
         } else if (typeof input === 'object' && input.action) {
             requestBody = {
@@ -14351,7 +14352,7 @@ async function callReadingAPI(input, temperature = null) {
                 model: READING_MODEL,
                 action: input.action,
                 data: input.data,
-                max_tokens: 4096
+                max_tokens: 4000
             };
         }
  
@@ -14400,7 +14401,7 @@ async function callLlama3API(input, temperature = null) {
     }
     const token = await user.getIdToken();
  
-    const TIMEOUT_MS = 240000;
+    const TIMEOUT_MS = 100000;
     const controller = new AbortController();
     globalAbortController = controller;
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -14412,14 +14413,14 @@ async function callLlama3API(input, temperature = null) {
                 model: LLAMA3_MODEL,
                 action: input.action,
                 data: input.data,     
-                max_tokens: 4096
+                max_tokens: 8000
             };
         } else if (typeof input === 'string') {
              requestBody = {
                 token: token,
                 model: LLAMA3_MODEL,
                 messages: [{ role: "user", content: input }],
-                max_tokens: 4096
+                max_tokens: 8000
             };
         }
         if (temperature !== null) {
@@ -15161,32 +15162,26 @@ ${content}
 
             if (isFullReview) {
              // 使用 Promise.allSettled 或個別 catch，確保即使 Llama3 失敗，主程式也能繼續
-// 使用 Promise.allSettled 或個別 catch，確保即使 Llama3 失敗，主程式也能繼續
-            let originalApiResponse = "";
-            let llama3ApiResponse = null;
-             
-            try {
-                // 🚀 關鍵修復：錯開兩個請求的時間，避免 GAS 併發衝突導致 404 錯誤
-                const results = await Promise.all([
-                    // 1. 立即發送主模型請求
-                    callAPI(payload, 0),
-                    
-                    // 2. 強制延遲 1000 毫秒（1秒）後，再發送驗證模型請求
-                    new Promise(resolve => setTimeout(resolve, 1000)).then(() => 
-                        callLlama3API(payload, 0).catch(err => {
-                            console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
-                            return null; // 回傳 null 代表失敗
-                        })
-                    )
-                ]);
-                
-                originalApiResponse = results[0];
-                llama3ApiResponse = results[1];
-             
-            } catch (e) {
-                // 如果連主模型 (callAPI) 都失敗，那才是真的失敗
-                throw e;
-            }
+let originalApiResponse = "";
+let llama3ApiResponse = null;
+ 
+try {
+    // 平行執行，但對 Llama3 加入 catch
+    const results = await Promise.all([
+        callAPI(payload, 0),
+        callLlama3API(payload, 0).catch(err => {
+            console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
+            return null; // 回傳 null 代表失敗
+        })
+    ]);
+    
+    originalApiResponse = results[0];
+    llama3ApiResponse = results[1];
+ 
+} catch (e) {
+    // 如果連主模型 (callAPI) 都失敗，那才是真的失敗
+    throw e;
+}
 
                 currentContextContent = content;
                 currentContextReview = originalApiResponse;
