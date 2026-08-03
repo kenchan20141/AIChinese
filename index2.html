@@ -13900,7 +13900,7 @@ ${content}
         };
         
         // 議論文通常使用 Reading API (DeepSeek) 處理複雜邏輯
-         const response = await callReadingAPI(payload, 0);
+       const response = await callGradingAPIWithRetry(callReadingAPI, payload, content.length, 3);
         
         currentContextContent = content;
         currentContextReview = response;
@@ -15221,7 +15221,7 @@ ${content}
              
            try {
                 // 1. 立即啟動主模型請求 (Promise A)
-                const promiseA = callAPI(payload, 0);
+               const promiseA = callGradingAPIWithRetry(callAPI, payload, content.length, 3);
                 
                 // 2. 輔助模型請求 (Promise B) - 【目前改為單模型模式，故直接回傳 null】
                 // 💡 若未來想恢復雙模型，請註解掉下面這行，並取消下方區塊的註解
@@ -17506,7 +17506,71 @@ function safeJSONParse(rawString) {
 
 
 
+// ==========================================
+// === [新增] AI 生成結果靜默重試引擎 ===
+// ==========================================
+async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        attempt++;
+        console.log(`%c🔄 [Auto-Retry] 啟動第 ${attempt} 次生成...`, 'color: #3498db; font-weight: bold;');
+        
+        try {
+            // 1. 呼叫傳入的 API (callAPI 或 callReadingAPI)
+            const responseText = await apiFunc(payload, 0);
 
+            // 2. 快速預判是否為 BROKEN 狀態
+            let isBroken = false;
+            if (wordCount > 150) {
+                let jsonStr = null;
+                const rawJson = responseText.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
+                if (rawJson) jsonStr = rawJson[1];
+                
+                if (!jsonStr) {
+                    const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
+                    const m = responseText.match(mdRegex);
+                    if (m) jsonStr = m[1];
+                }
+                if (!jsonStr) {
+                    const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
+                    const m = responseText.match(fallbackRegex);
+                    if (m) jsonStr = m[0];
+                }
+                // 絕地求生：直接拿前1500字去暴力挖取
+                if (!jsonStr) jsonStr = responseText.substring(0, 1500);
+
+                // 使用你現有的 safeJSONParse 檢查能否挖出分數
+                const scores = safeJSONParse(jsonStr);
+                
+                // 如果解析失敗，或者三項核心分數全是 0，判定為 BROKEN
+                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0)) {
+                    isBroken = true;
+                }
+            }
+
+            // 3. 處理結果
+            if (isBroken) {
+                console.warn(`%c⚠️ [Auto-Retry] 第 ${attempt} 次生成格式損壞 (BROKEN)，準備靜默重試...`, 'color: #f39c12;');
+                if (attempt >= maxRetries) {
+                    console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，放棄重試，輸出殘缺結果。`, 'color: #e74c3c;');
+                    return responseText; // 沒辦法了，只能回傳原本破掉的
+                }
+                // 延遲 1.5 秒再重試，避免短時間內撞擊 API 導致 429 錯誤
+                await new Promise(r => setTimeout(r, 1500));
+                continue; // 迴圈重新開始
+            }
+
+            // 4. 成功過關
+            console.log(`%c✅ [Auto-Retry] 第 ${attempt} 次生成完美成功！`, 'color: #2ecc71; font-weight: bold;');
+            return responseText;
+
+        } catch (error) {
+            console.error(`%c❌ [Auto-Retry] 第 ${attempt} 次連線發生異常:`, 'color: #e74c3c;', error);
+            if (attempt >= maxRetries) throw error; // 超過次數就報錯給外層
+            await new Promise(r => setTimeout(r, 1500));
+        }
+    }
+}
 	
 /**
  * 【最終修訂版】顯示完整的點評、評分系統，並根據最終等級和所選閱卷員調整內容
