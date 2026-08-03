@@ -15205,29 +15205,30 @@ ${content}
                 }
             };
 
-            if (isFullReview) {
-             // 使用 Promise.allSettled 或個別 catch，確保即使 Llama3 失敗，主程式也能繼續
-let originalApiResponse = "";
-let llama3ApiResponse = null;
- 
-try {
-    // 平行執行，但對 Llama3 加入 catch
-    const results = await Promise.all([
-        callAPI(payload, 0),
-        callLlama3API(payload, 0).catch(err => {
-            console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
-            return null; // 回傳 null 代表失敗
-        })
-    ]);
-    
-    originalApiResponse = results[0];
-    llama3ApiResponse = results[1];
- 
-} catch (e) {
-    // 如果連主模型 (callAPI) 都失敗，那才是真的失敗
-    throw e;
-}
-
+         if (isFullReview) {
+            let originalApiResponse = "";
+            let llama3ApiResponse = null;
+             
+            try {
+                // 建立一個短暫延遲的輔助函數
+                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+            
+                // 平行執行，但讓 Llama3 延遲 1000 毫秒才起跑
+                const results = await Promise.all([
+                    callAPI(payload, 0),
+                    sleep(1000).then(() => callLlama3API(payload, 0)).catch(err => {
+                        console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
+                        return null; // 回傳 null 代表失敗
+                    })
+                ]);
+                
+                originalApiResponse = results[0];
+                llama3ApiResponse = results[1];
+             
+            } catch (e) {
+                // 如果連主模型 (callAPI) 都失敗，那才是真的失敗
+                throw e;
+            }
                 currentContextContent = content;
                 currentContextReview = originalApiResponse;
  
