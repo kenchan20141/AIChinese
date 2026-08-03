@@ -17451,6 +17451,9 @@ ${basePrompt}
 /**
  * 嘗試從骯髒的字串中提取並解析 JSON (終極容錯 + 雙語正則挖取)
  */
+/**
+ * 嘗試從骯髒的字串中提取並解析 JSON (終極容錯 + 雙語正則挖取)
+ */
 function safeJSONParse(rawString) {
     if (!rawString || rawString.trim() === '') return null;
  
@@ -17477,13 +17480,13 @@ function safeJSONParse(rawString) {
         let m1 = cleanString.match(r1);
         if (m1 && parseInt(m1[2], 10) <= 10) return parseInt(m1[2], 10);
         
-        // 策略 B: 找文字敘述 (例如「最終內容分數：7」或「內容得分 7」)
-        // 這裡會跳過可能夾在中間的滿分提示 (例如 40分)
-        let r2 = new RegExp(`${zhKey}[^\\d:：]*?(?:\\(\\d+\\)[^\\d:：]*?)?[:：]?\\s*(\\d+)`, 'i');
+        // 策略 B: 找文字敘述 (例如「最終內容分數：7」或「內容得分 7分」)
+        // 增強：容忍後面跟著「分」字
+        let r2 = new RegExp(`${zhKey}[^\\d:：]*?(?:\\(\\d+\\)[^\\d:：]*?)?[:：]?\\s*(\\d+)\\s*(?:分)?`, 'i');
         let m2 = cleanString.match(r2);
         if (m2) {
             let val = parseInt(m2[1], 10);
-            if (val <= 10) return val; // 確保抓到的不是 40分 的 40
+            if (val <= 10) return val; // 確保抓到的不是滿分的 40
         }
         return 0; // 真的找不到就給 0
     };
@@ -17505,19 +17508,70 @@ function safeJSONParse(rawString) {
 
 
 
-
 // ==========================================
 // === [新增] AI 生成結果靜默重試引擎 ===
 // ==========================================
+// ==========================================
+// === [升級版] AI 生成結果靜默重試 & 自我修復引擎 ===
+// ==========================================
 async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
     let attempt = 0;
+    let lastBrokenResponse = null; // 儲存破掉的回應
+
     while (attempt < maxRetries) {
         attempt++;
         console.log(`%c🔄 [Auto-Retry] 啟動第 ${attempt} 次生成...`, 'color: #3498db; font-weight: bold;');
         
         try {
-            // 1. 呼叫傳入的 API (callAPI 或 callReadingAPI)
-            const responseText = await apiFunc(payload, 0);
+            // --- ★ 核心修復邏輯：如果是第 2 或第 3 次嘗試，啟動「AI 自我修復模式」 ---
+            let currentPayload = payload;
+            if (attempt > 1 && lastBrokenResponse) {
+                console.log(`%c🔧 [Auto-Retry] 啟動 AI 自我修復模式，嘗試修復上一次的殘缺格式...`, 'color: #9b59b6; font-weight: bold;');
+                
+                // 深拷貝一份 Payload，避免污染原始資料
+                currentPayload = JSON.parse(JSON.stringify(payload));
+                
+                // 替換掉原本長達幾千字的 Prompt，改成「格式整理指令」
+                // 這樣 AI 就不會重新看文章批改，而是直接幫你把破掉的文字轉回正確的 XML/JSON
+                currentPayload.data.content = `
+【系統緊急指令：資料格式修復】
+你上一次的回答格式嚴重損壞，導致系統無法讀取分數。
+請閱讀下方【你上一次的損壞回應】，從中提取出你的「評分」與「點評文字」，並嚴格依照下方的【強制輸出格式】重新輸出一次。
+
+【你上一次的損壞回應】：
+${lastBrokenResponse.substring(0, 3000)}
+
+【強制輸出格式】（請直接輸出標籤，不要有任何開場白）：
+<grading_json>
+{
+  "content": 內容分數(0-10整數),
+  "expression": 表達分數(0-10整數),
+  "structure": 結構分數(0-10整數),
+  "radar": {
+    "立意": 分數,
+    "取材": 分數,
+    "扣題": 分數,
+    "詳略": 分數,
+    "詞彙": 分數,
+    "文學性": 分數
+  }
+}
+</grading_json>
+<critique>
+[把上面回應中的點評文字整理到這裡]
+</critique>
+<suggestions>
+[把上面回應中的建議文字整理到這裡]
+</suggestions>
+<rewrite_example>
+[把上面回應中的改寫範例整理到這裡]
+</rewrite_example>
+`;
+            }
+            // -------------------------------------------------------------
+
+            // 1. 呼叫 API
+            const responseText = await apiFunc(currentPayload, 0);
 
             // 2. 快速預判是否為 BROKEN 狀態
             let isBroken = false;
@@ -17536,10 +17590,9 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
                     const m = responseText.match(fallbackRegex);
                     if (m) jsonStr = m[0];
                 }
-                // 絕地求生：直接拿前1500字去暴力挖取
                 if (!jsonStr) jsonStr = responseText.substring(0, 1500);
 
-                // 使用你現有的 safeJSONParse 檢查能否挖出分數
+                // 檢查能否挖出分數
                 const scores = safeJSONParse(jsonStr);
                 
                 // 如果解析失敗，或者三項核心分數全是 0，判定為 BROKEN
@@ -17550,14 +17603,16 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
 
             // 3. 處理結果
             if (isBroken) {
-                console.warn(`%c⚠️ [Auto-Retry] 第 ${attempt} 次生成格式損壞 (BROKEN)，準備靜默重試...`, 'color: #f39c12;');
+                console.warn(`%c⚠️ [Auto-Retry] 第 ${attempt} 次生成格式損壞 (BROKEN)，準備進行修復...`, 'color: #f39c12;');
+                lastBrokenResponse = responseText; // ★ 記下這次破掉的回應，下次迴圈讓 AI 修
+
                 if (attempt >= maxRetries) {
-                    console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，放棄重試，輸出殘缺結果。`, 'color: #e74c3c;');
-                    return responseText; // 沒辦法了，只能回傳原本破掉的
+                    console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，修復失敗，輸出殘缺結果。`, 'color: #e74c3c;');
+                    return responseText; // 沒辦法了，只能回傳
                 }
-                // 延遲 1.5 秒再重試，避免短時間內撞擊 API 導致 429 錯誤
-                await new Promise(r => setTimeout(r, 1500));
-                continue; // 迴圈重新開始
+                // 延遲 1 秒再重試
+                await new Promise(r => setTimeout(r, 1000));
+                continue; 
             }
 
             // 4. 成功過關
@@ -17566,7 +17621,7 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
 
         } catch (error) {
             console.error(`%c❌ [Auto-Retry] 第 ${attempt} 次連線發生異常:`, 'color: #e74c3c;', error);
-            if (attempt >= maxRetries) throw error; // 超過次數就報錯給外層
+            if (attempt >= maxRetries) throw error; 
             await new Promise(r => setTimeout(r, 1500));
         }
     }
