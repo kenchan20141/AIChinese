@@ -17685,39 +17685,12 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
  
-    // --- 8. AI 點評語氣重寫邏輯 (保持原有) ---
+  // --- 8. 直接採用原始點評 (刪除二次 API 語氣重寫，解決 GAS 404 過時問題) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
-    let critiqueRewriteInstruction = "";
- 
-    if (finalGradeForDisplay === "5**") critiqueRewriteInstruction = "點評中應為讚賞。";
-    else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") critiqueRewriteInstruction = "點評主要以讚賞為主。";
-    else if (finalGradeForDisplay === "4") critiqueRewriteInstruction = "點評應有褒有貶。";
-    else critiqueRewriteInstruction = "點評以批評為主。";
-    
-    let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨。" : "語氣專業嚴肅，不使用 Emoji。";
- 
-     const rewritePrompt = `請重寫以下點評內容。
-    原文：${originalCritiqueText}
-    【嚴格重寫要求】
-    1. **結構鎖定**：嚴格維持原本的列點數量。
-    2. **篇幅鎖定**：內容長度相若。
-    3. **評級調整**：${critiqueRewriteInstruction}
-    4. **語氣風格**：${emojiInstruction}
-    `;
- 
-    try {
-        console.log("等待 API 冷卻...");
-        await new Promise(resolve => setTimeout(resolve, 3500));
-        finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5);
-    } catch (e) {
-        console.warn("語氣重寫失敗:", e);
-        finalCritiqueText = originalCritiqueText;
-    }
- 
-    // 清洗標題
-    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
-    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*重寫.*$/gim, '');
+
+    // 清洗標題與多餘的系統標記
+    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評.*$/gim, '');
     finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, '');
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
