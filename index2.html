@@ -15215,27 +15215,28 @@ ${content}
                 }
             };
 
-     if (isFullReview) {
+   if (isFullReview) {
             let originalApiResponse = "";
             let llama3ApiResponse = null;
              
            try {
-                // 改為【錯開並行執行】(Concurrent with Stagger)
-                // 將總等待時間減半，大幅降低 GAS 臨時網址過期導致 404 的機率
-                
                 // 1. 立即啟動主模型請求 (Promise A)
                 const promiseA = callAPI(payload, 0);
                 
-                // 2. 建立輔助模型請求 (Promise B)，並設定延遲 1.5 秒後才發出
-                // 這樣可以避免瞬間併發撞擊伺服器限制
+                // 2. 輔助模型請求 (Promise B) - 【目前改為單模型模式，故直接回傳 null】
+                // 💡 若未來想恢復雙模型，請註解掉下面這行，並取消下方區塊的註解
+                const promiseB = Promise.resolve(null); 
+                
+                /* ================= 雙模型備用代碼 (需要時解開註解) =================
                 const promiseB = new Promise(resolve => setTimeout(resolve, 1500))
                     .then(() => callLlama3API(payload, 0))
                     .catch(err => {
-                        console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
-                        return null; // 攔截錯誤，回傳 null 確保整體流程不崩潰
+                        console.warn("Llama3 輔助評分失敗 (已忽略):", err);
+                        return null; 
                     });
+                ================================================================*/
              
-                // 3. 同時等待兩個模型完成
+                // 3. 同時等待兩個模型完成 (因為 B 是 null，實際上只等 A)
                 const [resA, resB] = await Promise.all([promiseA, promiseB]);
                 
                 originalApiResponse = resA;
@@ -17560,15 +17561,14 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     
-    // 4.1 提取兩個模型的 JSON 字串
-  // 4.1 提取兩個模型的 JSON 字串 (強化容錯：即使沒有 <grading_json> 標籤，也嘗試硬抓 JSON 結構)
+ // 4.1 提取兩個模型的 JSON 字串 (強化容錯：即使沒有標籤，也嘗試硬抓 JSON 結構)
     let rawJsonA = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     let rawJsonB = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
     
     let jsonStrA = rawJsonA ? rawJsonA[1] : null;
     let jsonStrB = rawJsonB ? rawJsonB[1] : null;
 
-    // 【容錯機制】如果 AI 把標籤吃掉了，我們直接在全文中尋找包含 "content", "expression", "structure" 的 JSON 括號區塊
+    // 【終極容錯機制】如果 AI 忘記打標籤，直接在全文尋找特徵 JSON 區塊
     const fallbackRegex = /\{[\s\S]*?"content"[\s\S]*?"expression"[\s\S]*?"structure"[\s\S]*?\}/i;
     if (!jsonStrA) {
         const fallbackMatchA = originalApiResponse.match(fallbackRegex);
@@ -17590,61 +17590,57 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     if (!scoresA.radar) scoresA.radar = defaultScores.radar;
     if (!scoresB.radar) scoresB.radar = defaultScores.radar;
  
-    // --- 5. 雙模型分數計算邏輯 (核心修訂) ---
-    let scoresForDisplay = JSON.parse(JSON.stringify(defaultScores)); // 最終結果容器
+    // --- 5. 模型分數決策邏輯 (支援單/雙模型動態切換) ---
+    let scoresForDisplay = JSON.parse(JSON.stringify(defaultScores)); 
     let finalGradeForDisplay = "評級中";
     const wordCount = fullTextContent.length;
  
     // 判斷模型是否壞掉 (字數足夠卻全0分)
     const isModelABroken = (wordCount > 150) && (scoresA.content === 0 && scoresA.structure === 0 && scoresA.expression === 0);
-    const isModelBBroken = (wordCount > 150) && (scoresB.content === 0 && scoresB.structure === 0 && scoresB.expression === 0);
+    const isSingleModelMode = (llama3ApiResponse === null); // 判斷是否為單模型模式
+    const isModelBBroken = !isSingleModelMode && (wordCount > 150) && (scoresB.content === 0 && scoresB.structure === 0 && scoresB.expression === 0);
  
-    let usedSource = ""; // 用於記錄最終採用方案
+    let usedSource = ""; 
  
-    if (isModelABroken && !isModelBBroken) {
-        // A 壞 B 好 -> 用 B
-        scoresForDisplay = scoresB;
-        usedSource = "Model B Only (Llama3) - A Failed";
-    } else if (isModelBBroken && !isModelABroken) {
-        // B 壞 A 好 -> 用 A
+    if (isSingleModelMode) {
+        // 單模型模式：強制使用 A
         scoresForDisplay = scoresA;
-        usedSource = "Model A Only (Gemini) - B Failed";
+        usedSource = isModelABroken ? "Model A (Failed/0分)" : "Model A Only (Single Mode)";
+    } else if (isModelABroken && !isModelBBroken) {
+        scoresForDisplay = scoresB;
+        usedSource = "Model B Only - A Failed";
+    } else if (isModelBBroken && !isModelABroken) {
+        scoresForDisplay = scoresA;
+        usedSource = "Model A Only - B Failed";
     } else if (isModelABroken && isModelBBroken) {
-        // 兩個都壞 -> 沒救了，用 A (至少格式正確)
         scoresForDisplay = scoresA;
         usedSource = "Both Failed (Defaulting to A)";
     } else {
-        // 兩個都正常 -> 取平均 (四捨五入)
+        // 雙模型皆正常 -> 取平均
         usedSource = "Dual Model Average";
-        
-        // 平均三大項
         scoresForDisplay.content = Math.round((scoresA.content + scoresB.content) / 2);
         scoresForDisplay.structure = Math.round((scoresA.structure + scoresB.structure) / 2);
         scoresForDisplay.expression = Math.round((scoresA.expression + scoresB.expression) / 2);
- 
-        // 平均雷達圖細項
         for (let key in scoresForDisplay.radar) {
-            const valA = scoresA.radar[key] || 0;
-            const valB = scoresB.radar[key] || 0;
-            scoresForDisplay.radar[key] = Math.round((valA + valB) / 2);
+            scoresForDisplay.radar[key] = Math.round(((scoresA.radar[key] || 0) + (scoresB.radar[key] || 0)) / 2);
         }
     }
  
-    // --- 6. F12 Console 輸出比對表 ---
-    console.group(`📊 雙模型評分比對 (${uniqueIdPrefix})`);
+    // --- 6. F12 Console 輸出比對表 (完美保留) ---
+    console.group(`📊 智能評分決策系統 (${uniqueIdPrefix})`);
     console.log(`字數: ${wordCount}`);
-    console.log(`決策: ${usedSource}`);
+    console.log(`決策模式: ${usedSource}`);
     console.table([
         {
-            Model: "A (Gemini)",
+            Model: "A (主模型)",
             Status: isModelABroken ? "❌ Broken" : "✅ OK",
             Content: scoresA.content,
             Structure: scoresA.structure,
             Expression: scoresA.expression
         },
         {
-            Model: "B (Llama3)",
-            Status: isModelBBroken ? "❌ Broken" : "✅ OK",
+            Model: "B (輔助模型)",
+            Status: isSingleModelMode ? "⏸️ Disabled" : (isModelBBroken ? "❌ Broken" : "✅ OK"),
             Content: scoresB.content,
             Structure: scoresB.structure,
             Expression: scoresB.expression
