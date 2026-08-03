@@ -17561,12 +17561,27 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     
     // 4.1 提取兩個模型的 JSON 字串
-    const jsonMatchA = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
-    const jsonMatchB = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
+  // 4.1 提取兩個模型的 JSON 字串 (強化容錯：即使沒有 <grading_json> 標籤，也嘗試硬抓 JSON 結構)
+    let rawJsonA = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
+    let rawJsonB = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
+    
+    let jsonStrA = rawJsonA ? rawJsonA[1] : null;
+    let jsonStrB = rawJsonB ? rawJsonB[1] : null;
+
+    // 【容錯機制】如果 AI 把標籤吃掉了，我們直接在全文中尋找包含 "content", "expression", "structure" 的 JSON 括號區塊
+    const fallbackRegex = /\{[\s\S]*?"content"[\s\S]*?"expression"[\s\S]*?"structure"[\s\S]*?\}/i;
+    if (!jsonStrA) {
+        const fallbackMatchA = originalApiResponse.match(fallbackRegex);
+        if (fallbackMatchA) jsonStrA = fallbackMatchA[0];
+    }
+    if (!jsonStrB && llama3ApiResponse) {
+        const fallbackMatchB = llama3ApiResponse.match(fallbackRegex);
+        if (fallbackMatchB) jsonStrB = fallbackMatchB[0];
+    }
  
     // 4.2 解析為物件 (若解析失敗給予預設空結構)
-    let scoresA = (jsonMatchA && jsonMatchA[1]) ? safeJSONParse(jsonMatchA[1]) : null;
-    let scoresB = (jsonMatchB && jsonMatchB[1]) ? safeJSONParse(jsonMatchB[1]) : null;
+    let scoresA = jsonStrA ? safeJSONParse(jsonStrA) : null;
+    let scoresB = jsonStrB ? safeJSONParse(jsonStrB) : null;
  
     // 補全預設值防止報錯
     const defaultScores = { content: 0, structure: 0, expression: 0, radar: { 立意:0, 取材:0, 扣題:0, 詳略:0, 詞彙:0, 文學性:0 } };
