@@ -17455,55 +17455,57 @@ ${basePrompt}
  * 能處理 AI 在 JSON 前後添加的廢話、Markdown 代碼塊
  * ★ 修復：自動將缺失的數值 (如 "key":,) 補為 0
  */
+/**
+ * 嘗試從骯髒的字串中提取並解析 JSON (終極暴力防呆版)
+ * 即使 AI 加上了 []、""、"分" 等導致 JSON.parse 崩潰的字眼，也能強行取出數字
+ */
 function safeJSONParse(rawString) {
     if (!rawString) return null;
  
-    // --- 預處理：清洗並修復常見的 AI 語法錯誤 ---
-    let cleanString = rawString;
+    let cleanString = rawString.replace(/```json/g, '').replace(/```/g, '');
+    cleanString = cleanString.replace(/:\s*,/g, ': 0,').replace(/:\s*}/g, ': 0}').replace(/:\s*NaN/gi, ': 0');
  
-    // 1. 移除 Markdown 代碼塊標記
-    cleanString = cleanString.replace(/```json/g, '').replace(/```/g, '');
- 
-    // 2. ★ 核心修復：填補缺失的數值 ★
-    // 將 "key":, 替換為 "key": 0,
-    cleanString = cleanString.replace(/:\s*,/g, ': 0,');
-    // 將 "key": } 替換為 "key": 0 } (針對最後一項)
-    cleanString = cleanString.replace(/:\s*}/g, ': 0}');
-    // 將 "key": NaN 替換為 "key": 0
-    cleanString = cleanString.replace(/:\s*NaN/gi, ': 0');
- 
-    // --- 第一次嘗試：直接解析 ---
+    // --- 第一次嘗試：標準解析 ---
     try {
         return JSON.parse(cleanString);
-    } catch (e) {
-        // 忽略錯誤，繼續嘗試提取
-    }
+    } catch (e) {}
  
-    // --- 第二次嘗試：提取 {} 內容後再解析 ---
+    // --- 第二次嘗試：提取 {} 內容後解析 ---
     const firstBrace = cleanString.indexOf('{');
     const lastBrace = cleanString.lastIndexOf('}');
- 
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
         let extracted = cleanString.substring(firstBrace, lastBrace + 1);
-        
-        // 對提取後的字串再次執行修復 (雙重保險)
-        extracted = extracted.replace(/:\s*,/g, ': 0,');
-        extracted = extracted.replace(/:\s*}/g, ': 0}');
-        extracted = extracted.replace(/:\s*NaN/gi, ': 0');
- 
         try {
             return JSON.parse(extracted);
-        } catch (e) {
-            console.error("JSON 修復失敗 (提取後仍格式錯誤):", extracted);
-            // ★★★ 修改：解析失敗直接回傳 null，不回傳預設 0 分物件 ★★★
-            return null;
-        }
+        } catch (e) {}
     }
  
-    console.error("無法在字串中找到有效的 JSON 結構");
-    return null;
-}
+    // --- 第三次嘗試 (終極防線)：暴力正則提取 (Regex Extraction) ---
+    // 如果 JSON.parse 徹底失敗，我們無視語法結構，直接從字串中「挖」出對應的數字
+    console.warn("⚠️ JSON 語法嚴重損壞，啟動暴力數值提取...", cleanString);
+    
+    // 輔助提取函數：尋找 "key": 旁邊的第一個數字
+    const extractVal = (key) => {
+        // 匹配規則：找 "key" 或 key，然後找冒號，然後跳過非數字，抓取第一個連續數字
+        const regex = new RegExp(`"?${key}"?\\s*:\\s*[^\\d]*(\\d+)`, 'i');
+        const match = cleanString.match(regex);
+        return match ? parseInt(match[1], 10) : 0; // 找不到才給 0
+    };
  
+    return {
+        content: extractVal("content"),
+        expression: extractVal("expression"),
+        structure: extractVal("structure"),
+        radar: {
+            "立意": extractVal("立意"),
+            "取材": extractVal("取材"),
+            "扣題": extractVal("扣題"),
+            "詳略": extractVal("詳略"),
+            "詞彙": extractVal("詞彙"),
+            "文學性": extractVal("文學性")
+        }
+    };
+}
 
 
 
