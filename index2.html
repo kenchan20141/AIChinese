@@ -15209,23 +15209,25 @@ ${content}
             let originalApiResponse = "";
             let llama3ApiResponse = null;
              
-            try {
-                // 建立一個短暫延遲的輔助函數
-                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-            
-                // 平行執行，讓輔助模型延遲 2 秒 (2000ms) 才起跑，徹底避開併發限制
-                const results = await Promise.all([
-                    callAPI(payload, 0),
-                    sleep(2000).then(() => callLlama3API(payload, 0)).catch(err => {
-                        console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
-                        return null; 
-                    })
-                ]);
+           try {
+                // 改為循序執行：先呼叫主模型，等待完成後再呼叫輔助模型，徹底解決併發 404 問題
                 
-                originalApiResponse = results[0];
-                llama3ApiResponse = results[1];
+                // 1. 先呼叫主模型 (Gemini / DeepSeek)
+                originalApiResponse = await callAPI(payload, 0);
+                
+                // 2. 主模型完成後，安全起見稍微停頓 1 秒，讓 GAS 伺服器喘息
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 3. 接著才呼叫輔助模型 (Llama3)
+                try {
+                    llama3ApiResponse = await callLlama3API(payload, 0);
+                } catch (err) {
+                    console.warn("Llama3 輔助評分失敗 (已忽略，將使用單模型評分):", err);
+                    llama3ApiResponse = null; 
+                }
              
             } catch (e) {
+                // 如果主模型 (callAPI) 失敗，直接拋出錯誤中斷流程
                 throw e;
             }
                 currentContextContent = content;
