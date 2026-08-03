@@ -17458,50 +17458,50 @@ ${basePrompt}
  * 嘗試從骯髒的字串中提取並解析 JSON (終極暴力防呆版)
  * 即使 AI 加上了 []、""、"分" 等導致 JSON.parse 崩潰的字眼，也能強行取出數字
  */
+/**
+ * 嘗試從骯髒的字串中提取並解析 JSON (中英雙語 + 終極防呆版)
+ */
 function safeJSONParse(rawString) {
     if (!rawString) return null;
  
     let cleanString = rawString.replace(/```json/g, '').replace(/```/g, '');
     cleanString = cleanString.replace(/:\s*,/g, ': 0,').replace(/:\s*}/g, ': 0}').replace(/:\s*NaN/gi, ': 0');
  
-    // --- 第一次嘗試：標準解析 ---
-    try {
-        return JSON.parse(cleanString);
-    } catch (e) {}
+    try { return JSON.parse(cleanString); } catch (e) {}
  
-    // --- 第二次嘗試：提取 {} 內容後解析 ---
     const firstBrace = cleanString.indexOf('{');
     const lastBrace = cleanString.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
         let extracted = cleanString.substring(firstBrace, lastBrace + 1);
-        try {
-            return JSON.parse(extracted);
-        } catch (e) {}
+        try { return JSON.parse(extracted); } catch (e) {}
     }
  
-    // --- 第三次嘗試 (終極防線)：暴力正則提取 (Regex Extraction) ---
-    // 如果 JSON.parse 徹底失敗，我們無視語法結構，直接從字串中「挖」出對應的數字
-    console.warn("⚠️ JSON 語法嚴重損壞，啟動暴力數值提取...", cleanString);
+    console.warn("⚠️ JSON 語法損壞，啟動雙語暴力數值提取...");
     
-    // 輔助提取函數：尋找 "key": 旁邊的第一個數字
-    const extractVal = (key) => {
-        // 匹配規則：找 "key" 或 key，然後找冒號，然後跳過非數字，抓取第一個連續數字
-        const regex = new RegExp(`"?${key}"?\\s*:\\s*[^\\d]*(\\d+)`, 'i');
+    // 輔助提取函數：同時比對英文Key與中文Key
+    const extractVal = (enKey, zhKey) => {
+        // 匹配規則：找 英文Key 或 中文Key，接著找冒號(中英皆可)，抓取第一個數字
+        const regex = new RegExp(`"?(${enKey}|${zhKey})"?\\s*[:：]\\s*[^\\d]*(\\d+)`, 'i');
         const match = cleanString.match(regex);
-        return match ? parseInt(match[1], 10) : 0; // 找不到才給 0
+        if(match) return parseInt(match[2], 10);
+        
+        // 如果上面找不到，做最後掙扎：只找中文關鍵字附近的數字
+        const fallbackRegex = new RegExp(`${zhKey}[^\\d]*(\\d+)`, 'i');
+        const fallbackMatch = cleanString.match(fallbackRegex);
+        return fallbackMatch ? parseInt(fallbackMatch[1], 10) : 0;
     };
  
     return {
-        content: extractVal("content"),
-        expression: extractVal("expression"),
-        structure: extractVal("structure"),
+        content: extractVal("content", "內容"),
+        expression: extractVal("expression", "表達"),
+        structure: extractVal("structure", "結構"),
         radar: {
-            "立意": extractVal("立意"),
-            "取材": extractVal("取材"),
-            "扣題": extractVal("扣題"),
-            "詳略": extractVal("詳略"),
-            "詞彙": extractVal("詞彙"),
-            "文學性": extractVal("文學性")
+            "立意": extractVal("立意", "立意"),
+            "取材": extractVal("取材", "取材"),
+            "扣題": extractVal("扣題", "扣題"),
+            "詳略": extractVal("詳略", "詳略"),
+            "詞彙": extractVal("詞彙", "詞彙|詞匯"),
+            "文學性": extractVal("文學性", "文學性")
         }
     };
 }
@@ -17627,10 +17627,31 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
  
-    // --- 6. F12 Console 輸出比對表 (完美保留) ---
+   // --- 6. F12 Console 輸出比對表與驗屍報告 ---
     console.group(`📊 智能評分決策系統 (${uniqueIdPrefix})`);
     console.log(`字數: ${wordCount}`);
     console.log(`決策模式: ${usedSource}`);
+    
+    // 🚨 驗屍報告區塊 🚨
+    if (isModelABroken || isModelBBroken) {
+        console.groupCollapsed("%c🚨 [診斷報告] 發現 BROKEN 狀態，點擊展開查看致命原因 🚨", "color: white; background: red; font-size: 14px; padding: 5px;");
+        
+        if (isModelABroken) {
+            console.error("【Model A 失敗分析】");
+            console.log("1. 擷取到的 JSON 字串 (jsonStrA):", jsonStrA === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrA);
+            console.log("2. 暴力解析後的結果 (scoresA):", scoresA);
+            console.log("3. AI 原始完整回應 (請檢查它到底輸出了什麼鬼東西):\n", originalApiResponse);
+        }
+        
+        if (isModelBBroken) {
+            console.error("【Model B 失敗分析】");
+            console.log("1. 擷取到的 JSON 字串 (jsonStrB):", jsonStrB === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrB);
+            console.log("2. 暴力解析後的結果 (scoresB):", scoresB);
+            console.log("3. AI 原始完整回應:\n", llama3ApiResponse);
+        }
+        console.groupEnd();
+    }
+
     console.table([
         {
             Model: "A (主模型)",
