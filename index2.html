@@ -15215,42 +15215,38 @@ ${content}
                 }
             };
 
-   if (isFullReview) {
+if (isFullReview) {
             let originalApiResponse = "";
             let llama3ApiResponse = null;
              
            try {
-                // 1. 立即啟動主模型請求 (Promise A)
-               const promiseA = callGradingAPIWithRetry(callAPI, payload, content.length, 5);
+                // 1. 立即啟動主模型請求 (Promise A) - 具備自動重試與自我修復功能
+                const promiseA = callGradingAPIWithRetry(callAPI, payload, content.length, 5);
                 
-                // 2. 輔助模型請求 (Promise B) - 【目前改為單模型模式，故直接回傳 null】
-                // 💡 若未來想恢復雙模型，請註解掉下面這行，並取消下方區塊的註解
-                const promiseB = Promise.resolve(null); 
-                
-                /* ================= 雙模型備用代碼 (需要時解開註解) =================
+                // 2. 輔助模型請求 (Promise B) - 啟動雙模型驗證 (僅觸發一次，不作重試)
                 const promiseB = new Promise(resolve => setTimeout(resolve, 1500))
                     .then(() => callLlama3API(payload, 0))
                     .catch(err => {
-                        console.warn("Llama3 輔助評分失敗 (已忽略):", err);
+                        console.warn("輔助評分連線失敗 (已忽略，系統將自動降級為單模型模式):", err);
                         return null; 
                     });
-                ================================================================*/
              
-                // 3. 同時等待兩個模型完成 (因為 B 是 null，實際上只等 A)
+                // 3. 同時等待兩個模型完成
                 const [resA, resB] = await Promise.all([promiseA, promiseB]);
                 
                 originalApiResponse = resA;
                 llama3ApiResponse = resB;
              
             } catch (e) {
-                // 如果主模型 (callAPI) 失敗，Promise.all 會立刻來到這裡，中斷流程
+                // 如果主模型 (callAPI) 徹底失敗，Promise.all 會來到這裡並中斷流程
                 throw e;
             }
-                currentContextContent = content;
-                currentContextReview = originalApiResponse;
- 
-                await joystickPromise;
-                await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
+            
+            currentContextContent = content;
+            currentContextReview = originalApiResponse;
+
+            await joystickPromise;
+            await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
             
             } else {
                 const response = await callAPI(payload, 0);
@@ -17186,13 +17182,15 @@ END IF
 }
 </grading_json>
 
-<critique>
-[根據「教學筆記」對文章進行點評，可從立意、取材、扣題、詳略、文筆等不同角度點評。必須以數字編號列點方式呈現2-3點核心評論。]
 【🚨 嚴重警告：評語與分數的絕對一致性】
 1. 檢視你在 <grading_json> 中給出的「扣題(content/radar)」分數。
 2. 如果扣題分數為 5 分或以上，你的點評中【絕對禁止】出現「扣題間接」、「呼應題旨不足」、「牽強」、「偏離主題」等負面字眼！你必須用肯定的語氣稱讚其扣題。
 3. 如果你覺得必須寫出「呼應不足」或「間接」，這代表你前面的分數打錯了（應該是 4 分或以下），但現在分數已鎖定，請配合你給出的及格分數，改寫你的評語。
 必須以數字編號列點方式呈現2-3點核心評論。]
+
+	
+<critique>
+[根據「教學筆記」對文章進行點評，可從立意、取材、扣題、詳略、文筆等不同角度點評。必須以數字編號列點方式呈現2-3點核心評論。]
 </critique>
 
 <suggestions>
@@ -17415,14 +17413,14 @@ ${specificInstructions}
 }
 </grading_json>
 
-<critique>
-[根據「教學筆記」對文章進行點評，可從立意、取材、扣題、詳略、文筆等不同角度點評。必須以數字編號列點方式呈現2-3點核心評論。]
 【🚨 嚴重警告：評語與分數的絕對一致性】
 1. 檢視你在 <grading_json> 中給出的「扣題(content/radar)」分數。
 2. 如果扣題分數為 5 分或以上，你的點評中【絕對禁止】出現「扣題間接」、「呼應題旨不足」、「牽強」、「偏離主題」等負面字眼！你必須用肯定的語氣稱讚其扣題。
 3. 如果你覺得必須寫出「呼應不足」或「間接」，這代表你前面的分數打錯了（應該是 4 分或以下），但現在分數已鎖定，請配合你給出的及格分數，改寫你的評語。
 必須以數字編號列點方式呈現2-3點核心評論。]
 
+<critique>
+[根據「教學筆記」對文章進行點評，可從立意、取材、扣題、詳略、文筆等不同角度點評。必須以數字編號列點方式呈現2-3點核心評論。]
 </critique>
 
 <suggestions>
@@ -17691,7 +17689,26 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
     let finalHTML = `<h3>${reviewerName}點評：</h3>`;
     
     // --- 4. 解析原始文字中的各個區塊 ---
-    const critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
+ // --- 4. 解析原始文字中的各個區塊 ---
+    let critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
+    let extractedCritique = "";
+
+    if (critiqueMatch && critiqueMatch[1].trim() !== "") {
+        extractedCritique = critiqueMatch[1].trim();
+    } else {
+        // 【容錯機制】如果 AI 忘記打 <critique> 標籤，我們強制挖取夾在 JSON 結尾 和 <suggestions> 之間的文字
+        console.warn("⚠️ 未偵測到 <critique> 標籤，啟動容錯擷取機制...");
+        const fallbackMatch = originalApiResponse.match(/<\/grading_json>([\s\S]*?)(?:<suggestions>|<rewrite_example>|$)/i);
+        if (fallbackMatch && fallbackMatch[1].trim() !== "") {
+            extractedCritique = fallbackMatch[1].trim();
+            // 清除 AI 自作主張加上的 Markdown 標題 (例如 ### 點評：)
+            extractedCritique = extractedCritique.replace(/^(### |\*\*|)點評(及建議)?(：|:|\*\*|)/i, '').trim();
+        }
+    }
+    
+    // 為了相容後續的代碼，把挖出來的文字偽裝回 match 陣列的格式
+    critiqueMatch = extractedCritique ? [null, extractedCritique] : null;
+
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     
