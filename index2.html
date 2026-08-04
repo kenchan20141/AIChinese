@@ -17598,17 +17598,15 @@ ${payload.data.content}
 
                 const scores = safeJSONParse(jsonStr);
                 
-               // ★★★ 核心新增：檢查是否遺失了 <critique> 或 <suggestions> 標籤 ★★★
+                // ★★★ 核心新增：檢查是否遺失了 <critique> 標籤 ★★★
                 const hasCritique = /<critique>[\s\S]*?<\/critique>/i.test(responseText);
-                const hasSuggestions = /<suggestions>[\s\S]*?<\/suggestions>/i.test(responseText);
                 
-                // 如果解析失敗、分數全 0，或者沒有生成點評、建議文字，判定為 BROKEN
-                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0) || !hasCritique || !hasSuggestions) {
+                // 如果解析失敗、分數全 0，或者沒有生成點評文字，判定為 BROKEN
+                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0) || !hasCritique) {
                     isBroken = true;
-                    if (!hasCritique || !hasSuggestions) {
-                        console.warn("⚠️ 偵測到 AI 漏寫了 <critique> 或 <suggestions> 文字！啟動重試機制。");
-                    }
+                    if (!hasCritique) console.warn("⚠️ 偵測到 AI 漏寫了 <critique> 點評文字！");
                 }
+            }
 
             // 3. 處理結果
             if (isBroken) {
@@ -17869,9 +17867,58 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
  
-  // --- 8. 直接採用原始點評 (刪除二次 API 語氣重寫，解決 GAS 404 過時問題) ---
+// --- 8. 二次 API 語氣重寫與一致性校正 (扣題標準版) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
+    let critiqueRewriteInstruction = "";
+
+    // 獲取「扣題」分數作為評判核心 (防呆預設為0)
+    const koutiScore = scoresForDisplay && scoresForDisplay.radar ? (scoresForDisplay.radar['扣題'] || 0) : 0;
+
+    // 根據扣題分數，強制規定點評的基調，杜絕分數與評語割裂
+    if (koutiScore >= 7) {
+        critiqueRewriteInstruction = "該文章的扣題分數為 7 分或以上（表現優良）。你的點評必須是【正面讚賞】。絕對不能出現「扣題不足」、「間接」、「偏題」、「離題」、「牽強」等負面字眼，必須強調其扣題緊密、表現好。";
+    } else if (koutiScore === 6) {
+        critiqueRewriteInstruction = "該文章的扣題分數為 6 分（表現合格）。你的點評應【肯定其達到合格水平】，可指出扣題上的微小瑕疵，但絕對不能出現「嚴重偏題」或「完全離題」等極端字眼。";
+    } else { // 5 分或以下
+        critiqueRewriteInstruction = "該文章的扣題分數為 5 分或以下（表現欠佳）。你的點評必須指出文章【扣題不足】。請明確使用「偏題」、「離題」、「扣題間接」、「牽強」或「未緊扣題旨」等字眼來批評其內容。";
+    }
+    
+    // 閱卷員語氣設定
+    let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨🤌，語氣幽默詼諧，適時揶揄。" : "語氣專業嚴肅，絕對不使用 Emoji。";
+
+    // 構建重寫 Prompt
+    const rewritePrompt = `你是一個嚴格執行指令的文本修正引擎。請重寫以下點評內容，使其與文章的扣題表現絕對一致。
+
+【嚴格重寫要求】
+1. **結構鎖定**：嚴格維持原本的列點數量與大致篇幅。
+2. **評語一致性（最優先指令）**：${critiqueRewriteInstruction}
+   - 如果原文的語氣與上述要求衝突（例如分數高卻說偏題，或分數低卻稱讚扣題），請**強制反轉或修改這些字眼**。
+3. **語氣風格**：${emojiInstruction}
+4. **純文本輸出**：不要加上「這是重寫後的內容」等廢話，不要改變原有的排版，直接輸出修改後的點評。
+
+【原始點評內容】：
+${originalCritiqueText}
+`;
+
+    // 啟動 F12 Console 追蹤
+    console.group(`🔄 [Tone Rewrite] 啟動二次 API 語氣與一致性校正`);
+    console.log(`%c判定基準 -> 扣題分數: ${koutiScore}分`, 'color: #3498db; font-weight: bold; font-size: 14px;');
+    console.log(`%c套用指示: ${critiqueRewriteInstruction}`, 'color: #e67e22;');
+    
+    try {
+        // 為了避免瞬間併發請求導致 HTTP 429 錯誤，給予 1.5 秒冷卻緩衝
+        console.log("⏳ 等待 API 冷卻 (1.5s)...");
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // 呼叫 API 進行重寫 (使用較低的 temperature 0.3 確保穩定性)
+        finalCritiqueText = await callReadingAPI(rewritePrompt, 0.3);
+        console.log(`%c✅ [Tone Rewrite] 校正完成！`, 'color: #2ecc71; font-weight: bold;');
+    } catch (e) {
+        console.warn(`%c⚠️ [Tone Rewrite] 校正失敗，將退回使用原始點評:`, 'color: #e74c3c;', e);
+        finalCritiqueText = originalCritiqueText; // 失敗時的容錯機制
+    }
+    console.groupEnd();
 
     // 清洗標題與多餘的系統標記
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評.*$/gim, '');
