@@ -17534,64 +17534,45 @@ function safeJSONParse(rawString) {
 // ==========================================
 // === [升級版] AI 生成結果靜默重試 & 自我修復引擎 ===
 // ==========================================
+// ==========================================
+// === [升級版] AI 生成結果靜默重試 & 自我修復引擎 ===
+// ==========================================
 async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
     let attempt = 0;
-    let lastBrokenResponse = null; // 儲存破掉的回應
+    let lastBrokenResponse = null;
 
     while (attempt < maxRetries) {
         attempt++;
         console.log(`%c🔄 [Auto-Retry] 啟動第 ${attempt} 次生成...`, 'color: #3498db; font-weight: bold;');
         
         try {
-            // --- ★ 核心修復邏輯：如果是第 2 或第 3 次嘗試，啟動「AI 自我修復模式」 ---
-            let currentPayload = payload;
+            let currentPayload = JSON.parse(JSON.stringify(payload));
+            
+            // ★ 核心修復 1：動態調整 Temperature (隨機性)
+            // 如果 AI 陷入死胡同，稍微提高隨機性讓它換個思考方式
+            let currentTemp = 0; // 第一次力求精準
+            if (attempt === 2) currentTemp = 0.3; // 第二次給點彈性
+            if (attempt >= 3) currentTemp = 0.6;  // 第三次大幅改變思路
+
             if (attempt > 1 && lastBrokenResponse) {
-                console.log(`%c🔧 [Auto-Retry] 啟動 AI 自我修復模式，嘗試修復上一次的殘缺格式...`, 'color: #9b59b6; font-weight: bold;');
+                console.log(`%c🔧 [Auto-Retry] 啟動 AI 自我修復模式 (Temp: ${currentTemp})...`, 'color: #9b59b6; font-weight: bold;');
                 
-                // 深拷貝一份 Payload，避免污染原始資料
-                currentPayload = JSON.parse(JSON.stringify(payload));
-                
-                // 替換掉原本長達幾千字的 Prompt，改成「格式整理指令」
-                // 這樣 AI 就不會重新看文章批改，而是直接幫你把破掉的文字轉回正確的 XML/JSON
+                // ★ 核心修復 2：不要「覆蓋」原本的內容，而是「疊加」強烈警告
+                // 這樣 AI 才不會忘記原本要批改的學生文章是什麼！
                 currentPayload.data.content = `
-【系統緊急指令：資料格式修復】
-你上一次的回答格式嚴重損壞，導致系統無法讀取分數。
-請閱讀下方【你上一次的損壞回應】，從中提取出你的「評分」與「點評文字」，並嚴格依照下方的【強制輸出格式】重新輸出一次。
+【系統最高級別警告：格式修復】
+你在上一次的回應中，XML/JSON 格式完全損壞，導致系統崩潰！
+請你「重新批改」下方的文章，並 **絕對嚴格** 遵守 <grading_json>、<critique> 等標籤格式。
+絕對不要輸出「好的」、「這是我修復的格式」等廢話，直接輸出標籤與內容！
+確保 JSON 內的 key 和 value (必須是數字) 正確無誤！
 
-【你上一次的損壞回應】：
-${lastBrokenResponse.substring(0, 3000)}
-
-【強制輸出格式】（請直接輸出標籤，不要有任何開場白）：
-<grading_json>
-{
-  "content": 內容分數(0-10整數),
-  "expression": 表達分數(0-10整數),
-  "structure": 結構分數(0-10整數),
-  "radar": {
-    "立意": 分數,
-    "取材": 分數,
-    "扣題": 分數,
-    "詳略": 分數,
-    "詞彙": 分數,
-    "文學性": 分數
-  }
-}
-</grading_json>
-<critique>
-[把上面回應中的點評文字整理到這裡]
-</critique>
-<suggestions>
-[把上面回應中的建議文字整理到這裡]
-</suggestions>
-<rewrite_example>
-[把上面回應中的改寫範例整理到這裡]
-</rewrite_example>
+=============================
+${payload.data.content}
 `;
             }
-            // -------------------------------------------------------------
 
-            // 1. 呼叫 API
-            const responseText = await apiFunc(currentPayload, 0);
+            // 1. 呼叫 API (傳入動態溫度)
+            const responseText = await apiFunc(currentPayload, currentTemp);
 
             // 2. 快速預判是否為 BROKEN 狀態
             let isBroken = false;
@@ -17624,14 +17605,14 @@ ${lastBrokenResponse.substring(0, 3000)}
             // 3. 處理結果
             if (isBroken) {
                 console.warn(`%c⚠️ [Auto-Retry] 第 ${attempt} 次生成格式損壞 (BROKEN)，準備進行修復...`, 'color: #f39c12;');
-                lastBrokenResponse = responseText; // ★ 記下這次破掉的回應，下次迴圈讓 AI 修
+                lastBrokenResponse = responseText; // 記下這次破掉的回應
 
                 if (attempt >= maxRetries) {
                     console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，修復失敗，輸出殘缺結果。`, 'color: #e74c3c;');
                     return responseText; // 沒辦法了，只能回傳
                 }
-                // 延遲 1 秒再重試
-                await new Promise(r => setTimeout(r, 1000));
+                // 延遲 1.5 秒再重試，避免 API 頻率限制
+                await new Promise(r => setTimeout(r, 1500));
                 continue; 
             }
 
@@ -17642,7 +17623,7 @@ ${lastBrokenResponse.substring(0, 3000)}
         } catch (error) {
             console.error(`%c❌ [Auto-Retry] 第 ${attempt} 次連線發生異常:`, 'color: #e74c3c;', error);
             if (attempt >= maxRetries) throw error; 
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 2000)); // 網路錯誤等久一點
         }
     }
 }
