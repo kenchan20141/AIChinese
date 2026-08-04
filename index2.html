@@ -17598,15 +17598,17 @@ ${payload.data.content}
 
                 const scores = safeJSONParse(jsonStr);
                 
-                // ★★★ 核心新增：檢查是否遺失了 <critique> 標籤 ★★★
+               // ★★★ 核心新增：檢查是否遺失了 <critique> 或 <suggestions> 標籤 ★★★
                 const hasCritique = /<critique>[\s\S]*?<\/critique>/i.test(responseText);
+                const hasSuggestions = /<suggestions>[\s\S]*?<\/suggestions>/i.test(responseText);
                 
-                // 如果解析失敗、分數全 0，或者沒有生成點評文字，判定為 BROKEN
-                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0) || !hasCritique) {
+                // 如果解析失敗、分數全 0，或者沒有生成點評、建議文字，判定為 BROKEN
+                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0) || !hasCritique || !hasSuggestions) {
                     isBroken = true;
-                    if (!hasCritique) console.warn("⚠️ 偵測到 AI 漏寫了 <critique> 點評文字！");
+                    if (!hasCritique || !hasSuggestions) {
+                        console.warn("⚠️ 偵測到 AI 漏寫了 <critique> 或 <suggestions> 文字！啟動重試機制。");
+                    }
                 }
-            }
 
             // 3. 處理結果
             if (isBroken) {
