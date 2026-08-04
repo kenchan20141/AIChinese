@@ -13637,26 +13637,33 @@ localStorage.setItem("argumentCurrentTopic", selectedTopic);
 
 
 // 設定自訂題目（議論）
+// 設定自訂題目（議論）
 function setArgumentCustomTopic() {
-// 【主要修改】在這裡使用 sanitizeHTML 函式
-const customTopic = sanitizeHTML(document.getElementById("argumentCustomTopic").value.trim());
-if (!customTopic) {
-alert("請輸入自訂題目");
-return;
+    const rawTopic = sanitizeHTML(document.getElementById("argumentCustomTopic").value.trim());
+    if (!rawTopic) {
+        alert("請輸入自訂題目");
+        return;
+    }
+
+    // ★★★ 新增：自動套用 DSE 格式 ★★★
+    let formattedTopic = rawTopic;
+    // 如果用家沒有自己打「為題」或「看法」等字眼，系統就幫他包裝
+    if (!rawTopic.includes("為題") && !rawTopic.includes("寫作文章一篇") && !rawTopic.includes("看法")) {
+        formattedTopic = `試以「${rawTopic}」為題，寫作文章一篇。`;
+    }
+
+    const topicResult = document.getElementById("argumentTopicResult");
+    topicResult.innerHTML = "<strong>" + formattedTopic + "</strong>"; 
+    localStorage.setItem("argumentCurrentTopic", formattedTopic);
+
+    topicResult.style.display = "block"; 
+
+    // 隱藏並清空輸入區域
+    const customTopicArea = document.getElementById("argumentCustomTopicArea");
+    customTopicArea.style.display = "none";
+    customTopicArea.innerHTML = "";
 }
-
-const topicResult = document.getElementById("argumentTopicResult");
-topicResult.innerHTML = "<strong>" + customTopic + "</strong>"; // <- 現在安全了
-localStorage.setItem("argumentCurrentTopic", customTopic);
-
-// 【核心修訂】強制讓題目結果區塊顯示出來
-topicResult.style.display = "block"; 
-
-// 隱藏並清空輸入區域
-const customTopicArea = document.getElementById("argumentCustomTopicArea");
-customTopicArea.style.display = "none";
-customTopicArea.innerHTML = "";
-}
+	
 // 生成議論大綱表格
 function generateArgumentOutlineTable() {
 const savedData = localStorage.getItem("argumentOutlineData");
@@ -14760,53 +14767,58 @@ function generateTopic(buttonElement) {
 
 	
 // 設定自訂題目（寫作）
+// 設定自訂題目（寫作）
 function setCustomTopic() {
-const writingType = document.getElementById("writingType").value;
-const topicResult = document.getElementById("topicResult");
+    const writingType = document.getElementById("writingType").value;
+    const topicResult = document.getElementById("topicResult");
 
-if (writingType === "片段描寫") {
-// 【核心修訂】只檢查題目是否已輸入
-const title = sanitizeHTML(document.getElementById("customTitle").value.trim());
-if (!title) {
-alert("請至少輸入自訂題目");
-return;
+    if (writingType === "片段描寫") {
+        const title = sanitizeHTML(document.getElementById("customTitle").value.trim());
+        if (!title) {
+            alert("請至少輸入自訂題目");
+            return;
+        }
+
+        const focus = document.getElementById("customFocus").value.trim();
+        const plot = document.getElementById("customPlot").value.trim();
+
+        topicResult.innerHTML = `
+        <strong>${title}</strong>
+        <table>
+        <tr><th>結構段重點</th><th>情節大要</th></tr>
+        <tr><td>${focus || '<i>（未提供）</i>'}</td><td>${plot || '<i>（未提供）</i>'}</td></tr>
+        </table>
+        `;
+
+        localStorage.setItem("currentTopic", title);
+        localStorage.setItem("currentFocus", focus);
+        localStorage.setItem("currentPlot", plot);
+
+    } else { 
+        const rawTopic = sanitizeHTML(document.getElementById("customTopic").value.trim());
+        if (!rawTopic) {
+            alert("請輸入自訂題目");
+            return;
+        }
+        
+        // ★★★ 新增：自動套用 DSE 格式 ★★★
+        let formattedTopic = rawTopic;
+        // 如果用家沒有自己打「為題」等字眼，系統就幫他包裝
+        if (!rawTopic.includes("為題") && !rawTopic.includes("寫作文章一篇")) {
+            formattedTopic = `試以「${rawTopic}」為題，寫作文章一篇。`;
+        }
+
+        topicResult.innerHTML = "<strong>" + formattedTopic + "</strong>";
+        localStorage.setItem("currentTopic", formattedTopic);
+    }
+
+    topicResult.style.display = 'block';
+    const customTopicArea = document.getElementById("customTopicArea");
+    customTopicArea.style.display = "none";
+    customTopicArea.innerHTML = "";
 }
 
-// 獲取（可能是空的）重點和情節
-const focus = document.getElementById("customFocus").value.trim();
-const plot = document.getElementById("customPlot").value.trim();
-
-// 即使 focus 和 plot 是空的，也正常生成顯示表格
-// 這樣使用者可以清楚地看到他們輸入了什麼，沒輸入什麼
-topicResult.innerHTML = `
-<strong>${title}</strong>
-<table>
-<tr><th>結構段重點</th><th>情節大要</th></tr>
-<tr><td>${focus || '<i>（未提供）</i>'}</td><td>${plot || '<i>（未提供）</i>'}</td></tr>
-</table>
-`;
-
-// 儲存到 localStorage，空值也一併儲存
-localStorage.setItem("currentTopic", title);
-localStorage.setItem("currentFocus", focus);
-localStorage.setItem("currentPlot", plot);
-
-} else { 
-const customTopic = sanitizeHTML(document.getElementById("customTopic").value.trim());
-if (!customTopic) {
-alert("請輸入自訂題目");
-return;
-}
-topicResult.innerHTML = "<strong>" + customTopic + "</strong>";
-localStorage.setItem("currentTopic", customTopic);
-}
-
-topicResult.style.display = 'block';
-
-const customTopicArea = document.getElementById("customTopicArea");
-customTopicArea.style.display = "none";
-customTopicArea.innerHTML = "";
-}
+	
 // 生成大綱表格
 function generateOutlineTable() {
 const structure = document.getElementById("structure").value;
@@ -17529,12 +17541,6 @@ function safeJSONParse(rawString) {
 
 
 // ==========================================
-// === [新增] AI 生成結果靜默重試引擎 ===
-// ==========================================
-// ==========================================
-// === [升級版] AI 生成結果靜默重試 & 自我修復引擎 ===
-// ==========================================
-// ==========================================
 // === [升級版] AI 生成結果靜默重試 & 自我修復引擎 ===
 // ==========================================
 async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
@@ -17548,33 +17554,30 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
         try {
             let currentPayload = JSON.parse(JSON.stringify(payload));
             
-            // ★ 核心修復 1：動態調整 Temperature (隨機性)
-            // 如果 AI 陷入死胡同，稍微提高隨機性讓它換個思考方式
-            let currentTemp = 0; // 第一次力求精準
-            if (attempt === 2) currentTemp = 0.3; // 第二次給點彈性
-            if (attempt >= 3) currentTemp = 0.6;  // 第三次大幅改變思路
+            // 動態調整 Temperature (隨機性)
+            let currentTemp = 0; 
+            if (attempt === 2) currentTemp = 0.3; 
+            if (attempt >= 3) currentTemp = 0.6;  
 
             if (attempt > 1 && lastBrokenResponse) {
                 console.log(`%c🔧 [Auto-Retry] 啟動 AI 自我修復模式 (Temp: ${currentTemp})...`, 'color: #9b59b6; font-weight: bold;');
                 
-                // ★ 核心修復 2：不要「覆蓋」原本的內容，而是「疊加」強烈警告
-                // 這樣 AI 才不會忘記原本要批改的學生文章是什麼！
+                // ★ 疊加強烈警告，明確指出是格式壞了或是缺少了點評，並保留原始學生文章
                 currentPayload.data.content = `
 【系統最高級別警告：格式修復】
-你在上一次的回應中，XML/JSON 格式完全損壞，導致系統崩潰！
-請你「重新批改」下方的文章，並 **絕對嚴格** 遵守 <grading_json>、<critique> 等標籤格式。
+你在上一次的回應中，XML/JSON 格式完全損壞，或者遺漏了必須的 <critique> 點評區塊，導致系統崩潰！
+請你「重新批改」下方的文章，並 **絕對嚴格** 同時輸出 <grading_json> 以及 <critique> 等標籤內容，缺一不可。
 絕對不要輸出「好的」、「這是我修復的格式」等廢話，直接輸出標籤與內容！
-確保 JSON 內的 key 和 value (必須是數字) 正確無誤！
 
 =============================
 ${payload.data.content}
 `;
             }
 
-            // 1. 呼叫 API (傳入動態溫度)
+            // 1. 呼叫 API
             const responseText = await apiFunc(currentPayload, currentTemp);
 
-            // 2. 快速預判是否為 BROKEN 狀態
+            // 2. 快速預判是否為 BROKEN 狀態 (分數全0 或 缺少點評)
             let isBroken = false;
             if (wordCount > 150) {
                 let jsonStr = null;
@@ -17593,25 +17596,27 @@ ${payload.data.content}
                 }
                 if (!jsonStr) jsonStr = responseText.substring(0, 1500);
 
-                // 檢查能否挖出分數
                 const scores = safeJSONParse(jsonStr);
                 
-                // 如果解析失敗，或者三項核心分數全是 0，判定為 BROKEN
-                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0)) {
+                // ★★★ 核心新增：檢查是否遺失了 <critique> 標籤 ★★★
+                const hasCritique = /<critique>[\s\S]*?<\/critique>/i.test(responseText);
+                
+                // 如果解析失敗、分數全 0，或者沒有生成點評文字，判定為 BROKEN
+                if (!scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0) || !hasCritique) {
                     isBroken = true;
+                    if (!hasCritique) console.warn("⚠️ 偵測到 AI 漏寫了 <critique> 點評文字！");
                 }
             }
 
             // 3. 處理結果
             if (isBroken) {
                 console.warn(`%c⚠️ [Auto-Retry] 第 ${attempt} 次生成格式損壞 (BROKEN)，準備進行修復...`, 'color: #f39c12;');
-                lastBrokenResponse = responseText; // 記下這次破掉的回應
+                lastBrokenResponse = responseText; 
 
                 if (attempt >= maxRetries) {
                     console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，修復失敗，輸出殘缺結果。`, 'color: #e74c3c;');
-                    return responseText; // 沒辦法了，只能回傳
+                    return responseText; 
                 }
-                // 延遲 1.5 秒再重試，避免 API 頻率限制
                 await new Promise(r => setTimeout(r, 1500));
                 continue; 
             }
@@ -17623,7 +17628,7 @@ ${payload.data.content}
         } catch (error) {
             console.error(`%c❌ [Auto-Retry] 第 ${attempt} 次連線發生異常:`, 'color: #e74c3c;', error);
             if (attempt >= maxRetries) throw error; 
-            await new Promise(r => setTimeout(r, 2000)); // 網路錯誤等久一點
+            await new Promise(r => setTimeout(r, 2000)); 
         }
     }
 }
