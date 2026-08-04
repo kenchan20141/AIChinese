@@ -17791,29 +17791,35 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
  
-   // --- 6. F12 Console 輸出比對表與驗屍報告 ---
-    console.group(`📊 智能評分決策系統 (${uniqueIdPrefix})`);
+  // --- 6. F12 Console 輸出比對表 ---
+    console.group(`📊 雙模型評分比對 (${uniqueIdPrefix})`);
     console.log(`字數: ${wordCount}`);
-    console.log(`決策模式: ${usedSource}`);
-    
-    // 🚨 驗屍報告區塊 🚨
-    if (isModelABroken || isModelBBroken) {
-        console.groupCollapsed("%c🚨 [診斷報告] 發現 BROKEN 狀態，點擊展開查看致命原因 🚨", "color: white; background: red; font-size: 14px; padding: 5px;");
-        
-        if (isModelABroken) {
-            console.error("【Model A 失敗分析】");
-            console.log("1. 擷取到的 JSON 字串 (jsonStrA):", jsonStrA === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrA);
-            console.log("2. 暴力解析後的結果 (scoresA):", scoresA);
-            console.log("3. AI 原始完整回應 (請檢查它到底輸出了什麼鬼東西):\n", originalApiResponse);
+    console.log(`決策: ${usedSource}`);
+    console.table([
+        {
+            Model: "A (Gemini)",
+            Status: isModelABroken ? "❌ Broken" : "✅ OK",
+            Content: scoresA.content,
+            Structure: scoresA.structure,
+            Expression: scoresA.expression
+        },
+        {
+            Model: "B (Llama3)",
+            // 使用較短的 Skip 狀態，防止表格被擠壓變形
+            Status: isSingleModelMode ? "⏸️ Skip" : (isModelBBroken ? "❌ Broken" : "✅ OK"),
+            Content: scoresB.content,
+            Structure: scoresB.structure,
+            Expression: scoresB.expression
+        },
+        {
+            Model: "👉 FINAL",
+            Status: "Applied",
+            Content: scoresForDisplay.content,
+            Structure: scoresForDisplay.structure,
+            Expression: scoresForDisplay.expression
         }
-        
-        if (isModelBBroken) {
-            console.error("【Model B 失敗分析】");
-            console.log("1. 擷取到的 JSON 字串 (jsonStrB):", jsonStrB === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrB);
-            console.log("2. 暴力解析後的結果 (scoresB):", scoresB);
-            console.log("3. AI 原始完整回應:\n", llama3ApiResponse);
-        }
-        console.groupEnd();
+    ]);
+    console.groupEnd();
     }
 
     console.table([
