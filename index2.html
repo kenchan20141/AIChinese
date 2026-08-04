@@ -17869,12 +17869,71 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
  
-  // --- 8. 直接採用原始點評 (刪除二次 API 語氣重寫，解決 GAS 404 過時問題) ---
+// --- 8. AI 點評語氣重寫邏輯 (加入分數一致性檢定) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
+    let critiqueRewriteInstruction = "";
 
-    // 清洗標題與多餘的系統標記
-    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評.*$/gim, '');
+    // 【新增】取得最終扣題分數，用於一致性檢定
+    const topicScore = (scoresForDisplay && scoresForDisplay.radar && scoresForDisplay.radar.扣題 !== undefined)
+        ? scoresForDisplay.radar.扣題
+        : (scoresForDisplay ? scoresForDisplay.content : 0);
+
+    // ================= F12 Console 輸出 =================
+    console.group(`🔧 [一致性檢定] 啟動二次 API 語氣與分數校正`);
+    console.log(`📌 最終等級: ${finalGradeForDisplay} | 扣題分數: ${topicScore}`);
+    // ====================================================
+
+    // 原有的評級調整邏輯
+    if (finalGradeForDisplay === "5**") critiqueRewriteInstruction = "點評中應為讚賞。";
+    else if (finalGradeForDisplay === "5*" || finalGradeForDisplay === "5") critiqueRewriteInstruction = "點評主要以讚賞為主。";
+    else if (finalGradeForDisplay === "4") critiqueRewriteInstruction = "點評應有褒有貶。";
+    else critiqueRewriteInstruction = "點評以批評為主。";
+
+    let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨。" : "語氣專業嚴肅，不使用 Emoji。";
+
+    // 【新增】根據扣題分數生成強制指令
+    let topicConsistencyInstruction = "";
+    if (topicScore >= 7) {
+        topicConsistencyInstruction = `這篇文章扣題分數高達 ${topicScore} 分（緊扣題旨）。點評中【絕對禁止】出現「扣題不足」、「間接」、「偏題」、「離題」、「牽強」等負面字眼，必須稱讚其扣題表現。`;
+        console.log("👉 判定: [高分扣題] - 強制 AI 移除偏題負面字眼。");
+    } else if (topicScore === 6) {
+        topicConsistencyInstruction = `這篇文章扣題分數為 ${topicScore} 分（剛好合格）。點評中可說其「尚算扣題」，但【絕對禁止】說它「嚴重偏題」或「離題」。`;
+        console.log("👉 判定: [合格扣題] - 要求 AI 給予中性扣題評價。");
+    } else {
+        topicConsistencyInstruction = `這篇文章扣題分數僅 ${topicScore} 分（不及格）。點評中【必須明確指出】其「扣題不足」、「偏離主題」或「牽強」的問題。`;
+        console.log("👉 判定: [不及格扣題] - 強制 AI 指出扣題不足。");
+    }
+
+    // 原有的 Prompt 結構，加入第 5 點
+    const rewritePrompt = `請重寫以下點評內容。
+    原文：${originalCritiqueText}
+    【嚴格重寫要求】
+    1. **結構鎖定**：嚴格維持原本的列點數量。
+    2. **篇幅鎖定**：內容長度相若。
+    3. **評級調整**：${critiqueRewriteInstruction}
+    4. **語氣風格**：${emojiInstruction}
+    5. **扣題一致性**：${topicConsistencyInstruction}
+    `;
+
+    try {
+        console.log("⏳ 等待 API 冷卻 (3500ms)...");
+        await new Promise(resolve => setTimeout(resolve, 3500));
+        console.log("🚀 發送語氣重寫請求...");
+        
+        // 完全保留原版的 API 呼叫方式 (Temperature 0.5)
+        finalCritiqueText = await callReadingAPI(rewritePrompt, 0.5);
+        console.log("✅ 點評語氣與一致性校正成功！");
+    } catch (e) {
+        console.warn("⚠️ 語氣重寫失敗:", e);
+        finalCritiqueText = originalCritiqueText;
+    }
+    
+    console.groupEnd(); // 結束 F12 Console 群組
+
+    // 原有的標題清洗邏輯 (完全保留)
+    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評重寫.*$/gim, '');
+    finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*重寫.*$/gim, '');
     finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, '');
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
