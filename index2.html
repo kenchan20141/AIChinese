@@ -17791,10 +17791,10 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
  
-   // --- 6. F12 Console 輸出比對表與驗屍報告 ---
-    console.group(`📊 智能評分決策系統 (${uniqueIdPrefix})`);
+  // --- 6. F12 Console 輸出比對表與驗屍報告 ---
+    console.group(`📊 雙模型評分比對 (${uniqueIdPrefix})`);
     console.log(`字數: ${wordCount}`);
-    console.log(`決策模式: ${usedSource}`);
+    console.log(`決策: ${usedSource}`);
     
     // 🚨 驗屍報告區塊 🚨
     if (isModelABroken || isModelBBroken) {
@@ -17802,43 +17802,41 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         
         if (isModelABroken) {
             console.error("【Model A 失敗分析】");
-            console.log("1. 擷取到的 JSON 字串 (jsonStrA):", jsonStrA === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrA);
-            console.log("2. 暴力解析後的結果 (scoresA):", scoresA);
-            console.log("3. AI 原始完整回應 (請檢查它到底輸出了什麼鬼東西):\n", originalApiResponse);
+            console.log("1. 擷取到的 JSON 字串:", jsonStrA === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrA);
+            console.log("2. 暴力解析後的結果:", scoresA);
+            console.log("3. AI 原始完整回應:\n", originalApiResponse);
         }
         
         if (isModelBBroken) {
             console.error("【Model B 失敗分析】");
-            console.log("1. 擷取到的 JSON 字串 (jsonStrB):", jsonStrB === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrB);
-            console.log("2. 暴力解析後的結果 (scoresB):", scoresB);
+            console.log("1. 擷取到的 JSON 字串:", jsonStrB === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrB);
+            console.log("2. 暴力解析後的結果:", scoresB);
             console.log("3. AI 原始完整回應:\n", llama3ApiResponse);
         }
         console.groupEnd();
     }
 
-    console.table([
-        {
-            Model: "A (主模型)",
+    // 改用 Object 格式傳入，讓第一欄顯示為模型名稱
+    console.table({
+        "A (主模型)": {
             Status: isModelABroken ? "❌ Broken" : "✅ OK",
             Content: scoresA.content,
             Structure: scoresA.structure,
             Expression: scoresA.expression
         },
-        {
-            Model: "B (輔助模型)",
-            Status: isSingleModelMode ? "⏸️ Disabled" : (isModelBBroken ? "❌ Broken" : "✅ OK"),
+        "B (輔助模型)": {
+            Status: (llama3ApiResponse === null) ? "⏸️ Disabled" : (isModelBBroken ? "❌ Broken" : "✅ OK"),
             Content: scoresB.content,
             Structure: scoresB.structure,
             Expression: scoresB.expression
         },
-        {
-            Model: "👉 FINAL",
+        "👉 FINAL": {
             Status: "Applied",
             Content: scoresForDisplay.content,
             Structure: scoresForDisplay.structure,
             Expression: scoresForDisplay.expression
         }
-    ]);
+    });
     console.groupEnd();
  
     // --- 7. 套用後處理規則 (一致性與字數限制) ---
