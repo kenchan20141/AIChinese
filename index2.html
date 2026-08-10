@@ -8243,6 +8243,9 @@ function getReadNotices() {
 /**
  * 檢查日期是否在發佈範圍內
  */
+/**
+ * 檢查日期是否在發佈範圍內 (強效防呆 + 跨瀏覽器相容版)
+ */
 function isNoticeActive(startDateStr, endDateStr) {
     const today = new Date();
     today.setHours(0, 0, 0, 0); 
@@ -8250,16 +8253,42 @@ function isNoticeActive(startDateStr, endDateStr) {
     let isAfterStart = true;
     let isBeforeEnd = true;
 
+    // 輔助函式：清理字串並轉為合法的 Date 物件
+    function parseSafeDate(dateStr) {
+        if (!dateStr) return null;
+        
+        // 1. 強制移除所有換行符號、隱藏字元與多餘空白 (解決 "2026-09\n-20" 的問題)
+        let cleanStr = String(dateStr).replace(/[\r\n\s]/g, '');
+        
+        // 2. 將 '-' 替換為 '/' (相容 Safari/iOS 的嚴格日期解析格式，如 "2026/09/20")
+        cleanStr = cleanStr.replace(/-/g, '/');
+        
+        const parsedDate = new Date(cleanStr);
+        
+        // 3. 檢查是否為 Invalid Date
+        if (isNaN(parsedDate.getTime())) {
+            console.warn(`[佈告板] 無效的日期格式已被忽略: ${dateStr}`);
+            return null; // 若無法解析，回傳 null 以跳過該項限制，確保佈告能顯示
+        }
+        return parsedDate;
+    }
+
     if (startDateStr) {
-        const startDate = new Date(startDateStr);
-        startDate.setHours(0,0,0,0);
-        isAfterStart = today >= startDate;
+        const startDate = parseSafeDate(startDateStr);
+        // 如果解析成功，才進行比對；解析失敗則視為沒有設定開始日期（預設通過）
+        if (startDate) {
+            startDate.setHours(0, 0, 0, 0);
+            isAfterStart = today >= startDate;
+        }
     }
 
     if (endDateStr) {
-        const endDate = new Date(endDateStr);
-        endDate.setHours(23,59,59,999); 
-        isBeforeEnd = today <= endDate;
+        const endDate = parseSafeDate(endDateStr);
+        // 如果解析成功，才進行比對；解析失敗則視為沒有設定結束日期（預設通過）
+        if (endDate) {
+            endDate.setHours(23, 59, 59, 999); 
+            isBeforeEnd = today <= endDate;
+        }
     }
 
     return isAfterStart && isBeforeEnd;
