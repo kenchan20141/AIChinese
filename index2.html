@@ -8241,10 +8241,7 @@ function getReadNotices() {
 }
 
 /**
- * 檢查日期是否在發佈範圍內
- */
-/**
- * 檢查日期是否在發佈範圍內 (強效防呆 + 跨瀏覽器相容版)
+ * 檢查日期是否在發佈範圍內 (完美修復版)
  */
 function isNoticeActive(startDateStr, endDateStr) {
     const today = new Date();
@@ -8257,43 +8254,47 @@ function isNoticeActive(startDateStr, endDateStr) {
     function parseSafeDate(dateStr) {
         if (!dateStr) return null;
         
-        // 1. 強制移除所有換行符號、隱藏字元與多餘空白 (解決 "2026-09\n-20" 的問題)
-        let cleanStr = String(dateStr).replace(/[\r\n\s]/g, '');
+        // 1. 只移除換行符號，絕對【不可以】移除空白字元 (\s)，因為這會把日期和時間連在一起 (變成 2024-12-3112:00:00)
+        let cleanStr = String(dateStr).replace(/[\r\n]/g, '').trim();
         
-        // 2. 將 '-' 替換為 '/' (相容 Safari/iOS 的嚴格日期解析格式，如 "2026/09/20")
-        cleanStr = cleanStr.replace(/-/g, '/');
+        // 2. 先嘗試直接解析 (相容現代瀏覽器與標準 ISO 格式)
+        let parsedDate = new Date(cleanStr);
         
-        const parsedDate = new Date(cleanStr);
-        
-        // 3. 檢查是否為 Invalid Date
-        if (isNaN(parsedDate.getTime())) {
-            console.warn(`[佈告板] 無效的日期格式已被忽略: ${dateStr}`);
-            return null; // 若無法解析，回傳 null 以跳過該項限制，確保佈告能顯示
+        // 3. 如果解析出 Invalid Date，且格式不包含 'T' (非 ISO 格式)，才嘗試將 '-' 替換為 '/' (相容舊版 Safari)
+        if (isNaN(parsedDate.getTime()) && !cleanStr.includes('T')) {
+            cleanStr = cleanStr.replace(/-/g, '/');
+            parsedDate = new Date(cleanStr);
         }
+        
         return parsedDate;
     }
 
     if (startDateStr) {
         const startDate = parseSafeDate(startDateStr);
-        // 如果解析成功，才進行比對；解析失敗則視為沒有設定開始日期（預設通過）
-        if (startDate) {
+        // 如果成功解析日期才進行時間比較
+        if (startDate && !isNaN(startDate.getTime())) {
             startDate.setHours(0, 0, 0, 0);
             isAfterStart = today >= startDate;
+        } else {
+            // 如果格式完全錯誤，依循舊版邏輯：視為不符合條件 (隱藏)
+            isAfterStart = false;
         }
     }
 
     if (endDateStr) {
         const endDate = parseSafeDate(endDateStr);
-        // 如果解析成功，才進行比對；解析失敗則視為沒有設定結束日期（預設通過）
-        if (endDate) {
+        // 如果成功解析日期才進行時間比較
+        if (endDate && !isNaN(endDate.getTime())) {
             endDate.setHours(23, 59, 59, 999); 
             isBeforeEnd = today <= endDate;
+        } else {
+            // 如果格式完全錯誤，依循舊版邏輯：視為已過期 (隱藏)
+            isBeforeEnd = false;
         }
     }
 
     return isAfterStart && isBeforeEnd;
 }
-
 /**
  * 智能內容解析器 (安全穩健版：完美支援文字、YouTube、連結、圖片混排)
  */
