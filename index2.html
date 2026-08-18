@@ -18478,9 +18478,10 @@ window.addEventListener('message', handleOCRMessage);
 });
 
 /**
- * 【最終把關規則修訂 v4】
- * 1. 當「扣題」分數 <= 5 分時，將相關分數上限設為 4。
- * 2. 當「扣題」分數 == 6 分時，將相關分數上限設為 6。
+ * 【最終把關規則修訂 v5】
+ * 1. 當「扣題」分數 <= 3 分時，將相關分數上限設為 3。
+ * 2. 當「扣題」分數 <= 5 分 (即 4 或 5) 時，將相關分數上限設為 4。
+ * 3. 當「扣題」分數 == 6 分時，將相關分數上限設為 6。
  * @param {object} scores - 從 AI 模型解析或初步處理後的原始評分物件。
  * @returns {object} - 經過此規則嚴格調整後的最終評分物件。
  */
@@ -18491,10 +18492,20 @@ function applyFinalConsistencyRule(scores) {
     // 從 radar 物件中安全地獲取「扣題」分數，若不存在則預設為 0
     const kouTi = s.radar ? s.radar.扣題 || 0 : 0;
     
-    // 規則 1：扣題 5 分或以下，強制壓到 4 分
-    if (kouTi <= 5) {
-        console.log(`觸發扣題分數把關規則 v3：偵測到扣題分數 (${kouTi}) 低於或等於 5，將相關分數上限設為 4。`);
-
+    // 規則 1：扣題 3 分或以下，強制壓到 3 分
+    if (kouTi <= 3) {
+        console.log(`觸發扣題分數把關規則 v5：偵測到扣題分數 (${kouTi}) 低於或等於 3，將相關分數上限設為 3。`);
+        if (s.radar) {
+            s.radar.立意 = Math.min(s.radar.立意, 3);
+            s.radar.取材 = Math.min(s.radar.取材, 3);
+            s.radar.詳略 = Math.min(s.radar.詳略, 3);
+        }
+        s.content = Math.min(s.content, 3);
+        s.structure = Math.min(s.structure, 3);
+    }
+    // 規則 2：扣題 4 或 5 分，強制壓到 4 分
+    else if (kouTi <= 5) {
+        console.log(`觸發扣題分數把關規則 v5：偵測到扣題分數 (${kouTi}) 低於或等於 5，將相關分數上限設為 4。`);
         if (s.radar) {
             s.radar.立意 = Math.min(s.radar.立意, 4);
             s.radar.取材 = Math.min(s.radar.取材, 4);
@@ -18503,10 +18514,9 @@ function applyFinalConsistencyRule(scores) {
         s.content = Math.min(s.content, 4);
         s.structure = Math.min(s.structure, 4);
     }
-    // ★★★ 新增規則 2：扣題剛好 6 分時，內容和結構最高只能 6 分 ★★★
+    // 規則 3：扣題剛好 6 分時，強制壓到 6 分
     else if (kouTi === 6) {
-        console.log(`觸發扣題分數把關規則 v4：偵測到扣題分數為 6 分，將「內容」和「結構」及相關細項上限設為 6。`);
-
+        console.log(`觸發扣題分數把關規則 v5：偵測到扣題分數為 6 分，將「內容」和「結構」及相關細項上限設為 6。`);
         if (s.radar) {
             s.radar.立意 = Math.min(s.radar.立意, 6);
             s.radar.取材 = Math.min(s.radar.取材, 6);
