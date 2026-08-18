@@ -1714,6 +1714,11 @@ box-shadow: 0 2px 5px rgba(0,0,0,0.15) !important;
     font-size: 1em;
     line-height: 1.6;
     color: #495057;
+    flex: 1; /* 關鍵：讓文字區塊佔滿剩餘空間 */
+    min-width: 0; /* 關鍵：防止 Flexbox 子元素文字過長撐爆排版 */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word; /* 允許長文字自動換行 */
 }
 
 /* --- 點評語氣標籤 --- */
@@ -14690,7 +14695,7 @@ const applyContentStructureRule = (scores) => {
 * @returns {string} - The formatted HTML string.
 */
 function createBulletedListHTML(title, rawContent) {
-    // ★★★ 修改 1：強制簡轉繁 (使用 OpenCC) ★★★
+    // 強制簡轉繁 (使用 OpenCC)
     if (typeof OpenCC !== 'undefined') {
         try {
             const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
@@ -14700,11 +14705,10 @@ function createBulletedListHTML(title, rawContent) {
         }
     }
 
-    // ★★★ 修改 2：移除 Markdown 星號 (*) ★★★
+    // 移除 Markdown 星號 (*)
     rawContent = rawContent.replace(/\*/g, '');
 
-    // ★★★ 修改 3 (新)：將英文引號 "" 或 “” 轉為中文 「」 ★★★
-    // 使用正則表達式捕捉引號內的內容並替換
+    // 將英文引號轉為中文 「」
     rawContent = rawContent.replace(/["“](.*?)["”]/g, '「$1」');
 
     // 嘗試分割列點
@@ -14720,8 +14724,11 @@ function createBulletedListHTML(title, rawContent) {
 
     // 如果完全無法分割，直接顯示
     if (points.length === 0) {
-        // 清理單段文字的冒號前綴
-        let cleanSingleText = rawContent.replace(/^[^：:\n]*[：:]\s*/, '');
+        // 限制只刪除開頭 15 個字以內的前綴，避免誤刪整個句子
+        let cleanSingleText = rawContent.replace(/^[^：:\n]{1,15}[：:]\s*/, '');
+        
+        // ★ 核心修復：轉義 HTML 符號，防止 AI 輸出的 <某詞> 被瀏覽器當代碼吃掉
+        cleanSingleText = cleanSingleText.replace(/</g, "&lt;").replace(/>/g, "&gt;");
         
         return `<div class="rewrite-explanation-container">
             <div class="rewrite-explanation-card">
@@ -14746,9 +14753,11 @@ function createBulletedListHTML(title, rawContent) {
             text = match[2]; 
         }
 
-        // ★★★ 修改 4：移除內容中的標題/前綴 ★★★
-        // 刪除開頭直到冒號為止的字元 (例如 "優點：文筆流暢" -> "文筆流暢")
-        text = text.replace(/^[^：:\n]*[：:]\s*/, '');
+        // 限制只刪除開頭 15 個字以內的前綴
+        text = text.replace(/^[^：:\n]{1,15}[：:]\s*/, '');
+        
+        // ★ 核心修復：轉義 HTML 符號，防止 AI 輸出的 <某詞> 被瀏覽器當代碼吃掉
+        text = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
         explanationHTML += `<div class="explanation-point">
             <div class="explanation-number">${number}</div>
@@ -14760,6 +14769,7 @@ function createBulletedListHTML(title, rawContent) {
     return explanationHTML;
 }
 
+	
 
 // 原 generateTopic() 函式
 // 原 generateTopic() 函式 (已修訂：只生成題目，不調用 LLM)
