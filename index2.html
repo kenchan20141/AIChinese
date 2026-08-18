@@ -17583,12 +17583,11 @@ function safeJSONParse(rawString) {
 
 
 // ==========================================
-// === [升級版] AI 生成結果靜默重試 & 自我修復引擎 ===
+// === [升級版] AI 生成結果智能補足與自我修復引擎 ===
 // ==========================================
 async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
     let attempt = 0;
-    let lastBrokenResponse = null;
-    let lastMissingParts = []; // 紀錄缺少的項目
+    let completeTagsCache = {}; // 紀錄已經完整生成的標籤內容
 
     while (attempt < maxRetries) {
         attempt++;
@@ -17597,30 +17596,59 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
         try {
             let currentPayload = JSON.parse(JSON.stringify(payload));
             
-            // 動態調整 Temperature (隨機性)
+            // 動態調整 Temperature (增加重試時的隨機性，避免 AI 卡死在同一個錯誤邏輯)
             let currentTemp = 0; 
             if (attempt === 2) currentTemp = 0.3; 
             if (attempt >= 3) currentTemp = 0.6;  
 
-            // ★ 核心修復 1：判斷是否為「全方位評分」(Full Review)
-            // 只有全方位評分才強制要求 <grading_json> 和分數
+            // 判斷是否為「全方位評分」(Full Review)
             const isFullReview = currentPayload.data && currentPayload.data.isFullReview === true;
+            
+            // 定義此模式下所有必須存在的標籤
+            const allRequiredTags = isFullReview ? 
+                ["scoring_worksheet", "grading_json", "critique", "suggestions", "rewrite_example"] : 
+                ["critique", "suggestions"];
 
-            if (attempt > 1 && lastBrokenResponse) {
-                console.log(`%c🔧 [Auto-Retry] 啟動 AI 自我修復模式 (Temp: ${currentTemp})...`, 'color: #9b59b6; font-weight: bold;');
+            // 計算當前還缺少的標籤
+            let missingTags = allRequiredTags.filter(tag => !completeTagsCache[tag]);
+
+            // 如果是重試，且已經有部分標籤成功生成，則啟動「接續補足模式」
+            if (attempt > 1 && missingTags.length > 0 && missingTags.length < allRequiredTags.length) {
+                console.log(`%c🔧 [Auto-Retry] 啟動 AI 智能補足模式 (Temp: ${currentTemp})...`, 'color: #9b59b6; font-weight: bold;');
                 
-                // 根據模式決定提示需要的標籤
-                let requiredTagsStr = isFullReview ? 
-                    "1. <scoring_worksheet>\n2. <grading_json>\n3. <critique>\n4. <suggestions>\n5. <rewrite_example>" : 
-                    "1. <critique>\n2. <suggestions>";
+                // 組合已生成的內容給 AI 參考
+                let alreadyGeneratedText = allRequiredTags
+                    .filter(tag => completeTagsCache[tag])
+                    .map(tag => completeTagsCache[tag])
+                    .join("\n\n");
+                let missingTagsStr = missingTags.map(t => `<${t}>`).join("、");
 
-                // ★ 核心修復 2：增強警告指令，並用獨立標籤包裹，防止與學生文章混淆
+                currentPayload.data.content = `
+<system_emergency_override>
+【系統指令：接續生成與補足】
+你之前的生成被中斷或遺漏了部分區塊。
+為了節省運算資源，以下是你【已經成功生成】的內容，請你作為上下文仔細參考：
+
+${alreadyGeneratedText}
+
+=== 你的任務 ===
+1. 請你現在「直接補足」以下缺失的區塊（缺少：${missingTagsStr}）。
+2. 【極度重要】你新生成的評語和建議，必須與上方 <grading_json> 內已確定的分數表現保持「絕對一致」，嚴禁出現分數與評語自相矛盾的情況！
+3. 【絕對保證】你的輸出包含完整的 XML 標籤！
+4. 請「只輸出」缺失的區塊，不要重複輸出上面已經給你的內容，也不要說任何廢話！
+</system_emergency_override>
+
+=============================
+${payload.data.content}
+`;
+            } else if (attempt > 1 && missingTags.length === allRequiredTags.length) {
+                // 如果甚麼都沒生成成功，則要求重頭來過
+                let missingTagsStr = missingTags.map(t => `<${t}>`).join("、");
                 currentPayload.data.content = `
 <system_emergency_override>
 【系統最高級別警告：格式修復】
-你在上一次的生成中，遺漏了以下必須輸出的部分（缺少：${lastMissingParts.join("、")}），導致系統解析崩潰！
-請你現在「立即重試」，並【絕對保證】你的輸出包含完整的 XML 標籤：
-${requiredTagsStr}
+你在上一次的生成中，遺漏了所有必須輸出的部分，導致系統解析崩潰！
+請你現在「立即重試」，並【絕對保證】你的輸出包含完整的 XML 標籤（必須包含：${missingTagsStr}）。
 絕對不允許遺漏任何一個標籤！直接輸出標籤與內容，不要廢話！
 </system_emergency_override>
 
@@ -17632,68 +17660,69 @@ ${payload.data.content}
             // 1. 呼叫 API
             const responseText = await apiFunc(currentPayload, currentTemp);
 
-            // 2. 快速預判是否為 BROKEN 狀態
-            let isBroken = false;
-            let missingParts = [];
-            
-            // 只要是超過 150 字的正式文章，就檢查格式
+            // 2. 提取剛才生成的完整標籤，並合併到 cache
             if (wordCount > 150) {
-                // 檢查點評與建議標籤
-                const hasCritique = /<critique>[\s\S]*?<\/critique>/i.test(responseText);
-                const hasSuggestions = /<suggestions>[\s\S]*?<\/suggestions>/i.test(responseText);
-                
-                if (!hasCritique) missingParts.push("<critique> 點評區塊");
-                if (!hasSuggestions) missingParts.push("<suggestions> 建議區塊");
-
-                // ★ 核心修復 3：只有「全方位評分」才強制檢查分數區塊
-                if (isFullReview) {
-                    const hasGradingJson = /<grading_json>([\s\S]*?)<\/grading_json>/i.test(responseText);
-                    let jsonStr = null;
-                    const rawJson = responseText.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
-                    if (rawJson) jsonStr = rawJson[1];
-                    
-                    if (!jsonStr) {
-                        const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
-                        const m = responseText.match(mdRegex);
-                        if (m) jsonStr = m[1];
+                allRequiredTags.forEach(tag => {
+                    if (!completeTagsCache[tag]) {
+                        // 使用正則擷取對應標籤內容 (支援跨行)
+                        const regex = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i');
+                        const match = responseText.match(regex);
+                        
+                        if (match) {
+                            completeTagsCache[tag] = `<${tag}>\n${match[1].trim()}\n</${tag}>`;
+                        } else if (tag === 'grading_json') {
+                            // 針對 grading_json 的特殊容錯機制 (擷取 Markdown JSON 區塊)
+                            const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
+                            const m = responseText.match(mdRegex);
+                            if (m) {
+                                completeTagsCache[tag] = `<grading_json>\n${m[1].trim()}\n</grading_json>`;
+                            } else {
+                                const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
+                                const m2 = responseText.match(fallbackRegex);
+                                if (m2) completeTagsCache[tag] = `<grading_json>\n${m2[0].trim()}\n</grading_json>`;
+                            }
+                        }
                     }
-                    if (!jsonStr) {
-                        const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
-                        const m = responseText.match(fallbackRegex);
-                        if (m) jsonStr = m[0];
-                    }
-                    if (!jsonStr) jsonStr = responseText.substring(0, 1500);
+                });
 
-                    const scores = safeJSONParse(jsonStr);
+                // 重新檢查缺少的標籤
+                missingTags = allRequiredTags.filter(tag => !completeTagsCache[tag]);
+
+                // 針對 grading_json 的進階檢查：檢驗抓出的分數數據是否有效
+                if (isFullReview && completeTagsCache['grading_json']) {
+                    const jsonContent = completeTagsCache['grading_json'].replace(/<\/?grading_json>/gi, '');
+                    const scores = safeJSONParse(jsonContent);
                     const isScoreMissing = !scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0);
-
-                    if (!hasGradingJson) missingParts.push("<grading_json> 分數區塊");
-                    if (isScoreMissing) missingParts.push("有效的分數數據");
+                    if (isScoreMissing) {
+                        delete completeTagsCache['grading_json']; // 分數無效，刪除快取並強迫重新生成
+                        if (!missingTags.includes('grading_json')) missingTags.push('grading_json');
+                    }
                 }
 
-                if (missingParts.length > 0) {
-                    isBroken = true;
-                    lastMissingParts = missingParts;
-                    console.warn(`⚠️ 偵測到 AI 回應殘缺 (BROKEN)！缺少：${missingParts.join("、")}`);
+                // 如果還有缺失，則觸發下一次重試循環
+                if (missingTags.length > 0) {
+                    console.warn(`⚠️ 偵測到 AI 回應殘缺 (BROKEN)！還缺少：${missingTags.join("、")}`);
+                    
+                    if (attempt >= maxRetries) {
+                        console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，修復失敗，將輸出已盡力補足的結果。`, 'color: #e74c3c;');
+                        // 盡可能合併已有標籤與最後一次的原始回應（以防有無法被標籤捕獲的殘骸被浪費）
+                        const combinedResult = allRequiredTags
+                            .map(tag => completeTagsCache[tag] || "")
+                            .filter(Boolean)
+                            .join("\n\n");
+                        return combinedResult + "\n\n" + responseText; 
+                    }
+                    await new Promise(r => setTimeout(r, 1500)); // 冷卻後重試
+                    continue; 
                 }
+
+                // 4. 所有標籤湊齊，成功過關，將所有的 Cache 依序組合作為最終回傳
+                console.log(`%c✅ [Auto-Retry] 第 ${attempt} 次生成完美合併成功！`, 'color: #2ecc71; font-weight: bold;');
+                return allRequiredTags.map(tag => completeTagsCache[tag]).join("\n\n");
+            } else {
+                // 如果字數少於 150 (例如短語練習)，可能不走完整標籤檢查，直接回傳結果
+                return responseText;
             }
-
-            // 3. 處理結果
-            if (isBroken) {
-                console.warn(`%c⚠️ [Auto-Retry] 第 ${attempt} 次生成格式損壞 (BROKEN)，準備進行修復...`, 'color: #f39c12;');
-                lastBrokenResponse = responseText; 
-
-                if (attempt >= maxRetries) {
-                    console.error(`%c❌ [Auto-Retry] 已達上限 ${maxRetries} 次，修復失敗，輸出殘缺結果。`, 'color: #e74c3c;');
-                    return responseText; 
-                }
-                await new Promise(r => setTimeout(r, 1500));
-                continue; 
-            }
-
-            // 4. 成功過關
-            console.log(`%c✅ [Auto-Retry] 第 ${attempt} 次生成完美成功！`, 'color: #2ecc71; font-weight: bold;');
-            return responseText;
 
         } catch (error) {
             console.error(`%c❌ [Auto-Retry] 第 ${attempt} 次連線發生異常:`, 'color: #e74c3c;', error);
