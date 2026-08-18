@@ -17591,15 +17591,27 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
             if (attempt === 2) currentTemp = 0.3; 
             if (attempt >= 3) currentTemp = 0.6;  
 
+            // ★ 核心修復 1：判斷是否為「全方位評分」(Full Review)
+            // 只有全方位評分才強制要求 <grading_json> 和分數
+            const isFullReview = currentPayload.data && currentPayload.data.isFullReview === true;
+
             if (attempt > 1 && lastBrokenResponse) {
                 console.log(`%c🔧 [Auto-Retry] 啟動 AI 自我修復模式 (Temp: ${currentTemp})...`, 'color: #9b59b6; font-weight: bold;');
                 
-                // ★ 疊加強烈警告，明確指出缺少了什麼，並保留原始學生文章
+                // 根據模式決定提示需要的標籤
+                let requiredTagsStr = isFullReview ? 
+                    "1. <scoring_worksheet>\n2. <grading_json>\n3. <critique>\n4. <suggestions>\n5. <rewrite_example>" : 
+                    "1. <critique>\n2. <suggestions>";
+
+                // ★ 核心修復 2：增強警告指令，並用獨立標籤包裹，防止與學生文章混淆
                 currentPayload.data.content = `
+<system_emergency_override>
 【系統最高級別警告：格式修復】
-你在上一次的回應中，XML/JSON 格式損壞，或者遺漏了必須的部分（缺少：${lastMissingParts.join("、")}），導致系統崩潰！
-請你「重新批改」下方的文章，並 **絕對嚴格** 完整輸出 <grading_json>、<critique> 以及 <suggestions> 標籤與內容，缺一不可！
-絕對不要輸出「好的」、「這是我修復的格式」等廢話，直接輸出標籤與內容！
+你在上一次的生成中，遺漏了以下必須輸出的部分（缺少：${lastMissingParts.join("、")}），導致系統解析崩潰！
+請你現在「立即重試」，並【絕對保證】你的輸出包含完整的 XML 標籤：
+${requiredTagsStr}
+絕對不允許遺漏任何一個標籤！直接輸出標籤與內容，不要廢話！
+</system_emergency_override>
 
 =============================
 ${payload.data.content}
@@ -17609,41 +17621,44 @@ ${payload.data.content}
             // 1. 呼叫 API
             const responseText = await apiFunc(currentPayload, currentTemp);
 
-            // 2. 快速預判是否為 BROKEN 狀態 (分數全0、缺少點評、缺少建議、缺少JSON)
+            // 2. 快速預判是否為 BROKEN 狀態
             let isBroken = false;
             let missingParts = [];
             
+            // 只要是超過 150 字的正式文章，就檢查格式
             if (wordCount > 150) {
-                let jsonStr = null;
-                const rawJson = responseText.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
-                if (rawJson) jsonStr = rawJson[1];
-                
-                if (!jsonStr) {
-                    const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
-                    const m = responseText.match(mdRegex);
-                    if (m) jsonStr = m[1];
-                }
-                if (!jsonStr) {
-                    const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
-                    const m = responseText.match(fallbackRegex);
-                    if (m) jsonStr = m[0];
-                }
-                if (!jsonStr) jsonStr = responseText.substring(0, 1500);
-
-                const scores = safeJSONParse(jsonStr);
-                
-                // ★★★ 核心新增：全面檢查缺少的區塊 ★★★
-                const hasGradingJson = /<grading_json>([\s\S]*?)<\/grading_json>/i.test(responseText);
+                // 檢查點評與建議標籤
                 const hasCritique = /<critique>[\s\S]*?<\/critique>/i.test(responseText);
                 const hasSuggestions = /<suggestions>[\s\S]*?<\/suggestions>/i.test(responseText);
                 
-                // 檢查是否缺少有效分數
-                const isScoreMissing = !scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0);
-
-                if (!hasGradingJson) missingParts.push("<grading_json> 分數區塊");
-                if (isScoreMissing) missingParts.push("有效的分數數據");
                 if (!hasCritique) missingParts.push("<critique> 點評區塊");
                 if (!hasSuggestions) missingParts.push("<suggestions> 建議區塊");
+
+                // ★ 核心修復 3：只有「全方位評分」才強制檢查分數區塊
+                if (isFullReview) {
+                    const hasGradingJson = /<grading_json>([\s\S]*?)<\/grading_json>/i.test(responseText);
+                    let jsonStr = null;
+                    const rawJson = responseText.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
+                    if (rawJson) jsonStr = rawJson[1];
+                    
+                    if (!jsonStr) {
+                        const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
+                        const m = responseText.match(mdRegex);
+                        if (m) jsonStr = m[1];
+                    }
+                    if (!jsonStr) {
+                        const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
+                        const m = responseText.match(fallbackRegex);
+                        if (m) jsonStr = m[0];
+                    }
+                    if (!jsonStr) jsonStr = responseText.substring(0, 1500);
+
+                    const scores = safeJSONParse(jsonStr);
+                    const isScoreMissing = !scores || (scores.content === 0 && scores.structure === 0 && scores.expression === 0);
+
+                    if (!hasGradingJson) missingParts.push("<grading_json> 分數區塊");
+                    if (isScoreMissing) missingParts.push("有效的分數數據");
+                }
 
                 if (missingParts.length > 0) {
                     isBroken = true;
@@ -17676,6 +17691,7 @@ ${payload.data.content}
         }
     }
 }
+	
 	
 /**
  * 【最終修訂版】顯示完整的點評、評分系統，並根據最終等級和所選閱卷員調整內容
