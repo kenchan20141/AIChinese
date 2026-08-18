@@ -18451,8 +18451,9 @@ window.addEventListener('message', handleOCRMessage);
 });
 
 /**
- * 【最終把關規則修訂 v3】
- * 當「扣題」分數為 4 分或以下時，強制將多個核心項目分數的上限限制在 4 分。
+ * 【最終把關規則修訂 v4】
+ * 1. 當「扣題」分數 <= 5 分時，將相關分數上限設為 4。
+ * 2. 當「扣題」分數 == 6 分時，將相關分數上限設為 6。
  * @param {object} scores - 從 AI 模型解析或初步處理後的原始評分物件。
  * @returns {object} - 經過此規則嚴格調整後的最終評分物件。
  */
@@ -18463,33 +18464,37 @@ function applyFinalConsistencyRule(scores) {
     // 從 radar 物件中安全地獲取「扣題」分數，若不存在則預設為 0
     const kouTi = s.radar ? s.radar.扣題 || 0 : 0;
     
-    // 【核心修訂】將觸發條件從 <= 5 改為 <= 4
+    // 規則 1：扣題 5 分或以下，強制壓到 4 分
     if (kouTi <= 5) {
-        console.log(`觸發扣題分數把關規則 v3：偵測到扣題分數 (${kouTi}) 低於或等於 4，將相關分數上限設為 4。`);
+        console.log(`觸發扣題分數把關規則 v3：偵測到扣題分數 (${kouTi}) 低於或等於 5，將相關分數上限設為 4。`);
 
-        // 使用 Math.min() 確保分數不會超過 4。
-        // 如果原始分數低於 4（例如 3），則會保留較低的 3 分。
-        // 如果原始分數高於 4（例如 6），則會被強制降為 4 分。
-        
-        // 1. 強制限制雷達圖中的「立意」、「取材」、「詳略」分數
         if (s.radar) {
             s.radar.立意 = Math.min(s.radar.立意, 4);
             s.radar.取材 = Math.min(s.radar.取材, 4);
             s.radar.詳略 = Math.min(s.radar.詳略, 4);
         }
-
-        // 2. 強制限制總項分數中的「內容」和「結構」分數
         s.content = Math.min(s.content, 4);
         s.structure = Math.min(s.structure, 4);
     }
+    // ★★★ 新增規則 2：扣題剛好 6 分時，內容和結構最高只能 6 分 ★★★
+    else if (kouTi === 6) {
+        console.log(`觸發扣題分數把關規則 v4：偵測到扣題分數為 6 分，將「內容」和「結構」及相關細項上限設為 6。`);
+
+        if (s.radar) {
+            s.radar.立意 = Math.min(s.radar.立意, 6);
+            s.radar.取材 = Math.min(s.radar.取材, 6);
+            s.radar.詳略 = Math.min(s.radar.詳略, 6);
+        }
+        s.content = Math.min(s.content, 6);
+        s.structure = Math.min(s.structure, 6);
+    }
     
-    // 在控制台中輸出日誌，方便追蹤規則是否被正確應用及其調整結果
-    console.log(`扣題把關規則 v3 應用後：扣題=${kouTi}，調整後立意=${s.radar ? s.radar.立意 : 'N/A'}，取材=${s.radar ? s.radar.取材 : 'N/A'}，詳略=${s.radar ? s.radar.詳略 : 'N/A'}，內容=${s.content}，結構=${s.structure}`);
+    // 在控制台中輸出日誌，方便 F12 追蹤規則是否被正確應用及其調整結果
+    console.log(`扣題把關規則應用後：扣題=${kouTi}，調整後立意=${s.radar ? s.radar.立意 : 'N/A'}，取材=${s.radar ? s.radar.取材 : 'N/A'}，詳略=${s.radar ? s.radar.詳略 : 'N/A'}，內容=${s.content}，結構=${s.structure}`);
     
     // 返回經過嚴格調整後的分數物件
     return s;
 }
-
 
 
 document.addEventListener('DOMContentLoaded', function() {
