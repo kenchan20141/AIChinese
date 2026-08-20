@@ -15120,9 +15120,6 @@ await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inpu
 // ==========================================
 // === 敘事抒情提交函式 (大綱模式只存題目) ===
 // ==========================================
-// ==========================================
-// === 敘事抒情提交函式 (大綱模式只存題目) ===
-// ==========================================
 async function submitWriting() {
     console.log("🖱️ [系統] 提交按鈕被點擊了！");
     const submitBtn = document.getElementById('submitWritingBtn');
@@ -15191,7 +15188,7 @@ async function submitWriting() {
             displayOutlineComment(response, outlineData);
             
             saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
-			appendGoToSubmitButton(); 
+			appendGoToSubmitButton(); // <--- ★ 加入這行
 
         } 
         // === 模式二：敘事物象 ===
@@ -15224,7 +15221,7 @@ async function submitWriting() {
             openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
-			appendGoToSubmitButton(); 
+			appendGoToSubmitButton(); // <--- ★ 加入這行
 
         } 
         // === 模式三：片段描寫 ===
@@ -15243,25 +15240,15 @@ async function submitWriting() {
             // RAG 邏輯
          const ragReference = await searchSimilarEssays(topic, content, 'narrative');
             
-            // ★★★ 關鍵修改：注入新的 XML 輸出指令要求生成 <topic_analysis> ★★★
+            // ★★★ 修正處：移除了前端獲取 narrativeReviewerPreferences 的邏輯 ★★★
+            // 因為這些資料現在位於後端，我們只需要傳送 reviewer ID 即可。
+
+            // ★★★ 修正處：移除了 ${specificPreference} 變數 ★★★
             const finalPromptContent = `
 【系統強制指令 (System Instruction)】
 1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出（點評、建議、改寫）都必須轉換為繁體中文（香港習慣）。
 2. **區分角色**：下方的【參考資料】是用來幫助你建立評分標準的「範文」，下方的【待評核學生文章】才是你需要評改的對象。千萬不要評改參考資料。
-3. **格式嚴格**：嚴格遵守原本設定的 XML/JSON 輸出格式，不要輸出額外的閒聊文字。
-   【新增強制要求】：在輸出 <grading_json> 之後，<critique> 之前，必須新增一個 <topic_analysis> 區塊。
-   將題目拆解為 4 至 5 個必須回答的核心問題（例如若題目為《種子》，必須有一項探討物象特質與深層含義）。
-   請嚴格按照以下 XML 格式輸出：
-   <topic_analysis>
-     <item>
-       <question>核心拆解問題</question>
-       <status>🟢 或 🟡 或 🔴</status>
-       <evidence>客觀歸納學生證據</evidence>
-       <comment>具體點評與分析</comment>
-     </item>
-     <!-- 重複 item 直至涵蓋所有拆解問題 -->
-   </topic_analysis>
-   綠色(🟢)代表明確回應，黃色(🟡)代表尚能回應，紅色(🔴)代表未能回應。此分析的結論必須與「扣題」分數及後續「點評」絕對一致，不能矛盾！
+3. **格式嚴格**：嚴格遵守原本設定的 XML/JSON 輸出格式，不要輸出額外的「改寫說明」或閒聊文字。
 4. **閱卷員風格**：請嚴格根據後端系統指示的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
 
 ${ragReference ? ragReference : "(本次未檢索到參考範文)"}
@@ -15281,7 +15268,7 @@ ${content}
                     focus: localStorage.getItem("currentFocus"), 
                     plot: localStorage.getItem("currentPlot"),   
                     content: finalPromptContent, 
-                    reviewer: document.getElementById('writingReviewer').value,
+                    reviewer: document.getElementById('writingReviewer').value, // 後端會根據此 ID 讀取對應的 Preference
                     tone: tone,
                     selectedScopes: selectedScopes
                 }
@@ -15292,7 +15279,10 @@ if (isFullReview) {
             let llama3ApiResponse = null;
              
            try {
+                // 1. 立即啟動主模型請求 (Promise A) - 具備自動重試與自我修復功能
                 const promiseA = callGradingAPIWithRetry(callAPI, payload, content.length, 5);
+                
+                // 2. 輔助模型請求 (Promise B) - 啟動雙模型驗證 (僅觸發一次，不作重試)
                 const promiseB = new Promise(resolve => setTimeout(resolve, 1500))
                     .then(() => callLlama3API(payload, 0))
                     .catch(err => {
@@ -15300,12 +15290,14 @@ if (isFullReview) {
                         return null; 
                     });
              
+                // 3. 同時等待兩個模型完成
                 const [resA, resB] = await Promise.all([promiseA, promiseB]);
                 
                 originalApiResponse = resA;
                 llama3ApiResponse = resB;
              
             } catch (e) {
+                // 如果主模型 (callAPI) 徹底失敗，Promise.all 會來到這裡並中斷流程
                 throw e;
             }
             
@@ -15335,7 +15327,7 @@ if (isFullReview) {
                 
                 const htmlToSave = captureContainerHTML('resultCanvasBody'); 
                 saveToHistory("敘事抒情", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
-				appendGoToSubmitButton(); 
+				appendGoToSubmitButton(); // <--- ★ 加入這行
             }
         }
     } catch (error) {
@@ -15347,6 +15339,7 @@ if (isFullReview) {
         hideLoading();
     }
 }
+
 
 // 輔助函式，用於顯示大綱的評論 (從 submitWriting 中提取出來)
 // 輔助函式，用於顯示大綱的評論 (敘事抒情 - V3 修復版)
@@ -17592,9 +17585,6 @@ function safeJSONParse(rawString) {
 // ==========================================
 // === [升級版] AI 生成結果智能補足與自我修復引擎 ===
 // ==========================================
-// ==========================================
-// === [升級版] AI 生成結果智能補足與自我修復引擎 ===
-// ==========================================
 async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
     let attempt = 0;
     let completeTagsCache = {}; // 紀錄已經完整生成的標籤內容
@@ -17614,17 +17604,10 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
             // 判斷是否為「全方位評分」(Full Review)
             const isFullReview = currentPayload.data && currentPayload.data.isFullReview === true;
             
-            // ★★★ 核心修訂：動態加入 topic_analysis 標籤白名單 ★★★
-            let allRequiredTags = isFullReview ? 
+            // 定義此模式下所有必須存在的標籤
+            const allRequiredTags = isFullReview ? 
                 ["scoring_worksheet", "grading_json", "critique", "suggestions", "rewrite_example"] : 
                 ["critique", "suggestions"];
-
-            // 如果 Prompt 中有要求輸出 topic_analysis，就必須把它加入 required tags 白名單中
-            if (isFullReview && currentPayload.data && currentPayload.data.content && currentPayload.data.content.includes("<topic_analysis>")) {
-                if (!allRequiredTags.includes("topic_analysis")) {
-                    allRequiredTags.splice(2, 0, "topic_analysis"); // 加在 grading_json 後面
-                }
-            }
 
             // 計算當前還缺少的標籤
             let missingTags = allRequiredTags.filter(tag => !completeTagsCache[tag]);
@@ -17762,14 +17745,6 @@ ${payload.data.content}
  * 【最終安全版】顯示完整的點評與評分
  * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
  */
-/**
- * 【最終安全版】顯示完整的點評與評分
- * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
- */
-/**
- * 【最終安全版】顯示完整的點評與評分
- * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
- */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
     // 1. 找出閱卷員的名字與語氣
     let reviewerName = "陳SIR";
@@ -17802,51 +17777,51 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         window[instanceName] = null;
     }
     
-    // 初始化 finalHTML 為空 (因為要重組板塊順序)
-    let finalHTML = ``;
+    let finalHTML = `<h3>${reviewerName}點評：</h3>`;
     
     // --- 4. 解析原始文字中的各個區塊 ---
+ // --- 4. 解析原始文字中的各個區塊 ---
     let critiqueMatch = originalApiResponse.match(/<critique>([\s\S]*?)<\/critique>/i);
     let extractedCritique = "";
 
     if (critiqueMatch && critiqueMatch[1].trim() !== "") {
         extractedCritique = critiqueMatch[1].trim();
     } else {
+        // 【容錯機制】如果 AI 忘記打 <critique> 標籤，我們強制挖取夾在 JSON 結尾 和 <suggestions> 之間的文字
         console.warn("⚠️ 未偵測到 <critique> 標籤，啟動容錯擷取機制...");
         const fallbackMatch = originalApiResponse.match(/<\/grading_json>([\s\S]*?)(?:<suggestions>|<rewrite_example>|$)/i);
         if (fallbackMatch && fallbackMatch[1].trim() !== "") {
             extractedCritique = fallbackMatch[1].trim();
+            // 清除 AI 自作主張加上的 Markdown 標題 (例如 ### 點評：)
             extractedCritique = extractedCritique.replace(/^(### |\*\*|)點評(及建議)?(：|:|\*\*|)/i, '').trim();
         }
     }
-
-    // ★★★ 核心修復：徹底清洗 extractedCritique 中的系統 XML 標籤 ★★★
-    // 這是為了防止 AI 漏打標籤導致系統的 XML 標籤被誤認為是點評內容
-    extractedCritique = extractedCritique.replace(/<topic_analysis>[\s\S]*?<\/topic_analysis>/gi, '');
-    extractedCritique = extractedCritique.replace(/<grading_json>[\s\S]*?<\/grading_json>/gi, '');
-    extractedCritique = extractedCritique.replace(/<scoring_worksheet>[\s\S]*?<\/scoring_worksheet>/gi, '');
-    extractedCritique = extractedCritique.replace(/<\/?topic_analysis>|<\/?grading_json>|<\/?scoring_worksheet>/gi, '');
-    extractedCritique = extractedCritique.trim();
     
+    // 為了相容後續的代碼，把挖出來的文字偽裝回 match 陣列的格式
     critiqueMatch = extractedCritique ? [null, extractedCritique] : null;
 
     const suggestionsMatch = originalApiResponse.match(/<suggestions>([\s\S]*?)<\/suggestions>/i);
     const rewriteMatch = originalApiResponse.match(/<rewrite_example>([\s\S]*?)<\/rewrite_example>/i);
     
+ // 4.1 提取兩個模型的 JSON 字串 (強化容錯：即使沒有標籤，也嘗試硬抓 JSON 結構)
+// 4.1 提取兩個模型的 JSON 字串 (無極限容錯版)
     let rawJsonA = originalApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i);
     let rawJsonB = llama3ApiResponse ? llama3ApiResponse.match(/<grading_json>([\s\S]*?)<\/grading_json>/i) : null;
     
     let jsonStrA = rawJsonA ? rawJsonA[1] : null;
     let jsonStrB = rawJsonB ? rawJsonB[1] : null;
 
+    // 【容錯機制 1】尋找 Markdown 的 json 區塊 (```json ... ```)
     const mdRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
     if (!jsonStrA) { const m = originalApiResponse.match(mdRegex); if(m) jsonStrA = m[1]; }
     if (!jsonStrB && llama3ApiResponse) { const m = llama3ApiResponse.match(mdRegex); if(m) jsonStrB = m[1]; }
 
+    // 【容錯機制 2】尋找帶有中英關鍵字的 {} 區塊 (放寬英文 Key 限制)
     const fallbackRegex = /\{[\s\S]*?(?:content|內容)[\s\S]*?(?:structure|結構|radar|立意)[\s\S]*?\}/i;
     if (!jsonStrA) { const m = originalApiResponse.match(fallbackRegex); if (m) jsonStrA = m[0]; }
     if (!jsonStrB && llama3ApiResponse) { const m = llama3ApiResponse.match(fallbackRegex); if (m) jsonStrB = m[0]; }
 
+    // 【絕地求生機制】如果 AI 連 {} 都懶得打，直接把原始回應的前 1500 字餵給 safeJSONParse 進行暴力挖掘
     if (!jsonStrA) {
         console.warn("🛡️ 啟動絕地求生機制：直接掃描原始純文字抓取分數...");
         jsonStrA = originalApiResponse.substring(0, 1500);
@@ -17855,26 +17830,31 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         jsonStrB = llama3ApiResponse.substring(0, 1500);
     }
  
+    // 4.2 解析為物件 (若解析失敗給予預設空結構)
     let scoresA = jsonStrA ? safeJSONParse(jsonStrA) : null;
     let scoresB = jsonStrB ? safeJSONParse(jsonStrB) : null;
  
+    // 補全預設值防止報錯
     const defaultScores = { content: 0, structure: 0, expression: 0, radar: { 立意:0, 取材:0, 扣題:0, 詳略:0, 詞彙:0, 文學性:0 } };
     if (!scoresA) scoresA = JSON.parse(JSON.stringify(defaultScores));
     if (!scoresB) scoresB = JSON.parse(JSON.stringify(defaultScores));
     if (!scoresA.radar) scoresA.radar = defaultScores.radar;
     if (!scoresB.radar) scoresB.radar = defaultScores.radar;
  
+    // --- 5. 模型分數決策邏輯 (支援單/雙模型動態切換) ---
     let scoresForDisplay = JSON.parse(JSON.stringify(defaultScores)); 
     let finalGradeForDisplay = "評級中";
     const wordCount = fullTextContent.length;
  
+    // 判斷模型是否壞掉 (字數足夠卻全0分)
     const isModelABroken = (wordCount > 150) && (scoresA.content === 0 && scoresA.structure === 0 && scoresA.expression === 0);
-    const isSingleModelMode = (llama3ApiResponse === null); 
+    const isSingleModelMode = (llama3ApiResponse === null); // 判斷是否為單模型模式
     const isModelBBroken = !isSingleModelMode && (wordCount > 150) && (scoresB.content === 0 && scoresB.structure === 0 && scoresB.expression === 0);
  
     let usedSource = ""; 
  
     if (isSingleModelMode) {
+        // 單模型模式：強制使用 A
         scoresForDisplay = scoresA;
         usedSource = isModelABroken ? "Model A (Failed/0分)" : "Model A Only (Single Mode)";
     } else if (isModelABroken && !isModelBBroken) {
@@ -17887,6 +17867,7 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         scoresForDisplay = scoresA;
         usedSource = "Both Failed (Defaulting to A)";
     } else {
+        // 雙模型皆正常 -> 取平均
         usedSource = "Dual Model Average";
         scoresForDisplay.content = Math.round((scoresA.content + scoresB.content) / 2);
         scoresForDisplay.structure = Math.round((scoresA.structure + scoresB.structure) / 2);
@@ -17896,18 +17877,22 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         }
     }
  
+  // --- 6. F12 Console 輸出比對表與驗屍報告 ---
     console.group(`📊 雙模型評分比對 (${uniqueIdPrefix})`);
     console.log(`字數: ${wordCount}`);
     console.log(`決策: ${usedSource}`);
     
+    // 🚨 驗屍報告區塊 🚨
     if (isModelABroken || isModelBBroken) {
         console.groupCollapsed("%c🚨 [診斷報告] 發現 BROKEN 狀態，點擊展開查看致命原因 🚨", "color: white; background: red; font-size: 14px; padding: 5px;");
+        
         if (isModelABroken) {
             console.error("【Model A 失敗分析】");
             console.log("1. 擷取到的 JSON 字串:", jsonStrA === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrA);
             console.log("2. 暴力解析後的結果:", scoresA);
             console.log("3. AI 原始完整回應:\n", originalApiResponse);
         }
+        
         if (isModelBBroken) {
             console.error("【Model B 失敗分析】");
             console.log("1. 擷取到的 JSON 字串:", jsonStrB === null ? "❌ 完全找不到 <grading_json> 標籤！" : jsonStrB);
@@ -17917,22 +17902,49 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         console.groupEnd();
     }
 
+    // 改用 Object 格式傳入，讓第一欄顯示為模型名稱
     console.table({
-        "A (主模型)": { Status: isModelABroken ? "❌ Broken" : "✅ OK", Content: scoresA.content, Structure: scoresA.structure, Expression: scoresA.expression },
-        "B (輔助模型)": { Status: (llama3ApiResponse === null) ? "⏸️ Disabled" : (isModelBBroken ? "❌ Broken" : "✅ OK"), Content: scoresB.content, Structure: scoresB.structure, Expression: scoresB.expression },
-        "👉 FINAL": { Status: "Applied", Content: scoresForDisplay.content, Structure: scoresForDisplay.structure, Expression: scoresForDisplay.expression }
+        "A (主模型)": {
+            Status: isModelABroken ? "❌ Broken" : "✅ OK",
+            Content: scoresA.content,
+            Structure: scoresA.structure,
+            Expression: scoresA.expression
+        },
+        "B (輔助模型)": {
+            Status: (llama3ApiResponse === null) ? "⏸️ Disabled" : (isModelBBroken ? "❌ Broken" : "✅ OK"),
+            Content: scoresB.content,
+            Structure: scoresB.structure,
+            Expression: scoresB.expression
+        },
+        "👉 FINAL": {
+            Status: "Applied",
+            Content: scoresForDisplay.content,
+            Structure: scoresForDisplay.structure,
+            Expression: scoresForDisplay.expression
+        }
     });
     console.groupEnd();
  
+    // --- 7. 套用後處理規則 (一致性與字數限制) ---
     if (scoresForDisplay) {
+        // 7.1 扣題分數把關規則
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         
-        let contentCap = 10, structureCap = 10, expressionCap = 10;
-        if (wordCount < 500) { contentCap = 2; structureCap = 2; expressionCap = 6; } 
-        else if (wordCount < 650) { contentCap = 4; structureCap = 5; expressionCap = 6; } 
-        else if (wordCount < 800) { contentCap = 5; structureCap = 5; } 
-        else if (wordCount < 1000) { contentCap = 6; expressionCap = 7; structureCap = 6; }
+        // 7.2 字數限制規則 (Cap Rule)
+        let contentCap = 10;
+        let structureCap = 10;
+        let expressionCap = 10;
+        if (wordCount < 500) {
+            contentCap = 2; structureCap = 2; expressionCap = 6;
+        } else if (wordCount < 650) {
+            contentCap = 4; structureCap = 5; expressionCap = 6;
+        } else if (wordCount < 800) {
+            contentCap = 5; structureCap = 5; // 表達不設限
+        } else if (wordCount < 1000) {
+            contentCap = 6; expressionCap = 7; structureCap = 6;
+        }
  
+        // 執行壓分
         if (contentCap < 10 || structureCap < 10 || expressionCap < 10) {
             scoresForDisplay.content = Math.min(scoresForDisplay.content, contentCap);
             scoresForDisplay.structure = Math.min(scoresForDisplay.structure, structureCap);
@@ -17950,177 +17962,94 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
                 }
             }
         }
+        // 7.3 計算總分與等級
         const finalTotalScoreAfterRules = (scoresForDisplay.content * 4) + (scoresForDisplay.expression * 3) + (scoresForDisplay.structure * 2) + 5 + 1;
         finalGradeForDisplay = determineGrade(Math.min(finalTotalScoreAfterRules, 100));
     }
  
+// --- 8. 二次 API 語氣重寫與一致性校正 (扣題標準版) ---
     const originalCritiqueText = critiqueMatch ? critiqueMatch[1].trim() : "未生成點評";
     let finalCritiqueText = originalCritiqueText;
     let critiqueRewriteInstruction = "";
 
+    // 獲取「扣題」分數作為評判核心 (防呆預設為0)
     const koutiScore = scoresForDisplay && scoresForDisplay.radar ? (scoresForDisplay.radar['扣題'] || 0) : 0;
 
+    // 根據扣題分數，強制規定點評的基調，杜絕分數與評語割裂
     if (koutiScore >= 7) {
         critiqueRewriteInstruction = "該文章的扣題分數為 7 分或以上（表現優良）。你的點評必須是【正面讚賞】。絕對不能出現「扣題不足」、「間接」、「偏題」、「離題」、「牽強」等負面字眼，必須強調其扣題緊密、表現好。";
     } else if (koutiScore === 6) {
         critiqueRewriteInstruction = "該文章的扣題分數為 6 分（表現合格）。你的點評應【肯定其達到合格水平】，可指出扣題上的微小瑕疵，但絕對不能出現「嚴重偏題」或「完全離題」等極端字眼。";
-    } else { 
+    } else { // 5 分或以下
         critiqueRewriteInstruction = "該文章的扣題分數為 5 分或以下（表現欠佳）。你的點評必須指出文章【扣題不足】。請明確使用「偏題」、「離題」、「扣題間接」、「牽強」或「未緊扣題旨」等字眼來批評其內容。";
     }
     
+    // 閱卷員語氣設定
     let emojiInstruction = (currentTone === "chen") ? "務必穿插大量 Emoji 🤪✨🤌，語氣幽默詼諧，適時揶揄。" : "語氣專業嚴肅，絕對不使用 Emoji。";
 
+    // 構建重寫 Prompt
     const rewritePrompt = `你是一個嚴格執行指令的文本修正引擎。請重寫以下點評內容，使其與文章的扣題表現絕對一致。
+
 【嚴格重寫要求】
 1. **結構鎖定**：嚴格維持原本的列點數量與大致篇幅。
 2. **評語一致性（最優先指令）**：${critiqueRewriteInstruction}
-   - 如果原文的語氣與上述要求衝突，請**強制反轉或修改這些字眼**。
+   - 如果原文的語氣與上述要求衝突（例如分數高卻說偏題，或分數低卻稱讚扣題），請**強制反轉或修改這些字眼**。
 3. **語氣風格**：${emojiInstruction}
-4. **純文本輸出**：不要改變原有的排版，直接輸出修改後的點評。
+4. **純文本輸出**：不要加上「這是重寫後的內容」等廢話，不要改變原有的排版，直接輸出修改後的點評。
 
 【原始點評內容】：
 ${originalCritiqueText}
 `;
 
+    // 啟動 F12 Console 追蹤
     console.group(`🔄 [Tone Rewrite] 啟動二次 API 語氣與一致性校正`);
     console.log(`%c判定基準 -> 扣題分數: ${koutiScore}分`, 'color: #3498db; font-weight: bold; font-size: 14px;');
+    console.log(`%c套用指示: ${critiqueRewriteInstruction}`, 'color: #e67e22;');
     
     try {
+        // 為了避免瞬間併發請求導致 HTTP 429 錯誤，給予 1.5 秒冷卻緩衝
+        console.log("⏳ 等待 API 冷卻 (1.5s)...");
         await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // 呼叫 API 進行重寫 (使用較低的 temperature 0.3 確保穩定性)
         finalCritiqueText = await callReadingAPI(rewritePrompt, 0.3);
         console.log(`%c✅ [Tone Rewrite] 校正完成！`, 'color: #2ecc71; font-weight: bold;');
     } catch (e) {
         console.warn(`%c⚠️ [Tone Rewrite] 校正失敗，將退回使用原始點評:`, 'color: #e74c3c;', e);
-        finalCritiqueText = originalCritiqueText; 
+        finalCritiqueText = originalCritiqueText; // 失敗時的容錯機制
     }
     console.groupEnd();
 
-    finalCritiqueText = finalCritiqueText.replace(/```[a-zA-Z]*\n?/g, ''); 
-    finalCritiqueText = finalCritiqueText.replace(/<\/?critique>/gi, '');  
+ // 清洗標題、Markdown代碼塊與多餘的系統標記
+    finalCritiqueText = finalCritiqueText.replace(/```[a-zA-Z]*\n?/g, ''); // 移除 markdown 區塊標記
+    finalCritiqueText = finalCritiqueText.replace(/<\/?critique>/gi, '');  // ★ 核心修復：移除 AI 自己加上的 XML 標籤，防止搞亂 HTML 排版
     finalCritiqueText = finalCritiqueText.replace(/^#+\s*.*點評.*$/gim, '');
     finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, '');
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
-    
-    // ★★★ 核心修復：二次把關，確保最終輸出的點評中絕對不會有 XML 標籤 ★★★
-    finalCritiqueText = finalCritiqueText.replace(/<topic_analysis>[\s\S]*?<\/topic_analysis>/gi, '');
-    finalCritiqueText = finalCritiqueText.replace(/<grading_json>[\s\S]*?<\/grading_json>/gi, '');
-    finalCritiqueText = finalCritiqueText.replace(/<scoring_worksheet>[\s\S]*?<\/scoring_worksheet>/gi, '');
-    finalCritiqueText = finalCritiqueText.replace(/<\/?topic_analysis>|<\/?grading_json>|<\/?scoring_worksheet>/gi, '');
-
     finalCritiqueText = finalCritiqueText.trim();
 
+    // 防呆機制：如果清洗後變成空白，退回使用原始點評
     if (!finalCritiqueText) {
         console.warn("⚠️ 語氣校正後內容變為空白，已退回使用原始點評。");
         finalCritiqueText = originalCritiqueText;
     }
  
     // --- 9. 組合 HTML 輸出 ---
-
-    // A. 擷取並構建「題目拆解與扣題分析」 (僅限敘事抒情)
-    let topicAnalysisHTML = "";
-    if (uniqueIdPrefix === 'narrative') {
-        const topicAnalysisMatch = originalApiResponse.match(/<topic_analysis>([\s\S]*?)<\/topic_analysis>/i);
-        if (topicAnalysisMatch && topicAnalysisMatch[1]) {
-            const analysisContent = topicAnalysisMatch[1];
-            const items = [...analysisContent.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
-            
-            if (items.length > 0) {
-                let tableRows = "";
-                items.forEach(itemMatch => {
-                    const itemHtml = itemMatch[1];
-                    const qMatch = itemHtml.match(/<question>([\s\S]*?)<\/question>/i);
-                    const sMatch = itemHtml.match(/<status>([\s\S]*?)<\/status>/i);
-                    const eMatch = itemHtml.match(/<evidence>([\s\S]*?)<\/evidence>/i);
-                    const cMatch = itemHtml.match(/<comment>([\s\S]*?)<\/comment>/i);
-                    
-                    const q = qMatch ? qMatch[1].trim() : "";
-                    const s = sMatch ? sMatch[1].trim() : "";
-                    const e = eMatch ? eMatch[1].trim() : "";
-                    const c = cMatch ? cMatch[1].trim() : "";
-                    
-                    let tagClass = "tag-yellow";
-                    if (s.includes("🟢")) tagClass = "tag-green";
-                    else if (s.includes("🔴")) tagClass = "tag-red";
-                    
-                    tableRows += `
-                    <tr>
-                        <td style="font-weight: bold;">${q}</td>
-                        <td style="text-align:center; line-height:1.5; padding-top:15px;">
-                            <span class="${tagClass}">${s}</span>
-                        </td>
-                        <td>${e}</td>
-                        <td>${c}</td>
-                    </tr>`;
-                });
-
-                let koutiLevel = "危險";
-                if (koutiScore >= 7) koutiLevel = "安全";
-                else if (koutiScore >= 5) koutiLevel = "警告";
-
-                const currentTopic = localStorage.getItem("currentTopic") || "無題目";
-
-                topicAnalysisHTML = `
-                <style>
-                    .paper-table-container { overflow-x: auto; width: 100%; border-radius: 8px; border: 1px solid #8baea8; margin-top: 15px; margin-bottom: 25px; }
-                    .paper-table { width: 100%; border-collapse: collapse; }
-                    .paper-table th { background-color: #2A9689; color: white; padding: 12px; font-size: 1.1em; border: 1px solid #1e7e72; text-align: left; }
-                    .paper-table td { padding: 12px 15px; border: 1px solid #8baea8; vertical-align: top; background-color: #fffcf6; background-image: linear-gradient(transparent 39px, rgba(42, 150, 137, 0.2) 39px, rgba(42, 150, 137, 0.2) 40px, transparent 40px), linear-gradient(90deg, transparent 39px, rgba(0,0,0,0.02) 39px, rgba(0,0,0,0.02) 40px, transparent 40px); background-size: 40px 40px; line-height: 40px; font-size: 1.05rem; color: #2c3e50; }
-                    .tag-green { background: #e8f5e9; color: #2e7d32; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-family: sans-serif; display: inline-block; line-height: 1.5; }
-                    .tag-yellow { background: #fff3e0; color: #e65100; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-family: sans-serif; display: inline-block; line-height: 1.5; }
-                    .tag-red { background: #ffebee; color: #c62828; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-family: sans-serif; display: inline-block; line-height: 1.5; }
-                    @media (max-width: 768px) {
-                        .paper-table td { line-height: 32px; background-size: 32px 32px; background-image: linear-gradient(transparent 31px, rgba(42, 150, 137, 0.2) 31px, rgba(42, 150, 137, 0.2) 32px, transparent 32px), linear-gradient(90deg, transparent 31px, rgba(0,0,0,0.02) 31px, rgba(0,0,0,0.02) 32px, transparent 32px); font-size: 16px; padding: 10px; }
-                    }
-                </style>
-                <div class="box" style="margin-top: 0; box-shadow: none; padding: 0;">
-                    <h3 style="margin-top: 0;"><i class="fas fa-search"></i> 題目拆解與扣題分析</h3>
-                    <p style="color: #666; font-weight: bold; font-size: 1.1rem; margin-bottom: 10px;">作文題目：${currentTopic}</p>
-                    <div class="paper-table-container">
-                        <table class="paper-table">
-                            <tr>
-                                <th style="width: 20%;">核心拆解問題</th>
-                                <th style="width: 15%; text-align:center;">狀態</th>
-                                <th style="width: 30%;">學生文本內容概括</th>
-                                <th style="width: 35%;">具體點評與分析</th>
-                            </tr>
-                            ${tableRows}
-                        </table>
-                    </div>
-                    <p style="margin-top: 15px; font-weight: bold; color: #5e7067;">扣題指數：${koutiScore}/10 （${koutiLevel} 等級）</p>
-                </div>`;
-            }
-        }
-    }
-
-    if (topicAnalysisHTML) {
-        finalHTML += topicAnalysisHTML;
-    }
-
-    // B. 評分系統
     if (scoresForDisplay) {
         finalHTML += createGradingSystemHTML(uniqueIdPrefix, scoresForDisplay, finalGradeForDisplay);
     }  else {
         finalHTML += "<p>評等資料不完整。</p>";
     }
     
-    // C. 點評與建議
-    finalHTML += `<h3 style="margin-top: 30px;"><i class="fas fa-comment-dots"></i> ${reviewerName}點評及建議：</h3>`;
-
     if (finalCritiqueText) {
         finalHTML += createBulletedListHTML("點評", finalCritiqueText);
     }
     if (suggestionsMatch && suggestionsMatch[1]) {
-        // ★★★ 針對建議也做一次徹底清洗 ★★★
-        let cleanSug = suggestionsMatch[1].trim();
-        cleanSug = cleanSug.replace(/<topic_analysis>[\s\S]*?<\/topic_analysis>/gi, '');
-        cleanSug = cleanSug.replace(/<grading_json>[\s\S]*?<\/grading_json>/gi, '');
-        cleanSug = cleanSug.replace(/<scoring_worksheet>[\s\S]*?<\/scoring_worksheet>/gi, '');
-        cleanSug = cleanSug.replace(/<\/?topic_analysis>|<\/?grading_json>|<\/?scoring_worksheet>/gi, '');
-        finalHTML += createBulletedListHTML("建議", cleanSug);
+        finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
     }
     
-    // D. 改寫範例
+    // 改寫範例繁體化 + 引號修正
     if (rewriteMatch && rewriteMatch[1]) {
         let rewriteContent = rewriteMatch[1].trim().replace(/\*/g, '');
  
@@ -18143,7 +18072,7 @@ ${originalCritiqueText}
         </div>`;
     }
  
-    // E. 聊天室
+    // 加入聊天室 HTML
     const chatType = uniqueIdPrefix === 'narrative' ? 'narrative_writing' : 'argument_writing';
     finalHTML += getCanvasChatHTML(chatType);
  
@@ -18616,14 +18545,14 @@ function applyFinalConsistencyRule(scores) {
     }
     // 規則 3：扣題剛好 6 分時，強制壓到 6 分
     else if (kouTi === 6) {
-        console.log(`觸發扣題分數把關規則 v5：偵測到扣題分數為 6 分，將「內容」和「結構」及相關細項上限設為 6。`);
+        console.log(`觸發扣題分數把關規則 v5：偵測到扣題分數為 6 分，將「內容」和「結構」及相關細項上限設為 4。`);
         if (s.radar) {
-            s.radar.立意 = Math.min(s.radar.立意, 6);
-            s.radar.取材 = Math.min(s.radar.取材, 6);
-            s.radar.詳略 = Math.min(s.radar.詳略, 6);
+            s.radar.立意 = Math.min(s.radar.立意, 4);
+            s.radar.取材 = Math.min(s.radar.取材, 5);
+            s.radar.詳略 = Math.min(s.radar.詳略, 4);
         }
-        s.content = Math.min(s.content, 6);
-        s.structure = Math.min(s.structure, 6);
+        s.content = Math.min(s.content, 4);
+        s.structure = Math.min(s.structure, 4);
     }
     
     // 在控制台中輸出日誌，方便 F12 追蹤規則是否被正確應用及其調整結果
