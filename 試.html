@@ -17766,6 +17766,10 @@ ${payload.data.content}
  * 【最終安全版】顯示完整的點評與評分
  * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
  */
+/**
+ * 【最終安全版】顯示完整的點評與評分
+ * 算分邏輯已移至後端，此函數僅負責解析並顯示結果。
+ */
 async function displayFullCommentWithGrading(containerId, originalApiResponse, llama3ApiResponse, uniqueIdPrefix, fullTextContent) {
     // 1. 找出閱卷員的名字與語氣
     let reviewerName = "陳SIR";
@@ -17815,6 +17819,14 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
             extractedCritique = extractedCritique.replace(/^(### |\*\*|)點評(及建議)?(：|:|\*\*|)/i, '').trim();
         }
     }
+
+    // ★★★ 核心修復：徹底清洗 extractedCritique 中的系統 XML 標籤 ★★★
+    // 這是為了防止 AI 漏打標籤導致系統的 XML 標籤被誤認為是點評內容
+    extractedCritique = extractedCritique.replace(/<topic_analysis>[\s\S]*?<\/topic_analysis>/gi, '');
+    extractedCritique = extractedCritique.replace(/<grading_json>[\s\S]*?<\/grading_json>/gi, '');
+    extractedCritique = extractedCritique.replace(/<scoring_worksheet>[\s\S]*?<\/scoring_worksheet>/gi, '');
+    extractedCritique = extractedCritique.replace(/<\/?topic_analysis>|<\/?grading_json>|<\/?scoring_worksheet>/gi, '');
+    extractedCritique = extractedCritique.trim();
     
     critiqueMatch = extractedCritique ? [null, extractedCritique] : null;
 
@@ -17989,6 +18001,13 @@ ${originalCritiqueText}
     finalCritiqueText = finalCritiqueText.replace(/【.*?】/g, '');
     finalCritiqueText = finalCritiqueText.replace(/[（(].*嚴格遵循.*[)）]/g, '');
     finalCritiqueText = finalCritiqueText.replace(/^(原文|改寫|重寫內容|重寫點評)[：:]/gim, '');
+    
+    // ★★★ 核心修復：二次把關，確保最終輸出的點評中絕對不會有 XML 標籤 ★★★
+    finalCritiqueText = finalCritiqueText.replace(/<topic_analysis>[\s\S]*?<\/topic_analysis>/gi, '');
+    finalCritiqueText = finalCritiqueText.replace(/<grading_json>[\s\S]*?<\/grading_json>/gi, '');
+    finalCritiqueText = finalCritiqueText.replace(/<scoring_worksheet>[\s\S]*?<\/scoring_worksheet>/gi, '');
+    finalCritiqueText = finalCritiqueText.replace(/<\/?topic_analysis>|<\/?grading_json>|<\/?scoring_worksheet>/gi, '');
+
     finalCritiqueText = finalCritiqueText.trim();
 
     if (!finalCritiqueText) {
@@ -18092,7 +18111,13 @@ ${originalCritiqueText}
         finalHTML += createBulletedListHTML("點評", finalCritiqueText);
     }
     if (suggestionsMatch && suggestionsMatch[1]) {
-        finalHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
+        // ★★★ 針對建議也做一次徹底清洗 ★★★
+        let cleanSug = suggestionsMatch[1].trim();
+        cleanSug = cleanSug.replace(/<topic_analysis>[\s\S]*?<\/topic_analysis>/gi, '');
+        cleanSug = cleanSug.replace(/<grading_json>[\s\S]*?<\/grading_json>/gi, '');
+        cleanSug = cleanSug.replace(/<scoring_worksheet>[\s\S]*?<\/scoring_worksheet>/gi, '');
+        cleanSug = cleanSug.replace(/<\/?topic_analysis>|<\/?grading_json>|<\/?scoring_worksheet>/gi, '');
+        finalHTML += createBulletedListHTML("建議", cleanSug);
     }
     
     // D. 改寫範例
