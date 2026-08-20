@@ -17592,6 +17592,9 @@ function safeJSONParse(rawString) {
 // ==========================================
 // === [升級版] AI 生成結果智能補足與自我修復引擎 ===
 // ==========================================
+// ==========================================
+// === [升級版] AI 生成結果智能補足與自我修復引擎 ===
+// ==========================================
 async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries = 3) {
     let attempt = 0;
     let completeTagsCache = {}; // 紀錄已經完整生成的標籤內容
@@ -17611,10 +17614,17 @@ async function callGradingAPIWithRetry(apiFunc, payload, wordCount, maxRetries =
             // 判斷是否為「全方位評分」(Full Review)
             const isFullReview = currentPayload.data && currentPayload.data.isFullReview === true;
             
-            // 定義此模式下所有必須存在的標籤
-            const allRequiredTags = isFullReview ? 
+            // ★★★ 核心修訂：動態加入 topic_analysis 標籤白名單 ★★★
+            let allRequiredTags = isFullReview ? 
                 ["scoring_worksheet", "grading_json", "critique", "suggestions", "rewrite_example"] : 
                 ["critique", "suggestions"];
+
+            // 如果 Prompt 中有要求輸出 topic_analysis，就必須把它加入 required tags 白名單中
+            if (isFullReview && currentPayload.data && currentPayload.data.content && currentPayload.data.content.includes("<topic_analysis>")) {
+                if (!allRequiredTags.includes("topic_analysis")) {
+                    allRequiredTags.splice(2, 0, "topic_analysis"); // 加在 grading_json 後面
+                }
+            }
 
             // 計算當前還缺少的標籤
             let missingTags = allRequiredTags.filter(tag => !completeTagsCache[tag]);
