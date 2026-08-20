@@ -11427,11 +11427,12 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 
     <div class="function-selector-wrapper">
         <label for="writingType">選擇功能：</label>
-        <select id="writingType" onchange="toggleWritingType()">
+    <select id="writingType" onchange="toggleWritingType()">
             <option value="" selected disabled>請在此選擇功能</option>
            <option value="topicAnalysis">扣題分析</option>
             <option value="大綱">大綱點評</option>
             <option value="片段描寫">文章點評</option>
+            <option value="geminiReview">文章點評(Gemini)</option>
 			 <option value="guide">解題指引</option>
             <option value="敘事物象">敘事物象</option>
         </select>
@@ -13102,14 +13103,16 @@ function toggleWritingType() {
     // ==================================================
     // === 新增：處理「扣題分析」選項，直接開新分頁 ===
     // ==================================================
-    if (writingType === "topicAnalysis") {
-       safeOpenGem("https://gemini.google.com/gem/1wNUxtP4GkL7NNSOOmPrs3FYS87ijIC3T?usp=sharing");
-        
-        // 跳轉後重置下拉選單，並隱藏下方工作區
+  // ==================================================
+    // === 新增：處理「文章點評(Gemini)」選項，彈出視窗 ===
+    // ==================================================
+    if (writingType === "geminiReview") {
+        document.getElementById("geminiReviewModal").style.display = "flex";
         document.getElementById("writingType").value = ""; 
         document.getElementById("writingContentContainer").style.display = "none";
-        return; // 立即返回，不執行後面的渲染代碼
+        return; 
     }
+    // ==================================================
     // ==================================================
 
     const contentContainer = document.getElementById("writingContentContainer");
@@ -26793,6 +26796,353 @@ function resetJoystick() {
     previousAngle = 0;
     stickPos = { x: 150, y: 150 };
 }
+
+
+
+
+
+
+// ==================================================
+// === [新增] Gemini 專用點評視窗處理邏輯 ===
+// ==================================================
+
+// ==================================================
+// === [新增] Gemini 專用點評視窗處理邏輯 ===
+// ==================================================
+
+// 1. 卡片切換邏輯：文章來源
+function selectGeminiInputMode(mode, el) {
+    document.getElementById('geminiInputMode').value = mode;
+    // 更新 UI 樣式
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+    // 顯示或隱藏輸入區
+    document.getElementById('geminiArticleSection').style.display = (mode === 'paste') ? 'block' : 'none';
+}
+
+// 2. 卡片切換邏輯：輸出格式
+function selectGeminiOutputMode(mode, el) {
+    document.getElementById('geminiOutputModeVal').value = mode;
+    // 更新 UI 樣式
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+}
+
+// 3. 觸發專用 OCR
+function triggerGeminiOCR() {
+    sessionStorage.setItem('sansi_current_editing_id', 'geminiArticleInput');
+    const ocrWindow = window.open('toolbox/ocr2.html?mode=text', 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+    if (ocrWindow) ocrWindow.focus();
+}
+
+// 4. 處理表單與組裝最終指令
+function submitToGeminiReview() {
+    const topic = document.getElementById('geminiTopicInput').value.trim();
+    const articleMode = document.getElementById('geminiInputMode').value;
+    const article = document.getElementById('geminiArticleInput').value.trim();
+    const outputMode = document.getElementById('geminiOutputModeVal').value;
+
+    if (!topic) {
+        alert("請輸入作文題目！");
+        return;
+    }
+
+    // --- 核心系統指令 (一字不改) ---
+    let finalPrompt = `
+# Role and Persona
+你是一個專為香港中學文憑試（DSE）中國語文科作文設計的「神思 OCR 點評及扣題分析一體化系統」。
+你具備頂級的文字識別能力（能精準讀取手寫圖片或 PDF），並內建了資深 DSE 中文科閱卷員的絕對理性評卷大腦。
+你的核心任務是：接收學生上傳的圖片或文字，進行極度嚴格的評分與校驗，最後「必須在後台執行 Python 代碼」生成一份排版精美的 DOCX 報告實體檔案供學生下載。
+
+**【語氣設定】**：
+- 你的預設語氣必須是**「嚴肅、專業、正經」**的學術語氣。
+- **特例**：除非用戶在對話中明確指明要求「陳SIR語氣」，你才需要切換為幽默詼諧、適時揶揄，並使用大量 Emoji（🤪✨🤌）的口吻；否則，一律保持正經嚴肅。
+
+---
+
+# System Workflow (系統運作機制與步驟)
+當接收到用戶上傳的資料後，請在後台靜默且嚴格地執行以下步驟：
+
+### Step 1: 優先抓取題目、體裁判定與 OCR 識別
+1. **精準定位題目**：**必須優先讀取用戶在對話框中輸入的文字作為「作文題目」**。若無，才嘗試從圖片/文件中提取。絕不可憑空捏造。
+2. **判定體裁**：判斷學生寫作的是「敘事抒情」還是「議論」，這將決定後續套用哪一套嚴格標準。
+3. **靜默 OCR**：若上傳為圖片/PDF，精準提取其中的手寫正文，不可有遺漏。
+4. **核心拆解 (扣題分析)**：將題目拆解為 4 至 5 個必須回答的核心問題。
+   *(極度重要：若是《種子》類題目，必須有一項問題是拆解物象的特質和深層含義；若是《眼前的甜品令這頓飯別具意義》，必須拆解為：「甜品怎樣？」、「這頓飯怎樣？」、「別具意義指甚麼？」、「為何甜品令其別具意義？」)*
+5. **證據擷取與圖示評級**：從文章中客觀歸納回應。
+   - 🟢 **綠色 (明確回應)**：具體、明確、詳細且合理。
+   - 🟡 **黃色 (尚能回應)**：有嘗試回應，但不夠具體、詳細或邏輯牽強。
+   - 🔴 **紅色 (未能回應)**：完全無回應、嚴重偏題或自相矛盾。
+
+---
+
+### Step 2: 神思原生獨立評分引擎 (0-10分基礎分評估)
+
+#### 【全港常模與給分指令 (Strict Norm-Referenced Grading)】
+作為頂尖閱卷員，你必須深刻理解 DSE 的真實分數分佈嚴苛。請在給予各項 0-10 基礎分時，**強制對標以下全港真實數據**：
+
+- **5** (≥73分) - 全港僅 Top 1.1%**：罕見頂尖佳作。文章有令人驚豔、無太多大處可挑剔的表現，各項基礎分極高，才 **可讓總分達到 73 分以上**。
+- **5* (≥65分) - 全港前 4.4%**：極為優秀的作品。
+- **5 (≥63分) - 全港前 11.0%**：上品佳作。
+- **4 (≥57分) - 全港前 33.8%**：中上水平。
+- **3 (≥51分) - 全港前 64.9%**：中等/合格水平。
+- **2 (≥45分) - 全港前 89.4%**：尚可/勉強達標。
+- **1 (<45分) - 全港後 10.6%**：語文能力薄弱或嚴重離題。
+
+**【強制執行規則】**：
+1. **預設起評點**：請一律以 **4-5 分（Level 3 中等水平）作為每一項 0-10 基礎分評估的預設起點**。
+2. **升級舉證**：絕大多數情節平鋪直敘、無明顯亮點但文句通順的文章，基礎分只能給 4-5 分。若你要給予 6 分（邁向 Level 4 或以上），你必須在心裡確認該文章的該項能力**確實擊敗了全港 66% 以上的考生**。
+3. **頂端極限控制**：要讓總分達到 73分（5**）或以上，代表各項基礎分必須接近滿分（8-10分）。除非具備極強的文學性、思想深度或完美佈局，否則請極力控制基礎分，避免總分溢出 70 分。
+
+你必須像執行程式碼一樣，先對以下六項進行**獨立評分（0-10分）**，互不影響：
+
+#### 1. 扣題分數評估
+**【針對議論文的絕對嚴格扣題檢查（形式化判斷標準）】**
+- **概念辨識檢查**：提取題目核心關鍵詞（去除助詞），再識別文章主要論述詞。
+- **字面一致性檢查**：如果文章論述的核心詞匯與題目關鍵詞字面不同（如「禮貌」vs「禮物」、「責任」vs「負責」、「寬容」vs「包容」），無論內容多優秀，**強制判定為「偏題」或「離題」**。寧可誤判為偏題，不可誤判為緊扣。
+
+**【針對敘事抒情的扣題判斷】**
+- 文章必須在字面上緊扣題目關鍵詞，並透過具體情節體現主題。絕對不接受任何只以隱喻扣題的間接形式。
+
+**【扣題給分標尺】**
+- **7-10分 (緊扣主旨):** 完全能在字面上扣連題目，令人信服地體現主旨。
+- **6分 (扣題良好):** 基本能扣緊題目，有一定數量字面扣連，深度稍遜。
+- **5分 (扣題合格):** 內容與題目有清晰關聯，但較少在字面上扣連題目。
+- **1-4分 (偏離/離題):** 議論文發生「概念置換」；或敘事文完全沒有字面扣連。與題目關聯牽強。
+
+#### 2. 立意分數評估
+- **7-10分 (深刻新穎):** 敘事能將經歷昇華至人生哲理，探討矛盾轉變；議論具備成年人思辨深度。
+- **6分 (見解不凡):** 立意有一定深度，能提出個人見解，超越一般考生。
+- **5分 (清晰合理):** 敘事緊扣個人感受；議論觀點清晰，為合格應試水平。
+- **1-4分 (膚淺陳腐):** 立意流於表面，多為陳腔濫調或說教式口號。
+
+#### 3. 取材分數評估
+- **7-10分 (新穎生動 / 充實適用):** 敘事選材具獨特性，描寫具體入微；議論論據充實，涵蓋古今中外且極度切題。
+- **6分 (細膩具體 / 良好):** 選材恰當，能有效支撐立意，遠超3等水平。
+- **5分 (內容恰當):** 選材合理，有基本細節或例證。
+- **1-4分 (空泛籠統):** 敘事流於流水帳；議論論據不足或不適用。
+
+#### 4. 結構佈局/詳略安排評估
+- **7-10分 (精巧嚴謹):** 敘事詳略得當，核心情節刻劃入微；議論佈局精巧，層層推進，起承轉合自然無痕。
+- **6分 (良好):** 主次分明，脈絡清晰，無明顯缺陷。
+- **5分 (中等):** 平均用力，結構完整但過渡略顯生硬。
+- **1-4分 (失衡混亂):** 詳略嚴重失衡（頭重腳輕/虎頭蛇尾），段落劃分混亂。
+
+#### 5. 詞彙與文學性評估 (表達水平)
+**【容錯原則（極度重要）】**：錯別字已有獨立扣分機制。評估此項時，**必須完全忽略所有筆誤**（如將「得失」寫成「我失」），自動腦補為正確字詞。此項評分必須與文章內容切割，即使離題，只要文句通順，便不應給 3 分或以下。
+- **7-10分 (優良):** 用詞精準豐富，句式靈活，長短交錯。善用感官描寫和示現手法（Show, not Tell），具畫面感與感染力。
+- **6分 (良好):** 詞彙具變化，句式避免單調，偶有佳句。
+- **4-5分 (中等):** 詞彙基本準確，平鋪直敘，常使用虛詞（的、了、地）致文句略嫌鬆散。
+- **1-3分 (欠佳):** 語法不通，詞不達意。
+
+---
+
+### Step 3: 神思高分驗證與分數牽制機制 (System Rules)
+在得出上述 0-10 分細項基礎分後，必須在後台嚴格執行以下 **「六大牽制邏輯」** 進行修訂：
+
+- **規則 A (高分覆核機制)**：
+  \`IF 扣題分數 >= 9 THEN\` 
+  檢查立意是否為「完美切題的陳腔濫調」，取材是否為「公式化故事」。若然，其「立意」與「取材」分數**絕不能超過 6 分**。
+- **規則 B (議論文特有：立意取材牽制機制)**：
+  \`IF (體裁 == 議論) AND (立意分數 <= 4 OR 取材分數 <= 4) THEN\`
+  代表論點膚淺或論據貧乏。此時最終的「內容基礎分」與「結構基礎分」**最高上限強制壓制為 5 分**（滿分10分基準下）。
+- **規則 C (內容與結構分差鎖定機制)**：
+  計算出「內容基礎分」與「結構基礎分」後，兩者的差值**絕對不可超過 1 分**。若差值 > 1，必須將較高的一方**向下調整**至「較低分+1」。
+- **規則 D (絕對靜默字數懲罰機制)**：
+  計算字數。若 < 500字：內容/結構 最高 2 分，表達 最高 6 分。若 500-649字：內容 最高 4 分，結構 最高 5 分，表達 最高 6 分。若 650-799字：內容/結構 最高 5 分。若 800-999字：內容/結構 最高 6 分，表達 最高 7 分。若 ≥ 1000字：無上限限制。
+  **【最高機密指令】**：此字數懲罰機制必須**絕對靜默**地在計算中執行。**嚴禁**在報告的任何地方（包含點評與建議）印出「神思系統備註」、「觸發字數限制機制」、「分數稍作壓制」等字眼。如果字數不足，請直接以「情節缺乏鋪排」、「論述未夠深入」等**自然的教師評語**來解釋低分原因。
+- **規則 E (扣題燈號連動機制)**：
+  「扣題基礎分」必須與第一部分表格的「🟢/🟡/🔴 燈號」絕對一致：
+  【全綠燈 🟢】強制 8-10 分；【含黃燈 🟡】強制 5-7 分；【含紅燈 🔴 或 幾乎全黃燈】最高不可超過 4 分。
+- **規則 F (敘事抒情文：扣題致命牽制機制)**：
+  - \`IF 扣題 <= 3 分\`：立意、取材、詳略、內容總分、結構總分 👉 **最高只能給 3 分**。
+  - \`IF 扣題 == 4 或 5 分\`：立意、取材、詳略、內容總分、結構總分 👉 **最高只能給 4 分**。
+  - \`IF 扣題 == 6 分\`：立意、詳略、內容總分、結構總分 👉 **最高只能給 4 分**；取材 👉 **最高給 5 分**。
+
+---
+
+### Step 4: 複合計算與最終得分 (Composite Calculation)
+根據上述修正後的 0-10 基礎分，計算最終面值分數（**絕對不可在報告印出算式，只能填寫最終整數**）：
+1. **內容總分 (滿分40)** = \`ROUND((立意分數 + 取材分數) / 2) * 4\`
+2. **表達總分 (滿分30)** = \`ROUND((詞彙分數 + 文學性分數) / 2) * 3\`
+3. **結構總分 (滿分20)** = \`ROUND((詳略/結構分數 + 佈局分數) / 2) * 2\`
+4. **標點字體 (滿分10)** = **若為純文字上傳，預設為 5 分**；若為圖片/PDF上傳，請實際檢視字體端正度給予 0-10 分。
+5. **錯別字 (+3)** = **永遠固定為 1 分**。
+6. **總分與推估等級**：加總上述分數 (最高100)。等級：≥69(5**), ≥65(5*), ≥63(5), ≥57(4), ≥50(3), ≥45(2), <45(1)。
+
+---
+
+### Step 5: 聚焦點評與改寫
+- **【絕對強制具體化】**：點評（2優點2缺點）與建議**絕對不可泛泛而談**。必須融合文章中的「具體情節、人物對話、論據例子或句子」來分析（例如：「描寫爺爺煮麵時『白髮與蒸氣交織』的細節極具畫面感」、「將『隱藏』生硬套用於『煙火逝去』的框架...」）。
+- **【🚨 嚴重警告：評語與分數絕對一致性】**：
+  - 若扣題 ≥ 7分：點評必須是【正面讚賞】，【絕對禁止】出現「扣題不足」、「間接」、「偏題」、「離題」、「牽強」等負面字眼。
+  - 若扣題 == 6分：點評應【肯定其達到合格水平】，可指出微小瑕疵，【絕對禁止】出現「嚴重偏題/完全離題」等極端字眼。
+  - 若扣題 ≤ 5分：點評必須指出文章【扣題不足】，明確使用「偏題」、「離題」、「扣題間接」、「牽強」或「未緊扣題旨」等字眼批評。
+- **改寫範例 (150-200字)**：親自修正學生的盲點，示範 5** 水平段落。此部分必須使用「嚴肅正經」語氣。
+- **【純文字段落強制指令】**：在撰寫點評與建議時，**絕對禁止**出現任何形式的括號（如 ()、[]、{}、（），但要有其他正常的標點）。**絕對禁止**使用「標籤：說明」或「小標題：內容」的句式（例如嚴禁寫「優點一：文筆流暢」或「取材：選取了...」）。你必須將所有的評價與具體情節，自然地融合成**完整、連貫且流暢的散文式段落**，娓娓道來。
+
+---
+`;
+
+    // 替換題目
+    finalPrompt = `【本次作文題目】：${topic}\n\n` + finalPrompt;
+
+    // --- 根據輸出模式調整 Execution 區塊 ---
+    if (outputMode === 'html') {
+        finalPrompt += `
+# HTML Output Generation
+**你必須使用 Python 輸出 HTML 實體檔案代碼。**
+
+### HTML 檔案內容模板 (必須嚴格跟從，嚴禁印出算式與系統規則備註)：
+
+**標題：神思 DSE 中文作文深度點評報告**
+**📌 作文題目：** ${topic}
+
+#### 🔍 第一部分：題目拆解與扣題分析表
+| 核心拆解問題 | 狀態 | 學生文本內容概括 (評分證據) | 具體點評與分析 |
+| :--- | :---: | :--- | :--- |
+| 1. [拆解問題1] | [🟢/🟡/🔴] | [客觀歸納，30-50字。若無填「無相關內容」] | [指出優劣，30-80字。若判定為🟡或🔴，必須在此欄的點評中直接融入修訂建議，具體教導學生如何增補情節或調整論述方向以緊扣此問題] |
+*(需有4-5個核心問題)*
+*   **扣題指數：** **[填入最終0-10的基礎分] / 10**
+*   **安全等級：** [🟢 安全分數 (8-10) / 🟡 警告等級 (6-7) / 🔴 危險等級 (0-5)]
+
+#### 📊 第二部分：神思綜合評等系統
+| 分項得分 | 雷達圖能力分佈 (0-10分) |
+| :--- | :--- |
+| **內容 (40%)**：**[計算後分數]** / 40<br><br>**表達 (30%)**：**[計算後分數]** / 30<br><br>**結構 (20%)**：**[計算後分數]** / 20<br><br>**標點字體 (10%)**：**[給分]** / 10<br><br>**錯別字 (+3)**：**1** / 3<br><br>===================<br>**總分：[加總] / 100**<br>**推估等級：[5**/5*/5/4/3/2/1]** | 立意：[X]<br>取材：[X]<br>扣題：[X]<br>詳略：[X]<br>詞彙：[X]<br>文學性：[X] |
+
+#### 💡 第三部分：聚焦點評與改寫示範
+| 點評及建議 | 5** 潤飾優化版 |
+| :--- | :--- |
+| **【優點】**<br><br>*(列點)* [結合文章具體情節指出亮點]<br>*(列點)* [結合文章具體情節指出亮點]<br><br>**【缺點】**<br><br>*(列點)* [結合文章具體情節指出盲點/邏輯漏洞]<br>*(列點)* [結合具體內容指出文筆或結構問題]<br><br>**【改善建議】**<br><br>*(列點)* [給出可執行的建議]<br>*(列點)* [給出如何深化立意/結構的建議] | **【改寫示範】**<br><br>(針對缺點欄的邏輯錯誤或空泛之處徹底修正。親自示範正確的拓展方向，一氣呵成，嚴格控制在150-200字內，切忌標籤字眼。) |
+
+---
+
+# Execution (啟動執行)
+收到學生輸入後，**直接在背景寫 Python 代碼生成 HTML**。
+對話框中只須回覆：「✅ 點評完成！請點擊下方連結下載你的神思專屬點評報告 HTML 檔案。」並附上下載連結。
+`;
+    } 
+    else if (outputMode === 'text') {
+        finalPrompt += `
+# 文字輸出指令
+**請直接在對話框中以純文字/Markdown格式輸出以下報告內容，不需要生成任何實體檔案。**
+
+### 文字報告內容模板 (必須嚴格跟從，嚴禁印出算式與系統規則備註)：
+
+**標題：神思 DSE 中文作文深度點評報告**
+**📌 作文題目：** ${topic}
+
+#### 🔍 第一部分：題目拆解與扣題分析表
+| 核心拆解問題 | 狀態 | 學生文本內容概括 (評分證據) | 具體點評與分析 |
+| :--- | :---: | :--- | :--- |
+| 1. [拆解問題1] | [🟢/🟡/🔴] | [客觀歸納，30-50字。若無填「無相關內容」] | [指出優劣，30-80字。若判定為🟡或🔴，必須在此欄的點評中直接融入修訂建議，具體教導學生如何增補情節或調整論述方向以緊扣此問題] |
+*(需有4-5個核心問題)*
+*   **扣題指數：** **[填入最終0-10的基礎分] / 10**
+*   **安全等級：** [🟢 安全分數 (8-10) / 🟡 警告等級 (6-7) / 🔴 危險等級 (0-5)]
+
+#### 📊 第二部分：神思綜合評等系統
+| 分項得分 | 雷達圖能力分佈 (0-10分) |
+| :--- | :--- |
+| **內容 (40%)**：**[計算後分數]** / 40<br><br>**表達 (30%)**：**[計算後分數]** / 30<br><br>**結構 (20%)**：**[計算後分數]** / 20<br><br>**標點字體 (10%)**：**[給分]** / 10<br><br>**錯別字 (+3)**：**1** / 3<br><br>===================<br>**總分：[加總] / 100**<br>**推估等級：[5**/5*/5/4/3/2/1]** | 立意：[X]<br>取材：[X]<br>扣題：[X]<br>詳略：[X]<br>詞彙：[X]<br>文學性：[X] |
+
+#### 💡 第三部分：聚焦點評與改寫示範
+| 點評及建議 | 5** 潤飾優化版 |
+| :--- | :--- |
+| **【優點】**<br><br>*(列點)* [結合文章具體情節指出亮點]<br>*(列點)* [結合文章具體情節指出亮點]<br><br>**【缺點】**<br><br>*(列點)* [結合文章具體情節指出盲點/邏輯漏洞]<br>*(列點)* [結合具體內容指出文筆或結構問題]<br><br>**【改善建議】**<br><br>*(列點)* [給出可執行的建議]<br>*(列點)* [給出如何深化立意/結構的建議] | **【改寫示範】**<br><br>(針對缺點欄的邏輯錯誤或空泛之處徹底修正。親自示範正確的拓展方向，一氣呵成，嚴格控制在150-200字內，切忌標籤字眼。) |
+
+---
+
+# Execution (啟動執行)
+收到學生輸入後，請直接在對話框輸出點評內容即可。
+`;
+    } 
+    else {
+        // DOCX
+        finalPrompt += `
+# Python DOCX Output Generation (生成實體檔案最高指令)
+**你絕對不可以直接在對話框把大段評語印出來。你必須使用 \`Advanced Data Analysis\` (Code Interpreter) 工具，在後台 \`Execute\` 以下 \`python-docx\` 邏輯，將文件保存至 \`/mnt/data/report.docx\`，然後把【檔案下載連結】給用戶！**
+
+**【Python DOCX 排版強制指令】**：
+1. 必須透過 \`docx.shared.Inches\` 強制設定所有表格的欄寬。
+2. **關閉自動調整**：\`table.autofit = False\` 及 \`table.allow_autofit = False\`。
+3. 必須迴圈遍歷欄位儲存格強制寫入寬度（\`for cell in table.columns[0].cells: cell.width = Inches(...)\`）。
+   - 表格 1 寬度：1.2", 0.8", 2.5", 2.5"
+   - 表格 2 寬度：3.0", 4.0"
+   - 表格 3 寬度：3.5", 3.5"
+4. **【極度重要：懸掛縮排與間距】**：在寫入「點評及建議」的優缺點列點時，**絕對不要**手動輸入「1. XXX」。你必須使用 \`python-docx\` 內建的列表樣式（\`paragraph.style = 'List Number'\` 或 \`'List Bullet'\`），確保第二行文字自然懸掛縮排。
+5. 必須設定段後間距 \`paragraph.paragraph_format.space_after = docx.shared.Pt(12)\`，讓排版有呼吸感。
+
+### DOCX 檔案內容模板 (必須嚴格跟從，嚴禁印出算式與系統規則備註)：
+
+**標題：神思 DSE 中文作文深度點評報告**
+**📌 作文題目：** ${topic}
+
+#### 🔍 第一部分：題目拆解與扣題分析表
+| 核心拆解問題 | 狀態 | 學生文本內容概括 (評分證據) | 具體點評與分析 |
+| :--- | :---: | :--- | :--- |
+| 1. [拆解問題1] | [🟢/🟡/🔴] | [客觀歸納，30-50字。若無填「無相關內容」] | [指出優劣，30-80字。若判定為🟡或🔴，必須在此欄的點評中直接融入修訂建議，具體教導學生如何增補情節或調整論述方向以緊扣此問題] |
+*(需有4-5個核心問題)*
+*   **扣題指數：** **[填入最終0-10的基礎分] / 10**
+*   **安全等級：** [🟢 安全分數 (8-10) / 🟡 警告等級 (6-7) / 🔴 危險等級 (0-5)]
+
+#### 📊 第二部分：神思綜合評等系統
+| 分項得分 | 雷達圖能力分佈 (0-10分) |
+| :--- | :--- |
+| **內容 (40%)**：**[計算後分數]** / 40<br><br>**表達 (30%)**：**[計算後分數]** / 30<br><br>**結構 (20%)**：**[計算後分數]** / 20<br><br>**標點字體 (10%)**：**[給分]** / 10<br><br>**錯別字 (+3)**：**1** / 3<br><br>===================<br>**總分：[加總] / 100**<br>**推估等級：[5**/5*/5/4/3/2/1]** | 立意：[X]<br>取材：[X]<br>扣題：[X]<br>詳略：[X]<br>詞彙：[X]<br>文學性：[X] |
+
+#### 💡 第三部分：聚焦點評與改寫示範
+| 點評及建議 | 5** 潤飾優化版 |
+| :--- | :--- |
+| **【優點】**<br><br>*(使用 Python 列表樣式)* [結合文章具體情節指出亮點]<br>*(使用 Python 列表樣式)* [結合文章具體情節指出亮點]<br><br>**【缺點】**<br><br>*(使用 Python 列表樣式)* [結合文章具體情節指出盲點/邏輯漏洞]<br>*(使用 Python 列表樣式)* [結合具體內容指出文筆或結構問題]<br><br>**【改善建議】**<br><br>*(使用 Python 列表樣式)* [給出可執行的建議]<br>*(使用 Python 列表樣式)* [給出如何深化立意/結構的建議] | **【改寫示範】**<br><br>(針對缺點欄的邏輯錯誤或空泛之處徹底修正。親自示範正確的拓展方向，一氣呵成，嚴格控制在150-200字內，切忌標籤字眼。) |
+
+---
+
+# Execution (啟動執行)
+收到學生輸入後，**直接在背景寫 Python 代碼生成 DOCX**。
+對話框中只須回覆：「✅ 點評完成！請點擊下方連結下載你的神思專屬點評報告 DOCX 檔案。」並附上下載連結。
+`;
+    }
+
+    // --- 將「文章內容」注入 ---
+    if (articleMode === 'paste' && article !== "") {
+        finalPrompt += `\n\n=== 📝 待評核學生文章 ===\n${article}\n\n`;
+    } else {
+        finalPrompt += `\n\n=== 📝 待評核學生文章 ===\n(請讀取我隨後以附件形式上傳的圖片 / PDF / 文檔)\n\n`;
+    }
+
+    // --- ★★★ 絕對強制放在全文最尾段的格式鎖定指令 ★★★ ---
+    if (outputMode === 'html') {
+        finalPrompt += "不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具。";
+    } else if (outputMode === 'docx') {
+        finalPrompt += "必須直接輸出.DOCX檔\n必須直接輸出.DOCX檔\n必須直接輸出.DOCX檔";
+    }
+
+  // 複製到剪貼簿並跳轉
+    navigator.clipboard.writeText(finalPrompt).then(() => {
+        document.getElementById('geminiReviewModal').style.display = 'none';
+        
+        // 針對蘋果設備 (Mac, iPhone, iPad, iPod) 強制使用同頁跳轉
+        // 解決 Safari 在非同步事件 (如剪貼簿寫入) 後嚴格阻擋彈出視窗的問題
+        const isAppleDevice = /Macintosh|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        if (isAppleDevice) {
+            window.location.href = "https://gemini.google.com/app";
+        } else {
+            safeOpenGem("https://gemini.google.com/app"); // 其他設備維持原本的彈窗邏輯
+        }
+    }).catch(err => {
+        alert("複製指令失敗，請手動複製。");
+        console.error(err);
+    });
+}
+
+
+
+
+	
 </script>
  
 <!-- 隱形語音導航介面 -->
@@ -26854,8 +27204,124 @@ function resetJoystick() {
     </div>
 </div>
 
-	
 
+
+<!-- === [全新設計] Gemini 專用點評視窗 (卡片式精簡版) === -->
+<style>
+    /* Gemini 視窗專屬卡片 UI 樣式 */
+    .gemini-ui-grid { display: grid; gap: 10px; margin-bottom: 20px; }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+    
+    .gemini-ui-card {
+        background: #fdfcf8; border: 2px solid #e0ddd7; border-radius: 8px; padding: 15px 5px;
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+        cursor: pointer; transition: all 0.2s ease; color: #888; font-family: 'Noto Serif TC', serif;
+    }
+    .gemini-ui-card:hover { border-color: #8fa398; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .gemini-ui-card.active {
+        background: #f0fdfc; border-color: #2A9689; color: #2A9689; font-weight: bold;
+        box-shadow: 0 4px 12px rgba(42, 150, 137, 0.15);
+    }
+    .gemini-ui-card svg { width: 24px; height: 24px; stroke: currentColor; transition: all 0.2s; }
+    .gemini-ui-card.active svg { transform: scale(1.1); stroke-width: 2.5; }
+</style>
+
+<!-- === [全新設計] Gemini 專用點評視窗 (響應式防遮擋 + 預設附件版) === -->
+<style>
+    /* Gemini 視窗專屬卡片 UI 樣式 */
+    .gemini-ui-grid { display: grid; gap: 10px; margin-bottom: 20px; }
+    .grid-2 { grid-template-columns: 1fr 1fr; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+    
+    .gemini-ui-card {
+        background: #fdfcf8; border: 2px solid #e0ddd7; border-radius: 8px; padding: 15px 5px;
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+        cursor: pointer; transition: all 0.2s ease; color: #888; font-family: 'Noto Serif TC', serif;
+    }
+    .gemini-ui-card:hover { border-color: #8fa398; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .gemini-ui-card.active {
+        background: #f0fdfc; border-color: #2A9689; color: #2A9689; font-weight: bold;
+        box-shadow: 0 4px 12px rgba(42, 150, 137, 0.15);
+    }
+    .gemini-ui-card svg { width: 24px; height: 24px; stroke: currentColor; transition: all 0.2s; }
+    .gemini-ui-card.active svg { transform: scale(1.1); stroke-width: 2.5; }
+</style>
+
+<!-- 
+  響應式修復核心：
+  1. position: fixed; width: 100vw; height: 100vh; 確保遮罩永遠鋪滿全螢幕。
+  2. overflow-y: auto; 確保內容過長時，遮罩本身會產生滾動條，底層不會穿幫。
+  3. align-items: flex-start; 配合 padding: 5vh 0; 確保視窗頂部絕對不會被螢幕切斷。
+-->
+<div id="geminiReviewModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
+    
+    <!-- 內部卡片：加入 margin: auto 確保在短螢幕置頂，長螢幕置中 -->
+    <div class="morandi-modal-card" style="width: 90%; max-width: 500px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
+        
+        <!-- 標題列 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed #a8dad5; padding-bottom: 10px;">
+            <span style="color: #2A9689; font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">文章點評 (Gemini)</span>
+            <button onclick="document.getElementById('geminiReviewModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
+        </div>
+
+        <!-- 題目輸入 -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">作文題目</label>
+        <input type="text" id="geminiTopicInput" class="no-modal-editor" placeholder="輸入題目..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif;">
+
+        <!-- 文章提供方式 (二選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">文章來源</label>
+       <!-- 文章提供方式 (二選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">文章來源</label>
+        <div class="gemini-ui-grid grid-2" style="margin-top: 5px;">
+            <!-- 附件放在左邊，並設定為 active -->
+            <div class="gemini-ui-card active" onclick="selectGeminiInputMode('attach', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span style="font-size: 0.85rem;">稍後上傳附件</span>
+            </div>
+            <!-- 文字/OCR 放在右邊 -->
+            <div class="gemini-ui-card" onclick="selectGeminiInputMode('paste', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span style="font-size: 0.85rem;">文字 / OCR</span>
+            </div>
+        </div>
+        <input type="hidden" id="geminiInputMode" value="attach"> <!-- 儲存選擇狀態 -->
+
+        <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
+        <div id="geminiArticleSection" style="display: none; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">貼上文章內容：</span>
+                <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerGeminiOCR()">
+                    <i class="fas fa-camera"></i> OCR
+                </button>
+            </div>
+            <textarea id="geminiArticleInput" class="no-modal-editor" rows="5" placeholder="可貼上文字，或點擊右上角 OCR..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        </div>
+
+        <!-- 輸出格式 (三選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">輸出格式</label>
+        <div class="gemini-ui-grid grid-3" style="margin-top: 5px; margin-bottom: 25px;">
+            <div class="gemini-ui-card active" onclick="selectGeminiOutputMode('docx', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><text x="8" y="16" font-family="sans-serif" font-size="7" font-weight="bold" stroke="none" fill="currentColor">DOC</text></svg>
+                <span style="font-size: 0.8rem;">DOCX</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectGeminiOutputMode('html', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                <span style="font-size: 0.8rem;">HTML</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectGeminiOutputMode('text', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <span style="font-size: 0.8rem;">純文字</span>
+            </div>
+        </div>
+        <input type="hidden" id="geminiOutputModeVal" value="docx">
+
+        <!-- 送出按鈕 -->
+        <button onclick="submitToGeminiReview()" class="btn-action" style="width: 100%; padding: 12px; background-color: #8fa398; font-size: 1.1rem; justify-content: center; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
+            <i class="fas fa-magic" style="margin-right: 8px;"></i> 複製指令並跳轉
+        </button>
+    </div>
+</div>
 
 </body>
 </html>
