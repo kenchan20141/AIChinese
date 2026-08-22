@@ -13140,6 +13140,33 @@ function showArgumentCustomTopicInput(buttonElement) {
     customTopicArea.style.display = "block";
 }
 
+
+
+	// ==================================================
+// === [新增] Gemini 扣題分析視窗處理邏輯 ===
+// ==================================================
+
+function selectTopicAnalysisInputMode(mode, el) {
+    document.getElementById('topicAnalysisInputMode').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('topicAnalysisTextSection').style.display = (mode === 'paste') ? 'block' : 'none';
+}
+
+function selectTopicAnalysisOutputMode(mode, el) {
+    document.getElementById('topicAnalysisOutputModeVal').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+}
+
+function triggerTopicAnalysisOCR() {
+    sessionStorage.setItem('sansi_current_editing_id', 'topicAnalysisTextInput');
+    const ocrWindow = window.open('toolbox/ocr2.html?mode=text', 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+    if (ocrWindow) ocrWindow.focus();
+}
+
 // 切換寫作類型
 // 切換寫作類型
 function toggleWritingType() {
@@ -13150,6 +13177,15 @@ function toggleWritingType() {
     // ==================================================
     // === 新增：處理「扣題分析」選項，直接開新分頁 ===
     // ==================================================
+
+
+	// === 新增：處理「扣題分析」選項，彈出專用視窗 ===
+    if (writingType === "topicAnalysis") {
+        document.getElementById("topicAnalysisModal").style.display = "flex";
+        document.getElementById("writingType").value = ""; 
+        document.getElementById("writingContentContainer").style.display = "none";
+        return; 
+    }
   // ==================================================
     // === 新增：處理「文章點評(Gemini)」選項，彈出視窗 ===
     // ==================================================
@@ -27358,6 +27394,217 @@ function submitToGeminiReview() {
 }
 
 
+	// 4. 處理表單與組裝最終指令 (扣題分析專用)
+function submitToTopicAnalysis() {
+    const topic = document.getElementById('topicAnalysisTopicInput').value.trim();
+    const articleMode = document.getElementById('topicAnalysisInputMode').value;
+    const article = document.getElementById('topicAnalysisTextInput').value.trim();
+    const outputMode = document.getElementById('topicAnalysisOutputModeVal').value;
+
+    if (!topic) {
+        alert("請輸入作文題目！");
+        return;
+    }
+
+    // --- 核心系統指令 (專注於扣題分析) ---
+    let finalPrompt = `
+# Role and Persona
+你是一個專為香港中學文憑試（DSE）中國語文科作文設計的「神思 OCR 扣題分析系統」。
+你具備頂級的文字識別能力（能精準讀取手寫圖片或 PDF），並內建了資深 DSE 中文科閱卷員的絕對理性大腦。
+你的核心任務是：接收學生上傳的圖片或文字大綱，進行極度嚴格的「扣題分析」，最後生成一份排版精美的實體檔案或純文字報告。
+
+**【語氣設定】**：
+- 你的預設語氣必須是**「嚴肅、專業、正經」**的學術語氣。
+- **特例**：除非用戶明確要求「陳SIR語氣」，才切換為幽默詼諧並使用大量 Emoji（🤪✨🤌）。
+
+---
+
+# System Workflow (系統運作機制與步驟)
+當接收到用戶上傳的資料後，請在後台靜默且嚴格地執行以下步驟：
+
+### Step 1: 優先抓取題目與 OCR 識別
+1. **精準定位題目**：**必須優先讀取用戶在對話框中輸入的文字作為「作文題目」**。若無，才嘗試從圖片/文件中提取。絕不可憑空捏造。
+2. **靜默 OCR**：若上傳為圖片/PDF，精準提取其中的手寫正文或大綱，不可有遺漏。
+
+### Step 2: 核心拆解 (扣題分析)
+將題目拆解為 4 至 5 個必須回答的核心問題。
+*(極度重要：若是《種子》類題目，必須有一項問題是拆解物象的特質和深層含義；若是《眼前的甜品令這頓飯別具意義》，必須拆解為：「甜品怎樣？」、「這頓飯怎樣？」、「別具意義指甚麼？」、「為何甜品令其別具意義？」)*
+
+### Step 3: 證據擷取與圖示評級
+從學生的大綱或文章中客觀歸納回應，並給予狀態判定：
+- 🟢 **綠色 (明確回應)**：具體、明確、詳細且合理。
+- 🟡 **黃色 (尚能回應)**：有嘗試回應，但不夠具體、詳細或邏輯牽強。
+- 🔴 **紅色 (未能回應)**：完全無回應、嚴重偏題或自相矛盾。
+
+---
+`;
+
+    // 替換題目
+    finalPrompt = `【本次作文題目】：${topic}\n\n` + finalPrompt;
+
+    // --- 根據輸出模式調整 Execution 區塊 ---
+    if (outputMode === 'html') {
+        finalPrompt += `
+# HTML Output Generation
+**你必須使用 Python 輸出 HTML 實體檔案代碼。**
+
+### HTML 檔案內容模板 (必須嚴格跟從，保留原稿紙風格)：
+
+請在 Python 代碼中宣告一個包含以下完整結構的字串，並利用字串格式化注入你分析的內容，最後保存為 HTML 檔案：
+
+\`\`\`html
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>神思 DSE 中文作文扣題分析報告</title>
+   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+   <style>
+       body { font-family: 'Noto Serif TC', serif; background-color: #f5f5f3; color: #333; padding: 20px; max-width: 900px; margin: 0 auto; line-height: 1.6; }
+       .title-text { font-size: 2.2rem; color: #2A9689; text-align: center; margin-bottom: 30px; font-weight: bold; border-bottom: 2px dashed #a8dad5; padding-bottom: 15px; }
+       h3 { color: #2A9689; margin-top: 0; }
+       .box { background: rgba(255, 255, 255, 0.96); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 30px; margin-bottom: 25px; }
+       
+       /* 原稿紙背景 Table */
+       .paper-table-container { overflow-x: auto; width: 100%; border-radius: 8px; border: 1px solid #8baea8; margin-top: 15px; }
+       table { width: 100%; border-collapse: collapse; }
+       th { background-color: #2A9689; color: white; padding: 12px; font-size: 1.1em; border: 1px solid #1e7e72; }
+       td { padding: 12px 15px; border: 1px solid #8baea8; vertical-align: top; background-color: #fffcf6; background-image: linear-gradient(transparent 39px, rgba(42, 150, 137, 0.2) 39px, rgba(42, 150, 137, 0.2) 40px, transparent 40px), linear-gradient(90deg, transparent 39px, rgba(0,0,0,0.02) 39px, rgba(0,0,0,0.02) 40px, transparent 40px); background-size: 40px 40px; line-height: 40px; font-size: 18px; color: #2c3e50; }
+       
+       /* 燈號 Tag */
+       .tag-green { background: #e8f5e9; color: #2e7d32; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-family: sans-serif; display: inline-block; line-height: 1.5; }
+       .tag-yellow { background: #fff3e0; color: #e65100; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-family: sans-serif; display: inline-block; line-height: 1.5; }
+       .tag-red { background: #ffebee; color: #c62828; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-family: sans-serif; display: inline-block; line-height: 1.5; }
+
+       @media (max-width: 768px) {
+           .paper-table td { line-height: 32px; background-size: 32px 32px; background-image: linear-gradient(transparent 31px, rgba(42, 150, 137, 0.2) 31px, rgba(42, 150, 137, 0.2) 32px, transparent 32px), linear-gradient(90deg, transparent 31px, rgba(0,0,0,0.02) 31px, rgba(0,0,0,0.02) 32px, transparent 32px); font-size: 16px; padding: 10px; }
+       }
+   </style>
+</head>
+<body>
+
+   <div class="title-text">神思 DSE 中文作文扣題分析報告</div>
+    
+   <div class="box">
+       <h3><i class="fas fa-search"></i> 題目拆解與扣題分析</h3>
+       <p style="color: #666; font-weight: bold;">作文題目：${topic}</p>
+       <div class="paper-table-container">
+           <table class="paper-table">
+                <tr>
+                    <th style="width: 20%;">核心拆解問題</th>
+                    <th style="width: 15%; text-align:center;">狀態</th>
+                    <th style="width: 30%;">大綱 / 文本內容概括</th>
+                    <th style="width: 35%;">具體點評與修訂建議</th>
+                </tr>
+                <!-- 請用 Python 迴圈生成以下 <tr> 區塊 -->
+                <tr>
+                    <td>[拆解問題 1]</td>
+                    <td style="text-align:center; line-height:1.5; padding-top:15px;"><span class="[tag-green / tag-yellow / tag-red]">[🟢 / 🟡 / 🔴]</span></td>
+                    <td>[客觀歸納學生證據]</td>
+                    <td>[指出優劣，若判定為🟡或🔴，必須給出具體修訂建議]</td>
+                </tr>
+                <!-- 迴圈結束 -->
+           </table>
+       </div>
+       <p style="margin-top: 15px; font-weight: bold; color: #5e7067;">安全等級：[🟢 安全 / 🟡 警告 / 🔴 危險]</p>
+   </div>
+
+</body>
+</html>
+\`\`\`
+`;
+    } 
+    else if (outputMode === 'text') {
+        finalPrompt += `
+# 文字輸出指令
+**請直接在對話框中以純文字/Markdown格式輸出以下報告內容，不需要生成任何實體檔案。**
+
+### 文字報告內容模板：
+
+**標題：神思 DSE 中文作文扣題分析報告**
+**📌 作文題目：** ${topic}
+
+#### 🔍 題目拆解與扣題分析表
+| 核心拆解問題 | 狀態 | 學生大綱/文本內容概括 (評分證據) | 具體點評與修訂建議 |
+| :--- | :---: | :--- | :--- |
+| 1. [拆解問題1] | [🟢/🟡/🔴] | [客觀歸納，30-50字。若無填「無相關內容」] | [指出優劣，30-80字。若判定為🟡或🔴，必須在此欄的點評中直接融入修訂建議，具體教導學生如何增補情節或調整論述方向以緊扣此問題] |
+*(需有4-5個核心問題)*
+
+*   **安全等級：** [🟢 安全 / 🟡 警告 / 🔴 危險]
+
+---
+
+# Execution (啟動執行)
+收到學生輸入後，請直接在對話框輸出點評內容即可。
+`;
+    } 
+    else {
+        // DOCX
+        finalPrompt += `
+# Python DOCX Output Generation (生成實體檔案最高指令)
+**你絕對不可以直接在對話框把大段表格印出來。你必須使用 \`Advanced Data Analysis\` (Code Interpreter) 工具，在後台 \`Execute\` 以下 \`python-docx\` 邏輯，將文件保存至 \`/mnt/data/report.docx\`，然後把【檔案下載連結】給用戶！**
+
+**【Python DOCX 排版強制指令】**：
+1. 必須透過 \`docx.shared.Inches\` 強制設定所有表格的欄寬。
+2. **關閉自動調整**：\`table.autofit = False\` 及 \`table.allow_autofit = False\`。
+3. 必須迴圈遍歷欄位儲存格強制寫入寬度（\`for cell in table.columns[0].cells: cell.width = Inches(...)\`）。
+   - 表格寬度比例：1.5", 0.8", 2.5", 2.5"
+
+### DOCX 檔案內容模板：
+
+**標題：神思 DSE 中文作文扣題分析報告**
+**📌 作文題目：** ${topic}
+
+#### 🔍 題目拆解與扣題分析表
+| 核心拆解問題 | 狀態 | 學生大綱/文本內容概括 | 具體點評與修訂建議 |
+| :--- | :---: | :--- | :--- |
+| 1. [拆解問題1] | [🟢/🟡/🔴] | [客觀歸納，30-50字。若無填「無相關內容」] | [指出優劣，30-80字。若判定為🟡或🔴，必須在此欄的點評中直接融入修訂建議，具體教導學生如何增補以緊扣此問題] |
+*(需有4-5個核心問題)*
+
+*   **安全等級：** [🟢 安全 / 🟡 警告 / 🔴 危險]
+
+---
+
+# Execution (啟動執行)
+收到學生輸入後，**直接在背景寫 Python 代碼生成 DOCX**。
+對話框中只須回覆：「✅ 扣題分析完成！請點擊下方連結下載你的專屬分析報告 DOCX 檔案。」並附上下載連結。
+`;
+    }
+
+    // --- 將「大綱/文章內容」注入 ---
+    if (articleMode === 'paste' && article !== "") {
+        finalPrompt += `\n\n=== 📝 待評核學生大綱 / 文章 ===\n${article}\n\n`;
+    } else {
+        finalPrompt += `\n\n=== 📝 待評核學生大綱 / 文章 ===\n(請讀取我隨後以附件形式上傳的圖片 / PDF / 文檔)\n\n`;
+    }
+
+    // --- ★★★ 絕對強制放在全文最尾段的格式鎖定指令 ★★★ ---
+    if (outputMode === 'html') {
+        finalPrompt += "不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。";
+    } else if (outputMode === 'docx') {
+        finalPrompt += "不要輸出「.py」的檔案，必須直接輸出.DOCX檔\n不要輸出「.py」的檔案，必須直接輸出.DOCX檔\n不要輸出「.py」的檔案，必須直接輸出.DOCX檔";
+    }
+
+    // 複製到剪貼簿並跳轉
+    navigator.clipboard.writeText(finalPrompt).then(() => {
+        document.getElementById('topicAnalysisModal').style.display = 'none';
+        
+        // 針對蘋果設備強制使用同頁跳轉
+        const isAppleDevice = /Macintosh|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        if (isAppleDevice) {
+            window.location.href = "https://gemini.google.com/app";
+        } else {
+            safeOpenGem("https://gemini.google.com/app");
+        }
+    }).catch(err => {
+        alert("複製指令失敗，請手動複製。");
+        console.error(err);
+    });
+}
+
 
 	
 </script>
@@ -27449,6 +27696,10 @@ function submitToGeminiReview() {
 
 	
 </style>
+
+
+
+	
 
 <!-- === [全新設計] Gemini 專用點評視窗 (響應式防遮擋 + 預設附件版) === -->
 <style>
@@ -27545,6 +27796,73 @@ function submitToGeminiReview() {
         </button>
     </div>
 </div>
+
+
+<!-- === [新增] 扣題分析專用視窗 (Gemini) === -->
+<div id="topicAnalysisModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
+    
+    <div class="morandi-modal-card" style="width: 90%; max-width: 500px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
+        
+        <!-- 標題列 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed #a8dad5; padding-bottom: 10px;">
+            <span style="color: #2A9689; font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">扣題分析 (Gemini)</span>
+            <button onclick="document.getElementById('topicAnalysisModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
+        </div>
+
+        <!-- 題目輸入 -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">作文題目</label>
+        <input type="text" id="topicAnalysisTopicInput" class="no-modal-editor" placeholder="輸入題目..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif;">
+
+        <!-- ★ 這裡改為大綱/文章來源 ★ -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">大綱 / 文章來源</label>
+        <div class="gemini-ui-grid grid-2" style="margin-top: 5px;">
+            <div class="gemini-ui-card active" onclick="selectTopicAnalysisInputMode('attach', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span style="font-size: 0.85rem;">稍後上傳附件</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectTopicAnalysisInputMode('paste', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span style="font-size: 0.85rem;">文字 / OCR</span>
+            </div>
+        </div>
+        <input type="hidden" id="topicAnalysisInputMode" value="attach">
+
+        <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
+        <div id="topicAnalysisTextSection" style="display: none; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">貼上大綱或文章內容：</span>
+                <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerTopicAnalysisOCR()">
+                    <i class="fas fa-camera"></i> OCR
+                </button>
+            </div>
+            <textarea id="topicAnalysisTextInput" class="no-modal-editor" rows="5" placeholder="可貼上大綱或文字，或點擊右上角 OCR..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        </div>
+
+        <!-- 輸出格式 (三選一卡片) 保留不變 -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">輸出格式</label>
+        <div class="gemini-ui-grid grid-3" style="margin-top: 5px; margin-bottom: 25px;">
+            <div class="gemini-ui-card active" onclick="selectTopicAnalysisOutputMode('docx', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><text x="8" y="16" font-family="sans-serif" font-size="7" font-weight="bold" stroke="none" fill="currentColor">DOC</text></svg>
+                <span style="font-size: 0.8rem;">DOCX</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectTopicAnalysisOutputMode('html', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                <span style="font-size: 0.8rem;">HTML</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectTopicAnalysisOutputMode('text', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <span style="font-size: 0.8rem;">純文字</span>
+            </div>
+        </div>
+        <input type="hidden" id="topicAnalysisOutputModeVal" value="docx">
+
+        <!-- 送出按鈕 -->
+        <button onclick="submitToTopicAnalysis()" class="btn-action" style="width: 100%; padding: 12px; background-color: #8fa398; font-size: 1.1rem; justify-content: center; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
+            <i class="fas fa-magic" style="margin-right: 8px;"></i> 複製指令並跳轉
+        </button>
+    </div>
+</div>
+	
 
 </body>
 </html>
