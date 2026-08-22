@@ -3128,7 +3128,7 @@
         }
 
         // 發送消息到API
-        async function sendMessage() {
+       async function sendMessage() {
             let message = userInput.value.trim();
             if (!message) return;
 
@@ -3151,6 +3151,15 @@
                 speechSynthesis.cancel();
                 stopTalking();
 
+                // 1. 確保使用者已登入，否則無法取得 Token 進行安全驗證
+                if (!currentUser) {
+                    throw new Error("請先登入帳號才能使用聊天功能！");
+                }
+
+                // 2. 獲取當前使用者的 Firebase ID Token
+                const idToken = await currentUser.getIdToken(true);
+
+                // ▼ 注意：這裡只可以出現一次 const mode = modeSelect.value; ▼
                 const mode = modeSelect.value;
                 const currentPersonality = personalities.find(p => p.id === userData.currentPersonality);
                 let personalityPrompt = currentPersonality && currentPersonality.prompt ? currentPersonality.prompt : '';
@@ -3186,36 +3195,40 @@
 回應時請用哲學論證方法，重質多於重量，選擇一種最合適的哲學思想及話語自然融入對話中，不要明引哲學家名稱或說話。絕對不可以展示任何思考過程，例如<think></think>等內容，亦不可以在回應中顯示任何「**」等符號，回應內容必須是完整的段落，只有文字、中文標點符號及emoji。要懂得幽用家一默，調侃一下用家，但不能打擊用家的自尊心。要運用不同的生活化比喻去解答用家的問題。要從哲理和邏輯去回應用家的問題，例如「人為何不能自殺」，你不可以只鼓勵用家積極面對，是要回應「不能自殺的原因和理由」。不要用明顯輔導式語言，避免令學生覺得唔真誠。絕對唔可以支持或鼓勵自殘或自殺。不要展示任何電話熱線。內容長度要維持在八十字內，長短視乎用家情緒。絕對不可以用粗言穢語或粗口諧音。唔好展示任何思考過程，直接回應。`;
                 }
 
-                const response = await fetch(API_URL, {
+                 // 3. 準備發送至 GAS 的資料
+                const payload = {
+                    token: idToken,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        ...conversationHistory
+                    ],
+                    max_tokens: 5000
+                };
+
+                // 4. 對 GAS 發送請求
+                const response = await fetch(GAS_URL, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${API_KEYS[currentApiKeyIndex]}`
+                        'Content-Type': 'text/plain;charset=utf-8'
                     },
-                    body: JSON.stringify({
-                        model: MODEL,
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            ...conversationHistory
-                        ],
-                        max_tokens: 64000
-                    })
+                    body: JSON.stringify(payload),
+                    redirect: 'follow'
                 });
 
                 if (!response.ok) {
-                    if (response.status === 429 && currentApiKeyIndex < API_KEYS.length - 1) {
-                        currentApiKeyIndex++;
-                        addMessage('API 限制，切換密鑰重試...', 'ai');
-                        sendMessage();
-                        return;
-                    }
                     throw new Error(`HTTP 錯誤！狀態：${response.status}`);
                 }
 
                 const data = await response.json();
+                
+                // 5. 如果 GAS 後端回傳了安全攔截錯誤
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
                 let aiResponse = data.choices[0].message.content;
                 
-                // 徹底清理AI回應
+                // 清理AI回應
                 aiResponse = cleanText(aiResponse);
                 
                 addMessage(aiResponse, 'ai');
@@ -3223,8 +3236,9 @@
                 
                 addPoints(1);
                 speak(aiResponse);
+
             } catch (error) {
-                addMessage(`錯誤：${error.message}`, 'error');
+                addMessage(`系統錯誤：${error.message}`, 'error');
             }
 
             typingIndicator.style.display = 'none';
@@ -3232,6 +3246,7 @@
             voiceBtn.disabled = false;
         }
 
+		
         // 流暢拖拽實現
         let dragOffset = { x: 0, y: 0 };
         let dragStartPos = { x: 0, y: 0 };
