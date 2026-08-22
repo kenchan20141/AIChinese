@@ -2211,9 +2211,8 @@ translateBtn.disabled = false;
 aiSearchBtn.disabled = false;
 }
 
-// === 修改後的 callApi 函式 ===
 // ===============================================================
-// 修改後的 callApi 函式 (前端直接呼叫版)
+// 修改後的 callApi 函式 (採用與「喻蛋教室」相同的強力驗證與 Header)
 // ===============================================================
 async function callApi(prompt) {
     if (!localStorage.getItem('studentProfile')) {
@@ -2221,17 +2220,48 @@ async function callApi(prompt) {
     }
  
     try {
-        // 使用與「翻水」相同的 Fetch 邏輯（不加 headers 以避免 GAS CORS 預檢問題）
+        // 1. 【關鍵修復】：仿照「喻蛋教室」，主動且明確地獲取 Firebase Token，不依賴不可靠的攔截器
+        let idToken = null;
+        const currentUser = firebase.auth().currentUser;
+        if (currentUser) {
+            idToken = await currentUser.getIdToken(true);
+        } else {
+            // 若 Firebase 尚未初始化完畢，主動等待狀態確認
+            idToken = await new Promise((resolve) => {
+                const unsubscribe = firebase.auth().onAuthStateChanged(async (user) => {
+                    unsubscribe();
+                    if (user) {
+                        resolve(await user.getIdToken(true));
+                    } else {
+                        resolve(null);
+                    }
+                });
+            });
+        }
+
+        if (!idToken) {
+            console.warn("⚠️ 未能獲取 Firebase Token，請求可能會被後端拒絕！");
+        }
+
+        // 2. 準備發送至 GAS 的資料，直接把 token 放在這裡
+        const payload = {
+            token: idToken,
+            model: MODEL,
+            messages: [{
+                role: "user",
+                content: prompt
+            }],
+            stream: false
+        };
+
+        // 3. 【關鍵修復】：仿照「喻蛋教室」，強制加上 text/plain 及 redirect 屬性
         const response = await fetch(API_URL, {
             method: 'POST',
-            body: JSON.stringify({
-                model: MODEL,
-                messages: [{
-                    role: "user",
-                    content: prompt
-                }],
-                stream: false
-            })
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8'
+            },
+            body: JSON.stringify(payload),
+            redirect: 'follow'
         });
  
         if (!response.ok) {
@@ -2240,7 +2270,6 @@ async function callApi(prompt) {
  
         const data = await response.json();
         
-        // 記錄使用的模型資訊與 Provider 來源 (參考翻水寫法)
         if (data._provider_log) {
             console.log(`%c[Backend] Provider: ${data._provider_log}`, 'background: #2b2d42; color: #8d99ae; padding: 4px 8px; border-radius: 4px; font-weight: bold;');
         }
