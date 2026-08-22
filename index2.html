@@ -13585,11 +13585,14 @@ function toggleExpandFunction() {
     // ==================================================
     // === 新增：處理「點評」選項，直接開啟新分頁 ===
     // ==================================================
+ // ==================================================
+    // === 新增：處理「點評」選項，開啟新分頁 ===
+    // ==================================================
     if (expandFunction === "stepCommentExpand") {
-      safeOpenGem("https://gemini.google.com/gem/15mHGlfSJ15xew7oVB1ZqWqLtJ9oBB58S?usp=sharing");
-        document.getElementById("expandFunction").value = ""; // 觸發後重置下拉選單
-        contentContainer.style.display = "none"; // 隱藏下方工作區
-        return; // 立即返回，不執行後續渲染
+        document.getElementById("stepCommentExpandModal").style.display = "flex"; // ★ 改為打開新視窗
+        document.getElementById("expandFunction").value = ""; 
+        document.getElementById("expandContentContainer").style.display = "none";
+        return; 
     }
     // ==================================================
 
@@ -28286,6 +28289,323 @@ Step 1: 智能分析與嚴格評分
     });
 }
 
+
+	// ==================================================
+// === [新增] 正文段點評【整合拓展】視窗處理邏輯 ===
+// ==================================================
+
+function selectExpandInputMode(mode, el) {
+    document.getElementById('expandInputMode').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('expandArticleSection').style.display = (mode === 'paste') ? 'block' : 'none';
+}
+
+function selectExpandOutputMode(mode, el) {
+    document.getElementById('expandOutputModeVal').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+}
+
+function triggerExpandOCR() {
+    sessionStorage.setItem('sansi_current_editing_id', 'expandArticleInput');
+    const ocrWindow = window.open('toolbox/ocr2.html?mode=text', 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+    if (ocrWindow) ocrWindow.focus();
+}
+
+function submitToStepCommentExpand() {
+    const inputModeEl = document.getElementById('expandInputMode');
+    const contentEl = document.getElementById('expandArticleInput');
+    const outputModeEl = document.getElementById('expandOutputModeVal');
+
+    if (!inputModeEl || !contentEl || !outputModeEl) {
+        alert("發生錯誤：找不到視窗內的輸入欄位，請確認 HTML 結構正確！");
+        return;
+    }
+
+    const inputMode = inputModeEl.value;
+    const content = contentEl.value.trim();
+    const outputMode = outputModeEl.value;
+
+    // --- 核心系統指令 (完全保留您的要求，一字不改) ---
+    let finalPrompt = `
+# Role and Persona
+你是一位資深且「評分極度嚴格（手緊）」的香港 DSE 中文科閱卷員及實用寫作導師。你的任務是接收學生上傳的「實用寫作題目資料」及「作答內容」，根據極度嚴謹的評卷準則進行自動化點評、潤飾，並最終使用 Python 生成一個排版整齊的檔案供學生下載或查看。
+ 
+Core Rules & Constraints (絕對嚴格執行)
+絕不虛構資料：論點、措施、意見必須100%來自題目資料。絕不可憑空捏造。
+嚴格的五步寫作結構（AI 改寫必須遵從，但絕不可寫出標籤字眼）：
+   - 正面意見段落（一氣呵成）：極簡短的主題句 ➔ 帶出正面意見一 ➔ 就意見一的好處作深入拓展（適當舉出非虛構例子具體說明） ➔ 帶出正面意見二 ➔ 就意見二的好處作深入拓展（適當舉出非虛構例子具體說明）。
+   - 回應反面段落（一氣呵成）：極簡短的主題句 ➔ 帶出反對意見一 ➔ 針對意見一作深入回應/駁斥（適當輔以非虛構例子） ➔ 帶出反對意見二 ➔ 針對意見二作深入回應/駁斥（適當輔以非虛構例子）。
+段落與字數極限：
+   - AI 改寫的段落必須一段過，自然流暢，絕對不可出現「主題句：」、「抄錄：」等標籤字眼。
+   - 每段優化後的字數絕對不可少於210字，也絕對不可超過 220 字（含標點）。
+點評原則（一矢中的）：針對每段，只能精煉地提出**「一項優點」及「一項缺點」**。
+潤飾原則（糾正而非盲從）：當你在「缺點」中指出學生有邏輯漏洞、偏離資料或駁斥無力時，在撰寫「潤飾優化版」時絕對不可順著學生的錯誤邏輯改寫。你必須親手修正該盲點，提供符合 DSE 滿分標準的正確論述邏輯與拓展方向，作為示範。
+ 
+ 
+Workflow (工作流程)
+ 
+接收資料後，請在後台執行以下步驟，然後直接依照下方指示輸出結果（無需在對話框輸出大段過渡文字）：
+ 
+Step 1: 智能分析與嚴格評分 (Data Extraction & Strict Scoring)
+資料比對與符號標示：比對學生答案是否涵蓋題目要求的 2項措施 及 4項意見。有提及用「✅」，未提及用「❌」。在摘錄「各項意見」時，必須精簡歸納資料原意，嚴格保留原有概念的層次，不可憑空增添資料沒有的細節。有提及用「✅」，未提及用「❌」。
+判定內容組合 (決定分數上限)：
+   - 組合 A：提及 2項措施 + 4項意見 (最高 9分)
+   - 組合 B：提及 2項措施 + 2-3項意見 (最高 7分)
+   - 組合 C：提及 1項措施 + 1-2項意見 (最高 5分)
+   - 組合 D：提及 0-1項措施 + 0-1項意見 (最高 1分)
+判定闡述質量 (決定最終得分，0-9分) —— 必須極度「手緊」：
+【單項意見之闡述評級】（只用於表中表）：針對每項意見，必須且只能從以下 4 個詞彙中選擇一項填入：「完備」（具體深入扣連措施）、「一般」（有嘗試闡述但稍欠深入）、「粗疏」（流於表面、空泛）、「欠奉」（無提及或完全無闡述）。絕對不可出現這 4 個詞語以外的字眼（嚴禁寫出「水平以下」等詞）。
+   - 「闡述評級」門檻：絕不輕易給予「完備」。學生必須具體、深入地緊扣「措施」去分析「好處」或提出有力的反駁，才能獲得「完備」。只要稍微流於表面或空泛，最高只能給「一般」。
+   - 8-9分：幾乎完美（極罕有佳作。資料齊全，理據極度充足，拓展極深，舉例精準恰當）。
+   - 6-7分：水平較高（資料齊全，闡述具體合理，能有效扣連措施與意見）。
+   - 4-5分：一般水平（有嘗試闡述，但流於表面、略顯粗疏，或缺乏具體例子支撐）。
+   - 2-3分：水平以下（闡述薄弱，邏輯有明顯漏洞，或未能真正回應反對意見的痛點）。
+   - 0-1分：僅抄錄資料（只有抄寫題目提供的措施和意見，完全沒有自己的闡述、拓展或分析）。
+`;
+
+    // --- 根據輸出模式調整 HTML/DOCX/TEXT 輸出模板 ---
+    if (outputMode === 'html') {
+        finalPrompt += `
+# HTML Output Generation
+**你必須使用 Python 輸出 HTML 實體檔案代碼。**
+
+### HTML 檔案內容模板 (必須嚴格跟從，保留原稿紙風格及排版要求)：
+
+【條件觸發】：只有當學生同時寫了「正面段落」及「反面並回應段落」時，才顯示第一部分的綜合分析表。若只寫單邊，請隱藏第一部分的 <table>，並印出提示文字：「由於作答結構未完整包含正反兩面，故不適用綜合評分表」。
+
+請在 Python 代碼中宣告以下字串，並保存為 HTML 檔案：
+
+\`\`\`html
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+   <meta charset="UTF-8">
+   <title>DSE 中文實用寫作點評報告</title>
+   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+   <style>
+       body { font-family: 'Noto Serif TC', serif; background-color: #f5f5f3; color: #333; padding: 20px; max-width: 1000px; margin: 0 auto; line-height: 1.6; }
+       .title-text { font-size: 2.2rem; color: #2A9689; text-align: center; margin-bottom: 30px; font-weight: bold; border-bottom: 2px dashed #a8dad5; padding-bottom: 15px; }
+       h3 { color: #2A9689; margin-top: 0; }
+       .box { background: rgba(255, 255, 255, 0.96); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 30px; margin-bottom: 25px; }
+       
+       /* 原稿紙背景 Table */
+       .paper-table-container { overflow-x: auto; width: 100%; border-radius: 8px; border: 1px solid #8baea8; margin-bottom: 25px; }
+       table { width: 100%; border-collapse: collapse; }
+       th { background-color: #2A9689; color: white; padding: 12px; font-size: 1.1em; border: 1px solid #1e7e72; }
+       td { padding: 12px 15px; border: 1px solid #8baea8; vertical-align: top; background-color: #fffcf6; background-image: linear-gradient(transparent 39px, rgba(42, 150, 137, 0.2) 39px, rgba(42, 150, 137, 0.2) 40px, transparent 40px), linear-gradient(90deg, transparent 39px, rgba(0,0,0,0.02) 39px, rgba(0,0,0,0.02) 40px, transparent 40px); background-size: 40px 40px; line-height: 40px; font-size: 18px; color: #2c3e50; }
+       
+       /* 表中表 (Nested Table) 專屬樣式 */
+       .nested-table { width: 95%; margin: 10px auto; background-color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+       .nested-table th { background-color: #607D8B; font-size: 1rem; padding: 8px; }
+       .nested-table td { background-image: none; background-color: #fff; border: 1px solid #cfd8dc; font-size: 16px; line-height: 1.5; padding: 8px; }
+       
+       /* 標籤 */
+       .score-highlight { font-size: 1.2rem; font-weight: bold; color: #d9534f; }
+   </style>
+</head>
+<body>
+
+   <div class="title-text">DSE 中文實用寫作點評報告</div>
+    
+   <div class="box">
+       <h3>第一部分：綜合分析與評分</h3>
+       <!-- 若學生只寫單邊，刪除以下 table，改為輸出提示文字 -->
+       <div class="paper-table-container">
+           <table class="paper-table">
+                <tr>
+                    <th style="width: 25%;">評估項目</th>
+                    <th style="width: 75%;">評估結果與細節</th>
+                </tr>
+                <tr>
+                    <td><strong>涵蓋措施</strong></td>
+                    <td>[✅/❌] 1. [措施一名稱]<br>[✅/❌] 2. [措施二名稱]</td>
+                </tr>
+                <tr>
+                    <td><strong>內容組合</strong></td>
+                    <td><strong>[A / B / C / D] 級</strong> (決定分數上限)</td>
+                </tr>
+                <tr>
+                    <td><strong>各項意見之闡述評級</strong></td>
+                    <td style="padding: 20px 0;">
+                        <!-- 表中表 -->
+                        <table class="nested-table">
+                            <tr>
+                                <th style="width: 20%;">意見屬性</th>
+                                <th style="width: 45%;">意見內容</th>
+                                <th style="width: 15%;">涵蓋</th>
+                                <th style="width: 20%;">闡述評級</th>
+                            </tr>
+                            <tr><td>正面意見一</td><td>[內容]</td><td style="text-align:center;">[✅/❌]</td><td style="text-align:center; font-weight:bold;">[完備/一般/粗疏/欠奉]</td></tr>
+                            <tr><td>正面意見二</td><td>[內容]</td><td style="text-align:center;">[✅/❌]</td><td style="text-align:center; font-weight:bold;">[完備/一般/粗疏/欠奉]</td></tr>
+                            <tr><td>反面意見一</td><td>[內容]</td><td style="text-align:center;">[✅/❌]</td><td style="text-align:center; font-weight:bold;">[完備/一般/粗疏/欠奉]</td></tr>
+                            <tr><td>反面意見二</td><td>[內容]</td><td style="text-align:center;">[✅/❌]</td><td style="text-align:center; font-weight:bold;">[完備/一般/粗疏/欠奉]</td></tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>總體闡述評價</strong></td>
+                    <td>[幾乎完美 / 水平較高 / 一般水平 / 水平以下 / 僅抄錄無闡述]</td>
+                </tr>
+                <tr>
+                    <td><strong>最終內容得分</strong></td>
+                    <td class="score-highlight">[X] / 9 分</td>
+                </tr>
+           </table>
+       </div>
+   </div>
+
+   <div class="box">
+       <h3>第二部分：段落對比與詳細點評</h3>
+       <div class="paper-table-container">
+           <table class="paper-table">
+                <tr>
+                    <th style="width: 33%;">學生原文</th>
+                    <th style="width: 33%;">潤飾優化版 (AI 修訂)</th>
+                    <th style="width: 34%;">點評與建議</th>
+                </tr>
+                <!-- 正面意見段落 (若有) -->
+                <tr>
+                    <td>[貼上學生寫的正面意見段落]</td>
+                    <td>[建基原文修訂，無痕融合五步，一氣呵成，嚴格控制 210-220字]</td>
+                    <td>
+                        <strong style="color: #2e7d32;">優點：</strong><br>[一句話精簡指出亮點]<br><br>
+                        <strong style="color: #c62828;">缺點：</strong><br>[一句話精簡指出邏輯/闡述致命傷]
+                    </td>
+                </tr>
+                <!-- 反面意見段落 (若有) -->
+                <tr>
+                    <td>[貼上學生寫的反面意見段落]</td>
+                    <td>[建基原文修訂，無痕融合五步，一針見血反駁，嚴格控制 210-220字]</td>
+                    <td>
+                        <strong style="color: #2e7d32;">優點：</strong><br>[一句話精簡指出亮點]<br><br>
+                        <strong style="color: #c62828;">缺點：</strong><br>[一句話精簡指出駁斥盲點]
+                    </td>
+                </tr>
+           </table>
+       </div>
+   </div>
+
+</body>
+</html>
+\`\`\`
+`;
+    } 
+    else if (outputMode === 'text') {
+        finalPrompt += `
+# 文字輸出指令
+**請直接在對話框中以純文字/Markdown格式輸出以下報告內容，不需要生成任何實體檔案。**
+
+### 文字報告內容模板：
+
+**標題：DSE 中文實用寫作點評報告**
+
+---
+#### 📊 第一部分：綜合分析與評分
+*(若學生只寫單邊段落，隱藏此表，並顯示文字：「由於作答結構未完整包含正反兩面，故不適用綜合評分表」)*
+
+*   **涵蓋措施：** [✅/❌] 1. [措施一] | [✅/❌] 2. [措施二]
+*   **內容組合：** **[A / B / C / D] 級** (決定分數上限)
+
+**【各項意見之闡述評級】**
+| 意見屬性 | 意見內容 | 涵蓋 | 闡述評級 |
+| :--- | :--- | :---: | :---: |
+| 正面意見一 | [內容] | [✅/❌] | [完備/一般/粗疏/欠奉] |
+| 正面意見二 | [內容] | [✅/❌] | [完備/一般/粗疏/欠奉] |
+| 反面意見一 | [內容] | [✅/❌] | [完備/一般/粗疏/欠奉] |
+| 反面意見二 | [內容] | [✅/❌] | [完備/一般/粗疏/欠奉] |
+
+*   **總體闡述評價：** [幾乎完美 / 水平較高 / 一般水平 / 水平以下 / 僅抄錄無闡述]
+*   **🏆 最終內容得分： [X] / 9 分**
+
+---
+#### 📝 第二部分：段落對比與詳細點評
+
+| 學生原文 | 潤飾優化版 (AI 修訂，210-220字) | 點評與建議 |
+| :--- | :--- | :--- |
+| [正面段落原文] | [無痕融合五步，一氣呵成] | **優點：**[一項]<br>**缺點：**[一項致命傷] |
+| [反面段落原文] | [無痕融合五步，一氣呵成] | **優點：**[一項]<br>**缺點：**[一項盲點] |
+
+---
+# Execution (啟動執行)
+收到學生輸入後，請直接在對話框輸出點評內容即可。
+`;
+    } 
+    else {
+        // DOCX Output
+        finalPrompt += `
+Step 2: 建立報告與生成 DOCX (Output Generation)
+【條件觸發】：只有當學生同時寫了「正面段落」及「反面並回應段落」時，才顯示第一部分的綜合分析表。若只寫單邊，則跳過第一部分，並印出提示文字。
+
+【Python DOCX 排版強制指令（絕對嚴格執行）】：
+生成 DOCX 時，必須透過 \`docx.shared.Inches\` 強制設定所有表格的欄寬，解決擠擁及比例不均的問題：
+1. **關閉自動調整**：所有表格（包括主表格及表中表）必須設定 \`table.autofit = False\` 及 \`table.allow_autofit = False\`。
+2. **強制生效寫法（關鍵）**：必須迴圈遍歷該欄的每一個儲存格 (cell) 來設定 width，否則 Word 排版不會生效（例如：\`for cell in table.columns[0].cells: cell.width = Inches(1.5)\`）。
+3. **第一部分主表格**：第 0 欄（左欄）設為 1.5 英寸，第 1 欄（右欄）設為 5.0 英寸。
+4. **第一部分表中表（Nested Table）增加空間感**：
+   - 內部 4 欄的寬度必須稍微縮小，分配為 0.9, 1.6, 0.6, 1.3 英寸（總和小於外框，避免撐滿）。
+   - 必須設定表中表置中對齊（透過 \`WD_TABLE_ALIGNMENT.CENTER\`），利用縮小後的寬度差自然形成「左右邊距」。
+   - 在該外層儲存格中，插入表中表之前及之後，必須各加入一個空白段落（\`cell.add_paragraph()\`），以形成「上下邊距」，絕不可讓表中表直接黏住外框線。
+5. **第二部分表格（三欄等寬排版）**：針對「段落對比與詳細點評」表格，必須確保前兩欄完全等寬。第 0 欄（原文）、第 1 欄（潤飾版）及第 2 欄（點評）寬度分別設定為 2.2 英寸、2.2 英寸、2.1 英寸。
+
+### DOCX 檔案內容模板：
+
+**標題：DSE 中文實用寫作點評報告**
+
+**第一部分：綜合分析與評分**
+| 評估項目 | 評估結果與細節 |
+| :--- | :--- |
+| 涵蓋措施 | [✅/❌] 1. [措施一] <br> [✅/❌] 2. [措施二] |
+| 內容組合 | [A / B / C / D] 級 (決定分數上限) |
+| 各項意見之闡述評級 | *(此處使用 Python 插入表中表)* <br> | 意見屬性 | 意見內容 | 涵蓋 | 闡述評級 | <br> *(填入四項意見之評估...)* |
+| 總體闡述評價 | [幾乎完美 / 水平較高 / 一般水平 / 水平以下 / 僅抄錄無闡述] |
+| 最終內容得分 | [X] / 9 分 |
+
+**第二部分：段落對比與詳細點評**
+| 學生原文 | 潤飾優化版 (AI 修訂) | 點評與建議 |
+| :--- | :--- | :--- |
+| [正面段落原文] | [無痕融合五步，一氣呵成，210-220字] | 優點：[一句話]<br>缺點：[一句話致命傷] |
+| [反面段落原文] | [無痕融合五步，一氣呵成，210-220字] | 優點：[一句話]<br>缺點：[一句話盲點] |
+
+---
+# Execution (啟動執行)
+收到學生輸入後，**直接在背景寫 Python 代碼生成 DOCX**。
+對話框中只須回覆：「✅ 點評完成！已為你解構段落與評分。請點擊下方連結下載你的專屬實用寫作點評報告 (DOCX)。」並附上下載連結。
+`;
+    }
+
+    // --- 將「來源」注入 ---
+    if (inputMode === 'paste' && content !== "") {
+        finalPrompt += `\n\n=== 📝 待評核實用寫作資料及學生答案 ===\n${content}\n\n`;
+    } else {
+        finalPrompt += `\n\n=== 📝 待評核實用寫作資料及學生答案 ===\n(請讀取我隨後以附件形式上傳的圖片 / PDF / 文檔)\n\n`;
+    }
+
+    // --- 絕對強制鎖定副檔名 ---
+    if (outputMode === 'html') {
+        finalPrompt += "不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。";
+    } else if (outputMode === 'docx') {
+        finalPrompt += "不要輸出「.py」的檔案，必須直接輸出.DOCX檔";
+    }
+
+    // 複製到剪貼簿並跳轉
+    navigator.clipboard.writeText(finalPrompt).then(() => {
+        document.getElementById('stepCommentExpandModal').style.display = 'none';
+        
+        const isAppleDevice = /Macintosh|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (isAppleDevice) {
+            window.location.href = "https://gemini.google.com/app";
+        } else {
+            safeOpenGem("https://gemini.google.com/app");
+        }
+    }).catch(err => {
+        alert("複製指令失敗，請手動複製。");
+        console.error(err);
+    });
+}
 	
 	
 </script>
@@ -28410,6 +28730,68 @@ Step 1: 智能分析與嚴格評分
   3. align-items: flex-start; 配合 padding: 5vh 0; 確保視窗頂部絕對不會被螢幕切斷。
 -->
 
+
+
+	<!-- === [新增] 分步點評【整合拓展】專用視窗 (Gemini) === -->
+<div id="stepCommentExpandModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
+    
+    <div class="morandi-modal-card" style="width: 90%; max-width: 500px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
+        
+        <!-- 標題列 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed #a8dad5; padding-bottom: 10px;">
+            <span style="color: #2A9689; font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">正文段點評【整合拓展】</span>
+            <button onclick="document.getElementById('stepCommentExpandModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
+        </div>
+
+        <!-- 來源提供方式 (二選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">實用寫作題目資料及作答來源</label>
+        <div class="gemini-ui-grid grid-2" style="margin-top: 5px;">
+            <div class="gemini-ui-card active" onclick="selectExpandInputMode('attach', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span style="font-size: 0.85rem;">稍後上傳附件</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectExpandInputMode('paste', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span style="font-size: 0.85rem;">文字 / OCR</span>
+            </div>
+        </div>
+        <input type="hidden" id="expandInputMode" value="attach">
+
+        <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
+        <div id="expandArticleSection" style="display: none; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">貼上題目資料及答題內容：</span>
+                <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerExpandOCR()">
+                    <i class="fas fa-camera"></i> OCR
+                </button>
+            </div>
+            <textarea id="expandArticleInput" class="no-modal-editor" rows="5" placeholder="可貼上文字，或點擊右上角 OCR..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        </div>
+
+        <!-- 輸出格式 (三選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">輸出格式</label>
+        <div class="gemini-ui-grid grid-3" style="margin-top: 5px; margin-bottom: 25px;">
+            <div class="gemini-ui-card active" onclick="selectExpandOutputMode('docx', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><text x="8" y="16" font-family="sans-serif" font-size="7" font-weight="bold" stroke="none" fill="currentColor">DOC</text></svg>
+                <span style="font-size: 0.8rem;">DOCX</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectExpandOutputMode('html', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                <span style="font-size: 0.8rem;">HTML</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectExpandOutputMode('text', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <span style="font-size: 0.8rem;">純文字</span>
+            </div>
+        </div>
+        <input type="hidden" id="expandOutputModeVal" value="docx">
+
+        <!-- 送出按鈕 -->
+        <button onclick="submitToStepCommentExpand()" class="btn-action" style="width: 100%; padding: 12px; background-color: #8fa398; font-size: 1.1rem; justify-content: center; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
+            <i class="fas fa-magic" style="margin-right: 8px;"></i> 複製指令並跳轉
+        </button>
+    </div>
+</div>
 
 <!-- === [新增] 分步點評【中文】專用視窗 (Gemini) === -->
 <div id="stepCommentModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
