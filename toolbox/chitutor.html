@@ -5886,12 +5886,21 @@ if (userProfile.vtuberAppearance) {
         });
 }
 
-function checkNewGifts() {
-    database.ref('users/' + currentUser.uid + '/gifts').on('child_added', (snapshot) => {
+function checkNewGifts(user) {
+    if (!user) return;
+    database.ref('users/' + user.uid + '/gifts').on('child_added', (snapshot) => {
         const notification = document.getElementById('gift-notification');
-        notification.style.display = 'block';
+        if (notification) {
+            notification.style.display = 'block';
+        }
     });
 }
+
+auth.onAuthStateChanged((user) => {
+    if (user) {
+        checkNewGifts(user);
+    }
+});
 
 auth.onAuthStateChanged((user) => {
     if (user) {
@@ -7032,8 +7041,11 @@ function selectGiftItem(item, element) {
     element.classList.add('selected');
     selectedGiftItem = item;
     
-    // 啟用送禮按鈕
-    document.getElementById('send-gift-btn').disabled = false;
+    // 啟用確認送禮按鈕 (修正了原本錯誤的 ID)
+    const confirmBtn = document.getElementById('confirm-gift-btn');
+    if (confirmBtn) {
+        confirmBtn.disabled = false;
+    }
 }
 
 function sendGiftToFriend(item, friendId) {
@@ -7260,8 +7272,10 @@ window.addEventListener('click', (e) => {
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
 <!-- === 2. Firebase 初始化與配置 (這裡修復了您漏掉的啟動碼) === -->
+<!-- === 神思大數據收集模組 (雙資料庫共存安全版) === -->
 <script>
-  const firebaseConfig = {
+  // 1. 宣告第二個 Firebase 專案的配置 (更改變數名稱避免衝突)
+  const sansiConfig = {
     apiKey: "AIzaSyBgwrgn2m343mRJb0WjzUhteiospegXhvI",
     authDomain: "sansidata.firebaseapp.com",
     projectId: "sansidata",
@@ -7271,167 +7285,165 @@ window.addEventListener('click', (e) => {
     databaseURL: "https://sansidata-default-rtdb.firebaseio.com" 
   };
 
-  // ★★★ 修正重點：補上初始化指令 ★★★
-  if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-  }
+  // 2. 初始化第二個 Firebase 應用實例 (命名為 SansiApp)
+  let sansiApp;
+  let sansiDb;
   
-  // ★★★ 修正重點：定義 database 變數，下面的程式才抓得到 ★★★
-  var database = firebase.database();
+  try {
+      sansiApp = firebase.initializeApp(sansiConfig, "SansiApp");
+      sansiDb = sansiApp.database();
+      
+      // 為 SansiApp 啟用匿名驗證 (獲取權限寫入 stats)
+      sansiApp.auth().signInAnonymously().catch((error) => {
+          console.error("Sansi Auth Error:", error);
+      });
+  } catch (err) {
+      console.error("Sansi Firebase 初始化失敗:", err);
+  }
 
-  // (選用) 啟用匿名驗證，確保連線權限更穩定
-  firebase.auth().signInAnonymously().catch((error) => {
-      console.error("Auth Error:", error);
+  // 3. 數據收集主邏輯
+  document.addEventListener('DOMContentLoaded', function() {
+      let totalSeconds = 0;
+      let timerInterval = null;
+
+      function getDateParts() {
+          const now = new Date();
+          const y = String(now.getFullYear());
+          const m = String(now.getMonth() + 1).padStart(2, '0');
+          const d = String(now.getDate()).padStart(2, '0');
+          return { y, m, d };
+      }
+
+      function getIdentity() {
+          const rawProfile = localStorage.getItem('studentProfile');
+          let s = null;
+          try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
+
+          if (s && s.grade && s.class) {
+              const safeName = s.name.replace(/[.#$/[\]]/g, '_'); 
+              return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class };
+          } else {
+              let guestID = localStorage.getItem('sansi_guest_uuid');
+              if (!guestID) {
+                  guestID = 'guest_' + Math.random().toString(36).substr(2, 9);
+                  localStorage.setItem('sansi_guest_uuid', guestID);
+              }
+              return { type: 'guest', id: guestID, grade: 'Guest', class: 'Visitor' };
+          }
+      }
+
+      async function logVisitOnce() {
+          if (!sansiDb) return;
+          
+          const { y, m, d } = getDateParts();
+          const identity = getIdentity();
+          const uid = identity.id;
+
+          const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
+          if (sessionStorage.getItem(sessionKey)) return; 
+
+          const trackingRef = sansiDb.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
+          
+          try {
+              const snap = await trackingRef.once('value');
+              const isFirstTimeToday = !snap.exists();
+
+              const updates = {};
+              const increment1 = firebase.database.ServerValue.increment(1);
+              
+              const globalPath = `stats_global/${y}/${m}/${d}`;
+              updates[`${globalPath}/visits`] = increment1;
+
+              const schoolPath = `stats_school/${y}/${m}/${d}`;
+
+              if (identity.type === 'student') {
+                  const classKey = `${identity.grade}${identity.class}`;
+                  const studentKey = identity.id.split('_').pop(); 
+
+                  updates[`${schoolPath}/visits`] = increment1;
+                  const classPath = `stats_classes/${classKey}/${y}/${m}/${d}`;
+                  updates[`${classPath}/visits`] = increment1;
+
+                  const studentPath = `stats_students/${classKey}/${studentKey}/${y}/${m}/${d}`;
+                  updates[`${studentPath}/visits`] = increment1;
+
+                  if (isFirstTimeToday) {
+                      updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
+                      updates[`${globalPath}/unique`] = increment1;
+                      updates[`${schoolPath}/unique`] = increment1;
+                      updates[`${classPath}/unique`] = increment1;
+                  }
+              } else {
+                  if (isFirstTimeToday) {
+                      updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
+                      updates[`${globalPath}/unique`] = increment1;
+                  }
+              }
+
+              // 注意：這裡必須使用 sansiDb 來更新，否則會寫錯資料庫
+              await sansiDb.ref().update(updates);
+              sessionStorage.setItem(sessionKey, 'true');
+              console.log("📍 [Stats] 訪問計數已分流上傳");
+
+          } catch (e) {
+              console.error("Stats Error:", e);
+          }
+      }
+
+      function uploadOneMinute() {
+          if (!sansiDb) return;
+          
+          logVisitOnce(); 
+
+          const { y, m, d } = getDateParts();
+          const identity = getIdentity();
+          const studentKey = identity.id.split('_').pop();
+          
+          const updates = {};
+          const increment60 = firebase.database.ServerValue.increment(60);
+
+          updates[`stats_global/${y}/${m}/${d}/duration`] = increment60;
+
+          if (identity.type === 'student') {
+              const classKey = `${identity.grade}${identity.class}`;
+              updates[`stats_classes/${classKey}/${y}/${m}/${d}/duration`] = increment60;
+              updates[`stats_students/${classKey}/${studentKey}/${y}/${m}/${d}/duration`] = increment60;
+          }
+
+          sansiDb.ref().update(updates).catch(e => console.error(e));
+      }
+
+      function startTimer() {
+          if (timerInterval) return;
+          
+          timerInterval = setInterval(() => {
+              totalSeconds++;
+              if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
+                  uploadOneMinute();
+              }
+          }, 1000);
+      }
+
+      function pauseTimer() {
+          if (timerInterval) {
+              clearInterval(timerInterval);
+              timerInterval = null;
+          }
+      }
+
+      setTimeout(() => {
+          logVisitOnce();
+          startTimer();
+      }, 3000);
+
+      document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') pauseTimer();
+          else startTimer();
+      });
+      
+      window.forceLogVisit = logVisitOnce;
   });
 </script>
-
-<!-- === 3. [還原版] 神思大數據收集模組 (30秒=1分鐘邏輯) === -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    let totalSeconds = 0;
-    let timerInterval = null;
-
-    // 1. 獲取日期路徑
-    function getDateParts() {
-        const now = new Date();
-        const y = String(now.getFullYear());
-        const m = String(now.getMonth() + 1).padStart(2, '0');
-        const d = String(now.getDate()).padStart(2, '0');
-        return { y, m, d };
-    }
-
-    // 2. 獲取身份
-    function getIdentity() {
-        const rawProfile = localStorage.getItem('studentProfile');
-        let s = null;
-        try { if(rawProfile) s = JSON.parse(rawProfile); } catch (e) {}
-
-        if (s && s.grade && s.class) {
-            const safeName = s.name.replace(/[.#$/[\]]/g, '_'); 
-            return { type: 'student', id: s.uid || `stu_${s.grade}${s.class}_${safeName}`, grade: s.grade, class: s.class };
-        } else {
-            let guestID = localStorage.getItem('sansi_guest_uuid');
-            if (!guestID) {
-                guestID = 'guest_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('sansi_guest_uuid', guestID);
-            }
-            return { type: 'guest', id: guestID, grade: 'Guest', class: 'Visitor' };
-        }
-    }
-
-   // 3. 記錄訪問 (Log Visit)
-    async function logVisitOnce() {
-        // 這裡會檢查 database 是否存在，現在上面有初始化了，所以會通過
-        if (typeof firebase === 'undefined' || !database) return;
-        
-        const { y, m, d } = getDateParts();
-        const identity = getIdentity();
-        const uid = identity.id;
-
-        const sessionKey = `sansi_visit_logged_${y}${m}${d}_${uid}`;
-        if (sessionStorage.getItem(sessionKey)) return; 
-
-        const trackingRef = database.ref(`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`);
-        
-        try {
-            const snap = await trackingRef.once('value');
-            const isFirstTimeToday = !snap.exists();
-
-            const updates = {};
-            const increment1 = firebase.database.ServerValue.increment(1);
-            
-            const globalPath = `stats_view/${y}/${m}/${d}/global`;
-            updates[`${globalPath}/visits`] = increment1;
-
-            if (identity.type === 'student') {
-                const classPath = `stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}`;
-                updates[`${classPath}/visits`] = increment1;
-
-                const studentPath = `stats_view/${y}/${m}/${d}/students/${identity.grade}/${identity.class}/${identity.id.split('_').pop()}`; 
-                updates[`${studentPath}/visits`] = increment1;
-
-                if (isFirstTimeToday) {
-                    updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
-                    updates[`${globalPath}/unique`] = increment1;
-                    updates[`${classPath}/unique`] = increment1;
-                }
-            } else {
-                if (isFirstTimeToday) {
-                    updates[`stats_tracking/${y}/${m}/${d}/unique_users/${uid}`] = true;
-                    updates[`${globalPath}/unique`] = increment1;
-                }
-            }
-
-            await database.ref().update(updates);
-            sessionStorage.setItem(sessionKey, 'true');
-            console.log("📍 [Stats] 訪問次數已上傳");
-
-        } catch (e) {
-            console.error("Stats Error:", e);
-        }
-    }
-
-    // 4. 上傳 1 分鐘
-    function uploadOneMinute() {
-        if (typeof firebase === 'undefined' || !database) return;
-        
-        logVisitOnce();
-
-        const { y, m, d } = getDateParts();
-        const identity = getIdentity();
-        
-        const updates = {};
-        const increment60 = firebase.database.ServerValue.increment(60);
-
-        updates[`stats_view/${y}/${m}/${d}/global/duration`] = increment60;
-
-        if (identity.type === 'student') {
-            updates[`stats_view/${y}/${m}/${d}/classes/${identity.grade}${identity.class}/duration`] = increment60;
-            
-            const studentPath = `stats_view/${y}/${m}/${d}/students/${identity.grade}/${identity.class}/${identity.id.split('_').pop()}`;
-            updates[`${studentPath}/duration`] = increment60;
-        }
-
-        database.ref().update(updates).catch(e => console.error(e));
-    }
-
-    // 5. 計時器啟動
-    function startTimer() {
-        if (timerInterval) return;
-        console.log("▶️ [Stats] 計時器啟動");
-        
-        timerInterval = setInterval(() => {
-            totalSeconds++;
-            // 30秒 -> 傳送 (算1分鐘)
-            // 90秒 (1分30秒) -> 傳送 (算2分鐘)
-            if (totalSeconds === 30 || (totalSeconds > 30 && (totalSeconds - 30) % 60 === 0)) {
-                uploadOneMinute();
-            }
-        }, 1000);
-    }
-
-    function pauseTimer() {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            console.log("⏸️ [Stats] 暫停計時");
-        }
-    }
-
-    setTimeout(() => {
-        logVisitOnce();
-        startTimer();
-    }, 3000);
-
-    document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'hidden') pauseTimer();
-        else startTimer();
-    });
-    
-    window.forceLogVisit = logVisitOnce;
-});
-</script>
-
 
 </body>
 </html>
