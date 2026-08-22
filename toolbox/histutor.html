@@ -5476,17 +5476,16 @@ function updateAllAIMessageNames() {
             try {
                 speechSynthesis.cancel();
                 stopTalking();
-                try {
-                speechSynthesis.cancel();
-                stopTalking();
 
-                // 加入這段：確保使用者已登入並獲取 Token
+                // 1. 確保使用者已登入，否則無法取得 Token 進行安全驗證
                 if (!currentUser) {
                     throw new Error("請先登入帳號才能使用聊天功能！");
                 }
+
+                // 2. 獲取當前使用者的 Firebase ID Token
                 const idToken = await currentUser.getIdToken(true);
 
-             
+                // ▼ 注意：這裡只可以出現一次 const mode = modeSelect.value; ▼
                 const mode = modeSelect.value;
                 const currentPersonality = personalities.find(p => p.id === userData.currentPersonality);
                 let personalityPrompt = currentPersonality && currentPersonality.prompt ? currentPersonality.prompt : '';
@@ -5730,17 +5729,18 @@ function updateAllAIMessageNames() {
 ${personalityPrompt}`;
                 }
 
-           const payload = {
+            // 3. 準備發送至 GAS 的資料
+                const payload = {
                     token: idToken,
                     messages: [
                         { role: 'system', content: systemPrompt },
-                            ...conversationHistory
-                        ],
-                        max_tokens: 64000
-                    })
-                });
+                        ...conversationHistory
+                    ],
+                    max_tokens: 5000
+                };
 
-               const response = await fetch(GAS_URL, {
+                // 4. 對 GAS 發送請求
+                const response = await fetch(GAS_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'text/plain;charset=utf-8'
@@ -5755,13 +5755,14 @@ ${personalityPrompt}`;
 
                 const data = await response.json();
                 
-                // 5. 如果 GAS 後端回傳了安全攔截錯誤，拋出例外處理
+                // 5. 如果 GAS 後端回傳了安全攔截錯誤
                 if (data.error) {
                     throw new Error(data.error);
                 }
+
                 let aiResponse = data.choices[0].message.content;
                 
-                // 徹底清理AI回應
+                // 清理AI回應
                 aiResponse = cleanText(aiResponse);
                 
                 addMessage(aiResponse, 'ai');
@@ -5769,15 +5770,15 @@ ${personalityPrompt}`;
                 
                 addPoints(1);
                 speak(aiResponse);
+
             } catch (error) {
-              addMessage(`系統錯誤：${error.message}`, 'error');
+                addMessage(`系統錯誤：${error.message}`, 'error');
             }
 
             typingIndicator.style.display = 'none';
             sendBtn.disabled = false;
             voiceBtn.disabled = false;
         }
-
         // 流暢拖拽實現
         let dragOffset = { x: 0, y: 0 };
         let dragStartPos = { x: 0, y: 0 };
