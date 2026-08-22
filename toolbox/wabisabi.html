@@ -572,7 +572,7 @@
                 reader.readAsDataURL(file);
             }
 
-            async function generatePoem() {
+       async function generatePoem() {
                 if (!currentImageBase64) {
                     alert('請先選擇一張圖片。');
                     return;
@@ -585,37 +585,28 @@
                 loadingIndicator.classList.add('visible');
                 loadingIndicator.textContent = '尋覓詩句中…';
                 
-                // 【修訂一】在 Prompt 中加入隨機數，確保每次請求都獨一無二，強制 API 重新生成
+                // 在 Prompt 中加入隨機數強制重新生成，並強化 JSON 輸出指令 (適合 GLM 模型)
                 const cacheBuster = Math.random();
-                const promptText = `你是一位深諳文學的散文家。必須參考真實作者及真實文學作品，並根據這張圖片的內容，以繁體中文引錄一句精煉、有留白空間、富文學性的真實散文節錄的句子。要多嘗試詞語的新鮮組合。只需回傳那一句句子，不要任何多餘的文字或解釋。JSON 結構如下： {"poem": "一句繁體散文句子，不包含篇名及作者名稱", "analysis": "一段50字左右的繁體中文賞析"}。句子需精煉、富文學性且有留白意境。賞析需簡要分析圖片如何引發詩意。(隨機數: ${cacheBuster})`;
+                const promptText = `你是一位深諳文學的散文家。必須參考真實作者及真實文學作品，並根據這張圖片的內容，以繁體中文引錄一句精煉、有留白空間、富文學性的真實散文節錄的句子。要多嘗試詞語的新鮮組合。請直接輸出純JSON格式，不要有任何多餘文字、解釋或 markdown 標記。JSON 結構如下： {"poem": "一句繁體散文句子，不包含篇名及作者名稱", "analysis": "一段50字左右的繁體中文賞析"}。句子需精煉、富文學性且有留白意境。賞析需簡要分析圖片如何引發詩意。(隨機數: ${cacheBuster})`;
 
+                // ★★★ 配合 GAS 腳本要求的格式 ★★★
                 const requestBody = {
-  model: "GPT-5.4 Mini", // 確保使用支援 Vision 的模型
-  messages: [{
-    role: "user",
-    content: [{
-      type: "text",
-      text: promptText
-    }, {
-      type: "image_url",
-      image_url: { "url": currentImageBase64 }
-    }]
-  }],
-  temperature: 1.2, // 提高溫度以增加創意
-  stream: false,
-  // 【教學範例】如果 API 支援，這是一種可能加入隱私設定的方式。
-  // 這行程式碼在您目前的服務中不會有作用。
-  "private": true
-};
+                    image: currentImageBase64,
+                    prompt: promptText
+                };
+
+                // 你的 Google Apps Script Web App URL
+                const gasUrl = 'https://script.google.com/macros/s/AKfycby6VqaFGIOSxq_87GZFIhzM-7Lmhb3HYyEHuK5fyFFzoFQ86LiAfpyL4f9QFxA4XD35gg/exec';
 
                 try {
-                    const response = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
+                    const response = await fetch(gasUrl, {
                         method: 'POST',
+                        // ★ 重要：使用 text/plain 可以繞過 GAS 的 CORS 預檢限制，且 GAS 的 e.postData.contents 依然能正確讀取 JSON 內容
                         headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer pk_oe8RqRUjeOqQ8Dvj' /* 【新增處】 */
+                            'Content-Type': 'text/plain;charset=utf-8'
                         },
-                        body: JSON.stringify(requestBody)
+                        body: JSON.stringify(requestBody),
+                        redirect: 'follow' // GAS POST 請求有時會觸發 302 重定向，這行是必須的
                     });
 
                     if (!response.ok) {
@@ -623,6 +614,13 @@
                     }
 
                     const data = await response.json();
+                    
+                    // 攔截 GAS 腳本自定義回傳的錯誤 (例如 API Key 沒設、或智譜 API 報錯)
+                    if (data.error) {
+                         throw new Error(`GAS 代理回報錯誤: ${data.error}`);
+                    }
+
+                    // 智譜 (Zhipu) 的回傳格式與 OpenAI 相同，都在 choices[0].message.content
                     let content = data.choices?.[0]?.message?.content?.trim();
 
                     if (!content) {
@@ -631,8 +629,8 @@
                     
                     // 嘗試解析 AI 回傳的 JSON
                     try {
-                        // 清理可能的 markdown 程式碼區塊
-                        const jsonString = content.replace(/```json\n?|\n?```/g, '');
+                        // 清理可能的 markdown 程式碼區塊 (智譜有時還是會頑皮地加上 ```json )
+                        const jsonString = content.replace(/```json\n?|\n?```/g, '').trim();
                         const parsed = JSON.parse(jsonString);
 
                         if (parsed.poem && parsed.analysis) {
@@ -640,11 +638,10 @@
                             poemAnalysis.textContent = parsed.analysis;
                             analysisContainer.style.display = 'block';
                         } else {
-                            // 若 JSON 格式不對，直接顯示原始回傳內容
                             throw new Error('JSON 格式不符。');
                         }
                     } catch (e) {
-                        // 如果解析失敗，可能是 AI 沒有回傳標準 JSON，我們做一個降級處理
+                        // 如果解析失敗，做一個降級處理，直接把回傳字串顯示出來
                         poemDisplay.textContent = content;
                         analysisContainer.style.display = 'none'; // 隱藏賞析區塊
                     }
@@ -657,10 +654,10 @@
                     analysisContainer.style.display = 'none';
                     resultContainer.classList.add('visible');
                 } finally {
-                    // 無論成功或失敗，都恢復按鈕狀態並隱藏 loading
+                    // 恢復按鈕狀態並隱藏 loading
                     loadingIndicator.classList.remove('visible');
                     generateBtn.disabled = false;
-                    generateBtn.textContent = '再覓一詩'; // 讓使用者可以重新生成
+                    generateBtn.textContent = '再覓一詩'; 
                 }
             }
         });
