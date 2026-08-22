@@ -14161,37 +14161,51 @@ async function submitArgumentOutline() {
     }
 }
 
-// 輔助函式，用於顯示大綱的評論 (議論文 - 終極容錯版)
+// 輔助函式，用於顯示大綱的評論 (議論文 - 終極暴力容錯版)
 function displayArgumentOutlineComment(response, inputData) {
     console.log("[Argument Outline] Raw Response:\n", response);
 
     // --- A. 強制清理干擾符號 ---
-    let cleanResponse = response.replace(/\*\*/g, ''); 
+    let cleanResponse = response.replace(/\*\*/g, '').replace(/###/g, ''); 
 
-    // --- B. 切割三大區塊 ---
-    const sections = cleanResponse.split(/(?:###\s*)?===\s*(.+?)\s*===/).filter(s => s.trim());
-    
+    // --- B. 暴力區塊定位法 (不依賴 === 分隔線) ---
     let commentPart = "";
     let rewritePart = "";
     let explanationPart = "";
 
-    for (let i = 0; i < sections.length; i++) {
-        if (sections[i].includes("點評及建議")) commentPart = sections[i + 1] || "";
-        if (sections[i].includes("改寫後的大綱")) rewritePart = sections[i + 1] || "";
-        if (sections[i].includes("改寫說明")) explanationPart = sections[i + 1] || "";
+    const cIdx = cleanResponse.indexOf("點評及建議");
+    const rIdx = cleanResponse.indexOf("改寫後的大綱");
+    const eIdx = cleanResponse.indexOf("改寫說明");
+
+    if (cIdx !== -1) {
+        const endIdx = rIdx !== -1 ? rIdx : (eIdx !== -1 ? eIdx : cleanResponse.length);
+        commentPart = cleanResponse.substring(cIdx + 5, endIdx); // +5 跳過關鍵字本身
+    }
+    if (rIdx !== -1) {
+        const endIdx = eIdx !== -1 ? eIdx : cleanResponse.length;
+        rewritePart = cleanResponse.substring(rIdx + 6, endIdx);
+    }
+    if (eIdx !== -1) {
+        explanationPart = cleanResponse.substring(eIdx + 4);
     }
 
-    // --- C. 解析點評與建議 (分塊解析法) ---
+    // --- C. 解析點評與建議 (雙重容錯切塊) ---
     const comments = {};
     if (commentPart) {
-        // ★ 關鍵修復：同時支援 [起] 或 【起】
-        const blocks = commentPart.split(/(?:\[|【)(.+?)(?:\]|】)/);
+        // 嘗試用 [] 或 【】 切塊
+        let blocks = commentPart.split(/(?:\[|【)(.+?)(?:\]|】)/);
+        
+        // 如果切不出來 (陣列長度小於3)，代表 AI 沒用括號，改用換行+段落名切塊
+        if (blocks.length < 3) {
+            blocks = commentPart.split(/(起|承|轉|合|結構段[一二三四五六七八九十]+)[：:\n]/);
+        }
+
         for (let i = 1; i < blocks.length; i += 2) {
             const partName = blocks[i].trim();
             const textContent = blocks[i + 1] || "";
             
-            const cMatch = textContent.match(/點評\s*[:：]\s*([\s\S]*?)(?=建議\s*[:：]|$)/);
-            const sMatch = textContent.match(/建議\s*[:：]\s*([\s\S]*?)$/);
+            const cMatch = textContent.match(/(?:點評|分析)\s*[:：]\s*([\s\S]*?)(?=(?:建議|改善)\s*[:：]|$)/);
+            const sMatch = textContent.match(/(?:建議|改善)\s*[:：]\s*([\s\S]*?)$/);
             
             comments[partName] = {
                 comment: cMatch ? cMatch[1].trim().replace(/^[-*•]\s*/, '') : "<span style='color:red;'>未能讀取點評</span>",
@@ -14200,16 +14214,21 @@ function displayArgumentOutlineComment(response, inputData) {
         }
     }
 
-    // --- D. 解析改寫後的大綱 (分塊解析法) ---
+    // --- D. 解析改寫後的大綱 (雙重容錯切塊) ---
     const rewrites = {};
     if (rewritePart) {
-        const blocks = rewritePart.split(/(?:\[|【)(.+?)(?:\]|】)/);
+        let blocks = rewritePart.split(/(?:\[|【)(.+?)(?:\]|】)/);
+        if (blocks.length < 3) {
+            blocks = rewritePart.split(/(起|承|轉|合|結構段[一二三四五六七八九十]+)[：:\n]/);
+        }
+
         for (let i = 1; i < blocks.length; i += 2) {
             const partName = blocks[i].trim();
             const textContent = blocks[i + 1] || "";
             
-            const pMatch = textContent.match(/論點\s*[:：]\s*([\s\S]*?)(?=論據(?:及論證)?\s*[:：]|$)/);
-            const eMatch = textContent.match(/論據(?:及論證)?\s*[:：]\s*([\s\S]*?)$/);
+            // 容忍 "改寫論點"、"論點" 等變化字眼
+            const pMatch = textContent.match(/(?:改寫)?論點\s*[:：]\s*([\s\S]*?)(?=(?:改寫)?論據(?:及論證)?\s*[:：]|$)/);
+            const eMatch = textContent.match(/(?:改寫)?論據(?:及論證)?\s*[:：]\s*([\s\S]*?)$/);
             
             rewrites[partName] = {
                 point: pMatch ? pMatch[1].trim().replace(/^[-*•]\s*/, '') : "...",
@@ -14237,12 +14256,17 @@ function displayArgumentOutlineComment(response, inputData) {
         const partKey = Object.keys(comments).find(k => k.includes(item.part) || item.part.includes(k)) || item.part;
         const data = comments[partKey] || {};
         
+        // 如果完全抓不到的情況，顯示更清楚的錯誤
+        let cmtText = data.comment;
+        if (!cmtText && commentPart.length > 0) cmtText = "<span style='color:red;'>未能對應段落</span>";
+        else if (!cmtText) cmtText = "<span style='color:red;'>AI 未輸出點評區塊</span>";
+
         commentTableHTML += `
             <tr>
                 <td style="${cellStyle} background-color:#f9f9f9;"><strong>${item.part}</strong></td>
                 <td style="${cellStyle}">${item.point || "(無)"}</td>
                 <td style="${cellStyle}">${item.evidence || "(無)"}</td>
-                <td style="${cellStyle}">${(data.comment || "<span style='color:red;'>未能解析</span>").replace(/\n/g, '<br>')}</td>
+                <td style="${cellStyle}">${cmtText.replace(/\n/g, '<br>')}</td>
                 <td style="${cellStyle}">${(data.suggestion || "-").replace(/\n/g, '<br>')}</td>
             </tr>`;
     });
@@ -14282,7 +14306,8 @@ function displayArgumentOutlineComment(response, inputData) {
             if (match) {
                 explanationHTML += `<div class="explanation-point"><div class="explanation-number">${match[1]}</div><div class="explanation-text">${match[2].replace(/\n/g, '<br>')}</div></div>`;
             } else {
-                 explanationHTML += `<div class="explanation-text">${point.replace(/\n/g, '<br>')}</div>`;
+                let cleanPoint = point.replace(/改寫說明[：:]?/g, '').trim();
+                if(cleanPoint) explanationHTML += `<div class="explanation-text">${cleanPoint.replace(/\n/g, '<br>')}</div><br>`;
             }
         });
         explanationHTML += `</div></div>`;
@@ -14294,7 +14319,6 @@ function displayArgumentOutlineComment(response, inputData) {
     openResultCanvas("議論文大綱點評");
     document.getElementById("resultCanvasBody").innerHTML = finalHTML;
 }
-
 
 	
 
