@@ -3247,14 +3247,7 @@ const friendsTabs = document.querySelectorAll('.friends-tabs .tab');
 
 
 
-        const API_KEYS = [
-   "pk_Peec23I5WycKMfHr"
-
-        ];
-        let currentApiKeyIndex = 0;
-        const API_URL = "https://gen.pollinations.ai/v1/chat/completions";
-        const MODEL = "deepseek";
-
+     const GAS_URL = "https://script.google.com/macros/s/AKfycbw3GLUM12ls3PhST5TkimLZvZwQx2H4RG8g2SbZiMJmuxg3HqsO_d13kPU4AnKpxi2P6A/exec";
         const chatOutput = document.getElementById('chat-output');
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
@@ -5483,6 +5476,18 @@ function updateAllAIMessageNames() {
             try {
                 speechSynthesis.cancel();
                 stopTalking();
+                try {
+                speechSynthesis.cancel();
+                stopTalking();
+
+                // 加入這段：確保使用者已登入並獲取 Token
+                if (!currentUser) {
+                    throw new Error("請先登入帳號才能使用聊天功能！");
+                }
+                const idToken = await currentUser.getIdToken(true);
+
+                const mode = modeSelect.value;
+                // ... (保留中間關於 mode 和 systemPrompt 的判斷邏輯不變) ...
 
                 const mode = modeSelect.value;
                 const currentPersonality = personalities.find(p => p.id === userData.currentPersonality);
@@ -5727,33 +5732,35 @@ function updateAllAIMessageNames() {
 ${personalityPrompt}`;
                 }
 
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${API_KEYS[currentApiKeyIndex]}`
-                    },
-                    body: JSON.stringify({
-                        model: MODEL,
-                        messages: [
-                            { role: 'system', content: systemPrompt },
+           const payload = {
+                    token: idToken,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
                             ...conversationHistory
                         ],
                         max_tokens: 64000
                     })
                 });
 
+               const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8'
+                    },
+                    body: JSON.stringify(payload),
+                    redirect: 'follow'
+                });
+
                 if (!response.ok) {
-                    if (response.status === 429 && currentApiKeyIndex < API_KEYS.length - 1) {
-                        currentApiKeyIndex++;
-                        addMessage('API 限制，切換密鑰重試...', 'ai');
-                        sendMessage();
-                        return;
-                    }
                     throw new Error(`HTTP 錯誤！狀態：${response.status}`);
                 }
 
                 const data = await response.json();
+                
+                // 5. 如果 GAS 後端回傳了安全攔截錯誤，拋出例外處理
+                if (data.error) {
+                    throw new Error(data.error);
+                }
                 let aiResponse = data.choices[0].message.content;
                 
                 // 徹底清理AI回應
@@ -5765,7 +5772,7 @@ ${personalityPrompt}`;
                 addPoints(1);
                 speak(aiResponse);
             } catch (error) {
-                addMessage(`錯誤：${error.message}`, 'error');
+              addMessage(`系統錯誤：${error.message}`, 'error');
             }
 
             typingIndicator.style.display = 'none';
