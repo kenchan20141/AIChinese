@@ -14161,80 +14161,98 @@ async function submitArgumentOutline() {
     }
 }
 
-// 輔助函式，用於顯示大綱的評論 (議論文 - 終極暴力容錯版)
+// 輔助函式，用於顯示大綱的評論 (議論文 - 終極自動追蹤容錯版)
 function displayArgumentOutlineComment(response, inputData) {
     console.log("[Argument Outline] Raw Response:\n", response);
 
     // --- A. 強制清理干擾符號 ---
-    let cleanResponse = response.replace(/\*\*/g, '').replace(/###/g, ''); 
+    // 洗去 Markdown 粗體、井號標題，以及所有種類的括號
+    let cleanResponse = response.replace(/[\*#]/g, ''); 
+    let textForSearch = cleanResponse.replace(/[\[\]【】\(\)（）]/g, '');
 
-    // --- B. 暴力區塊定位法 (不依賴 === 分隔線) ---
+    // --- B. 擷取三大區塊 (高容錯正則) ---
     let commentPart = "";
     let rewritePart = "";
     let explanationPart = "";
 
-    const cIdx = cleanResponse.indexOf("點評及建議");
-    const rIdx = cleanResponse.indexOf("改寫後的大綱");
-    const eIdx = cleanResponse.indexOf("改寫說明");
+    // 尋找「點評及建議」、「改寫後的大綱」、「改寫說明」三個大區塊
+    const cMatch = textForSearch.match(/點評(?:及|與)?建議([\s\S]*?)(?=(?:改寫後的大綱|改寫大綱|改寫後大綱)|$)/);
+    const rMatch = textForSearch.match(/(?:改寫後的大綱|改寫大綱|改寫後大綱)([\s\S]*?)(?=改寫說明|$)/);
+    const eMatch = textForSearch.match(/改寫說明([\s\S]*?)$/);
 
-    if (cIdx !== -1) {
-        const endIdx = rIdx !== -1 ? rIdx : (eIdx !== -1 ? eIdx : cleanResponse.length);
-        commentPart = cleanResponse.substring(cIdx + 5, endIdx); // +5 跳過關鍵字本身
-    }
-    if (rIdx !== -1) {
-        const endIdx = eIdx !== -1 ? eIdx : cleanResponse.length;
-        rewritePart = cleanResponse.substring(rIdx + 6, endIdx);
-    }
-    if (eIdx !== -1) {
-        explanationPart = cleanResponse.substring(eIdx + 4);
+    commentPart = cMatch ? cMatch[1] : "";
+    rewritePart = rMatch ? rMatch[1] : "";
+    explanationPart = eMatch ? eMatch[1] : "";
+
+    // 極端防呆：如果 AI 連大標題都忘了打，直接把整段文字當作點評區
+    if (!commentPart && !rewritePart) {
+        commentPart = textForSearch; 
     }
 
-    // --- C. 解析點評與建議 (雙重容錯切塊) ---
+    // --- 核心工具：地毯式搜索切塊法 ---
+    // 拿著表格原有的「起」、「結構段一」去文章裡定位
+    function extractChunksByParts(text, data) {
+        let positions = [];
+        data.forEach(item => {
+            let kw = item.part; // 例如 "起", "結構段一"
+            let idx = text.indexOf(kw);
+            
+            // 智能容錯：如果找不到 "結構段一"，試著找 "段一" 或 "一"
+            if (idx === -1 && kw.includes("結構段")) {
+                let shortKw = kw.replace("結構段", "");
+                idx = text.indexOf(shortKw);
+                // 如果還是找不到，可能 AI 寫了 "第一段"
+                if (idx === -1 && shortKw === "一") idx = text.indexOf("第一段");
+                if (idx === -1 && shortKw === "二") idx = text.indexOf("第二段");
+                if (idx === -1 && shortKw === "三") idx = text.indexOf("第三段");
+                if (idx === -1 && shortKw === "四") idx = text.indexOf("第四段");
+            }
+            
+            if (idx !== -1) {
+                positions.push({ key: item.part, index: idx });
+            }
+        });
+
+        // 按照在文章中出現的順序排序
+        positions.sort((a, b) => a.index - b.index);
+
+        let chunks = {};
+        for (let i = 0; i < positions.length; i++) {
+            let start = positions[i].index;
+            let end = (i + 1 < positions.length) ? positions[i + 1].index : text.length;
+            chunks[positions[i].key] = text.substring(start, end);
+        }
+        return chunks;
+    }
+
+    // --- C. 提取點評與建議 ---
+    const commentChunks = extractChunksByParts(commentPart, inputData);
     const comments = {};
-    if (commentPart) {
-        // 嘗試用 [] 或 【】 切塊
-        let blocks = commentPart.split(/(?:\[|【)(.+?)(?:\]|】)/);
+    
+    for (const [part, chunk] of Object.entries(commentChunks)) {
+        // 抓出「點評：XXX」與「建議：XXX」
+        const cMatch = chunk.match(/(?:點評|分析)\s*[:：]\s*([\s\S]*?)(?=(?:建議|改善)\s*[:：]|$)/);
+        const sMatch = chunk.match(/(?:建議|改善)\s*[:：]\s*([\s\S]*?)$/);
         
-        // 如果切不出來 (陣列長度小於3)，代表 AI 沒用括號，改用換行+段落名切塊
-        if (blocks.length < 3) {
-            blocks = commentPart.split(/(起|承|轉|合|結構段[一二三四五六七八九十]+)[：:\n]/);
-        }
-
-        for (let i = 1; i < blocks.length; i += 2) {
-            const partName = blocks[i].trim();
-            const textContent = blocks[i + 1] || "";
-            
-            const cMatch = textContent.match(/(?:點評|分析)\s*[:：]\s*([\s\S]*?)(?=(?:建議|改善)\s*[:：]|$)/);
-            const sMatch = textContent.match(/(?:建議|改善)\s*[:：]\s*([\s\S]*?)$/);
-            
-            comments[partName] = {
-                comment: cMatch ? cMatch[1].trim().replace(/^[-*•]\s*/, '') : "<span style='color:red;'>未能讀取點評</span>",
-                suggestion: sMatch ? sMatch[1].trim().replace(/^[-*•]\s*/, '') : "-"
-            };
-        }
+        comments[part] = {
+            comment: cMatch ? cMatch[1].trim().replace(/^[-*•]\s*/, '') : "",
+            suggestion: sMatch ? sMatch[1].trim().replace(/^[-*•]\s*/, '') : ""
+        };
     }
 
-    // --- D. 解析改寫後的大綱 (雙重容錯切塊) ---
+    // --- D. 提取改寫大綱 ---
+    const rewriteChunks = extractChunksByParts(rewritePart, inputData);
     const rewrites = {};
-    if (rewritePart) {
-        let blocks = rewritePart.split(/(?:\[|【)(.+?)(?:\]|】)/);
-        if (blocks.length < 3) {
-            blocks = rewritePart.split(/(起|承|轉|合|結構段[一二三四五六七八九十]+)[：:\n]/);
-        }
 
-        for (let i = 1; i < blocks.length; i += 2) {
-            const partName = blocks[i].trim();
-            const textContent = blocks[i + 1] || "";
-            
-            // 容忍 "改寫論點"、"論點" 等變化字眼
-            const pMatch = textContent.match(/(?:改寫)?論點\s*[:：]\s*([\s\S]*?)(?=(?:改寫)?論據(?:及論證)?\s*[:：]|$)/);
-            const eMatch = textContent.match(/(?:改寫)?論據(?:及論證)?\s*[:：]\s*([\s\S]*?)$/);
-            
-            rewrites[partName] = {
-                point: pMatch ? pMatch[1].trim().replace(/^[-*•]\s*/, '') : "...",
-                evidence: eMatch ? eMatch[1].trim().replace(/^[-*•]\s*/, '') : "..."
-            };
-        }
+    for (const [part, chunk] of Object.entries(rewriteChunks)) {
+        // 抓出「論點：XXX」與「論據：XXX」
+        const pMatch = chunk.match(/(?:改寫)?論點\s*[:：]\s*([\s\S]*?)(?=(?:改寫)?論據(?:及論證)?\s*[:：]|$)/);
+        const eMatch = chunk.match(/(?:改寫)?論據(?:及論證)?\s*[:：]\s*([\s\S]*?)$/);
+        
+        rewrites[part] = {
+            point: pMatch ? pMatch[1].trim().replace(/^[-*•]\s*/, '') : "",
+            evidence: eMatch ? eMatch[1].trim().replace(/^[-*•]\s*/, '') : ""
+        };
     }
 
     // --- E. 生成 HTML 表格 1 (原稿 + 點評) ---
@@ -14253,13 +14271,11 @@ function displayArgumentOutlineComment(response, inputData) {
                 </tr>`;
                 
     inputData.forEach(item => {
-        const partKey = Object.keys(comments).find(k => k.includes(item.part) || item.part.includes(k)) || item.part;
-        const data = comments[partKey] || {};
+        const data = comments[item.part] || {};
         
-        // 如果完全抓不到的情況，顯示更清楚的錯誤
+        // 容錯顯示：如果在切塊中找不到這一段的點評
         let cmtText = data.comment;
-        if (!cmtText && commentPart.length > 0) cmtText = "<span style='color:red;'>未能對應段落</span>";
-        else if (!cmtText) cmtText = "<span style='color:red;'>AI 未輸出點評區塊</span>";
+        if (!cmtText) cmtText = "<span style='color:red;'>AI 未按格式輸出此段點評</span>";
 
         commentTableHTML += `
             <tr>
@@ -14272,7 +14288,7 @@ function displayArgumentOutlineComment(response, inputData) {
     });
     commentTableHTML += "</table></div>";
 
-    // --- F. 生成 HTML 表格 2 (改寫參考) ---
+    // --- F. 生成改寫表格 ---
     let rewriteTableHTML = `
         <h3 style="margin-top:30px;">改寫後的大綱參考：</h3>
         <div class="table-container">
@@ -14284,9 +14300,7 @@ function displayArgumentOutlineComment(response, inputData) {
                 </tr>`;
                 
     inputData.forEach(item => {
-        const partKey = Object.keys(rewrites).find(k => k.includes(item.part) || item.part.includes(k)) || item.part;
-        const data = rewrites[partKey] || {};
-        
+        const data = rewrites[item.part] || {};
         rewriteTableHTML += `
             <tr>
                 <td style="${cellStyle} background-color:#f9f9f9;"><strong>${item.part}</strong></td>
