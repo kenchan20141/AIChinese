@@ -9813,7 +9813,7 @@ function playRandomCatSound() {
 }
 
 // =======================================================
-// === [修訂] 貓咪真身頭像吸附邏輯 (精確座標與偵錯版) ===
+// === [修訂] 貓咪真身頭像吸附邏輯 (無洗版、防卡死版) ===
 // =======================================================
 let isCatLockedToAvatar = false;
 let preAvatarScale = { x: 1, y: 1 };
@@ -9823,7 +9823,6 @@ let catSyncInterval = null;
 function lockCatToAvatar() {
     if (!modelContainer || isCatLockedToAvatar) return;
     isCatLockedToAvatar = true;
-    console.log("🔒 [Live2D] 啟動頭像吸附模式");
     
     // 儲存原始大小與位置，以便關閉時還原
     preAvatarScale = { x: modelContainer.scale.x, y: modelContainer.scale.y };
@@ -9837,9 +9836,8 @@ function lockCatToAvatar() {
     // 建立 60fps 同步更新器
     if (catSyncInterval) clearInterval(catSyncInterval);
     catSyncInterval = setInterval(() => {
-        if (isCatLockedToAvatar) {
-            updateCatAvatarPosition();
-        } else {
+        if (isCatLockedToAvatar) updateCatAvatarPosition();
+        else {
             clearInterval(catSyncInterval);
             catSyncInterval = null;
         }
@@ -9849,7 +9847,6 @@ function lockCatToAvatar() {
 function unlockCatFromAvatar() {
     if (!isCatLockedToAvatar || !modelContainer) return;
     isCatLockedToAvatar = false;
-    console.log("🔓 [Live2D] 解除頭像吸附模式");
     
     window.removeEventListener('resize', updateCatAvatarPosition);
     if (catSyncInterval) {
@@ -9862,50 +9859,32 @@ function unlockCatFromAvatar() {
     modelContainer.x = preAvatarPos.x;
     modelContainer.y = preAvatarPos.y;
     
-    // 呼叫原本的邊界檢查以確保不會出界
     if (typeof repositionCats === 'function') repositionCats();
 }
 
 function updateCatAvatarPosition() {
     if (!isCatLockedToAvatar || !modelContainer) return;
     const anchor = document.getElementById('catAvatarAnchor');
-    if (!anchor) {
-        console.warn("⚠️ [Live2D 錯誤] 找不到 HTML 中的 catAvatarAnchor 頭像框！");
-        return;
-    }
+    if (!anchor) return;
     
     const rect = anchor.getBoundingClientRect();
     
     if (modelContainer.children.length > 0) {
-        // 設定貓咪在頭像框中的縮放比例 (0.04)
         const avatarScale = 0.04; 
         modelContainer.scale.set(avatarScale);
         
-        // 取得縮放後的絕對邊界尺寸
         const bounds = modelContainer.getBounds();
-        
-        // 將貓咪的中心點對準頭像框的中心點
-        // 微調 Y 軸 (+20)，讓貓咪的臉部正好落在圓圈中間，而不是頭頂
         let targetX = rect.left + (rect.width / 2) - (bounds.width / 2);
         let targetY = rect.top + (rect.height / 2) - (bounds.height / 2) + 20; 
         
         modelContainer.x = targetX;
         modelContainer.y = targetY;
-
-        // F12 偵錯：每 60 幀 (約 1 秒) 輸出一次狀態，防止洗版
-        window._catAvatarDebugCounter = (window._catAvatarDebugCounter || 0) + 1;
-        if (window._catAvatarDebugCounter % 60 === 0) {
-            console.log("🐈 [Live2D 追蹤] 貓咪座標更新成功:", {
-                AnchorBox: `X:${rect.left.toFixed(1)}, Y:${rect.top.toFixed(1)}`,
-                CatPos: `X:${targetX.toFixed(1)}, Y:${targetY.toFixed(1)}`
-            });
-        }
+        // 已移除 F12 坐標洗版 Log
     }
 }
 
 // === [修訂] 長按對話邏輯 (觸發吸附與 WebLLM) ===
 function triggerCatChat() {
-    console.log("🖱️ [觸控] 用家長按了貓咪，準備開啟聊天室...");
     hideBubble();
     triggerCatReaction();
     
@@ -9914,91 +9893,32 @@ function triggerCatChat() {
     const inputEl = document.getElementById('catChatInput');
     const sendBtn = document.getElementById('catChatSendBtn');
 
-    // 1. 打開視窗並禁用輸入
+    // 打開視窗並禁用輸入
     if (modal) modal.style.display = 'flex';
     if (progressArea) progressArea.style.display = 'block';
     if (inputEl) inputEl.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
 
-    // 2. 指揮真實的貓咪跳入頭像框！
+    // 指揮真實的貓咪跳入頭像框！
     lockCatToAvatar();
 
-    // 3. 呼叫 WebLLM 引擎
+    // 改為動態載入後，這個函式一定存在，直接呼叫！
     if (typeof window.initAndOpenCatChat === 'function') {
-        console.log("🚀 [引擎] 發現大腦模組，開始啟動...");
         window.initAndOpenCatChat();
     } else {
-        console.warn("⚠️ [引擎] 大腦模組尚未載入，將在背景輪詢等待...");
         const progressText = document.getElementById('catChatProgressText');
-        if (progressText) progressText.innerHTML = '<i class="fas fa-cat fa-bounce" style="color:#8fa398;"></i> 貓咪剛睡醒，正在伸懶腰準備中，請稍等喵～';
-        
-        const checkInterval = setInterval(() => {
-            if (typeof window.initAndOpenCatChat === 'function') {
-                clearInterval(checkInterval);
-                console.log("🚀 [引擎] 大腦模組就緒，補發啟動指令！");
-                window.initAndOpenCatChat();
-            }
-        }, 500);
+        if (progressText) progressText.innerHTML = "系統異常，無法啟動貓咪大腦。";
     }
 }
 
 function closeCatChatModal() {
-    console.log("🚪 [觸控] 用家關閉了聊天室");
     const modal = document.getElementById('catChatModal');
     if (modal) modal.style.display = 'none';
-    
-    // 讓貓咪跳回原來的地方
     unlockCatFromAvatar();
 }
 
-// === [修訂] 長按對話邏輯 (觸發吸附與 WebLLM) ===
-function triggerCatChat() {
-    console.log("🖱️ [觸控] 用家長按了貓咪，準備開啟聊天室...");
-    hideBubble();
-    triggerCatReaction();
-    
-    const modal = document.getElementById('catChatModal');
-    const progressArea = document.getElementById('catChatProgress');
-    const inputEl = document.getElementById('catChatInput');
-    const sendBtn = document.getElementById('catChatSendBtn');
-
-    // 1. 打開視窗並禁用輸入
-    if (modal) modal.style.display = 'flex';
-    if (progressArea) progressArea.style.display = 'block';
-    if (inputEl) inputEl.disabled = true;
-    if (sendBtn) sendBtn.disabled = true;
-
-    // 2. 指揮真實的貓咪跳入頭像框！
-    lockCatToAvatar();
-
-    // 3. 呼叫 WebLLM 引擎
-    if (typeof window.initAndOpenCatChat === 'function') {
-        console.log("🚀 [引擎] 發現大腦模組，開始啟動...");
-        window.initAndOpenCatChat();
-    } else {
-        console.warn("⚠️ [引擎] 大腦模組尚未載入，將在背景輪詢等待...");
-        const progressText = document.getElementById('catChatProgressText');
-        if (progressText) progressText.innerHTML = '<i class="fas fa-cat fa-bounce" style="color:#8fa398;"></i> 貓咪剛睡醒，正在伸懶腰準備中，請稍等喵～';
-        
-        const checkInterval = setInterval(() => {
-            if (typeof window.initAndOpenCatChat === 'function') {
-                clearInterval(checkInterval);
-                console.log("🚀 [引擎] 大腦模組就緒，補發啟動指令！");
-                window.initAndOpenCatChat();
-            }
-        }, 500);
-    }
-}
-
-function closeCatChatModal() {
-    console.log("🚪 [觸控] 用家關閉了聊天室");
-    const modal = document.getElementById('catChatModal');
-    if (modal) modal.style.display = 'none';
-    
-    // 讓貓咪跳回原來的地方
-    unlockCatFromAvatar();
-}
 	
+
 
 // 顯示氣泡 (autoHideMs = 0 代表常駐)
 function showBubble(htmlContent, autoHideMs = 0) {
@@ -30837,10 +30757,8 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
 
 
 
-<!-- === [新增] WebLLM 貓咪大腦引擎 (高容錯與偵錯版) === -->
-<script type="module">
-    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
-
+<!-- === [新增] WebLLM 貓咪大腦引擎 (動態載入防卡死版) === -->
+<script>
     let catEngine = null;
     let isCatEngineReady = false;
     let isCatEngineLoading = false;
@@ -30862,21 +30780,18 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
         { role: 'system', content: CAT_SYSTEM_PROMPT }
     ];
 
-    // 選用 Qwen 0.5B 輕量模型
     const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 
-    // 綁定到 window 讓原本的 script 可以呼叫
+    // 直接定義在 window 上，保證長按時絕對找得到
     window.initAndOpenCatChat = async function() {
         const progressArea = document.getElementById('catChatProgress');
         const progressText = document.getElementById('catChatProgressText');
-        
-        // 每次進來都重新抓取最新的進度條 DOM，防止被洗掉
         const getBarFill = () => document.getElementById('catChatProgressBarFill');
         const inputEl = document.getElementById('catChatInput');
         const sendBtn = document.getElementById('catChatSendBtn');
 
         if (!navigator.gpu) {
-            console.error("❌ [WebLLM 錯誤] 設備不支援 WebGPU！");
+            console.error("❌ 設備不支援 WebGPU！");
             progressArea.style.display = 'block';
             if (getBarFill()) getBarFill().style.width = '0%';
             progressText.innerHTML = "<i class='fas fa-exclamation-circle' style='color:#d69a92;'></i> 喵嗚... 你的設備好像沒有給貓咪足夠的魔法（不支援 WebGPU），請用最新版的 Chrome 或 Edge 唷！";
@@ -30884,7 +30799,6 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
         }
 
         if (isCatEngineReady) {
-            console.log("✅ [WebLLM] 貓咪大腦已準備就緒，秒開對話！");
             progressArea.style.display = 'none';
             if (catChatHistory.length === 1) { 
                 appendCatMessage('ai', '喵～我隨時準備好聊天了！想知道「神思」有什麼好玩的工具，或是想聊聊文學嗎？');
@@ -30895,38 +30809,31 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
             return;
         }
 
-        if (isCatEngineLoading) {
-            console.log("⏳ [WebLLM] 模型已經在下載中，拒絕重複觸發。");
-            return;
-        }
+        if (isCatEngineLoading) return;
 
         isCatEngineLoading = true;
         progressArea.style.display = 'block';
         if (getBarFill()) getBarFill().style.width = '0%';
         inputEl.disabled = true;
         sendBtn.disabled = true;
-
-        console.log(`🚀 [WebLLM] 開始請求下載模型: ${MODEL_ID}`);
+        
+        progressText.innerHTML = `<i class='fas fa-paw fa-bounce' style='color:#8fa398;'></i> 正在喚醒貓咪的神經元...`;
 
         try {
-            // 沉浸式載入進度回呼 (強化防崩潰解析)
-            const initProgressCallback = (report) => {
-                // 1. 在 F12 輸出原始數據，供除錯用
-                console.log(`📥 [下載進度] Raw: ${report.text} | Progress: ${report.progress}`);
+            // ★ 關鍵：動態引入 WebLLM，改用 jsdelivr 提升穩定度，並避免 block 整個頁面
+            const webllm = await import("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm");
 
+            const initProgressCallback = (report) => {
                 let catActionText = "貓咪正在尋找記憶罐頭...";
-                
-                // 2. 高容錯計算百分比
                 let pct = 0;
+                
+                // 容錯提取進度
                 if (typeof report.progress === 'number' && !isNaN(report.progress)) {
                     pct = Math.round(report.progress * 100);
                 } else {
-                    // 如果 progress 壞掉，嘗試從文字中硬挖數字 (例如 "Fetching... 45%")
                     const match = report.text.match(/(\d+)%/);
                     if (match) pct = parseInt(match[1]);
                 }
-                
-                // 限制在 0-100 之間
                 pct = Math.max(0, Math.min(pct, 100));
 
                 const rawText = report.text.toLowerCase();
@@ -30936,25 +30843,20 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
                     catActionText = `<i class='fas fa-fish fa-spin' style='color:#d69a92;'></i> 正在大口吃下語薈的知識...`;
                 } else if (rawText.includes("initializing") || pct >= 99) {
                     catActionText = `<i class='fas fa-mug-hot' style='color:#d69a92;'></i> 罐頭吃完了，正在肚子裡消化吸收中...`;
-                    pct = 100; // 強制顯示滿格
+                    pct = 100;
                 } else if (pct > 0) {
                     catActionText = `<i class='fas fa-fish fa-spin' style='color:#d69a92;'></i> 正在努力吞下記憶罐頭...`;
                 }
 
-                // 3. 更新 UI
                 progressText.innerHTML = `${catActionText} <strong style="color:#2A9689;">${pct}%</strong><br><span style="font-size:0.8em;color:#aaa;">(只需吃這一次，下次就會秒速喚醒，離線陪伴你唷！)</span>`;
                 
                 const currentBar = getBarFill();
-                if (currentBar) {
-                    currentBar.style.width = `${pct}%`;
-                } else {
-                    console.error("❌ [UI 錯誤] 找不到進度條 (catChatProgressBarFill)");
-                }
+                if (currentBar) currentBar.style.width = `${pct}%`;
             };
 
+            // 初始化引擎
             catEngine = await webllm.CreateMLCEngine(MODEL_ID, { initProgressCallback });
             
-            console.log("🎉 [WebLLM] 貓咪大腦載入完成！");
             isCatEngineReady = true;
             progressArea.style.display = 'none'; 
             
@@ -30965,8 +30867,8 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
             inputEl.focus();
 
         } catch (error) {
-            console.error("💥 [WebLLM 嚴重錯誤] 載入崩潰:", error);
-            progressText.innerHTML = `<i class='fas fa-exclamation-triangle' style='color:#d69a92;'></i> 喵嗚... 吃到壞掉的罐頭了（載入失敗）。<br><span style="font-size:0.8em;color:#aaa;">F12 查看詳細錯誤：${error.message}</span>`;
+            console.error("載入崩潰:", error);
+            progressText.innerHTML = `<i class='fas fa-exclamation-triangle' style='color:#d69a92;'></i> 喵嗚... 吃到壞掉的罐頭了（載入失敗）。<br><span style="font-size:0.8em;color:#aaa;">請檢查網絡或使用 Chrome/Edge 瀏覽器。</span>`;
         } finally {
             isCatEngineLoading = false;
         }
@@ -30975,7 +30877,6 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
     function appendCatMessage(role, text) {
         const msgContainer = document.getElementById('catChatMessages');
         if (!msgContainer) return;
-        
         const msgEl = document.createElement('div');
         msgEl.className = `cat-msg-bubble ${role === 'user' ? 'cat-msg-user' : 'cat-msg-ai'}`;
         msgEl.innerHTML = text;
@@ -30990,8 +30891,6 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
         const text = inputEl.value.trim();
         
         if (!text || !isCatEngineReady || !catEngine) return;
-
-        console.log(`💬 [對話] 用戶發送: ${text}`);
 
         appendCatMessage('user', text);
         catChatHistory.push({ role: 'user', content: text });
@@ -31016,11 +30915,10 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
                 document.getElementById('catChatMessages').scrollTop = document.getElementById('catChatMessages').scrollHeight;
             }
 
-            console.log(`💬 [對話] AI 回覆完畢 (長度: ${fullReply.length})`);
             catChatHistory.push({ role: 'assistant', content: fullReply });
 
         } catch (error) {
-            console.error("💥 [WebLLM 對話錯誤]:", error);
+            console.error("對話錯誤:", error);
             aiMsgEl.innerHTML = "<i class='fas fa-dizzy' style='color:#d69a92;'></i> 喵嗚... 腦袋突然打結了，請再問我一次好嗎？";
         } finally {
             inputEl.disabled = false;
@@ -31030,5 +30928,7 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
     };
 </script>
 
+
+	
 </body>
 </html>
