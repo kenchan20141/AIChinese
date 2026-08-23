@@ -1381,6 +1381,64 @@ input[type="text"]:not(.no-modal-editor):hover {
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     filter: brightness(110%);
 }
+
+
+
+		/* 實用文新舊題型切換撥桿樣式 */
+.format-toggle-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 15px;
+    background: #f8fafc;
+    padding: 12px 20px;
+    border-radius: 16px;
+    border: 2px solid #e2e8f0;
+    margin-bottom: 20px;
+    width: fit-content;
+}
+
+.format-toggle-label {
+    font-size: 16px;
+    font-weight: bold;
+    color: #64748b;
+    user-select: none;
+    transition: color 0.3s ease;
+}
+
+.format-toggle-label.active {
+    color: #047857; /* 墨綠色 */
+}
+
+.format-switch {
+    position: relative;
+    width: 64px;
+    height: 32px;
+    background-color: #047857; /* 預設在左邊（新題型）為墨綠色 */
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.format-switch.is-old {
+    background-color: #94a3b8; /* 切換到右邊（舊題型）為灰色 */
+}
+
+.format-slider-btn {
+    position: absolute;
+    top: 3px;
+    left: 4px;
+    width: 26px;
+    height: 26px;
+    background-color: #ffffff;
+    border-radius: 50%;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.25);
+}
+
+.format-switch.is-old .format-slider-btn {
+    transform: translateX(30px); /* 圓形圖案平滑移向右邊 */
+}
 		
     </style>
 
@@ -1660,6 +1718,23 @@ input[type="text"]:not(.no-modal-editor):hover {
                                 </h3>
                                 <div class="space-y-10">
                                     <div>
+
+
+<!-- 新舊題型切換撥桿（預設新題型） -->
+<div>
+    <label class="block text-xl font-semibold text-gray-700 mb-3">
+        <i class="fas fa-layer-group mr-3 text-green-600"></i>題型選擇
+    </label>
+    <div class="format-toggle-container">
+        <span id="labelNewFormat" class="format-toggle-label active">新</span>
+        <div id="practicalFormatSwitch" class="format-switch" onclick="togglePracticalFormat()" title="點擊切換新/舊題型模式">
+            <div class="format-slider-btn"></div>
+        </div>
+        <span id="labelOldFormat" class="format-toggle-label">舊</span>
+    </div>
+</div>
+
+										
                                         <label for="topicSelect" class="block text-xl font-semibold text-gray-700 mb-6">
                                             <i class="fas fa-tag mr-3"></i>主題選擇
                                         </label>
@@ -3882,6 +3957,27 @@ function toggleWritingAnswer(button, typeColor) {
 }
 
 
+		// 實用文格式模式：預設 'new'（新題型），點擊切換為 'old'（舊題型）
+var currentPracticalFormat = 'new';
+
+function togglePracticalFormat() {
+    const toggle = document.getElementById('practicalFormatSwitch');
+    const labelNew = document.getElementById('labelNewFormat');
+    const labelOld = document.getElementById('labelOldFormat');
+    
+    if (currentPracticalFormat === 'new') {
+        currentPracticalFormat = 'old';
+        toggle.classList.add('is-old');
+        labelNew.classList.remove('active');
+        labelOld.classList.add('active');
+    } else {
+        currentPracticalFormat = 'new';
+        toggle.classList.remove('is-old');
+        labelNew.classList.add('active');
+        labelOld.classList.remove('active');
+    }
+}
+
 // ==========================================
 // === [修訂] 實用文生成函式 (加入 Token) ===
 // ==========================================
@@ -3894,7 +3990,7 @@ async function generatePracticalQuestions() {
         if (!customTopic) { showError('請輸入自訂主題'); hideProgress(); return; }
         topicInstruction = `請以「${customTopic}」為主題。`;
     } else if (selectedTopic === 'random') {
-        topicInstruction = '請隨機選擇一個主題...'; 
+        topicInstruction = '請隨機選擇一個貼近香港中學生的生活、校園或社會主題。'; 
     } else {
         topicInstruction = `請以「${selectedTopic}」為主題。`;
     }
@@ -3902,7 +3998,7 @@ async function generatePracticalQuestions() {
     let allQuestions = [];
     for (const practicalType of selectedPracticalTypes) {
         const quantityInput = document.getElementById(`quantity-${practicalType}`);
-        const quantity = parseInt(quantityInput.value);
+        const quantity = parseInt(quantityInput.value) || 1;
         let customRefData = null;
 
         if (practicalType === '自訂') {
@@ -3925,10 +4021,10 @@ async function generatePracticalQuestions() {
                     data: {
                         practicalType: practicalType,
                         topicInstruction: topicInstruction,
-                        customRefData: customRefData
+                        customRefData: customRefData,
+                        examFormat: currentPracticalFormat // ★ 傳入當前選定模式（new/old）
                     },
-                    // ★★★ 修正處：補上模型參數 ★★★
-                    model: typeof MODEL !== 'undefined' ? MODEL : 'deepseek',
+                    model: typeof PRACTICAL_MODEL !== 'undefined' ? PRACTICAL_MODEL : 'deepseek',
                     temperature: 0.7
                 };
 
@@ -3949,17 +4045,16 @@ async function generatePracticalQuestions() {
 
             } catch (error) {
                 console.error(error);
-                if (error.message.includes("Login Required")) {
+                if (error.message && error.message.includes("Login Required")) {
                     hideProgress();
                     return;
                 }
-                allQuestions.push({ question: '生成失敗', type: practicalType });
+                allQuestions.push({ question: '生成失敗，請稍後重試', material1: '', material2: '', type: practicalType });
             }
         }
     }
     displayPracticalQuestions(allQuestions);
 }
-
 
         // API 調用函數
 // API 調用函數 (GAS 代理 + 美化 Log 版)
