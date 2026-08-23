@@ -8244,6 +8244,58 @@ button, .btn, .anime-card, .side-menu-item {
     padding-bottom: 80px; /* 給予選單展開的緩衝空間 */
 }
 
+
+/* === 新增：片段寫作模式選擇區 (莫蘭迪風格) === */
+.mode-selection-area {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px dashed #dcdfe6; /* 莫蘭迪淺灰虛線分隔 */
+    width: 100%;
+}
+
+.mode-selection-label {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+    color: #5e7067; /* 莫蘭迪深灰綠 */
+    font-weight: bold;
+}
+
+/* === 片段寫作模式切換按鈕 (非莫蘭迪色) === */
+.snippet-mode-btn {
+    background-color: #fdfdfd;
+    color: #888;
+    border: 2px solid #ddd;
+    padding: 6px 14px;
+    border-radius: 20px; /* 圓潤膠囊狀 */
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-family: 'Noto Serif TC', serif;
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    outline: none;
+}
+
+.snippet-mode-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    transition: all 0.3s ease;
+}
+
+/* 啟動狀態：鮮明科技藍 (#4A90E2)，不使用莫蘭迪色 */
+.snippet-mode-btn.active {
+    background-color: #4A90E2;
+    color: white;
+    border-color: #4A90E2;
+    box-shadow: 0 4px 10px rgba(74, 144, 226, 0.4);
+    transform: translateY(-2px);
+}
+
 	
 </style>
 
@@ -11537,7 +11589,7 @@ refreshBtn.addEventListener('click', fetchHitokoto);
         </div>
         
         <!-- ... 舊有代碼保持不變 ... -->
-        <div id="topicSelectionArea">
+    <div id="topicSelectionArea">
             <label>選擇題目方式：</label>
             <div class="topic-buttons-container">
                 <button class="btn btn-generate" onclick="generateTopic(this)">
@@ -11548,6 +11600,8 @@ refreshBtn.addEventListener('click', fetchHitokoto);
                 </button>
             </div>
             <div id="customTopicArea" style="display: none; margin-top: 15px;"></div>
+            
+    
         </div>
 
         <div id="topicResult"></div>
@@ -11556,7 +11610,7 @@ refreshBtn.addEventListener('click', fetchHitokoto);
             <textarea id="narrativeElements" rows="5" placeholder="例如：故事背景、人物設定、取材等..."></textarea>
         </div>
         
-        <div id="writingArea">
+       <div id="writingArea">
             <div id="outlineTableArea"></div>
             <div id="outlineButtons" style="display: none;" class="action-buttons-container">
                 <button class="btn-icon-action btn-save-icon" onclick="saveOutline()" title="儲存大綱">
@@ -11566,7 +11620,23 @@ refreshBtn.addEventListener('click', fetchHitokoto);
                     <i class="fas fa-trash-alt"></i>
                 </button>
             </div>
-            <textarea id="writingContent" rows="10" placeholder="請在此輸入您的文章..." style="display: none;"></textarea>
+
+
+ <!-- === 新增：片段寫作切換按鈕 (緊貼在輸入框上方靠右) === -->
+            <div id="snippetModeHeader" style="display: none; justify-content: flex-end; margin-bottom: 8px; width: 100%;">
+                <button id="snippetModeBtn" class="snippet-mode-btn" onclick="toggleSnippetMode()" title="切換至「片段寫作」模式 (專注細節刻劃，豁免字數限制)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m-3-3h6"></path>
+                    </svg>
+                    <span>片段寫作</span>
+                </button>
+            </div>
+
+		   
+            
+           
+
+            <textarea id="writingContent" rows="10" placeholder="請在此輸入您的文章或片段..." style="display: none;"></textarea>
             
             <label for="writingTone" id="writingToneLabel" class="tone-selector-label" style="display: none;">選擇點評語氣：</label>
             <select id="writingTone" style="display: none;">
@@ -13192,19 +13262,28 @@ function triggerTopicAnalysisOCR() {
     if (ocrWindow) ocrWindow.focus();
 }
 
-// 切換寫作類型
-// 切換寫作類型
+// === 片段寫作狀態與切換函數 ===
+let isSnippetModeActive = false;
+
+function toggleSnippetMode() {
+    const btn = document.getElementById('snippetModeBtn');
+    isSnippetModeActive = !isSnippetModeActive;
+    
+    if (isSnippetModeActive) {
+        btn.classList.add('active');
+        if (navigator.vibrate) navigator.vibrate(20);
+    } else {
+        btn.classList.remove('active');
+        if (navigator.vibrate) navigator.vibrate(10);
+    }
+}
+
+// === 完整函數：切換寫作類型 ===
 function toggleWritingType() {
     hideAllSaveHtmlButtons();
     clearAllTopicStates();
     const writingType = document.getElementById("writingType").value;
 
-    // ==================================================
-    // === 新增：處理「扣題分析」選項，直接開新分頁 ===
-    // ==================================================
-
-
-	// === 新增：處理「扣題分析」選項，彈出專用視窗 ===
     if (writingType === "topicAnalysis") {
         document.getElementById("topicAnalysisModal").style.display = "flex";
         document.getElementById("writingType").value = ""; 
@@ -13212,33 +13291,22 @@ function toggleWritingType() {
         return; 
     }
 
-
-  // ==================================================
-    // === 新增：處理「大綱點評(Gemini)」選項，彈出視窗 ===
-    // ==================================================
     if (writingType === "geminiOutline") {
         document.getElementById("geminiOutlineModal").style.display = "flex";
         document.getElementById("writingType").value = ""; 
         document.getElementById("writingContentContainer").style.display = "none";
-        generateGeminiOutlineTable(); // 初始化大綱表格
+        generateGeminiOutlineTable(); 
         return; 
     }
 	
-  // ==================================================
-    // === 新增：處理「文章點評(Gemini)」選項，彈出視窗 ===
-    // ==================================================
     if (writingType === "geminiReview") {
         document.getElementById("geminiReviewModal").style.display = "flex";
         document.getElementById("writingType").value = ""; 
         document.getElementById("writingContentContainer").style.display = "none";
         return; 
     }
-    // ==================================================
-    // ==================================================
 
     const contentContainer = document.getElementById("writingContentContainer");
-
-    // 獲取所有相關區域
     const writingGuideArea = document.getElementById("writingGuideArea");
     const outlineStructureArea = document.getElementById("outlineStructureArea");
     const narrativeElementsArea = document.getElementById("narrativeElementsArea");
@@ -13246,7 +13314,6 @@ function toggleWritingType() {
     const writingArea = document.getElementById("writingArea");
     const submitWritingBtn = document.getElementById("submitWritingBtn");
 
-    // 重置狀態
     document.getElementById("writingGradingResult").innerHTML = "";
     document.getElementById("writingChatHistory").style.display = "none";
 
@@ -13257,16 +13324,18 @@ function toggleWritingType() {
         return;
     }
 
-    // 預設隱藏所有特定區域
+    // 預設隱藏所有區域
     writingGuideArea.style.display = "none";
     outlineStructureArea.style.display = "none";
     narrativeElementsArea.style.display = "none";
     topicSelectionArea.style.display = "none"; 
     writingArea.style.display = "none"; 
+    
+    // ★ 預設隱藏輸入框上方的片段按鈕
+    document.getElementById("snippetModeHeader").style.display = "none"; 
 
     if (writingType === "guide") {
         writingGuideArea.style.display = "block";
-        // 解題指引不使用通用的寫作區域
     } 
     else if (writingType === "大綱") {
         writingArea.style.display = "block";
@@ -13300,10 +13369,12 @@ function toggleWritingType() {
         document.getElementById("reviewScopeArea").style.display = "none";
         submitWritingBtn.style.display = "block";
     } 
-    else { // 片段描寫
+    else { 
+        // 片段描寫 (文章點評) - 顯示文章輸入區與片段切換按鈕
         writingArea.style.display = "block";
         topicSelectionArea.style.display = "block";
         document.getElementById("writingContent").style.display = "block";
+        document.getElementById("snippetModeHeader").style.display = "flex"; // ★ 顯示 SVG 膠囊按鈕
         
         document.getElementById("outlineTableArea").style.display = "none";
         document.getElementById("writingToneLabel").style.display = "block";
@@ -15273,6 +15344,7 @@ await saveToHistory("敘事抒情", "解題指引", inputTopic, `題目：${inpu
 // ==========================================
 // === 敘事抒情提交函式 (大綱模式只存題目) ===
 // ==========================================
+// === 替換完整函數：submitWriting ===
 async function submitWriting() {
     console.log("🖱️ [系統] 提交按鈕被點擊了！");
     const submitBtn = document.getElementById('submitWritingBtn');
@@ -15303,7 +15375,6 @@ async function submitWriting() {
         const tone = document.getElementById("writingTone").value;
         let content = "";
 
-        // === 模式一：大綱點評 ===
         if (writingType === "大綱") {
             const structure = document.getElementById("structure").value;
             const parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
@@ -15319,7 +15390,7 @@ async function submitWriting() {
                 return { part, focus, plot };
             });
 
-           showLoading("陳SIR 正在點評大綱...");
+            showLoading("陳SIR 正在點評大綱...");
             const joystickPromise = startJoystickUI();
             
             const payload = {
@@ -15341,11 +15412,10 @@ async function submitWriting() {
             displayOutlineComment(response, outlineData);
             
             saveToHistory("敘事抒情", "大綱點評", topic, `題目：${topic}`, document.getElementById("resultCanvasBody").innerHTML);
-			appendGoToSubmitButton(); // <--- ★ 加入這行
+            appendGoToSubmitButton(); 
 
         } 
-        // === 模式二：敘事物象 ===
-      else if (writingType === "敘事物象") {
+        else if (writingType === "敘事物象") {
             content = document.getElementById("narrativeElements").value.trim();
             showLoading("陳SIR 正在生成物象...");
             const joystickPromise = startJoystickUI();
@@ -15364,22 +15434,21 @@ async function submitWriting() {
             currentContextContent = `題目：${topic}\n背景：${content}`;
             currentContextReview = response;
 
-           const elements = response.split("\n").map(item => item.replace(/^\d+\.|^-\s*/, '').replace(/[.…。]/g, '').trim()).filter(item => item);
+            const elements = response.split("\n").map(item => item.replace(/^\d+\.|^-\s*/, '').replace(/[.…。]/g, '').trim()).filter(item => item);
             let elementsHTML = `<div class="rewrite-explanation-container"><div class="rewrite-explanation-card"><h3>生成的物象（${elements.length}項）：</h3><div class="vocab-grid">`;
             elements.forEach(element => { elementsHTML += `<div class="vocab-item">${element}</div>`; });
-          elementsHTML += `</div></div></div>`;
+            elementsHTML += `</div></div></div>`;
             elementsHTML += getCanvasChatHTML('narrative_elements');
  
             await joystickPromise;
             openResultCanvas("生成的敘事物象");
             document.getElementById("resultCanvasBody").innerHTML = elementsHTML;
             await saveToHistory("敘事抒情", "敘事物象", topic, `題目：${topic}\n取材：${content}`, elementsHTML);
-			appendGoToSubmitButton(); // <--- ★ 加入這行
+            appendGoToSubmitButton();
 
         } 
-        // === 模式三：片段描寫 ===
         else { 
-            console.log("📝 [系統] 進入敘事抒情全文模式，準備呼叫 RAG...");
+            console.log("📝 [系統] 進入敘事抒情全文/片段模式，準備呼叫 RAG...");
 
             content = document.getElementById("writingContent").value.trim();
             if (!content) { alert("請先輸入寫作內容"); submitBtn.disabled = false; return; }
@@ -15387,16 +15456,11 @@ async function submitWriting() {
             const selectedScopes = Array.from(document.querySelectorAll('input[name="reviewScope"]:checked')).map(cb => cb.value);
             const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-         showLoading(`${currentReviewerName} 正在點評...`);
+            showLoading(`${currentReviewerName} 正在點評...`);
             const joystickPromise = startJoystickUI();
  
-            // RAG 邏輯
-         const ragReference = await searchSimilarEssays(topic, content, 'narrative');
+            const ragReference = await searchSimilarEssays(topic, content, 'narrative');
             
-            // ★★★ 修正處：移除了前端獲取 narrativeReviewerPreferences 的邏輯 ★★★
-            // 因為這些資料現在位於後端，我們只需要傳送 reviewer ID 即可。
-
-            // ★★★ 修正處：移除了 ${specificPreference} 變數 ★★★
             const finalPromptContent = `
 【系統強制指令 (System Instruction)】
 1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出（點評、建議、改寫）都必須轉換為繁體中文（香港習慣）。
@@ -15411,7 +15475,6 @@ ${ragReference ? ragReference : "(本次未檢索到參考範文)"}
 ${content}
 `;
 
-            // 建構 Payload
             const payload = {
                 action: "grade_narrative",
                 data: {
@@ -15421,45 +15484,51 @@ ${content}
                     focus: localStorage.getItem("currentFocus"), 
                     plot: localStorage.getItem("currentPlot"),   
                     content: finalPromptContent, 
-                    reviewer: document.getElementById('writingReviewer').value, // 後端會根據此 ID 讀取對應的 Preference
+                    reviewer: document.getElementById('writingReviewer').value, 
                     tone: tone,
-                    selectedScopes: selectedScopes
+                    selectedScopes: selectedScopes,
+                    isSnippetMode: isSnippetModeActive // ★ 傳遞給後端的獨立模式開關
                 }
             };
 
-if (isFullReview) {
-            let originalApiResponse = "";
-            let llama3ApiResponse = null;
-             
-           try {
-                // 1. 立即啟動主模型請求 (Promise A) - 具備自動重試與自我修復功能
-                const promiseA = callGradingAPIWithRetry(callAPI, payload, content.length, 5);
+            if (isFullReview) {
+                let originalApiResponse = "";
+                let llama3ApiResponse = null;
+                 
+                try {
+                    const promiseA = callGradingAPIWithRetry(callAPI, payload, content.length, 5);
+                    const promiseB = new Promise(resolve => setTimeout(resolve, 1500))
+                        .then(() => callLlama3API(payload, 0))
+                        .catch(err => {
+                            console.warn("輔助評分連線失敗 (已忽略):", err);
+                            return null; 
+                        });
+                 
+                    const [resA, resB] = await Promise.all([promiseA, promiseB]);
+                    
+                    originalApiResponse = resA;
+                    llama3ApiResponse = resB;
+                 
+                } catch (e) {
+                    throw e;
+                }
                 
-                // 2. 輔助模型請求 (Promise B) - 啟動雙模型驗證 (僅觸發一次，不作重試)
-                const promiseB = new Promise(resolve => setTimeout(resolve, 1500))
-                    .then(() => callLlama3API(payload, 0))
-                    .catch(err => {
-                        console.warn("輔助評分連線失敗 (已忽略，系統將自動降級為單模型模式):", err);
-                        return null; 
-                    });
-             
-                // 3. 同時等待兩個模型完成
-                const [resA, resB] = await Promise.all([promiseA, promiseB]);
-                
-                originalApiResponse = resA;
-                llama3ApiResponse = resB;
-             
-            } catch (e) {
-                // 如果主模型 (callAPI) 徹底失敗，Promise.all 會來到這裡並中斷流程
-                throw e;
-            }
-            
-            currentContextContent = content;
-            currentContextReview = originalApiResponse;
+                currentContextContent = content;
+                currentContextReview = originalApiResponse;
 
-            await joystickPromise;
-            await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
-            
+                await joystickPromise;
+                
+                // ★ 前端豁免字數懲罰機制
+                // 將全域變數 isSnippetModeActive 傳入供後續分析函數讀取，或直接在下面改寫字數壓分
+                // 原本的字數懲罰移至 displayFullCommentWithGrading 內處理，
+                // 但為了確保相容，我們將 window 的變數設定好
+                window._tempSnippetModeOverride = isSnippetModeActive;
+
+                await displayFullCommentWithGrading('writingGradingResult', originalApiResponse, llama3ApiResponse, 'narrative', content);
+                
+                // 恢復全域變數
+                window._tempSnippetModeOverride = false;
+                
             } else {
                 const response = await callAPI(payload, 0);
                 
@@ -15479,8 +15548,11 @@ if (isFullReview) {
                 document.getElementById("resultCanvasBody").innerHTML = initialReviewHTML;
                 
                 const htmlToSave = captureContainerHTML('resultCanvasBody'); 
-                saveToHistory("敘事抒情", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
-				appendGoToSubmitButton(); // <--- ★ 加入這行
+                
+                // 歷史紀錄標題區分
+                const historyType = isSnippetModeActive ? "片段點評" : "文章點評";
+                saveToHistory("敘事抒情", historyType, topic || "無題目", `題目：${topic}\n\n內容：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
+                appendGoToSubmitButton(); 
             }
         }
     } catch (error) {
@@ -18089,17 +18161,22 @@ async function displayFullCommentWithGrading(containerId, originalApiResponse, l
         scoresForDisplay = applyFinalConsistencyRule(scoresForDisplay);
         
         // 7.2 字數限制規則 (Cap Rule)
+ // 7.2 字數限制規則 (Cap Rule)
         let contentCap = 10;
         let structureCap = 10;
         let expressionCap = 10;
-        if (wordCount < 500) {
-            contentCap = 2; structureCap = 2; expressionCap = 6;
-        } else if (wordCount < 650) {
-            contentCap = 4; structureCap = 5; expressionCap = 6;
-        } else if (wordCount < 800) {
-            contentCap = 5; structureCap = 5; // 表達不設限
-        } else if (wordCount < 1000) {
-            contentCap = 6; expressionCap = 7; structureCap = 6;
+        
+        // ★ 核心判斷：如果是片段模式，徹底豁免字數懲罰
+        if (!window._tempSnippetModeOverride) {
+            if (wordCount < 500) {
+                contentCap = 2; structureCap = 2; expressionCap = 6;
+            } else if (wordCount < 650) {
+                contentCap = 4; structureCap = 5; expressionCap = 6;
+            } else if (wordCount < 800) {
+                contentCap = 5; structureCap = 5; // 表達不設限
+            } else if (wordCount < 1000) {
+                contentCap = 6; expressionCap = 7; structureCap = 6;
+            }
         }
  
         // 執行壓分
