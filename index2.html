@@ -14162,56 +14162,59 @@ async function submitArgumentOutline() {
 }
 
 // 輔助函式，用於顯示大綱的評論 (議論文 - 終極自動追蹤容錯版)
-// 2. [核心修復] 議論文大綱解析與顯示函式 (依賴括號精準定位)
+// 2. [核心修復] 議論文大綱解析與顯示函式 (終極高容錯版)
 function displayArgumentOutlineComment(response, inputData) {
     console.log("[Argument Outline] Raw Response:", response);
 
-    // --- A. 切割回應區塊 ---
-    const sections = response.split(/===\s*(.+?)\s*===/).filter(s => s.trim());
+    // --- A. 高容錯切割區塊 ---
+    const sections = response.split(/={2,}\s*(.+?)\s*={2,}/).filter(s => s.trim());
     
-    let commentPart = "";
-    let rewritePart = "";
+    let commentPart = response; 
+    let rewritePart = response;
     let explanationPart = "";
 
-    // 尋找對應的內容區塊
     for (let i = 0; i < sections.length; i++) {
         if (sections[i].includes("點評及建議")) commentPart = sections[i + 1] || "";
         if (sections[i].includes("改寫後的大綱")) rewritePart = sections[i + 1] || "";
         if (sections[i].includes("改寫說明")) explanationPart = sections[i + 1] || "";
     }
 
-    // --- B. 解析「點評及建議」 ---
+    // --- B. 智能挖掘解析「點評及建議」 ---
     const comments = {};
-    const commentRegex = /\[(.+?)\][\s\S]*?點評\s*[：:]\s*([\s\S]+?)(?=\s*建議\s*[：:]|\s*\[|$)/g;
-    const suggestionRegex = /\[(.+?)\][\s\S]*?建議\s*[：:]\s*([\s\S]+?)(?=\s*\[|$)/g;
+    const commentBlocks = commentPart.split(/(?=\[.*?\]|【.*?】|\*\*\[.*?\]\*\*)/);
     
-    let match;
-    while ((match = commentRegex.exec(commentPart)) !== null) {
-        const part = match[1].trim();
-        comments[part] = comments[part] || {};
-        comments[part].comment = match[2].trim();
-    }
-    while ((match = suggestionRegex.exec(commentPart)) !== null) {
-        const part = match[1].trim();
-        comments[part] = comments[part] || {};
-        comments[part].suggestion = match[2].trim();
-    }
+    commentBlocks.forEach(block => {
+        const titleMatch = block.match(/(?:\[|【|\*\*\[)(.*?)(?:\]|】|\]\*\*)/);
+        if (!titleMatch) return;
+        const part = titleMatch[1].trim();
 
-    // --- C. 解析「改寫後的大綱」 ---
+        const commentMatch = block.match(/點評\s*[:：]?\s*([\s\S]*?)(?=(?:\*\*|)\s*建議\s*[:：]?|$)/);
+        const suggestionMatch = block.match(/建議\s*[:：]?\s*([\s\S]*?)$/);
+
+        comments[part] = {
+            comment: commentMatch ? commentMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : '',
+            suggestion: suggestionMatch ? suggestionMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : ''
+        };
+    });
+
+    // --- C. 智能挖掘解析「改寫後的大綱」 ---
     const rewrites = {};
-    const pointRegex = /\[(.+?)\][\s\S]*?論點\s*[：:]\s*([\s\S]+?)(?=\s*論據及論證\s*[：:]|\s*\[|$)/g;
-    const evidenceRegex = /\[(.+?)\][\s\S]*?論據及論證\s*[：:]\s*([\s\S]+?)(?=\s*\[|$)/g;
+    const rewriteBlocks = rewritePart.split(/(?=\[.*?\]|【.*?】|\*\*\[.*?\]\*\*)/);
     
-    while ((match = pointRegex.exec(rewritePart)) !== null) {
-        const part = match[1].trim();
-        rewrites[part] = rewrites[part] || {};
-        rewrites[part].point = match[2].trim();
-    }
-    while ((match = evidenceRegex.exec(rewritePart)) !== null) {
-        const part = match[1].trim();
-        rewrites[part] = rewrites[part] || {};
-        rewrites[part].evidence = match[2].trim();
-    }
+    rewriteBlocks.forEach(block => {
+        const titleMatch = block.match(/(?:\[|【|\*\*\[)(.*?)(?:\]|】|\]\*\*)/);
+        if (!titleMatch) return;
+        const part = titleMatch[1].trim();
+
+        // 容忍 "論據及論證" 或單寫 "論據"
+        const pointMatch = block.match(/論點\s*[:：]?\s*([\s\S]*?)(?=(?:\*\*|)\s*論據(?:及論證)?\s*[:：]?|$)/);
+        const evidenceMatch = block.match(/論據(?:及論證)?\s*[:：]?\s*([\s\S]*?)$/);
+
+        rewrites[part] = {
+            point: pointMatch ? pointMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : '',
+            evidence: evidenceMatch ? evidenceMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : ''
+        };
+    });
 
     // --- D. 生成 HTML 表格 1 (原稿 + 點評) ---
     const cellStyle = "border:1px solid #ccc; padding:10px; vertical-align:top; line-height:1.6;";
@@ -14237,7 +14240,7 @@ function displayArgumentOutlineComment(response, inputData) {
                 <td style="${cellStyle} background-color:#f9f9f9;"><strong>${item.part}</strong></td>
                 <td style="${cellStyle}">${item.point || "(無)"}</td>
                 <td style="${cellStyle}">${item.evidence || "(無)"}</td>
-                <td style="${cellStyle}">${(data.comment || "<span style='color:red;'>未能解析</span>").replace(/\n/g, '<br>')}</td>
+                <td style="${cellStyle}">${(data.comment || "<span style='color:#d69a92;'>未能解析</span>").replace(/\n/g, '<br>')}</td>
                 <td style="${cellStyle}">${(data.suggestion || "-").replace(/\n/g, '<br>')}</td>
             </tr>`;
     });
@@ -14279,7 +14282,6 @@ function displayArgumentOutlineComment(response, inputData) {
     openResultCanvas("議論文大綱點評");
     document.getElementById("resultCanvasBody").innerHTML = finalHTML;
 }
-
 	
 
 // 【新增】用於儲存解題指引對話的上下文
@@ -15441,68 +15443,80 @@ if (isFullReview) {
 }
 
 
-// 輔助函式，用於顯示大綱的評論 (敘事抒情 - 終極容錯版)
-// 輔助函式，用於顯示大綱的評論 (敘事抒情 - V3 修復版)
+// 輔助函式，用於顯示大綱的評論 (敘事抒情 - 終極高容錯版)
 function displayOutlineComment(response, content) {
-    console.log("[Narrative Outline] Raw Response:", response); // LOG raw response
+    console.log("[Narrative Outline] Raw Response:", response);
 
-    const sections = response.split(/=== (.+?) ===/).filter(s => s.trim());
-    const commentIndex = sections.indexOf("點評及建議");
-    const rewriteIndex = sections.indexOf("改寫後的大綱");
-    const explanationIndex = sections.indexOf("改寫說明");
-    const commentPart = commentIndex !== -1 ? sections[commentIndex + 1] : "";
-    const rewritePart = rewriteIndex !== -1 ? sections[rewriteIndex + 1] : "";
-    const explanationPart = explanationIndex !== -1 ? sections[explanationIndex + 1].trim() : "";
+    // --- A. 高容錯切割區塊 ---
+    // 不再依賴嚴格的 === 空格，容忍各種長度的 = 號與星號
+    const sections = response.split(/={2,}\s*(.+?)\s*={2,}/).filter(s => s.trim());
+    
+    let commentPart = response; // 預設使用全文，以防 AI 忘記寫標題
+    let rewritePart = response;
+    let explanationPart = "";
 
-    function parseCommentPart(commentPart) {
+    for (let i = 0; i < sections.length; i++) {
+        if (sections[i].includes("點評及建議")) commentPart = sections[i + 1] || "";
+        if (sections[i].includes("改寫後的大綱")) rewritePart = sections[i + 1] || "";
+        if (sections[i].includes("改寫說明")) explanationPart = sections[i + 1] || "";
+    }
+
+    // --- B. 智能挖掘解析法 ---
+    function parseCommentPart(text) {
         const comments = {};
-        // 增強 Regex：容許 Markdown 加粗 (**), 容許英文冒號 (:)
-        const regex = /\[(.+?)\]\s*(?:\*\*|)\s*點評\s*(?:\*\*|)\s*[：:]\s*(.+?)(?=\s*(?:\*\*|)\s*建議\s*(?:\*\*|)\s*[：:]|\s*\[|$)/gs;
-        const suggestionRegex = /\[(.+?)\]\s*.*?\s*(?:\*\*|)\s*建議\s*(?:\*\*|)\s*[：:]\s*(.+?)(?=\s*\[|$)/gs;
-        let match;
-        while ((match = regex.exec(commentPart)) !== null) {
-            const part = match[1];
-            comments[part] = comments[part] || {};
-            comments[part].comment = match[2].trim();
-        }
-        while ((match = suggestionRegex.exec(commentPart)) !== null) {
-            const part = match[1];
-            comments[part] = comments[part] || {};
-            comments[part].suggestion = match[2].trim();
-        }
+        // 將文本按 [段落名] 或 【段落名】 或 **[段落名]** 切割成塊
+        const blocks = text.split(/(?=\[.*?\]|【.*?】|\*\*\[.*?\]\*\*)/);
+        
+        blocks.forEach(block => {
+            const titleMatch = block.match(/(?:\[|【|\*\*\[)(.*?)(?:\]|】|\]\*\*)/);
+            if (!titleMatch) return;
+            const part = titleMatch[1].trim();
+
+            // 容忍全/半形冒號、無冒號、帶有星號的情況
+            const commentMatch = block.match(/點評\s*[:：]?\s*([\s\S]*?)(?=(?:\*\*|)\s*建議\s*[:：]?|$)/);
+            const suggestionMatch = block.match(/建議\s*[:：]?\s*([\s\S]*?)$/);
+
+            comments[part] = {
+                comment: commentMatch ? commentMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : '',
+                suggestion: suggestionMatch ? suggestionMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : ''
+            };
+        });
         return comments;
     }
 
-    function parseRewritePart(rewritePart) {
+    function parseRewritePart(text) {
         const rewrites = {};
-        const regex = /\[(.+?)\]\s*(?:\*\*|)\s*結構段重點\s*(?:\*\*|)\s*[：:]\s*(.+?)(?=\s*(?:\*\*|)\s*情節大要\s*(?:\*\*|)\s*[：:]|\s*\[|$)/gs;
-        const plotRegex = /\[(.+?)\]\s*.*?\s*(?:\*\*|)\s*情節大要\s*(?:\*\*|)\s*[：:]\s*(.+?)(?=\s*\[|$)/gs;
-        let match;
-        while ((match = regex.exec(rewritePart)) !== null) {
-            const part = match[1];
-            rewrites[part] = rewrites[part] || {};
-            rewrites[part].focus = match[2].trim();
-        }
-        while ((match = plotRegex.exec(rewritePart)) !== null) {
-            const part = match[1];
-            rewrites[part] = rewrites[part] || {};
-            rewrites[part].plot = match[2].trim();
-        }
+        const blocks = text.split(/(?=\[.*?\]|【.*?】|\*\*\[.*?\]\*\*)/);
+        
+        blocks.forEach(block => {
+            const titleMatch = block.match(/(?:\[|【|\*\*\[)(.*?)(?:\]|】|\]\*\*)/);
+            if (!titleMatch) return;
+            const part = titleMatch[1].trim();
+
+            const focusMatch = block.match(/結構段重點\s*[:：]?\s*([\s\S]*?)(?=(?:\*\*|)\s*情節大要\s*[:：]?|$)/);
+            const plotMatch = block.match(/情節大要\s*[:：]?\s*([\s\S]*?)$/);
+
+            rewrites[part] = {
+                focus: focusMatch ? focusMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : '',
+                plot: plotMatch ? plotMatch[1].trim().replace(/^\*\*|\*\*$/g, '') : ''
+            };
+        });
         return rewrites;
     }
     
     const comments = parseCommentPart(commentPart);
     const rewrites = parseRewritePart(rewritePart);
 
+    // --- C. 生成表格 ---
     let commentTableHTML = `<h3>陳SIR點評及建議：</h3><div class="table-container"><table id="commentTable"><tr><th style="width:10%;">部份</th><th style="width:15%;">結構段重點</th><th style="width:20%;">情節大要</th><th style="width:27.5%;">點評</th><th style="width:27.5%;">建議</th></tr>`;
     
     content.forEach(item => {
-        // 嘗試模糊匹配 Key
+        // 模糊匹配 Key，解決 AI 亂改段落名的問題 (如把 "結構段一" 寫成 "段落一")
         const partKey = Object.keys(comments).find(k => k.includes(item.part) || item.part.includes(k)) || item.part;
-        const comment = comments[partKey]?.comment || "<span style='color:red;'>未能解析 (AI未按格式輸出)</span>";
+        const comment = comments[partKey]?.comment || "<span style='color:#d69a92;'>未能解析 (AI未按格式輸出)</span>";
         const suggestion = comments[partKey]?.suggestion || "-";
         
-        commentTableHTML += `<tr><td>${item.part}</td><td>${item.focus}</td><td>${item.plot}</td><td>${comment}</td><td>${suggestion}</td></tr>`;
+        commentTableHTML += `<tr><td>${item.part}</td><td>${item.focus}</td><td>${item.plot}</td><td>${comment.replace(/\n/g, '<br>')}</td><td>${suggestion.replace(/\n/g, '<br>')}</td></tr>`;
     });
     commentTableHTML += "</table></div>";
 
@@ -15511,10 +15525,11 @@ function displayOutlineComment(response, content) {
     content.forEach(item => {
         const partKey = Object.keys(rewrites).find(k => k.includes(item.part) || item.part.includes(k)) || item.part;
         const rewrite = rewrites[partKey] || { focus: "...", plot: "..." };
-        rewriteTableHTML += `<tr><td>${item.part}</td><td>${rewrite.focus || "..."}</td><td>${rewrite.plot || "..."}</td></tr>`;
+        rewriteTableHTML += `<tr><td>${item.part}</td><td>${(rewrite.focus || "...").replace(/\n/g, '<br>')}</td><td>${(rewrite.plot || "...").replace(/\n/g, '<br>')}</td></tr>`;
     });
     rewriteTableHTML += "</table></div>";
 
+    // --- D. 處理改寫說明 ---
     let explanationHTML = '';
     if (explanationPart) {
         const points = explanationPart.split(/\s*(?=\d\.\s*)/).filter(p => p.trim());
@@ -15522,11 +15537,9 @@ function displayOutlineComment(response, content) {
         points.forEach(point => {
             const match = point.match(/^(\d)\.\s*(.*)$/s);
             if (match) {
-                const number = match[1];
-                const text = match[2];
-                explanationHTML += `<div class="explanation-point"><div class="explanation-number">${number}</div><div class="explanation-text">${text}</div></div>`;
+                explanationHTML += `<div class="explanation-point"><div class="explanation-number">${match[1]}</div><div class="explanation-text">${match[2].replace(/\n/g, '<br>')}</div></div>`;
             } else {
-                 explanationHTML += `<div class="explanation-text">${point}</div>`;
+                 explanationHTML += `<div class="explanation-text">${point.replace(/\n/g, '<br>')}</div>`;
             }
         });
         explanationHTML += `</div></div>`;
