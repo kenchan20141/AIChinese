@@ -11469,8 +11469,10 @@ refreshBtn.addEventListener('click', fetchHitokoto);
  
             
             <!-- 第二群組：神思 Gemini (莫蘭迪紅) -->
+          <!-- 第二群組：神思 Gemini (莫蘭迪紅) -->
             <optgroup label="── 神思 Gemini ──" style="color: #d69a92; background-color: #fdf5f4; font-weight: 900;">
                 <option value="topicAnalysis" style="color: #455a64; background-color: #fff; font-weight: bold;">扣題分析</option>
+                <option value="geminiOutline" style="color: #455a64; background-color: #fff; font-weight: bold;">大綱點評</option>
                 <option value="geminiReview" style="color: #455a64; background-color: #fff; font-weight: bold;">文章點評</option>
             </optgroup>
         </select>
@@ -13197,6 +13199,19 @@ function toggleWritingType() {
         document.getElementById("writingContentContainer").style.display = "none";
         return; 
     }
+
+
+  // ==================================================
+    // === 新增：處理「大綱點評(Gemini)」選項，彈出視窗 ===
+    // ==================================================
+    if (writingType === "geminiOutline") {
+        document.getElementById("geminiOutlineModal").style.display = "flex";
+        document.getElementById("writingType").value = ""; 
+        document.getElementById("writingContentContainer").style.display = "none";
+        generateGeminiOutlineTable(); // 初始化大綱表格
+        return; 
+    }
+	
   // ==================================================
     // === 新增：處理「文章點評(Gemini)」選項，彈出視窗 ===
     // ==================================================
@@ -27415,6 +27430,329 @@ function submitToGeminiReview() {
 }
 
 
+
+// ==================================================
+// === [新增] Gemini 專用大綱點評視窗處理邏輯 ===
+// ==================================================
+
+// 1. 卡片切換邏輯：輸入模式
+function selectGeminiOutlineInputMode(mode, el) {
+    document.getElementById('geminiOutlineInputMode').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('geminiOutlineSection').style.display = (mode === 'paste') ? 'block' : 'none';
+}
+
+// 2. 卡片切換邏輯：輸出模式
+function selectGeminiOutlineOutputMode(mode, el) {
+    document.getElementById('geminiOutlineOutputModeVal').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+}
+
+// 3. 生成大綱表格 (與神思原生表格邏輯一致)
+function generateGeminiOutlineTable() {
+    const structure = document.getElementById("geminiOutlineStructure").value;
+    let parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
+    
+    // 為了視覺整潔，內部直接套用簡單樣式
+    let tableHTML = "<table style='width: 100%; border-collapse: collapse; margin-top: 5px;'><tr><th style='background-color: #2A9689; color: white; padding: 8px; border: 1px solid #1e7e72; font-size: 0.9em; width: 15%;'>部份</th><th style='background-color: #2A9689; color: white; padding: 8px; border: 1px solid #1e7e72; font-size: 0.9em; width: 42.5%;'>結構段重點</th><th style='background-color: #2A9689; color: white; padding: 8px; border: 1px solid #1e7e72; font-size: 0.9em; width: 42.5%;'>情節大要</th></tr>";
+    
+    parts.forEach((part, index) => {
+        // ID 採用特徵命名法，以相容 OCR 的智能填入系統
+        const focusId = "gemini" + structure + "Focus" + (index + 1);
+        const plotId = "gemini" + structure + "Plot" + (index + 1);
+        tableHTML += `<tr>
+            <td style='border: 1px solid #8baea8; padding: 8px; text-align: center; font-weight: bold; color: #455a64; background-color: #fdfcf8;'>${part}</td>
+            <td style='border: 1px solid #8baea8; padding: 5px;'><textarea id="${focusId}" class="no-modal-editor" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical; border: none; outline: none; background: transparent;"></textarea></td>
+            <td style='border: 1px solid #8baea8; padding: 5px;'><textarea id="${plotId}" class="no-modal-editor" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical; border: none; outline: none; background: transparent;"></textarea></td>
+        </tr>`;
+    });
+    tableHTML += "</table>";
+    document.getElementById("geminiOutlineTableArea").innerHTML = tableHTML;
+}
+
+// 4. 觸發專用 OCR (表格模式)
+function triggerGeminiOutlineOCR() {
+    const structure = document.getElementById("geminiOutlineStructure").value;
+    // 設定焦點於第一個 Focus 輸入框，讓 OCR 系統知道目前在處理表格
+    sessionStorage.setItem('sansi_current_editing_id', "gemini" + structure + "Focus1");
+    const ocrWindow = window.open('toolbox/ocr2.html?mode=table', 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+    if (ocrWindow) ocrWindow.focus();
+}
+
+// 5. 處理表單與組裝最終指令 (無縫跳轉版)
+function submitToGeminiOutline() {
+    const topic = document.getElementById('geminiOutlineTopicInput').value.trim();
+    const inputMode = document.getElementById('geminiOutlineInputMode').value;
+    const outputMode = document.getElementById('geminiOutlineOutputModeVal').value;
+    const structure = document.getElementById("geminiOutlineStructure").value;
+
+    if (!topic) {
+        alert("請輸入作文題目！");
+        return;
+    }
+
+    // 擷取表格內容
+    let outlineContentStr = "";
+    if (inputMode === 'paste') {
+        let parts = structure === "fourPart" ? ["起", "承", "轉", "合"] : ["起", "一線", "二線", "三線", "合"];
+        let hasContent = false;
+        parts.forEach((part, index) => {
+            const focusId = "gemini" + structure + "Focus" + (index + 1);
+            const plotId = "gemini" + structure + "Plot" + (index + 1);
+            const focusInput = document.getElementById(focusId);
+            const plotInput = document.getElementById(plotId);
+            
+            const focus = focusInput ? focusInput.value.trim() : "";
+            const plot = plotInput ? plotInput.value.trim() : "";
+            
+            if (focus !== "" || plot !== "") hasContent = true;
+            outlineContentStr += `[${part}]\n結構段重點：${focus || "(未提供)"}\n情節大要：${plot || "(未提供)"}\n\n`;
+        });
+        
+        if (!hasContent) {
+            alert("請在表格中填寫大綱內容！");
+            return;
+        }
+    }
+
+    // 神思原生的點評標準
+    let note = "必須用繁體字。點評時，必須就上述生成的題目點評大綱內容是否扣題。";
+    if (typeof categories !== 'undefined' && categories["大綱"] && categories["大綱"].commentNote) {
+        note = categories["大綱"].commentNote;
+    }
+
+    // --- 核心系統指令 ---
+    let finalPrompt = `
+# Role and Persona
+你是一個專為香港中學文憑試（DSE）中國語文科作文設計的「神思大綱點評系統」。
+你的核心任務是：接收學生上傳的大綱資料（圖片、文件或表格內容），嚴格根據系統準則對大綱進行點評、提供建議，並示範改寫後的大綱。
+
+**【語氣設定】**：
+- 你的預設語氣必須是**「嚴肅、專業、正經」**的學術語氣。
+
+---
+
+# System Workflow (系統運作機制與步驟)
+當接收到用戶上傳的資料後，請在後台靜默且嚴格地執行以下步驟：
+
+### Step 1: 閱讀大綱與題目
+1. 題目為：《${topic}》。大綱結構為：${structure === "fourPart" ? "起承轉合" : "三線（起、一線、二線、三線、合）"}。
+2. 若上傳為圖片/PDF，請精準提取其中的手寫大綱結構（通常包含：部份、結構段重點、情節大要）。
+
+### Step 2: 點評與改寫指引
+${note}
+
+---
+`;
+
+    // --- 根據輸出模式調整 HTML/DOCX/TEXT 輸出模板 ---
+    if (outputMode === 'html') {
+        finalPrompt += `
+# HTML Output Generation
+**你必須使用 Python 輸出 HTML 實體檔案代碼。**
+
+### HTML 檔案內容模板 (必須嚴格跟從，完美復刻神思 UI)：
+
+請在 Python 代碼中宣告一個包含以下完整結構的字串，並利用字串格式化注入你分析的內容，最後保存為 HTML 檔案：
+
+\`\`\`html
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>神思 DSE 中文作文大綱點評報告</title>
+   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+   <style>
+       body { font-family: 'Noto Serif TC', serif; background-color: #f5f5f3; color: #333; padding: 20px; max-width: 1000px; margin: 0 auto; line-height: 1.6; }
+       .title-text { font-size: 2.2rem; color: #2A9689; text-align: center; margin-bottom: 10px; font-weight: bold; border-bottom: 2px dashed #a8dad5; padding-bottom: 15px; }
+       .topic-subtitle { text-align: center; margin-bottom: 30px; font-size: 1.2em; font-weight: bold; color: #5e7067; }
+       h3 { color: #2A9689; margin-top: 0; margin-bottom: 15px; font-size: 1.3em; }
+       .box { background: rgba(255, 255, 255, 0.96); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 30px; margin-bottom: 25px; }
+       
+       /* 原稿紙背景 Table */
+       .table-container { overflow-x: auto; width: 100%; border-radius: 8px; border: 1px solid #8baea8; margin-bottom: 30px; }
+       table { width: 100%; border-collapse: collapse; }
+       th { background-color: #2A9689; color: white; padding: 12px; font-size: 1.1em; border: 1px solid #1e7e72; }
+       td { padding: 12px 15px; border: 1px solid #8baea8; vertical-align: top; background-color: #fffcf6; background-image: linear-gradient(transparent 39px, rgba(42, 150, 137, 0.2) 39px, rgba(42, 150, 137, 0.2) 40px, transparent 40px), linear-gradient(90deg, transparent 39px, rgba(0,0,0,0.02) 39px, rgba(0,0,0,0.02) 40px, transparent 40px); background-size: 40px 40px; line-height: 40px; font-size: 18px; color: #2c3e50; white-space: pre-wrap; }
+       
+       /* 說明列點 */
+       .rewrite-explanation-container { margin-top: 20px; }
+       .rewrite-explanation-card { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+       .explanation-point { display: flex; align-items: flex-start; margin-bottom: 15px; }
+       .explanation-number { flex-shrink: 0; width: 28px; height: 28px; background-color: #6996b8; color: white; font-weight: bold; display: flex; align-items: center; justify-content: center; border-radius: 50%; margin-right: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
+       .explanation-text { font-size: 1.05em; line-height: 1.8; color: #495057; text-align: justify; }
+   </style>
+</head>
+<body>
+
+   <div class="title-text">神思 DSE 中文作文大綱點評報告</div>
+   <div class="topic-subtitle">題目：${topic}</div>
+    
+   <div class="box">
+       <h3>陳SIR點評及建議：</h3>
+       <div class="table-container">
+           <table>
+                <tr>
+                    <th style="width:10%;">部份</th>
+                    <th style="width:15%;">結構段重點</th>
+                    <th style="width:20%;">情節大要</th>
+                    <th style="width:27.5%;">點評</th>
+                    <th style="width:27.5%;">建議</th>
+                </tr>
+                <!-- 請用 Python 迴圈生成以下 <tr> 區塊 -->
+                <tr>
+                    <td>[部份，例如：起]</td>
+                    <td>[原結構段重點]</td>
+                    <td>[原情節大要]</td>
+                    <td>[具體點評，請善用<br>換行]</td>
+                    <td>[具體建議，請善用<br>換行]</td>
+                </tr>
+                <!-- 迴圈結束 -->
+           </table>
+       </div>
+
+       <h3>改寫後的大綱：</h3>
+       <div class="table-container">
+           <table>
+                <tr>
+                    <th style="width:15%;">部份</th>
+                    <th style="width:42.5%;">結構段重點</th>
+                    <th style="width:42.5%;">情節大要</th>
+                </tr>
+                <!-- 請用 Python 迴圈生成以下 <tr> 區塊 -->
+                <tr>
+                    <td>[部份，例如：起]</td>
+                    <td>[改寫後的結構段重點，請善用<br>換行]</td>
+                    <td>[改寫後的情節大要，請善用<br>換行]</td>
+                </tr>
+                <!-- 迴圈結束 -->
+           </table>
+       </div>
+
+       <div class="rewrite-explanation-container">
+           <div class="rewrite-explanation-card">
+               <h3 style="border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 20px; color: #343a40;">改寫說明</h3>
+               <!-- 請用 Python 迴圈生成以下 explanation-point -->
+               <div class="explanation-point">
+                   <div class="explanation-number">1</div>
+                   <div class="explanation-text">[改寫說明點，請善用<br>換行]</div>
+               </div>
+               <!-- 迴圈結束 -->
+           </div>
+       </div>
+   </div>
+
+</body>
+</html>
+\`\`\`
+`;
+    } 
+    else if (outputMode === 'text') {
+        finalPrompt += `
+# 文字輸出指令
+**請直接在對話框中以純文字/Markdown格式輸出以下報告內容，不需要生成任何實體檔案。**
+
+### 文字報告內容模板：
+
+**標題：神思 DSE 中文作文大綱點評報告**
+**📌 題目：** ${topic}
+
+#### 🔍 陳SIR點評及建議
+| 部份 | 結構段重點 | 情節大要 | 點評 | 建議 |
+| :--- | :--- | :--- | :--- | :--- |
+| [起] | [原重點] | [原大要] | [點評內容] | [建議內容] |
+*(請針對所有段落生成，不要遺漏任何一段)*
+
+#### ✨ 改寫後的大綱
+| 部份 | 結構段重點 | 情節大要 |
+| :--- | :--- | :--- |
+| [起] | [改寫重點] | [改寫大要] |
+*(請針對所有段落生成，不要遺漏任何一段)*
+
+#### 💡 改寫說明
+1. [說明一]
+2. [說明二]
+
+---
+# Execution (啟動執行)
+收到學生輸入後，請直接在對話框輸出點評內容即可。
+`;
+    } 
+    else {
+        // DOCX Output
+        finalPrompt += `
+# Python DOCX Output Generation (生成實體檔案最高指令)
+**你絕對不可以直接在對話框把大段表格印出來。你必須使用 \`Advanced Data Analysis\` (Code Interpreter) 工具，在後台 \`Execute\` 以下 \`python-docx\` 邏輯，將文件保存至 \`/mnt/data/report.docx\`，然後把【檔案下載連結】給用戶！**
+
+**【Python DOCX 排版強制指令】**：
+1. 必須透過 \`docx.shared.Inches\` 強制設定所有表格的欄寬。
+2. **關閉自動調整**：\`table.autofit = False\` 及 \`table.allow_autofit = False\`。
+3. **表格一(點評表) 寬度分佈設定**：第0欄 0.6英寸，第1欄 1.2英寸，第2欄 1.5英寸，第3欄 2.1英寸，第4欄 2.1英寸。（請使用迴圈寫入）
+4. **表格二(改寫大綱表) 寬度分佈設定**：第0欄 1.0英寸，第1欄 3.25英寸，第2欄 3.25英寸。
+5. 改寫說明列點，請務必使用 Word 內建的列表樣式（\`paragraph.style = 'List Number'\`）。
+
+### DOCX 檔案內容模板 (需在代碼中建構)：
+
+**標題：神思 DSE 中文作文大綱點評報告**
+**📌 題目：** ${topic}
+
+**【陳SIR點評及建議】**
+(以5欄表格呈現：部份 | 結構段重點 | 情節大要 | 點評 | 建議)
+
+**【改寫後的大綱】**
+(以3欄表格呈現：部份 | 結構段重點 | 情節大要)
+
+**【改寫說明】**
+(使用有序列表呈現說明)
+
+---
+# Execution (啟動執行)
+收到學生輸入後，**直接在背景寫 Python 代碼生成 DOCX**。
+對話框中只須回覆：「✅ 大綱點評完成！請點擊下方連結下載你的專屬大綱點評報告 DOCX 檔案。」並附上下載連結。
+`;
+    }
+
+    // --- 將「大綱內容」注入 ---
+    if (inputMode === 'paste' && outlineContentStr !== "") {
+        finalPrompt += `\n\n=== 📝 待評核學生大綱 ===\n${outlineContentStr}\n\n`;
+    } else {
+        finalPrompt += `\n\n=== 📝 待評核學生大綱 ===\n(請讀取我隨後以附件形式上傳的大綱圖片 / PDF / 文檔)\n\n`;
+    }
+
+    // --- ★★★ 強制鎖定副檔名指令 (重複三次原則) ★★★ ---
+    if (outputMode === 'html') {
+        finalPrompt += "不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。";
+    } else if (outputMode === 'docx') {
+        finalPrompt += "不要輸出「.py」的檔案，必須直接輸出.DOCX檔\n不要輸出「.py」的檔案，必須直接輸出.DOCX檔\n不要輸出「.py」的檔案，必須直接輸出.DOCX檔";
+    }
+
+    // --- 複製到剪貼簿並執行跳轉 (完美對齊 submitToGeminiReview 邏輯) ---
+    navigator.clipboard.writeText(finalPrompt).then(() => {
+        document.getElementById('geminiOutlineModal').style.display = 'none';
+        
+        const isAppleDevice = /Macintosh|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        if (isAppleDevice) {
+            window.location.href = "https://gemini.google.com/app";
+        } else {
+            // 這裡使用您頂部定義的 safeOpenGem 函式
+            safeOpenGem("https://gemini.google.com/app");
+        }
+    }).catch(err => {
+        alert("複製指令失敗，請手動複製。");
+        console.error(err);
+    });
+}
+
+
+	
+
 	// 4. 處理表單與組裝最終指令 (扣題分析專用)
 function submitToTopicAnalysis() {
     const topic = document.getElementById('topicAnalysisTopicInput').value.trim();
@@ -29066,6 +29404,79 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
 
         <!-- 送出按鈕 -->
         <button onclick="submitToTopicAnalysis()" class="btn-action" style="width: 100%; padding: 12px; background-color: #8fa398; font-size: 1.1rem; justify-content: center; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
+            <i class="fas fa-magic" style="margin-right: 8px;"></i> 複製指令並跳轉
+        </button>
+    </div>
+</div>
+
+
+
+<!-- === [新增] 大綱點評專用視窗 (Gemini) === -->
+<div id="geminiOutlineModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
+    
+    <div class="morandi-modal-card" style="width: 90%; max-width: 600px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
+        
+        <!-- 標題列 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed #a8dad5; padding-bottom: 10px;">
+            <span style="color: #2A9689; font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">大綱點評 (Gemini)</span>
+            <button onclick="document.getElementById('geminiOutlineModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
+        </div>
+
+        <!-- 題目輸入 -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">作文題目</label>
+        <input type="text" id="geminiOutlineTopicInput" class="no-modal-editor" placeholder="輸入題目..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif;">
+
+        <!-- 大綱來源 (二選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">大綱來源</label>
+        <div class="gemini-ui-grid grid-2" style="margin-top: 5px;">
+            <div class="gemini-ui-card active" onclick="selectGeminiOutlineInputMode('attach', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span style="font-size: 0.85rem;">稍後上傳附件</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectGeminiOutlineInputMode('paste', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span style="font-size: 0.85rem;">自訂表格 / OCR</span>
+            </div>
+        </div>
+        <input type="hidden" id="geminiOutlineInputMode" value="attach">
+
+        <!-- 表格輸入與 OCR 區塊 (預設隱藏) -->
+        <div id="geminiOutlineSection" style="display: none; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">選擇大綱結構並填寫：</span>
+                <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerGeminiOutlineOCR()">
+                    <i class="fas fa-camera"></i> OCR
+                </button>
+            </div>
+            <!-- 結構選擇 -->
+            <select id="geminiOutlineStructure" class="no-modal-editor" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #dcdfe6; border-radius: 6px; font-family: 'Noto Serif TC', serif;" onchange="generateGeminiOutlineTable()">
+                <option value="fourPart">起承轉合</option>
+                <option value="threeLine">三線</option>
+            </select>
+            <!-- 表格容器 -->
+            <div id="geminiOutlineTableArea" style="max-height: 40vh; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; padding: 5px;"></div>
+        </div>
+
+        <!-- 輸出格式 (三選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">輸出格式</label>
+        <div class="gemini-ui-grid grid-3" style="margin-top: 5px; margin-bottom: 25px;">
+            <div class="gemini-ui-card active" onclick="selectGeminiOutlineOutputMode('docx', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><text x="8" y="16" font-family="sans-serif" font-size="7" font-weight="bold" stroke="none" fill="currentColor">DOC</text></svg>
+                <span style="font-size: 0.8rem;">DOCX</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectGeminiOutlineOutputMode('html', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                <span style="font-size: 0.8rem;">HTML</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectGeminiOutlineOutputMode('text', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <span style="font-size: 0.8rem;">純文字</span>
+            </div>
+        </div>
+        <input type="hidden" id="geminiOutlineOutputModeVal" value="docx">
+
+        <!-- 送出按鈕 -->
+        <button onclick="submitToGeminiOutline()" class="btn-action" style="width: 100%; padding: 12px; background-color: #8fa398; font-size: 1.1rem; justify-content: center; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
             <i class="fas fa-magic" style="margin-right: 8px;"></i> 複製指令並跳轉
         </button>
     </div>
