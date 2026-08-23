@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -669,322 +668,171 @@ filter: brightness(110%);
         <span>通知訊息</span>
     </div>
 
-
 <script>
-
-	const POLLINATIONS_API_KEY = "pk_oe8RqRUjeOqQ8Dvj";
-// 使用官方建議的 Pro 路徑，並將 token 帶在參數中
-const API_BASE_URL = "https://image.pollinations.ai/prompt";
-
-
-
-	async function generateSlidesSequentially(paragraphs) {
-    slidesContainer.innerHTML = '';
-    const baseSeed = Math.floor(Math.random() * 1000000);
-    
-    for (let i = 0; i < paragraphs.length; i++) {
-        const para = paragraphs[i];
-        const progress = Math.floor((i / paragraphs.length) * 100);
-        progressBar.style.width = `${progress}%`;
-        
-        const tempSlide = document.createElement('div');
-        tempSlide.className = 'slide';
-        tempSlide.dataset.paragraph = para;
-        tempSlide.innerHTML = `
-            <div class="slide-header">
-                <span>幻燈片 ${i+1}/${paragraphs.length}</span>
-                <span>${para.length} 字</span>
-            </div>
-            <div class="slide-image">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>正在處理中...</p>
-                </div>
-            </div>
-            <div class="slide-text">
-                <p>${para}</p>
-            </div>
-        `;
-        slidesContainer.appendChild(tempSlide);
-        
-        slidesContainer.scrollTo({
-            left: tempSlide.offsetLeft - slidesContainer.offsetLeft,
-            behavior: 'smooth'
-        });
-        
-        const slideImageContainer = tempSlide.querySelector('.slide-image');
-        const loadingText = slideImageContainer.querySelector('.loading p');
-
-        try {
-            loadingText.textContent = '正在翻譯文字...';
-            const englishPara = await translateToEnglish(para);
-            if (!englishPara) throw new Error('翻譯失敗');
-
-            loadingText.textContent = '正在生成插圖...';
-            const prompt = generateImagePrompt(englishPara);
-            
-            // 構建授權網址
-            const imageUrl = `${API_BASE_URL}/${encodeURIComponent(prompt)}?model=flux&seed=${baseSeed + i}&width=1024&height=1024&nologo=true`;
-
-            // 執行帶有 Authorization 的請求
-            const response = await fetch(imageUrl, {
-                method: 'GET',
-                headers: { 
-                    'Authorization': `Bearer ${POLLINATIONS_API_KEY}`
-                }
-            });
-
-            if (!response.ok) throw new Error('伺服器授權驗證失敗');
-
-            const blob = await response.blob();
-            const objectURL = URL.createObjectURL(blob);
-
-            const img = new Image();
-            await new Promise((resolve, reject) => {
-                img.onload = () => {
-                    img.style.cursor = 'pointer';
-                    img.title = '點擊以重新生成此圖片';
-                    slideImageContainer.innerHTML = '';
-                    slideImageContainer.appendChild(img);
-                    resolve();
-                };
-                img.onerror = () => reject(new Error('圖片解析失敗'));
-                img.src = objectURL;
-                img.alt = `第${i+1}張幻燈片插圖`;
-            });
-
-        } catch (error) {
-            console.error('Slide error:', error);
-            slideImageContainer.innerHTML = `
-                <div class="generation-error" data-action="retry-generation" title="點擊以重新生成此圖片">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <p>生成失敗: 授權或系統錯誤<br>點擊此處重試</p>
-                </div>`;
-        }
-        await new Promise(resolve => setTimeout(resolve, 300));
-    }
-    
-    progressBar.style.width = '100%';
-    prevSlideBtn.disabled = paragraphs.length === 0;
-    nextSlideBtn.disabled = paragraphs.length === 0;
-}
-
-
-	async function regenerateImageForSlide(slideElement) {
-    const imageContainer = slideElement.querySelector('.slide-image');
-    const originalParagraph = slideElement.dataset.paragraph;
-
-    if (!originalParagraph) {
-        showNotification('找不到原始文本', true);
-        return;
-    }
-
-    imageContainer.innerHTML = `
-        <div class="loading" style="padding: 20px;">
-            <div class="spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
-            <p style="font-size: 14px; margin-top: 10px;">重新生成中...</p>
-        </div>`;
-
-    try {
-        const englishPara = await translateToEnglish(originalParagraph);
-        if (!englishPara) throw new Error('翻譯失敗');
-
-        const prompt = generateImagePrompt(englishPara);
-        const newSeed = Math.floor(Math.random() * 10000000);
-        
-        // 使用 URL 帶 Token 模式
-        const imageUrl = `${API_BASE_URL}/${encodeURIComponent(prompt)}?model=flux&token=${POLLINATIONS_API_KEY}&seed=${newSeed}&width=1024&height=1024&nologo=true`;
-
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-            img.onload = () => {
-                img.style.cursor = 'pointer';
-                img.title = '點擊以重新生成此圖片';
-                imageContainer.innerHTML = '';
-                imageContainer.appendChild(img);
-                resolve();
-            };
-            img.onerror = () => reject(new Error('圖片載入失敗'));
-            img.src = imageUrl;
-        });
-        showNotification('圖片已更新！');
-
-    } catch (error) {
-        imageContainer.innerHTML = `
-            <div class="generation-error" data-action="retry-generation" title="點擊以重試">
-                <i class="fas fa-sync-alt"></i>
-                <p>更新失敗: ${error.message}</p>
-            </div>`;
-    }
-}
-
+    // ✅ 這裡設定為您的 Cloudflare Worker 網址
+    const WORKER_API_URL = "https://free-image-generation-api.kenchan20131.workers.dev/";
 </script>
-
-
-
-	
 
     <script>
-
         // ===============================================================
-// === [神思通用組件] 權限攔截器 & 莫蘭迪提示窗 (含登入連結) ===
-// ===============================================================
-(function() {
-    // 防止重複注入
-    if (window.SansiInterceptorLoaded) return;
-    window.SansiInterceptorLoaded = true;
+        // === [神思通用組件] 權限攔截器 & 莫蘭迪提示窗 (含登入連結) ===
+        // ===============================================================
+        (function() {
+            // 防止重複注入
+            if (window.SansiInterceptorLoaded) return;
+            window.SansiInterceptorLoaded = true;
 
-    // --- 1. 自動注入莫蘭迪 CSS ---
-    const style = document.createElement('style');
-    style.textContent = `
-        /* 莫蘭迪遮罩 */
-        .sansi-limit-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(253, 252, 248, 0.88); /* 米白高模糊 */
-            backdrop-filter: blur(6px);
-            z-index: 9999999; /* 最高層級 */
-            display: none; justify-content: center; align-items: center;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
-        .sansi-limit-show { opacity: 1; }
+            // --- 1. 自動注入莫蘭迪 CSS ---
+            const style = document.createElement('style');
+            style.textContent = `
+                /* 莫蘭迪遮罩 */
+                .sansi-limit-overlay {
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background-color: rgba(253, 252, 248, 0.88); /* 米白高模糊 */
+                    backdrop-filter: blur(6px);
+                    z-index: 9999999; /* 最高層級 */
+                    display: none; justify-content: center; align-items: center;
+                    opacity: 0; transition: opacity 0.3s ease;
+                }
+                .sansi-limit-show { opacity: 1; }
 
-        /* 視窗卡片 */
-        .sansi-limit-card {
-            background: #fdfcf8;
-            border: 1px solid #e0ddd7;
-            border-radius: 16px;
-            padding: 30px 25px;
-            width: 90%; max-width: 380px;
-            box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
-            text-align: center;
-            transform: translateY(20px);
-            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-            font-family: 'Noto Serif TC', serif;
-        }
-        .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
+                /* 視窗卡片 */
+                .sansi-limit-card {
+                    background: #fdfcf8;
+                    border: 1px solid #e0ddd7;
+                    border-radius: 16px;
+                    padding: 30px 25px;
+                    width: 90%; max-width: 380px;
+                    box-shadow: 0 15px 40px rgba(141, 110, 99, 0.15);
+                    text-align: center;
+                    transform: translateY(20px);
+                    transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+                    font-family: 'Noto Serif TC', serif;
+                }
+                .sansi-limit-show .sansi-limit-card { transform: translateY(0); }
 
-        /* 圖示與文字 */
-        .sansi-limit-icon { font-size: 3rem; color: #d69a92; margin-bottom: 15px; } /* 豆沙紅 */
-        .sansi-limit-title { color: #5d4037; font-size: 1.4rem; font-weight: bold; margin: 0 0 10px 0; }
-        .sansi-limit-desc { color: #888; font-size: 1rem; line-height: 1.6; margin-bottom: 25px; text-align: justify; }
+                /* 圖示與文字 */
+                .sansi-limit-icon { font-size: 3rem; color: #d69a92; margin-bottom: 15px; } /* 豆沙紅 */
+                .sansi-limit-title { color: #5d4037; font-size: 1.4rem; font-weight: bold; margin: 0 0 10px 0; }
+                .sansi-limit-desc { color: #888; font-size: 1rem; line-height: 1.6; margin-bottom: 25px; text-align: justify; }
 
-        /* 按鈕群組 */
-        .sansi-btn-group { display: flex; gap: 12px; margin-top: 20px; }
+                /* 按鈕群組 */
+                .sansi-btn-group { display: flex; gap: 12px; margin-top: 20px; }
 
-        .sansi-limit-btn {
-            border: none; padding: 10px 0; border-radius: 50px;
-            font-size: 0.95rem; font-weight: bold; cursor: pointer;
-            transition: all 0.2s; font-family: 'Noto Serif TC', serif;
-            flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-            text-decoration: none;
-        }
+                .sansi-limit-btn {
+                    border: none; padding: 10px 0; border-radius: 50px;
+                    font-size: 0.95rem; font-weight: bold; cursor: pointer;
+                    transition: all 0.2s; font-family: 'Noto Serif TC', serif;
+                    flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+                    text-decoration: none;
+                }
 
-        /* 主按鈕 (前往登入) - 莫蘭迪綠 */
-        .btn-primary { 
-            background: #8fa398; color: white; 
-            box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
-        }
-        .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
+                /* 主按鈕 (前往登入) - 莫蘭迪綠 */
+                .btn-primary { 
+                    background: #8fa398; color: white; 
+                    box-shadow: 0 4px 12px rgba(143, 163, 152, 0.4);
+                }
+                .btn-primary:hover { background-color: #7d9186; transform: translateY(-2px); }
 
-        /* 次按鈕 (關閉) - 淺灰 */
-        .btn-secondary { 
-            background: #f0f0f0; color: #777; 
-        }
-        .btn-secondary:hover { background-color: #e5e5e5; }
-    `;
-    document.head.appendChild(style);
+                /* 次按鈕 (關閉) - 淺灰 */
+                .btn-secondary { 
+                    background: #f0f0f0; color: #777; 
+                }
+                .btn-secondary:hover { background-color: #e5e5e5; }
+            `;
+            document.head.appendChild(style);
 
-    // --- 2. 自動注入 HTML (彈出視窗) ---
-    const modalHTML = `
-        <div id="sansiLimitModal" class="sansi-limit-overlay">
-            <div class="sansi-limit-card">
-                <div class="sansi-limit-icon">
-                    <i class="fas fa-user-lock"></i>
+            // --- 2. 自動注入 HTML (彈出視窗) ---
+            const modalHTML = `
+                <div id="sansiLimitModal" class="sansi-limit-overlay">
+                    <div class="sansi-limit-card">
+                        <div class="sansi-limit-icon">
+                            <i class="fas fa-user-lock"></i>
+                        </div>
+                        <div class="sansi-limit-title">需要登入</div>
+                        <div class="sansi-limit-desc">
+                            訪客每日體驗額度已耗盡。<br>
+                            請前往「神思」主頁登入學校帳號，即可解鎖無限使用權限。
+                        </div>
+                        <div class="sansi-btn-group">
+                            <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
+                                稍後
+                            </button>
+                            <!-- 點擊直接跳轉至神思主頁 -->
+                            <button class="sansi-limit-btn btn-primary" onclick="window.location.href='https://kenchan20141.github.io/AIChinese/'">
+                                <i class="fas fa-sign-in-alt"></i> 前往登入
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div class="sansi-limit-title">需要登入</div>
-                <div class="sansi-limit-desc">
-                    訪客每日體驗額度已耗盡。<br>
-                    請前往「神思」主頁登入學校帳號，即可解鎖無限使用權限。
-                </div>
-                <div class="sansi-btn-group">
-                    <button class="sansi-limit-btn btn-secondary" onclick="closeSansiLimitModal()">
-                        稍後
-                    </button>
-                    <!-- 點擊直接跳轉至神思主頁 -->
-                    <button class="sansi-limit-btn btn-primary" onclick="window.location.href='https://kenchan20141.github.io/AIChinese/'">
-                        <i class="fas fa-sign-in-alt"></i> 前往登入
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div);
+            `;
+            const div = document.createElement('div');
+            div.innerHTML = modalHTML;
+            document.body.appendChild(div);
 
-    // --- 3. 定義關閉視窗與清理函式 ---
-    window.closeSansiLimitModal = function() {
-        const modal = document.getElementById('sansiLimitModal');
-        if (modal) {
-            modal.classList.remove('sansi-limit-show');
-            setTimeout(() => { modal.style.display = 'none'; }, 300);
-            
-            // 自動嘗試關閉各種工具的 Loading 狀態，防止畫面卡死
-            if (typeof hideProgress === 'function') hideProgress(); // 題孳
-            if (typeof hideLoading === 'function') hideLoading();   // 翻水/寫作
-            
-            // 如果按鈕被禁用，嘗試解鎖 (針對通用按鈕 class)
-            const disabledBtns = document.querySelectorAll('button:disabled');
-            disabledBtns.forEach(btn => btn.disabled = false);
-        }
-    };
-
-    // --- 4. 攔截器核心邏輯 ---
-    const originalFetch = window.fetch;
-    
-    window.fetch = async function(url, options) {
-        // 僅攔截 AI 請求
-        if (typeof url === 'string' && url.includes('pollinations.ai')) {
-            
-            // A. 即時檢查登入狀態 (每次請求都會重新讀取，防止登出後仍能使用)
-            const s = localStorage.getItem('studentProfile');
-            
-            if (s) {
-                // 已登入：放行
-                return originalFetch(url, options);
-            }
-
-            // B. 未登入：檢查額度
-            const today = new Date().toLocaleDateString('zh-HK');
-            const toolName = document.title || "UnknownTool"; 
-            const storageKey = `sansi_guest_usage_${toolName}_${today}`;
-            
-            let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
-
-            // C. 超過額度 -> 阻擋並彈窗
-            if (currentCount >= 1) {
-                // 顯示視窗
+            // --- 3. 定義關閉視窗與清理函式 ---
+            window.closeSansiLimitModal = function() {
                 const modal = document.getElementById('sansiLimitModal');
-                modal.style.display = 'flex';
-                // 強制重繪以觸發過渡動畫
-                void modal.offsetWidth; 
-                modal.classList.add('sansi-limit-show');
+                if (modal) {
+                    modal.classList.remove('sansi-limit-show');
+                    setTimeout(() => { modal.style.display = 'none'; }, 300);
+                    
+                    // 自動嘗試關閉各種工具的 Loading 狀態，防止畫面卡死
+                    if (typeof hideProgress === 'function') hideProgress(); // 題孳
+                    if (typeof hideLoading === 'function') hideLoading();   // 翻水/寫作
+                    
+                    // 如果按鈕被禁用，嘗試解鎖 (針對通用按鈕 class)
+                    const disabledBtns = document.querySelectorAll('button:disabled');
+                    disabledBtns.forEach(btn => btn.disabled = false);
+                }
+            };
 
-                // 回傳錯誤以中斷原本程式的執行
-                return Promise.reject(new Error("Guest Limit Exceeded"));
-            }
+            // --- 4. 攔截器核心邏輯 ---
+            const originalFetch = window.fetch;
+            
+            window.fetch = async function(url, options) {
+                // ✅ 【修訂】將判定條件改為攔截 Cloudflare Worker (free-image-generation-api)
+                if (typeof url === 'string' && url.includes('free-image-generation-api')) {
+                    
+                    // A. 即時檢查登入狀態 (每次請求都會重新讀取，防止登出後仍能使用)
+                    const s = localStorage.getItem('studentProfile');
+                    
+                    if (s) {
+                        // 已登入：放行
+                        return originalFetch(url, options);
+                    }
 
-            // D. 未超過 -> 記錄並放行
-            localStorage.setItem(storageKey, currentCount + 1);
-            console.log(`[訪客] ${toolName} 使用第 ${currentCount + 1} 次`);
-        }
+                    // B. 未登入：檢查額度
+                    const today = new Date().toLocaleDateString('zh-HK');
+                    const toolName = document.title || "UnknownTool"; 
+                    const storageKey = `sansi_guest_usage_${toolName}_${today}`;
+                    
+                    let currentCount = parseInt(localStorage.getItem(storageKey) || "0");
 
-        return originalFetch(url, options);
-    };
-    
-    console.log("✅ 神思通用權限鎖 (含登入連結) 已啟動");
-})();
-</script>
+                    // C. 超過額度 -> 阻擋並彈窗
+                    if (currentCount >= 1) {
+                        // 顯示視窗
+                        const modal = document.getElementById('sansiLimitModal');
+                        modal.style.display = 'flex';
+                        // 強制重繪以觸發過渡動畫
+                        void modal.offsetWidth; 
+                        modal.classList.add('sansi-limit-show');
+
+                        // 回傳錯誤以中斷原本程式的執行
+                        return Promise.reject(new Error("Guest Limit Exceeded"));
+                    }
+
+                    // D. 未超過 -> 記錄並放行
+                    localStorage.setItem(storageKey, currentCount + 1);
+                    console.log(`[訪客] ${toolName} 使用第 ${currentCount + 1} 次`);
+                }
+
+                return originalFetch(url, options);
+            };
+            
+            console.log("✅ 神思通用權限鎖 (含登入連結) 已啟動");
+        })();
+    </script>
 
     
     <script>
@@ -1185,220 +1033,231 @@ if (!modal || !modalTextarea || !modalSaveBtn || !modalCloseBtn || !ocrBtn) {
             });
             
             function splitArticleIntoParagraphs(article) {
-    const sentences = article.split(/(?<=[。！？；])/g);
-    const paragraphs = [];
-    let currentParagraph = '';
+                const sentences = article.split(/(?<=[。！？；])/g);
+                const paragraphs = [];
+                let currentParagraph = '';
 
-    sentences.forEach(sentence => {
-        if ((currentParagraph + sentence).length <= 100) {
-            currentParagraph += sentence;
-        } else {
-            if (currentParagraph.trim()) {
-                paragraphs.push(currentParagraph.trim());
+                sentences.forEach(sentence => {
+                    if ((currentParagraph + sentence).length <= 100) {
+                        currentParagraph += sentence;
+                    } else {
+                        if (currentParagraph.trim()) {
+                            paragraphs.push(currentParagraph.trim());
+                        }
+                        currentParagraph = sentence;
+                    }
+                });
+
+                if (currentParagraph.trim()) {
+                    paragraphs.push(currentParagraph.trim());
+                }
+
+                // 【新增】後處理段落，修正開頭的標點符號
+                // 定義不應出現在段落開頭的標點符號列表
+                const leadingPunctuationsToMove = ['」', '』', '”', '’', '）', '】', '〕', '．', '，', '、', '：', '；'];
+
+                for (let i = 1; i < paragraphs.length; i++) {
+                    // 如果當前段落不為空，且其第一個字元在我們的修正列表中
+                    if (paragraphs[i] && leadingPunctuationsToMove.includes(paragraphs[i][0])) {
+                        
+                        // 1. 將這個標點符號加到前一個段落的結尾
+                        paragraphs[i - 1] += paragraphs[i][0];
+                        
+                        // 2. 從當前段落中移除這個標點符號
+                        paragraphs[i] = paragraphs[i].substring(1);
+                    }
+                }
+
+                // 過濾掉可能因修正而變為空字串的段落
+                return paragraphs.filter(p => p.trim() !== '');
             }
-            currentParagraph = sentence;
-        }
-    });
-
-    if (currentParagraph.trim()) {
-        paragraphs.push(currentParagraph.trim());
-    }
-
-    // 【新增】後處理段落，修正開頭的標點符號
-    // 定義不應出現在段落開頭的標點符號列表
-    const leadingPunctuationsToMove = ['」', '』', '”', '’', '）', '】', '〕', '．', '，', '、', '：', '；'];
-
-    for (let i = 1; i < paragraphs.length; i++) {
-        // 如果當前段落不為空，且其第一個字元在我們的修正列表中
-        if (paragraphs[i] && leadingPunctuationsToMove.includes(paragraphs[i][0])) {
-            
-            // 1. 將這個標點符號加到前一個段落的結尾
-            paragraphs[i - 1] += paragraphs[i][0];
-            
-            // 2. 從當前段落中移除這個標點符號
-            paragraphs[i] = paragraphs[i].substring(1);
-        }
-    }
-
-    // 過濾掉可能因修正而變為空字串的段落
-    return paragraphs.filter(p => p.trim() !== '');
-}
 
             async function translateToEnglish(textToTranslate) {
-    // 【重要】請將此處的信箱替換為您自己的有效電子郵件地址
-    const myEmail = 'kenchan20151@gmail.com'; 
+                // 【重要】請將此處的信箱替換為您自己的有效電子郵件地址
+                const myEmail = 'kenchan20151@gmail.com'; 
 
-    const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=zh-TW|en&de=${myEmail}`;
+                const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=zh-TW|en&de=${myEmail}`;
 
-    try {
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            throw new Error(`Translation API failed with status ${response.status}`);
-        }
-        const data = await response.json();
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        throw new Error(`Translation API failed with status ${response.status}`);
+                    }
+                    const data = await response.json();
 
-        if (data.responseStatus !== 200) {
-            // MyMemory 在額度用盡時的回應細節
-            if (data.responseDetails && data.responseDetails.includes("daily limit")) {
-                 console.error('MyMemory API daily limit exceeded for this IP or email.');
-                 throw new Error(`MyMemory API error: Daily limit exceeded.`);
+                    if (data.responseStatus !== 200) {
+                        // MyMemory 在額度用盡時的回應細節
+                        if (data.responseDetails && data.responseDetails.includes("daily limit")) {
+                             console.error('MyMemory API daily limit exceeded for this IP or email.');
+                             throw new Error(`MyMemory API error: Daily limit exceeded.`);
+                        }
+                        throw new Error(`MyMemory API error: ${data.responseDetails}`);
+                    }
+
+                    if (data.responseData && data.responseData.translatedText) {
+                        return data.responseData.translatedText;
+                    } else {
+                        throw new Error('Translated text not found in API response.');
+                    }
+                } catch (error) {
+                    console.error('Translation error:', error);
+                    return null; // 保持錯誤時返回 null 的行為
+                }
             }
-            throw new Error(`MyMemory API error: ${data.responseDetails}`);
-        }
-
-        if (data.responseData && data.responseData.translatedText) {
-            return data.responseData.translatedText;
-        } else {
-            throw new Error('Translated text not found in API response.');
-        }
-    } catch (error) {
-        console.error('Translation error:', error);
-        return null; // 保持錯誤時返回 null 的行為
-    }
-}
             
             function generateImagePrompt(englishParagraph) {
                 return `Illustration of: "${englishParagraph}". Rendered in a classic manga style with an emphasis on simplicity. Use only black and white, with clean, uniform, and minimalist line art. The overall feel should be a high-contrast, clear monochrome comic panel or sketch. No text is included`;
             }
             
-          async function generateSlidesSequentially(paragraphs) {
-    slidesContainer.innerHTML = '';
-    const baseSeed = Math.floor(Math.random() * 1000000);
-    
-    for (let i = 0; i < paragraphs.length; i++) {
-        const para = paragraphs[i];
-        const progress = Math.floor((i / paragraphs.length) * 100);
-        progressBar.style.width = `${progress}%`;
-        
-        const tempSlide = document.createElement('div');
-        tempSlide.className = 'slide';
-        tempSlide.dataset.paragraph = para;
-        tempSlide.innerHTML = `
-            <div class="slide-header">
-                <span>幻燈片 ${i+1}/${paragraphs.length}</span>
-                <span>${para.length} 字</span>
-            </div>
-            <div class="slide-image">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>正在處理中...</p>
-                </div>
-            </div>
-            <div class="slide-text">
-                <p>${para}</p>
-            </div>
-        `;
-        slidesContainer.appendChild(tempSlide);
-        
-        slidesContainer.scrollTo({
-            left: tempSlide.offsetLeft - slidesContainer.offsetLeft,
-            behavior: 'smooth'
-        });
-        
-        const slideImageContainer = tempSlide.querySelector('.slide-image');
-        const loadingText = slideImageContainer.querySelector('.loading p');
+            // ✅ 【修訂】改用 POST 方法向 Cloudflare Worker 發送生成請求
+            async function generateSlidesSequentially(paragraphs) {
+                slidesContainer.innerHTML = '';
+                
+                for (let i = 0; i < paragraphs.length; i++) {
+                    const para = paragraphs[i];
+                    const progress = Math.floor((i / paragraphs.length) * 100);
+                    progressBar.style.width = `${progress}%`;
+                    
+                    const tempSlide = document.createElement('div');
+                    tempSlide.className = 'slide';
+                    tempSlide.dataset.paragraph = para;
+                    tempSlide.innerHTML = `
+                        <div class="slide-header">
+                            <span>幻燈片 ${i+1}/${paragraphs.length}</span>
+                            <span>${para.length} 字</span>
+                        </div>
+                        <div class="slide-image">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                                <p>正在處理中...</p>
+                            </div>
+                        </div>
+                        <div class="slide-text">
+                            <p>${para}</p>
+                        </div>
+                    `;
+                    slidesContainer.appendChild(tempSlide);
+                    
+                    slidesContainer.scrollTo({
+                        left: tempSlide.offsetLeft - slidesContainer.offsetLeft,
+                        behavior: 'smooth'
+                    });
+                    
+                    const slideImageContainer = tempSlide.querySelector('.slide-image');
+                    const loadingText = slideImageContainer.querySelector('.loading p');
 
-        try {
-            loadingText.textContent = '正在翻譯文字...';
-            const englishPara = await translateToEnglish(para);
-            if (!englishPara) throw new Error('翻譯失敗');
+                    try {
+                        loadingText.textContent = '正在翻譯文字...';
+                        const englishPara = await translateToEnglish(para);
+                        if (!englishPara) throw new Error('翻譯失敗');
 
-            loadingText.textContent = '正在生成插圖...';
-            const prompt = generateImagePrompt(englishPara);
-            
-            // 直接將 pk_... Token 放在 URL 參數中，這能繞過 fetch 的 CORS 問題
-            const imageUrl = `${API_BASE_URL}/${encodeURIComponent(prompt)}?model=flux&token=${POLLINATIONS_API_KEY}&seed=${baseSeed + i}&width=1024&height=1024&nologo=true`;
+                        loadingText.textContent = '正在呼叫 AI 繪製...';
+                        const prompt = generateImagePrompt(englishPara);
+                        
+                        // 發送 POST 請求給你的 Worker
+                        const response = await fetch(WORKER_API_URL, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ prompt: prompt })
+                        });
 
-            // 使用 Image 對象載入
-            const img = new Image();
-            await new Promise((resolve, reject) => {
-                img.onload = () => {
-                    img.style.cursor = 'pointer';
-                    img.title = '點擊以重新生成此圖片';
-                    slideImageContainer.innerHTML = '';
-                    slideImageContainer.appendChild(img);
-                    resolve();
-                };
-                img.onerror = () => reject(new Error('圖片生成失敗，請檢查 Token'));
-                img.src = imageUrl;
-                img.alt = `第${i+1}張幻燈片插圖`;
-            });
+                        if (!response.ok) throw new Error('伺服器生成圖片失敗');
 
-        } catch (error) {
-            console.error('Generation error:', error);
-            slideImageContainer.innerHTML = `
-                <div class="generation-error" data-action="retry-generation" title="點擊以重試">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <p>生成失敗<br>${error.message}</p>
-                </div>`;
-        }
-        await new Promise(resolve => setTimeout(resolve, 300));
-    }
-    
-    progressBar.style.width = '100%';
-    prevSlideBtn.disabled = paragraphs.length === 0;
-    nextSlideBtn.disabled = paragraphs.length === 0;
-}
-            
-            // 【修訂】將重新生成邏輯封裝成一個獨立函數
-          async function regenerateImageForSlide(slideElement) {
-    const imageContainer = slideElement.querySelector('.slide-image');
-    const originalParagraph = slideElement.dataset.paragraph;
+                        // 接收圖片的二進位檔案 (Blob) 並轉為網址
+                        const blob = await response.blob();
+                        const objectURL = URL.createObjectURL(blob);
 
-    if (!originalParagraph) {
-        showNotification('找不到原始文本，無法重新生成。', true);
-        return;
-    }
+                        const img = new Image();
+                        await new Promise((resolve, reject) => {
+                            img.onload = () => {
+                                img.style.cursor = 'pointer';
+                                img.title = '點擊以重新生成此圖片';
+                                slideImageContainer.innerHTML = '';
+                                slideImageContainer.appendChild(img);
+                                resolve();
+                            };
+                            img.onerror = () => reject(new Error('圖片解析失敗'));
+                            img.src = objectURL;
+                            img.alt = `第${i+1}張幻燈片插圖`;
+                        });
 
-    imageContainer.innerHTML = `
-        <div class="loading" style="padding: 20px;">
-            <div class="spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
-            <p style="font-size: 14px; margin-top: 10px;">授權驗證與生成中...</p>
-        </div>`;
-
-    try {
-        const englishPara = await translateToEnglish(originalParagraph);
-        if (!englishPara) throw new Error('翻譯失敗');
-
-        const prompt = generateImagePrompt(englishPara);
-        const newSeed = Math.floor(Math.random() * 10000000);
-        const imageUrl = `${API_BASE_URL}/${encodeURIComponent(prompt)}?model=flux&seed=${newSeed}&width=1024&height=1024&nologo=true`;
-
-        const response = await fetch(imageUrl, {
-            method: 'GET',
-            headers: { 
-                'Authorization': `Bearer ${POLLINATIONS_API_KEY}`
+                    } catch (error) {
+                        console.error('Slide error:', error);
+                        slideImageContainer.innerHTML = `
+                            <div class="generation-error" data-action="retry-generation" title="點擊以重新生成此圖片">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <p>生成失敗: 系統錯誤或權限不足<br>點擊此處重試</p>
+                            </div>`;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+                
+                progressBar.style.width = '100%';
+                prevSlideBtn.disabled = paragraphs.length === 0;
+                nextSlideBtn.disabled = paragraphs.length === 0;
             }
-        });
 
-        if (!response.ok) throw new Error('Token 無效或額度已滿');
 
-        const blob = await response.blob();
-        const objectURL = URL.createObjectURL(blob);
+            // ✅ 【修訂】重新生成圖片也改用 POST 方法向 Cloudflare Worker 發送請求
+            async function regenerateImageForSlide(slideElement) {
+                const imageContainer = slideElement.querySelector('.slide-image');
+                const originalParagraph = slideElement.dataset.paragraph;
 
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-            img.onload = () => {
-                img.style.cursor = 'pointer';
-                img.title = '點擊以重新生成此圖片';
-                imageContainer.innerHTML = '';
-                imageContainer.appendChild(img);
-                resolve();
-            };
-            img.onerror = () => reject(new Error('圖片顯示失敗'));
-            img.src = objectURL;
-        });
-        showNotification('圖片已成功更新！');
+                if (!originalParagraph) {
+                    showNotification('找不到原始文本', true);
+                    return;
+                }
 
-    } catch (error) {
-        imageContainer.innerHTML = `
-            <div class="generation-error" data-action="retry-generation" title="點擊以重新生成此圖片">
-                <i class="fas fa-sync-alt"></i>
-                <p>更新失敗: ${error.message}</p>
-            </div>`;
-        showNotification(`錯誤：${error.message}`, true);
-    }
-}
+                imageContainer.innerHTML = `
+                    <div class="loading" style="padding: 20px;">
+                        <div class="spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
+                        <p style="font-size: 14px; margin-top: 10px;">重新生成中...</p>
+                    </div>`;
+
+                try {
+                    const englishPara = await translateToEnglish(originalParagraph);
+                    if (!englishPara) throw new Error('翻譯失敗');
+
+                    const prompt = generateImagePrompt(englishPara);
+                    
+                    const response = await fetch(WORKER_API_URL, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ prompt: prompt })
+                    });
+
+                    if (!response.ok) throw new Error('伺服器生成圖片失敗');
+
+                    const blob = await response.blob();
+                    const objectURL = URL.createObjectURL(blob);
+
+                    const img = new Image();
+                    await new Promise((resolve, reject) => {
+                        img.onload = () => {
+                            img.style.cursor = 'pointer';
+                            img.title = '點擊以重新生成此圖片';
+                            imageContainer.innerHTML = '';
+                            imageContainer.appendChild(img);
+                            resolve();
+                        };
+                        img.onerror = () => reject(new Error('圖片載入失敗'));
+                        img.src = objectURL;
+                    });
+                    showNotification('圖片已更新！');
+
+                } catch (error) {
+                    imageContainer.innerHTML = `
+                        <div class="generation-error" data-action="retry-generation" title="點擊以重試">
+                            <i class="fas fa-sync-alt"></i>
+                            <p>更新失敗: ${error.message}</p>
+                        </div>`;
+                }
+            }
+
             // 【修訂】統一的點擊事件監聽器，處理圖片和失敗後的重試
             slidesContainer.addEventListener('click', async function(event) {
                 const retryTarget = event.target.closest('[data-action="retry-generation"]');
@@ -1758,11 +1617,7 @@ function uploadOneMinute() {
     // 啟動報到系統
     document.addEventListener('DOMContentLoaded', initPresenceSystem);
 
-
-
-	
 </script>
-    
     
 </body>
 </html>
