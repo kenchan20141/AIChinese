@@ -11976,6 +11976,24 @@ refreshBtn.addEventListener('click', fetchHitokoto);
 </div>
 </div>
 <div id="argumentWritingArea" style="display: none;">
+            
+            <!-- === 新增：議論片段寫作切換按鈕 (緊貼在輸入框上方靠右) === -->
+            <div id="argumentSnippetModeHeader" style="display: none; justify-content: flex-end; margin-bottom: 8px; width: 100%;">
+                <button id="argumentSnippetModeBtn" class="snippet-mode-btn" onclick="toggleArgumentSnippetMode()" title="切換至「片段寫作」模式 (專注單一立論/駁論段落，豁免字數限制)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m-3-3h6"></path>
+                    </svg>
+                    <span>片段寫作</span>
+                </button>
+            </div>
+            
+            <textarea id="argumentWritingContent" rows="10" placeholder="請在此輸入您的文章或立論/駁論片段..."></textarea>
+            
+            <label for="argumentWritingTone" class="tone-selector-label">選擇點評語氣：</label>
+
+
+
+	
 <textarea id="argumentWritingContent" rows="10" placeholder="請在此輸入您的文章..."></textarea>
 <label for="argumentWritingTone" class="tone-selector-label">選擇點評語氣：</label>
 <select id="argumentWritingTone">
@@ -13792,7 +13810,23 @@ function showExpandCustomTopicInput(buttonElement) {
 }
 
 
-// 切換議論功能
+// === 新增：議論片段寫作狀態與切換函數 ===
+let isArgumentSnippetModeActive = false;
+
+function toggleArgumentSnippetMode() {
+    const btn = document.getElementById('argumentSnippetModeBtn');
+    isArgumentSnippetModeActive = !isArgumentSnippetModeActive;
+    
+    if (isArgumentSnippetModeActive) {
+        btn.classList.add('active');
+        if (navigator.vibrate) navigator.vibrate(20);
+    } else {
+        btn.classList.remove('active');
+        if (navigator.vibrate) navigator.vibrate(10);
+    }
+}
+
+// === 替換完整函數：切換議論功能 ===
 function toggleArgumentType() {
     hideAllSaveHtmlButtons();
     clearAllTopicStates();
@@ -13800,43 +13834,34 @@ function toggleArgumentType() {
     const argumentType = document.getElementById("argumentType").value;
     const contentContainer = document.getElementById("argumentContentContainer");
 
-
-	  // ==================================================
-    // === 新增：處理「大綱點評(Gemini)」選項，彈出視窗 ===
-    // ==================================================
     if (argumentType === "geminiArgumentOutline") {
         document.getElementById("geminiArgumentOutlineModal").style.display = "flex";
         document.getElementById("argumentType").value = ""; 
         contentContainer.style.display = "none";
-        generateGeminiArgumentOutlineTable(); // 初始化大綱表格
+        generateGeminiArgumentOutlineTable(); 
         return; 
     }
 
-    // ==================================================
-    // === 新增：處理「文章點評(Gemini)」選項，彈出視窗 ===
-    // ==================================================
     if (argumentType === "geminiArgumentReview") {
         document.getElementById("geminiArgumentReviewModal").style.display = "flex";
         document.getElementById("argumentType").value = ""; 
         contentContainer.style.display = "none";
         return; 
     }
-    // ==================================================
 
-
-    // ======= 【核心修訂】獲取所有新增的元素 =======
     const reviewScopeArea = document.getElementById("argumentReviewScopeArea");
     const gradingResultDiv = document.getElementById("argumentGradingResult");
     const chatHistoryDiv = document.getElementById("argumentChatHistory");
     const chatInputContainer = document.getElementById("argumentChatInputContainer");
 
-    // 在切換時，重置並隱藏所有結果與聊天介面
     gradingResultDiv.innerHTML = "";
     chatHistoryDiv.innerHTML = "";
     chatHistoryDiv.style.display = "none";
     chatInputContainer.style.display = "none";
     reviewScopeArea.style.display = "none";
-    // ==========================================
+    
+    // 預設隱藏議論片段按鈕
+    document.getElementById("argumentSnippetModeHeader").style.display = "none";
 
     if (argumentType) {
         contentContainer.style.display = "block";
@@ -13861,12 +13886,120 @@ function toggleArgumentType() {
         writingArea.style.display = "block";
         guideArea.style.display = "none";
         topicSelectionArea.style.display = "block";
-        reviewScopeArea.style.display = "block"; // 【修訂】在文章點評模式下顯示範疇選擇
+        reviewScopeArea.style.display = "block"; 
+        // ★ 顯示議論片段按鈕
+        document.getElementById("argumentSnippetModeHeader").style.display = "flex";
     } else if (argumentType === "guide") {
         outlineArea.style.display = "none";
         writingArea.style.display = "none";
         guideArea.style.display = "block";
         topicSelectionArea.style.display = "none";
+    }
+}
+
+// === 替換完整函數：提交議論文 ===
+async function submitArgumentWriting() {
+    const submitBtn = document.getElementById('submitArgumentWritingBtn');
+    submitBtn.disabled = true;
+    hideAllSaveHtmlButtons();
+
+    const gradingResultDiv = document.getElementById("argumentGradingResult");
+    const chatHistoryDiv = document.getElementById("argumentChatHistory");
+    const chatInputContainer = document.getElementById("argumentChatInputContainer");
+    if(gradingResultDiv) gradingResultDiv.innerHTML = "";
+    if(chatHistoryDiv) chatHistoryDiv.style.display = "none";
+    if(chatInputContainer) chatInputContainer.style.display = "none";
+    argumentChatHistoryData = [];
+
+    try {
+        const reviewerSelect = document.getElementById('argumentReviewer');
+        const selectedReviewerText = reviewerSelect.options[reviewerSelect.selectedIndex].text;
+        currentReviewerName = selectedReviewerText.replace(/\s*\(預設\)\s*/, '');
+
+        const topic = localStorage.getItem("argumentCurrentTopic");
+        if (!topic) { alert("請先設定題目"); submitBtn.disabled = false; return; }
+        const content = document.getElementById("argumentWritingContent").value.trim();
+        if (!content) { alert("請輸入您的文章"); submitBtn.disabled = false; return; }
+        
+        currentArgumentArticle = content;
+        const tone = document.getElementById("argumentWritingTone").value;
+        const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
+        const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
+
+        showLoading(`${currentReviewerName} 正在點評...`); 
+        const joystickPromise = startJoystickUI();
+ 
+        const ragReference = await searchSimilarEssays(topic, content, 'argument');
+
+        const finalPromptContent = `
+【系統強制指令 (System Instruction)】
+1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出都必須是繁體中文。
+2. **專業術語**：請使用香港高中中文科議論文術語（如：論點、論據、論證、語例、設例等）。
+3. **區分參考與正文**：下方的【參考資料】僅供參考，請只對【待評核學生文章】進行評分。
+4. **格式嚴格**：嚴格遵守 JSON/XML 輸出格式，不要輸出其他文字。
+5. **閱卷員風格**：請嚴格根據後端系統指示的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
+5. **分數獨立防呆機制**：各項評分必須絕對獨立！「扣題」獲得 6 分，絕對不代表「立意」、「取材」、「結構」也要給 6 分。嚴禁產生「暈輪效應」盲目給予同等分數！
+
+${ragReference ? ragReference : "(本次未檢索到參考範文)"}
+
+=== 📝 待評核學生文章 (Target Student Essay) ===
+${content}
+`;
+
+        const payload = {
+            action: "grade_argument",
+            data: {
+                subType: "writing", 
+                isFullReview: isFullReview,
+                topic: topic,
+                content: finalPromptContent, 
+                reviewer: document.getElementById('argumentReviewer').value, 
+                tone: tone,
+                selectedScopes: selectedScopes,
+                isSnippetMode: isArgumentSnippetModeActive // ★ 將議論的片段狀態傳給後端
+            }
+        };
+        
+        const response = await callGradingAPIWithRetry(callReadingAPI, payload, content.length, 5);
+        
+        currentContextContent = content;
+        currentContextReview = response;
+ 
+        await joystickPromise; 
+ 
+        if (isFullReview) {
+            // ★ 利用之前做好的全域變數，繞過前端的字數壓分機制
+            window._tempSnippetModeOverride = isArgumentSnippetModeActive;
+            
+            await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
+            
+            window._tempSnippetModeOverride = false; // 復原狀態
+        } else {
+            const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
+            const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+            let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
+            if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
+            if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
+            if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
+            
+            initialReviewHTML += getCanvasChatHTML('argument_writing');
+            await joystickPromise;
+            openResultCanvas("聚焦點評結果");
+            document.getElementById("resultCanvasBody").innerHTML = initialReviewHTML;
+            
+            const htmlToSave = captureContainerHTML('resultCanvasBody'); 
+            const historyType = isArgumentSnippetModeActive ? "片段點評" : "文章點評";
+            saveToHistory("議論", historyType, topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
+			appendGoToSubmitButton(); 
+        }
+
+    } catch (error) {
+        console.error("提交文章時出錯:", error);
+        alert("點評生成失敗，請重試");
+    } finally {
+        submitBtn.disabled = false;
+        forceCloseJoystick();
+        hideLoading();
     }
 }
 
@@ -14097,10 +14230,7 @@ async function submitArgumentGuide() {
 
 	
 
-// ==========================================
-// === 議論文提交函式 (單系統) ===
-// ==========================================
-
+// === 替換完整函數：提交議論文 ===
 async function submitArgumentWriting() {
     const submitBtn = document.getElementById('submitArgumentWritingBtn');
     submitBtn.disabled = true;
@@ -14129,16 +14259,11 @@ async function submitArgumentWriting() {
         const selectedScopes = Array.from(document.querySelectorAll('input[name="argumentReviewScope"]:checked')).map(cb => cb.value);
         const isFullReview = selectedScopes.includes("全部") || selectedScopes.length === 0;
 
-          showLoading(`${currentReviewerName} 正在點評...`); // 更新提示
+        showLoading(`${currentReviewerName} 正在點評...`); 
         const joystickPromise = startJoystickUI();
  
-        // ★★★ RAG 邏輯 (已更新) ★★★
         const ragReference = await searchSimilarEssays(topic, content, 'argument');
 
-        // ★★★ 修正處：已移除 argumentReviewerPreferences 的讀取 ★★★
-        // 因為此變數已移至後端 Code.gs
-
-        // ★★★ 關鍵修改：Prompt 結構重組 (移除前端注入的偏好) ★★★
         const finalPromptContent = `
 【系統強制指令 (System Instruction)】
 1. **必須使用繁體中文 (Traditional Chinese)**：無論參考資料是簡體或繁體，你的所有輸出都必須是繁體中文。
@@ -14146,7 +14271,7 @@ async function submitArgumentWriting() {
 3. **區分參考與正文**：下方的【參考資料】僅供參考，請只對【待評核學生文章】進行評分。
 4. **格式嚴格**：嚴格遵守 JSON/XML 輸出格式，不要輸出其他文字。
 5. **閱卷員風格**：請嚴格根據後端系統指示的【閱卷員特定評分取向】進行評分及撰寫點評，務必體現該閱卷員重視的特點。
-5. **分數獨立防呆機制**：各項評分必須絕對獨立！「扣題」獲得 6 分，絕對不代表「立意」、「取材」、「結構」也要給 6 分。須根據情況判斷是給出6分，或是給出 5 分或以下的低分。嚴禁產生「暈輪效應」盲目給予同等分數！
+5. **分數獨立防呆機制**：各項評分必須絕對獨立！「扣題」獲得 6 分，絕對不代表「立意」、「取材」、「結構」也要給 6 分。嚴禁產生「暈輪效應」盲目給予同等分數！
 
 ${ragReference ? ragReference : "(本次未檢索到參考範文)"}
 
@@ -14154,38 +14279,41 @@ ${ragReference ? ragReference : "(本次未檢索到參考範文)"}
 ${content}
 `;
 
-        // ★ 建構 Payload
         const payload = {
             action: "grade_argument",
             data: {
                 subType: "writing", 
                 isFullReview: isFullReview,
                 topic: topic,
-                content: finalPromptContent, // 傳送組合好的 Prompt
-                reviewer: document.getElementById('argumentReviewer').value, // 後端會根據此 ID 讀取設定
+                content: finalPromptContent, 
+                reviewer: document.getElementById('argumentReviewer').value, 
                 tone: tone,
-                selectedScopes: selectedScopes
+                selectedScopes: selectedScopes,
+                isSnippetMode: isArgumentSnippetModeActive // ★ 將議論的片段狀態傳給後端
             }
         };
         
-        // 議論文通常使用 Reading API (DeepSeek) 處理複雜邏輯
-       const response = await callGradingAPIWithRetry(callReadingAPI, payload, content.length, 5);
+        const response = await callGradingAPIWithRetry(callReadingAPI, payload, content.length, 5);
         
         currentContextContent = content;
         currentContextReview = response;
  
-        await joystickPromise; // <--- 確保在這裡等待用家搖完 50 圈
+        await joystickPromise; 
  
         if (isFullReview) {
+            // ★ 利用之前做好的全域變數，繞過前端的字數壓分機制
+            window._tempSnippetModeOverride = isArgumentSnippetModeActive;
+            
             await displayFullCommentWithGrading('argumentGradingResult', response, null, 'argument', content);
+            
+            window._tempSnippetModeOverride = false; // 復原狀態
         } else {
-            // 聚焦點評處理
             const critiqueMatch = response.match(/<critique>([\s\S]*?)<\/critique>/);
             const suggestionsMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
             let initialReviewHTML = `<h3>${currentReviewerName}聚焦點評：</h3>`;
             if (critiqueMatch?.[1]) initialReviewHTML += createBulletedListHTML("點評", critiqueMatch[1].trim());
             if (suggestionsMatch?.[1]) initialReviewHTML += createBulletedListHTML("建議", suggestionsMatch[1].trim());
-              if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
+            if (!critiqueMatch && !suggestionsMatch) initialReviewHTML += "<p>抱歉，無法生成點評。</p>";
             
             initialReviewHTML += getCanvasChatHTML('argument_writing');
             await joystickPromise;
@@ -14193,11 +14321,12 @@ ${content}
             document.getElementById("resultCanvasBody").innerHTML = initialReviewHTML;
             
             const htmlToSave = captureContainerHTML('resultCanvasBody'); 
-            saveToHistory("議論", "文章點評", topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
-			appendGoToSubmitButton(); // <--- ★ 加入這行
+            const historyType = isArgumentSnippetModeActive ? "片段點評" : "文章點評";
+            saveToHistory("議論", historyType, topic || "無題目", `題目：${topic}\n\n文章：${content}\n(聚焦點評：${selectedScopes.join("、")})`, htmlToSave);
+			appendGoToSubmitButton(); 
         }
 
-  } catch (error) {
+    } catch (error) {
         console.error("提交文章時出錯:", error);
         alert("點評生成失敗，請重試");
     } finally {
