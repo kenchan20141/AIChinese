@@ -30757,178 +30757,379 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
 
 
 
-<!-- === [新增] WebLLM 貓咪大腦引擎 (動態載入防卡死版) === -->
+<!-- === [升級版] 貓咪知識庫 + WebLLM 1.5B 引擎 === -->
 <script>
-    let catEngine = null;
-    let isCatEngineReady = false;
-    let isCatEngineLoading = false;
+// ======================================================
+// === 第一部分：神思網頁知識庫提取器 ===
+// ======================================================
+const SansiKnowledgeBase = {
+    entries: [],
+    extracted: false,
 
-    // 貓咪的系統人設 (Persona) 與知識庫
-    const CAT_SYSTEM_PROMPT = `你是一隻住在「神思」系統裡的貓書僮。你的性格可愛、溫暖，喜歡用「喵～」作為口頭禪。
-你的任務是回答使用者關於中文、生活，以及「神思」系統的問題。
-【神思功能簡介】：
-- 語薈：點擊左側選單的「工具一覽」可進入，包含以下功能：
-- 題孳：AI擬題，提供閱讀與寫作練習。
-- 翻水：AI生成高質素的敘事與議論範文。
-- 智能原稿紙：模擬真實寫作情境，設有點評功能。
-- 語弈錄：涵蓋課文的問答遊戲。
-- 慢讀：自動逐句播放文本，提升專注力。
-- 詞海拾心：歌詞測驗與節奏遊戲。
-請用繁體中文回答，語氣要像隻慵懶但聰明的貓，回答盡量簡短精煉。`;
+    // 主提取函數（頁面載入後呼叫）
+    extractAll: function () {
+        if (this.extracted) return;
+        this.entries = [];
 
-    let catChatHistory = [
-        { role: 'system', content: CAT_SYSTEM_PROMPT }
-    ];
-
-    const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-
-    // 直接定義在 window 上，保證長按時絕對找得到
-    window.initAndOpenCatChat = async function() {
-        const progressArea = document.getElementById('catChatProgress');
-        const progressText = document.getElementById('catChatProgressText');
-        const getBarFill = () => document.getElementById('catChatProgressBarFill');
-        const inputEl = document.getElementById('catChatInput');
-        const sendBtn = document.getElementById('catChatSendBtn');
-
-        if (!navigator.gpu) {
-            console.error("❌ 設備不支援 WebGPU！");
-            progressArea.style.display = 'block';
-            if (getBarFill()) getBarFill().style.width = '0%';
-            progressText.innerHTML = "<i class='fas fa-exclamation-circle' style='color:#d69a92;'></i> 喵嗚... 你的設備好像沒有給貓咪足夠的魔法（不支援 WebGPU），請用最新版的 Chrome 或 Edge 唷！";
-            return;
-        }
-
-        if (isCatEngineReady) {
-            progressArea.style.display = 'none';
-            if (catChatHistory.length === 1) { 
-                appendCatMessage('ai', '喵～我隨時準備好聊天了！想知道「神思」有什麼好玩的工具，或是想聊聊文學嗎？');
+        // ── 1. 主頁功能卡片 ──
+        document.querySelectorAll('.anime-card').forEach(card => {
+            const zh = card.querySelector('.card-zh')?.textContent?.trim();
+            const en = card.querySelector('.card-en')?.textContent?.trim();
+            if (zh) {
+                this.entries.push({
+                    cat: '主範疇',
+                    title: zh,
+                    text: this._featureDesc(zh)
+                });
             }
-            inputEl.disabled = false;
-            sendBtn.disabled = false;
-            inputEl.focus();
-            return;
+        });
+
+        // ── 2. 側邊選單 ──
+        const sideDescs = {
+            '雲端同步': '登入學校帳號，同步學習紀錄、繳交課業、查看老師評語及批改結果。',
+            '歷史紀錄': '查看過去所有的寫作點評、閱讀分析、學習報告等紀錄，可下載、編輯、刪除。',
+            '工具一覽': '進入語薈，查看所有可用的學習工具，包括題孳、翻水、智能原稿紙、語弈錄等。',
+            '返回主頁': '返回神思主頁面。',
+            '閱讀資源': '包含「作家文粹」（精選文章閱讀）和「書籍討論」兩大功能。',
+            '素材日報': '提供每日寫作素材，包括議論文典故與敘事抒情選材，附仿DSE擬題及論述示例。',
+            '系統佈告': '查看系統公告和通知。',
+            '音樂播放器': '播放背景音樂，營造舒適的學習環境。',
+            'Live2D': '選擇貓咪書僮的顯示模式（黑貓、白貓、雙貓或隱藏）。',
+            '語音導航': '長按語音按鈕，用語音指令快速導航到不同功能。'
+        };
+        document.querySelectorAll('.side-menu-item').forEach(item => {
+            const name = item.querySelector('span')?.textContent?.trim();
+            if (name && sideDescs[name]) {
+                this.entries.push({ cat: '側邊選單', title: name, text: sideDescs[name] });
+            }
+        });
+
+        // ── 3. 語薈工具列表 ──
+        if (typeof toolDescriptions !== 'undefined') {
+            document.querySelectorAll('#toolsContainer2 .node a[data-tool-id]').forEach(a => {
+                const title = a.textContent?.trim();
+                const id = a.getAttribute('data-tool-id');
+                if (title && toolDescriptions[id]) {
+                    this.entries.push({ cat: '語薈工具', title: title, text: toolDescriptions[id] });
+                }
+            });
         }
 
-        if (isCatEngineLoading) return;
+        // ── 4. 各功能下拉選單 ──
+        const selectMap = {
+            'writingType': '敘事抒情功能選單',
+            'readingFunction': '閱讀功能選單',
+            'expandFunction': '整合拓展功能選單',
+            'argumentType': '議論功能選單'
+        };
+        Object.keys(selectMap).forEach(id => {
+            const sel = document.getElementById(id);
+            if (!sel) return;
+            const opts = [];
+            sel.querySelectorAll('option').forEach(o => {
+                if (o.value && o.value !== '' && !o.disabled) opts.push(o.textContent.trim());
+            });
+            if (opts.length) {
+                this.entries.push({
+                    cat: '功能選項',
+                    title: selectMap[id],
+                    text: '可用選項：' + opts.join('、')
+                });
+            }
+        });
 
-        isCatEngineLoading = true;
-        progressArea.style.display = 'block';
-        if (getBarFill()) getBarFill().style.width = '0%';
-        inputEl.disabled = true;
-        sendBtn.disabled = true;
-        
-        progressText.innerHTML = `<i class='fas fa-paw fa-bounce' style='color:#8fa398;'></i> 正在喚醒貓咪的神經元...`;
+        // ── 5. 其他重要區塊 ──
+        const misc = [
+            { id: 'hitokoto-container', title: '一言', text: '主頁顯示隨機名言（來自 hitokoto.cn），可點擊刷新按鈕換一句。' },
+            { id: 'dse-countdown-box', title: 'DSE倒數日曆', text: '顯示距離DSE中文科考試的倒數天數，可選擇中一至中六年級查看。' },
+            { id: 'booksContainer', title: '書籍討論', text: '輸入書名、作者和討論問題，與陳SIR進行書籍討論對話，可選擇嚴肅正經或輕鬆活潑語氣。' },
+            { id: 'music-player', title: '音樂播放器', text: '播放背景音樂，可選擇曲目、調整進度、選擇播放模式（單曲循環或自動播放下首）。' }
+        ];
+        misc.forEach(m => {
+            if (document.getElementById(m.id)) {
+                this.entries.push({ cat: '其他功能', title: m.title, text: m.text });
+            }
+        });
 
-        try {
-            // ★ 關鍵：動態引入 WebLLM，改用 jsdelivr 提升穩定度，並避免 block 整個頁面
-            const webllm = await import("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm");
+        // ── 6. 寫作相關詳細說明 ──
+        const writingFeatures = [
+            { title: '大綱點評（敘事抒情）', text: '選擇起承轉合或三線結構，填寫結構段重點和情節大要，AI會提供點評、建議和改寫後的大綱。' },
+            { title: '文章點評（敘事抒情）', text: '輸入文章，選擇點評語氣（嚴肅正經或陳SIR語氣）和閱卷員，AI會提供評分（內容、表達、結構、標點字體、錯別字）、雷達圖、點評、建議和改寫範例。可選擇點評範疇（扣題、立意、取材、詳略、文筆）。' },
+            { title: '解題指引（敘事抒情）', text: '輸入題目，AI會提供題眼分析和三個寫作方向（故事種子），包括情境和張力。' },
+            { title: '敘事物象', text: '輸入題目和取材背景，AI會生成可用的敘事物象列表。' },
+            { title: '片段寫作', text: '專注細節刻劃的寫作模式，豁免字數限制，適合練習單一場景或段落。' },
+            { title: '大綱點評（議論）', text: '填寫起、結構段、合的論點和論據，AI會提供點評、建議和改寫後的大綱參考。' },
+            { title: '文章點評（議論）', text: '輸入議論文，選擇點評語氣和閱卷員，AI會提供評分、雷達圖、點評、建議和改寫範例。可選擇點評範疇（謀篇、論點、論據、論證、文筆）。' },
+            { title: '指引（議論）', text: '輸入題目、論點、論據、論證（後三者可選），AI會提供議論文寫作指引。' },
+            { title: '綜合點評（閱讀）', text: '貼上閱讀篇章、題目和答案，AI會提供點評、答題步驟及思路、改寫示例。' },
+            { title: '指引（閱讀）', text: '貼上閱讀篇章和題目，AI會提供答題指引和答題詞彙。' },
+            { title: '訓練（閱讀）', text: '跳轉至閱讀理解訓練工具。' },
+            { title: '闡述點評（整合拓展）', text: '輸入題目、主題句、抄錄資料和整合拓展內容（最多180字），AI會提供點評和建議。' },
+            { title: '指引（整合拓展）', text: '輸入題目、主題句、抄錄資料和整合拓展內容，AI會提供指引問題。' },
+            { title: '扣題分析（Gemini）', text: '使用Gemini進行扣題分析，將題目拆解為核心問題，評估大綱或文章的扣題程度。' },
+            { title: '分步點評【中文】（Gemini）', text: '使用Gemini進行中文科閱讀理解的分步點評，針對每道題目進行拆解、評分和潤飾。' },
+            { title: '分步點評【文學】（Gemini）', text: '使用Gemini進行中國文學科的分步點評，針對十二範文及課外篇章進行拆解、評分和潤飾。' },
+            { title: '正文段點評（Gemini）', text: '使用Gemini進行整合拓展正文段的點評，評估措施和意見的涵蓋及闡述質量。' }
+        ];
+        writingFeatures.forEach(f => {
+            this.entries.push({ cat: '功能詳情', title: f.title, text: f.text });
+        });
 
-            const initProgressCallback = (report) => {
-                let catActionText = "貓咪正在尋找記憶罐頭...";
-                let pct = 0;
-                
-                // 容錯提取進度
-                if (typeof report.progress === 'number' && !isNaN(report.progress)) {
-                    pct = Math.round(report.progress * 100);
-                } else {
-                    const match = report.text.match(/(\d+)%/);
-                    if (match) pct = parseInt(match[1]);
-                }
-                pct = Math.max(0, Math.min(pct, 100));
+        // ── 7. 貓咪自身 ──
+        this.entries.push({
+            cat: '貓咪資訊',
+            title: '神思貓書僮',
+            text: '我是住在神思系統裡的貓書僮，可以回答你關於神思功能和中文學習的問題。長按我可以開啟對話，雙擊我會播放貓叫聲和動作。'
+        });
 
-                const rawText = report.text.toLowerCase();
-                if (rawText.includes("fetching")) {
-                    catActionText = `<i class='fas fa-paw fa-bounce' style='color:#8fa398;'></i> 正在搬運神思的記憶罐頭...`;
-                } else if (rawText.includes("loading model") || rawText.includes("loading")) {
-                    catActionText = `<i class='fas fa-fish fa-spin' style='color:#d69a92;'></i> 正在大口吃下語薈的知識...`;
-                } else if (rawText.includes("initializing") || pct >= 99) {
-                    catActionText = `<i class='fas fa-mug-hot' style='color:#d69a92;'></i> 罐頭吃完了，正在肚子裡消化吸收中...`;
-                    pct = 100;
-                } else if (pct > 0) {
-                    catActionText = `<i class='fas fa-fish fa-spin' style='color:#d69a92;'></i> 正在努力吞下記憶罐頭...`;
-                }
+        this.extracted = true;
+        console.log(`🐱 [知識庫] 提取完成，共 ${this.entries.length} 條目`);
+    },
 
-                progressText.innerHTML = `${catActionText} <strong style="color:#2A9689;">${pct}%</strong><br><span style="font-size:0.8em;color:#aaa;">(只需吃這一次，下次就會秒速喚醒，離線陪伴你唷！)</span>`;
-                
-                const currentBar = getBarFill();
-                if (currentBar) currentBar.style.width = `${pct}%`;
-            };
+    // 主範疇描述
+    _featureDesc: function (name) {
+        const map = {
+            '閱讀': '提供閱讀理解點評、指引、訓練等功能。可貼上篇章和題目，AI提供綜合點評、答題步驟、改寫示例。另有Gemini分步點評（中文/文學）。',
+            '敘事抒情': '提供大綱點評、文章點評、解題指引、敘事物象等功能。支援起承轉合和三線結構。可選擇不同閱卷員和點評語氣。另有片段寫作模式和Gemini扣題分析。',
+            '議論': '提供大綱點評、文章點評、指引等功能。可填寫論點、論據、論證。支援不同閱卷員和點評語氣。另有Gemini大綱點評和文章點評。',
+            '整合拓展': '提供闡述點評和指引功能。輸入題目、主題句、抄錄資料和整合拓展內容（最多180字），AI提供點評。另有Gemini正文段點評。'
+        };
+        return map[name] || '';
+    },
 
-            // 初始化引擎
-            catEngine = await webllm.CreateMLCEngine(MODEL_ID, { initProgressCallback });
-            
-            isCatEngineReady = true;
-            progressArea.style.display = 'none'; 
-            
-            appendCatMessage('ai', '呼～吃飽了！記憶已經永久保存在貓窩，以後就算沒網路我也能陪你聊天啦！喵～想問我什麼呢？');
-            
-            inputEl.disabled = false;
-            sendBtn.disabled = false;
-            inputEl.focus();
+    // ── 檢索函數 ──
+    search: function (query) {
+        if (!this.extracted) this.extractAll();
+        const q = query.toLowerCase();
+        const keywords = q.split(/\s+/).filter(k => k.length >= 2);
+        const scored = [];
 
-        } catch (error) {
-            console.error("載入崩潰:", error);
-            progressText.innerHTML = `<i class='fas fa-exclamation-triangle' style='color:#d69a92;'></i> 喵嗚... 吃到壞掉的罐頭了（載入失敗）。<br><span style="font-size:0.8em;color:#aaa;">請檢查網絡或使用 Chrome/Edge 瀏覽器。</span>`;
-        } finally {
-            isCatEngineLoading = false;
-        }
-    };
+        this.entries.forEach(entry => {
+            let score = 0;
+            const titleL = entry.title.toLowerCase();
+            const textL = entry.text.toLowerCase();
+            const catL = entry.cat.toLowerCase();
 
-    function appendCatMessage(role, text) {
-        const msgContainer = document.getElementById('catChatMessages');
-        if (!msgContainer) return;
-        const msgEl = document.createElement('div');
-        msgEl.className = `cat-msg-bubble ${role === 'user' ? 'cat-msg-user' : 'cat-msg-ai'}`;
-        msgEl.innerHTML = text;
-        msgContainer.appendChild(msgEl);
-        msgContainer.scrollTop = msgContainer.scrollHeight;
-        return msgEl;
-    }
-
-    window.sendCatChatMessage = async function() {
-        const inputEl = document.getElementById('catChatInput');
-        const sendBtn = document.getElementById('catChatSendBtn');
-        const text = inputEl.value.trim();
-        
-        if (!text || !isCatEngineReady || !catEngine) return;
-
-        appendCatMessage('user', text);
-        catChatHistory.push({ role: 'user', content: text });
-        inputEl.value = '';
-        inputEl.disabled = true;
-        sendBtn.disabled = true;
-
-        const aiMsgEl = appendCatMessage('ai', '<i class="fas fa-cat fa-bounce" style="color:#8fa398;"></i> 貓咪思考中...');
-
-        try {
-            const chunks = await catEngine.chat.completions.create({
-                messages: catChatHistory,
-                temperature: 0.7,
-                stream: true,
+            keywords.forEach(kw => {
+                if (titleL.includes(kw)) score += 12;
+                if (textL.includes(kw)) score += 5;
+                if (catL.includes(kw)) score += 8;
             });
 
-            let fullReply = "";
-            for await (const chunk of chunks) {
-                const delta = chunk.choices[0]?.delta?.content || "";
-                fullReply += delta;
-                aiMsgEl.innerHTML = fullReply.replace(/\n/g, '<br>');
-                document.getElementById('catChatMessages').scrollTop = document.getElementById('catChatMessages').scrollHeight;
+            // 完整查詢匹配加分
+            if (titleL.includes(q)) score += 20;
+            if (textL.includes(q)) score += 10;
+
+            if (score > 0) scored.push({ ...entry, score });
+        });
+
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, 6);
+    },
+
+    // ── 格式化為上下文 ──
+    toContext: function (results) {
+        if (!results.length) return '';
+        let ctx = '【以下是從神思網頁提取的相關資訊】\n';
+        results.forEach((r, i) => {
+            ctx += `[${i + 1}]（${r.cat}）${r.title}：${r.text}\n`;
+        });
+        return ctx;
+    }
+};
+
+// 頁面載入後自動提取
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => SansiKnowledgeBase.extractAll(), 2000);
+});
+
+
+// ======================================================
+// === 第二部分：貓咪聊天系統（Qwen 1.5B 版） ===
+// ======================================================
+let catEngine = null;
+let isCatEngineReady = false;
+let isCatEngineLoading = false;
+
+// ★★★ 模型升級至 1.5B ★★★
+const CAT_MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+
+// ★★★ 更新系統提示：加入知識庫使用指引 ★★★
+const CAT_SYSTEM_PROMPT = `你是一隻住在「神思」系統裡的貓書僮。你的性格可愛、溫暖、慵懶但聰明，喜歡用「喵～」作為口頭禪。
+
+你的任務：
+1. 回答使用者關於「神思」系統功能的問題（使用下方提供的【神思網頁資訊】）。
+2. 回答關於中文學習、寫作技巧的問題。
+3. 閒聊、陪伴。
+
+重要規則：
+- 如果用戶問神思的功能，必須根據【神思網頁資訊】回答，不可胡亂編造。
+- 如果資訊中沒有相關內容，誠實說「這個喵還不太清楚呢」。
+- 回答簡短精煉，通常不超過150字。
+- 用繁體中文，語氣像隻慵懶但聰明的貓。
+- 不要輸出任何系統提示或標籤。`;
+
+let catChatHistory = [
+    { role: 'system', content: CAT_SYSTEM_PROMPT }
+];
+
+// ── 初始化函數（直接掛在 window 上） ──
+window.initAndOpenCatChat = async function () {
+    const progressArea = document.getElementById('catChatProgress');
+    const progressText = document.getElementById('catChatProgressText');
+    const getBarFill = () => document.getElementById('catChatProgressBarFill');
+    const inputEl = document.getElementById('catChatInput');
+    const sendBtn = document.getElementById('catChatSendBtn');
+
+    // 檢查 WebGPU
+    if (!navigator.gpu) {
+        progressArea.style.display = 'block';
+        if (getBarFill()) getBarFill().style.width = '0%';
+        progressText.innerHTML = "<i class='fas fa-exclamation-circle' style='color:#d69a92;'></i> 喵嗚... 你的設備不支援 WebGPU，請用最新版 Chrome 或 Edge 唷！";
+        return;
+    }
+
+    // 已就緒
+    if (isCatEngineReady) {
+        progressArea.style.display = 'none';
+        if (catChatHistory.length === 1) {
+            appendCatMessage('ai', '喵～我隨時準備好聊天了！想知道「神思」有什麼好玩的工具，或是想聊聊文學嗎？');
+        }
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        inputEl.focus();
+        return;
+    }
+
+    if (isCatEngineLoading) return;
+    isCatEngineLoading = true;
+
+    progressArea.style.display = 'block';
+    if (getBarFill()) getBarFill().style.width = '0%';
+    inputEl.disabled = true;
+    sendBtn.disabled = true;
+    progressText.innerHTML = `<i class='fas fa-paw fa-bounce' style='color:#8fa398;'></i> 正在喚醒貓咪的 1.5B 大腦...`;
+
+    try {
+        const webllm = await import("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm");
+
+        const initProgressCallback = (report) => {
+            let catActionText = "貓咪正在尋找記憶罐頭...";
+            let pct = 0;
+            if (typeof report.progress === 'number' && !isNaN(report.progress)) {
+                pct = Math.round(report.progress * 100);
+            } else {
+                const m = report.text.match(/(\d+)%/);
+                if (m) pct = parseInt(m[1]);
+            }
+            pct = Math.max(0, Math.min(pct, 100));
+            const raw = report.text.toLowerCase();
+
+            if (raw.includes("fetching")) {
+                catActionText = `<i class='fas fa-paw fa-bounce' style='color:#8fa398;'></i> 正在搬運 1.5B 的記憶罐頭...`;
+            } else if (raw.includes("loading model") || raw.includes("loading")) {
+                catActionText = `<i class='fas fa-fish fa-spin' style='color:#d69a92;'></i> 正在大口吃下語薈的知識...`;
+            } else if (raw.includes("initializing") || pct >= 99) {
+                catActionText = `<i class='fas fa-mug-hot' style='color:#d69a92;'></i> 罐頭吃完了，正在消化吸收中...`;
+                pct = 100;
+            } else if (pct > 0) {
+                catActionText = `<i class='fas fa-fish fa-spin' style='color:#d69a92;'></i> 正在努力吞下記憶罐頭...`;
             }
 
-            catChatHistory.push({ role: 'assistant', content: fullReply });
+            progressText.innerHTML = `${catActionText} <strong style="color:#2A9689;">${pct}%</strong><br><span style="font-size:0.8em;color:#aaa;">(1.5B 模型較大，首次載入需時，之後會快取)</span>`;
+            const bar = getBarFill();
+            if (bar) bar.style.width = `${pct}%`;
+        };
 
-        } catch (error) {
-            console.error("對話錯誤:", error);
-            aiMsgEl.innerHTML = "<i class='fas fa-dizzy' style='color:#d69a92;'></i> 喵嗚... 腦袋突然打結了，請再問我一次好嗎？";
-        } finally {
-            inputEl.disabled = false;
-            sendBtn.disabled = false;
-            inputEl.focus();
+        catEngine = await webllm.CreateMLCEngine(CAT_MODEL_ID, { initProgressCallback });
+
+        isCatEngineReady = true;
+        progressArea.style.display = 'none';
+        appendCatMessage('ai', '呼～1.5B 的大腦吃飽了！我現在可以讀懂整個神思網頁啦！喵～想問我什麼呢？');
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        inputEl.focus();
+
+    } catch (error) {
+        console.error("貓咪大腦載入崩潰:", error);
+        progressText.innerHTML = `<i class='fas fa-exclamation-triangle' style='color:#d69a92;'></i> 喵嗚... 吃到壞掉的罐頭了（載入失敗）。<br><span style="font-size:0.8em;color:#aaa;">請檢查網絡或使用 Chrome/Edge 瀏覽器。</span>`;
+    } finally {
+        isCatEngineLoading = false;
+    }
+};
+
+// ── 訊息氣泡 ──
+function appendCatMessage(role, text) {
+    const msgContainer = document.getElementById('catChatMessages');
+    if (!msgContainer) return;
+    const el = document.createElement('div');
+    el.className = `cat-msg-bubble ${role === 'user' ? 'cat-msg-user' : 'cat-msg-ai'}`;
+    el.innerHTML = text;
+    msgContainer.appendChild(el);
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+    return el;
+}
+
+// ── 發送訊息（整合知識庫檢索） ──
+window.sendCatChatMessage = async function () {
+    const inputEl = document.getElementById('catChatInput');
+    const sendBtn = document.getElementById('catChatSendBtn');
+    const text = inputEl.value.trim();
+    if (!text || !isCatEngineReady || !catEngine) return;
+
+    appendCatMessage('user', text);
+    inputEl.value = '';
+    inputEl.disabled = true;
+    sendBtn.disabled = true;
+
+    // ★★★ 核心：檢索網頁知識庫 ★★★
+    const results = SansiKnowledgeBase.search(text);
+    const context = SansiKnowledgeBase.toContext(results);
+
+    // 構建帶上下文的用戶訊息
+    const enrichedMessage = context
+        ? `${context}\n【用戶問題】${text}`
+        : text;
+
+    catChatHistory.push({ role: 'user', content: enrichedMessage });
+
+    const aiMsgEl = appendCatMessage('ai', '<i class="fas fa-cat fa-bounce" style="color:#8fa398;"></i> 貓咪思考中...');
+
+    try {
+        const chunks = await catEngine.chat.completions.create({
+            messages: catChatHistory,
+            temperature: 0.7,
+            max_tokens: 512,
+            stream: true,
+        });
+
+        let fullReply = "";
+        for await (const chunk of chunks) {
+            const delta = chunk.choices[0]?.delta?.content || "";
+            fullReply += delta;
+            aiMsgEl.innerHTML = fullReply.replace(/\n/g, '<br>');
+            document.getElementById('catChatMessages').scrollTop =
+                document.getElementById('catChatMessages').scrollHeight;
         }
-    };
+
+        // 只保存原始問題到歷史（不保存上下文，避免 token 爆炸）
+        catChatHistory.push({ role: 'assistant', content: fullReply });
+
+        // 限制歷史長度，防止超出上下文窗口
+        if (catChatHistory.length > 12) {
+            catChatHistory = [catChatHistory[0], ...catChatHistory.slice(-10)];
+        }
+
+    } catch (error) {
+        console.error("貓咪對話錯誤:", error);
+        aiMsgEl.innerHTML = "<i class='fas fa-dizzy' style='color:#d69a92;'></i> 喵嗚... 腦袋打結了，請再問我一次好嗎？";
+    } finally {
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+        inputEl.focus();
+    }
+};
 </script>
-
-
 	
 </body>
 </html>
