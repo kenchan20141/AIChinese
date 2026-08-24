@@ -8296,6 +8296,9 @@ button, .btn, .anime-card, .side-menu-item {
     transform: translateY(-2px);
 }
 
+
+	
+
 	
 </style>
 
@@ -29530,16 +29533,24 @@ Step 1: 智能分析與嚴格評分
     }
 
     // --- 將「來源」注入 ---
-  // --- 將「來源」注入 ---
+// --- 將「來源」智能注入 ---
     const passageEl = document.getElementById('chinesePassageInput');
     const passage = passageEl ? passageEl.value.trim() : "";
 
-    if (inputMode === 'paste' && (content !== "" || passage !== "")) {
-        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n`;
-        if (passage !== "") finalPrompt += `【閱讀篇章】\n${passage}\n\n`;
-        if (content !== "") finalPrompt += `【學生答題內容（題目及答案）】\n${content}\n\n`;
+    finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n`;
+
+    // 1. 判斷篇章來源
+    if (passage !== "") {
+        finalPrompt += `【閱讀篇章】\n${passage}\n\n`;
     } else {
-        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n(請讀取我隨後以附件形式上傳的閱讀篇章 / 題目圖片 / PDF / 文檔)\n\n`;
+        finalPrompt += `【閱讀篇章】\n(請讀取我隨後以附件形式上傳的閱讀篇章圖片 / PDF / 文檔)\n\n`;
+    }
+
+    // 2. 判斷答題內容來源
+    if (inputMode === 'paste' && content !== "") {
+        finalPrompt += `【學生答題內容（題目及答案）】\n${content}\n\n`;
+    } else {
+        finalPrompt += `【學生答題內容（題目及答案）】\n(請讀取我隨後以附件形式上傳的學生答題圖片 / PDF / 文檔)\n\n`;
     }
 
     // --- 絕對強制鎖定副檔名 ---
@@ -30165,7 +30176,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <button onclick="document.getElementById('stepCommentModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
         </div>
 
-        <!-- 來源提供方式 (二選一卡片) -->
+       <!-- 答題內容提供方式 (二選一卡片) -->
         <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">題目及答題來源</label>
         <div class="gemini-ui-grid grid-2" style="margin-top: 5px;">
             <div class="gemini-ui-card active" onclick="selectChineseInputMode('attach', this)">
@@ -30179,30 +30190,40 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
         <input type="hidden" id="chineseInputMode" value="attach">
 
-        <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
-    <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
+        <!-- ★ 獨立出來的閱讀篇章區塊 (永遠顯示) ★ -->
+        <div id="chinesePassageSection" style="margin-top: 15px; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">閱讀篇章：</span>
+                <div style="display: flex; gap: 5px; max-width: 65%;">
+                    <select id="chinesePassageModeSelect" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="toggleChinesePassageMode()">
+                        <option value="manual">稍後上傳</option>
+                        <option value="template">選擇指定範文</option>
+                    </select>
+                    <select id="chinesePassageTemplateSelect" style="display: none; padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="if(this.value) document.getElementById('chinesePassageInput').value = this.value;">
+                        <option value="">請選擇...</option>
+                    </select>
+                </div>
+            </div>
+            <textarea id="chinesePassageInput" class="no-modal-editor" rows="4" placeholder="請在此貼上篇章，或選擇範文。若打算稍後上傳照片，請保持此處空白..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        </div>
+
+        <!-- 文字輸入與 OCR 區塊 (僅在選擇文字模式時顯示) -->
+        <div id="chineseArticleSection" style="display: none; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">貼上題目及答題內容：</span>
+                <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerChineseOCR()">
+                    <i class="fas fa-camera"></i> OCR
+                </button>
+            </div>
+            <textarea id="chineseArticleInput" class="no-modal-editor" rows="4" placeholder="可貼上文字，或點擊右上角 OCR..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        </div>
+
+
+
+		
         <div id="chineseArticleSection" style="display: none; margin-bottom: 20px;">
             
-            <!-- === 新增：篇章模式切換與選擇 === -->
-            <div style="margin-bottom: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                    <span style="color: #aaa; font-size: 0.8rem;">閱讀篇章：</span>
-                    <div style="display: flex; gap: 5px; max-width: 75%;">
-                        <!-- 選單一：模式切換 -->
-                        <select id="chinesePassageModeSelect" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="toggleChinesePassageMode()">
-                            <option value="manual">自行輸入</option>
-                            <option value="template">選擇指定範文</option>
-                        </select>
-                        <!-- 選單二：範文列表 (預設隱藏) -->
-                        <select id="chinesePassageTemplateSelect" style="display: none; padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="if(this.value) document.getElementById('chinesePassageInput').value = this.value;">
-                            <option value="">請選擇...</option>
-                        </select>
-                    </div>
-                </div>
-                <textarea id="chinesePassageInput" class="no-modal-editor" rows="6" placeholder="請在此貼上或輸入閱讀篇章..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
-            </div>
-            <!-- === 新增結束 === -->
-
+         
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <span style="color: #aaa; font-size: 0.8rem;">貼上題目及答題內容：</span>
                 <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerChineseOCR()">
@@ -30249,7 +30270,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <button onclick="document.getElementById('stepCommentLitModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
         </div>
 
-        <!-- 來源提供方式 (二選一卡片) -->
+        <!-- 答題內容提供方式 (二選一卡片) -->
         <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">題目及答題來源</label>
         <div class="gemini-ui-grid grid-2" style="margin-top: 5px;">
             <div class="gemini-ui-card active" onclick="selectLitInputMode('attach', this)">
@@ -30261,40 +30282,34 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span style="font-size: 0.85rem;">文字 / OCR</span>
             </div>
         </div>
-        <!-- 確保這行有被複製到 -->
         <input type="hidden" id="litInputMode" value="attach">
 
-        <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
-       <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
-        <div id="litArticleSection" style="display: none; margin-bottom: 20px;">
-            
-           <!-- === 新增：文學篇章模式切換與選擇 === -->
-            <div style="margin-bottom: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                    <span style="color: #aaa; font-size: 0.8rem;">閱讀篇章：</span>
-                    <div style="display: flex; gap: 5px; max-width: 75%;">
-                        <!-- 選單一：模式切換 -->
-                        <select id="litPassageModeSelect" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="toggleLitPassageMode()">
-                            <option value="manual">自行輸入</option>
-                            <option value="template">選擇指定範文</option>
-                        </select>
-                        <!-- 選單二：範文列表 (預設隱藏) -->
-                        <select id="litPassageTemplateSelect" style="display: none; padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="if(this.value) document.getElementById('litPassageInput').value = this.value;">
-                            <option value="">請選擇...</option>
-                        </select>
-                    </div>
+        <!-- ★ 獨立出來的文學篇章區塊 (永遠顯示) ★ -->
+        <div id="litPassageSection" style="margin-top: 15px; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #aaa; font-size: 0.8rem;">閱讀篇章：</span>
+                <div style="display: flex; gap: 5px; max-width: 65%;">
+                    <select id="litPassageModeSelect" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="toggleLitPassageMode()">
+                        <option value="manual">稍後上傳</option>
+                        <option value="template">選擇指定範文</option>
+                    </select>
+                    <select id="litPassageTemplateSelect" style="display: none; padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="if(this.value) document.getElementById('litPassageInput').value = this.value;">
+                        <option value="">請選擇...</option>
+                    </select>
                 </div>
-                <textarea id="litPassageInput" class="no-modal-editor" rows="6" placeholder="請在此貼上或輸入閱讀篇章..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
             </div>
-            <!-- === 新增結束 === -->
+            <textarea id="litPassageInput" class="no-modal-editor" rows="4" placeholder="請在此貼上篇章，或選擇範文。若打算稍後上傳照片，請保持此處空白..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        </div>
 
+        <!-- 文字輸入與 OCR 區塊 (僅在選擇文字模式時顯示) -->
+        <div id="litArticleSection" style="display: none; margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <span style="color: #aaa; font-size: 0.8rem;">貼上題目及答題內容：</span>
                 <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerLitOCR()">
                     <i class="fas fa-camera"></i> OCR
                 </button>
             </div>
-            <textarea id="litArticleInput" class="no-modal-editor" rows="5" placeholder="可貼上文字，或點擊右上角 OCR..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+            <textarea id="litArticleInput" class="no-modal-editor" rows="4" placeholder="可貼上文字，或點擊右上角 OCR..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
         </div>
 
         <!-- 輸出格式 (三選一卡片) -->
@@ -30313,7 +30328,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span style="font-size: 0.8rem;">純文字</span>
             </div>
         </div>
-        <!-- 確保這行有被複製到 -->
         <input type="hidden" id="litOutputModeVal" value="docx">
 
         <!-- 送出按鈕 -->
@@ -30322,7 +30336,6 @@ document.addEventListener('DOMContentLoaded', function() {
         </button>
     </div>
 </div>
-
 
 
 	
