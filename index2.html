@@ -16946,6 +16946,18 @@ const textLibrary = {
 };
 
 
+	// === [修復] 將範文同步載入到「分步點評【中文】」的下拉選單中 ===
+    const chineseTemplateSelect = document.getElementById('chinesePassageTemplateSelect');
+    if (chineseTemplateSelect && chineseTemplateSelect.options.length <= 1) {
+        textLibrary.texts.forEach(text => {
+            const option = document.createElement('option');
+            option.value = text.content;
+            option.textContent = text.title;
+            chineseTemplateSelect.appendChild(option);
+        });
+    }
+
+
 
 	
 /* === 修改後的 openModalEditor (手機版不自動彈出鍵盤) === */
@@ -29175,10 +29187,16 @@ Step 1: 智能分析與嚴格評分
     }
 
     // --- 將「來源」注入 ---
-    if (inputMode === 'paste' && content !== "") {
-        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n${content}\n\n`;
+   // --- 將「來源」注入 ---
+    const passageEl = document.getElementById('chinesePassageInput');
+    const passage = passageEl ? passageEl.value.trim() : "";
+
+    if (inputMode === 'paste' && (content !== "" || passage !== "")) {
+        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n`;
+        if (passage !== "") finalPrompt += `【閱讀篇章】\n${passage}\n\n`;
+        if (content !== "") finalPrompt += `【學生答題內容（題目及答案）】\n${content}\n\n`;
     } else {
-        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n(請讀取我隨後以附件形式上傳的圖片 / PDF / 文檔)\n\n`;
+        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n(請讀取我隨後以附件形式上傳的閱讀篇章 / 題目圖片 / PDF / 文檔)\n\n`;
     }
 
     // --- 絕對強制鎖定副檔名 ---
@@ -29512,10 +29530,16 @@ Step 1: 智能分析與嚴格評分
     }
 
     // --- 將「來源」注入 ---
-    if (inputMode === 'paste' && content !== "") {
-        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n${content}\n\n`;
+  // --- 將「來源」注入 ---
+    const passageEl = document.getElementById('chinesePassageInput');
+    const passage = passageEl ? passageEl.value.trim() : "";
+
+    if (inputMode === 'paste' && (content !== "" || passage !== "")) {
+        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n`;
+        if (passage !== "") finalPrompt += `【閱讀篇章】\n${passage}\n\n`;
+        if (content !== "") finalPrompt += `【學生答題內容（題目及答案）】\n${content}\n\n`;
     } else {
-        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n(請讀取我隨後以附件形式上傳的圖片 / PDF / 文檔)\n\n`;
+        finalPrompt += `\n\n=== 📝 待評核學生題目及答案來源 ===\n(請讀取我隨後以附件形式上傳的閱讀篇章 / 題目圖片 / PDF / 文檔)\n\n`;
     }
 
     // --- 絕對強制鎖定副檔名 ---
@@ -29860,6 +29884,38 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
         console.error(err);
     });
 }
+
+
+	// === 控制分步點評【中文】的範文選單顯示/隱藏 ===
+function toggleChinesePassageMode() {
+    const mode = document.getElementById('chinesePassageModeSelect').value;
+    const templateSelect = document.getElementById('chinesePassageTemplateSelect');
+    
+    if (mode === 'template') {
+        templateSelect.style.display = 'block'; // 顯示範文選單
+    } else {
+        templateSelect.style.display = 'none';  // 隱藏範文選單
+        templateSelect.value = "";              // 重置選單
+    }
+}
+
+
+
+
+
+
+	// === 載入中文分步點評的「指定範文」選單 ===
+document.addEventListener('DOMContentLoaded', function() {
+    const passageSelect = document.getElementById('chinesePassageSelect');
+    if (passageSelect && typeof textLibrary !== 'undefined') {
+        textLibrary.texts.forEach(text => {
+            const option = document.createElement('option');
+            option.value = text.content;
+            option.textContent = text.title;
+            passageSelect.appendChild(option);
+        });
+    }
+});
 	
 	
 </script>
@@ -30073,7 +30129,29 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
         <input type="hidden" id="chineseInputMode" value="attach">
 
         <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
+    <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
         <div id="chineseArticleSection" style="display: none; margin-bottom: 20px;">
+            
+            <!-- === 新增：篇章模式切換與選擇 === -->
+            <div style="margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                    <span style="color: #aaa; font-size: 0.8rem;">閱讀篇章：</span>
+                    <div style="display: flex; gap: 5px; max-width: 75%;">
+                        <!-- 選單一：模式切換 -->
+                        <select id="chinesePassageModeSelect" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="toggleChinesePassageMode()">
+                            <option value="manual">自行輸入</option>
+                            <option value="template">選擇指定範文</option>
+                        </select>
+                        <!-- 選單二：範文列表 (預設隱藏) -->
+                        <select id="chinesePassageTemplateSelect" style="display: none; padding: 4px 8px; border-radius: 4px; border: 1px solid #2A9689; font-size: 0.85rem; background-color: #f0fdfc; color: #2A9689; cursor: pointer;" onchange="if(this.value) document.getElementById('chinesePassageInput').value = this.value;">
+                            <option value="">請選擇...</option>
+                        </select>
+                    </div>
+                </div>
+                <textarea id="chinesePassageInput" class="no-modal-editor" rows="6" placeholder="請在此貼上或輸入閱讀篇章..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+            </div>
+            <!-- === 新增結束 === -->
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <span style="color: #aaa; font-size: 0.8rem;">貼上題目及答題內容：</span>
                 <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerChineseOCR()">
@@ -30136,7 +30214,16 @@ Step 2: 建立報告與生成 DOCX (Output Generation)
         <input type="hidden" id="litInputMode" value="attach">
 
         <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
+       <!-- 文字輸入與 OCR 區塊 (預設隱藏) -->
         <div id="litArticleSection" style="display: none; margin-bottom: 20px;">
+            
+            <!-- === 新增：文學篇章輸入 === -->
+            <div style="margin-bottom: 15px;">
+                <span style="color: #aaa; font-size: 0.8rem; display: block; margin-bottom: 5px;">閱讀篇章：</span>
+                <textarea id="litPassageInput" class="no-modal-editor" rows="6" placeholder="請在此貼上或輸入閱讀篇章..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+            </div>
+            <!-- === 新增結束 === -->
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <span style="color: #aaa; font-size: 0.8rem;">貼上題目及答題內容：</span>
                 <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerLitOCR()">
