@@ -21522,22 +21522,15 @@ async function checkStudentLogin() {
     }
 }
 	
-// 2. 輔助函式：更新歡迎文字
-// 2. 輔助函式：更新歡迎文字 (優化顯示版)
-// 2. 輔助函式：更新歡迎文字 (優化顯示版 - 已修改稱呼邏輯)
+// 2. 找到你原有的 updateWelcomeMessage 函式，並在最下方加入按鈕控制
 function updateWelcomeMessage(profile) {
     let displayStr = '';
     
-    // 如果是老師 (Grade 為 System)，顯示「老師」
     if (profile.grade === 'System') {
         displayStr = `老師 - ${profile.name}`;
-    } 
-    // 如果是特許用家 (Grade 為 Special)，顯示「特許用家」
-    else if (profile.grade === 'Special') {
+    } else if (profile.grade === 'Special') {
         displayStr = `特許用家 - ${profile.name}`;
-    } 
-    else {
-        // 如果是普通學生，顯示正常格式 (班級 班號 - 姓名)
+    } else {
         const numDisplay = profile.number ? `(${profile.number})` : '';
         displayStr = `${profile.grade}${profile.class} ${numDisplay} - ${profile.name}`;
     }
@@ -21545,6 +21538,13 @@ function updateWelcomeMessage(profile) {
     document.getElementById('welcomeText').innerHTML = 
         `您好，${displayStr} 
          <span style="font-size:0.8em; color:#ccc; margin-left:5px;" id="syncStatusIcon"></span>`;
+
+    // ★★★ 加入這段：根據開關自動顯示或隱藏「修改按鈕」 ★★★
+    const editBtn = document.getElementById('editProfileBtn');
+    if (editBtn) {
+        // 如果 ENABLE_PROFILE_EDIT 是 true 就顯示 inline-flex，false 就隱藏 none
+        editBtn.style.display = ENABLE_PROFILE_EDIT ? 'inline-flex' : 'none';
+    }
 }
 
 // 3. 【核心新增】驗證學生狀態 (同步資料 + 處理轉班 + 處理帳號失效)
@@ -23183,7 +23183,8 @@ ${promptData}
         <p id="welcomeText" style="font-weight:bold; color:#555; font-size:1.1em; margin: 0;"></p>
         
         <!-- 新增：修改個人資料鍵 -->
-        <button class="edit-profile-icon-btn" onclick="openEditProfileModal()" title="修改班級及班號">
+       <!-- 新增：修改個人資料鍵 (加上 id 以便控制開關) -->
+        <button id="editProfileBtn" class="edit-profile-icon-btn" onclick="openEditProfileModal()" title="修改班級及班號">
             <i class="fas fa-user-edit"></i>
         </button>
 
@@ -30053,16 +30054,24 @@ function selectLitPassageMode(mode, el) {
 // === 學生自行修改班級及班號邏輯 (與註冊表單一致版) ===
 // ==========================================
 
+
+const ENABLE_PROFILE_EDIT = true;
+
+	
+// 1. 開啟視窗邏輯 (加入開關防護)
 function openEditProfileModal() {
+    // 【開關防護】：如果設為 false，攔截並提示
+    if (!ENABLE_PROFILE_EDIT) {
+        return alert("⚠️ 系統目前未開放自行修改資料。\n如需更改班別或班號，請聯絡老師處理。");
+    }
+
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return alert("無法讀取資料，請重新登入");
 
-    // 系統防呆：不允許老師或特許帳號在這裡亂改班級
     if (s.grade === 'System' || s.grade === 'Special') {
         return alert("特殊帳號無法於此處修改班級。");
     }
 
-    // 1. 動態生成「班號」下拉選單 (1 到 33)
     const numSelect = document.getElementById('editNumberSelect');
     numSelect.innerHTML = '';
     for (let i = 1; i <= 33; i++) {
@@ -30072,14 +30081,14 @@ function openEditProfileModal() {
         numSelect.appendChild(opt);
     }
 
-    // 2. 預先填入學生目前的資料
     document.getElementById('editGradeSelect').value = s.grade;
     document.getElementById('editClassSelect').value = s.class;
     document.getElementById('editNumberSelect').value = s.number;
 
-    // 顯示視窗
     document.getElementById('editProfileModal').style.display = 'flex';
 }
+
+
 
 async function confirmEditProfile(btnElement) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
