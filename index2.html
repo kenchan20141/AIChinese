@@ -21472,9 +21472,7 @@ function closeStudentCloudModal() {
 // ==========================================
 
 // 檢查學生登入狀態 & 啟動課業監聽
-// 檢查學生登入狀態 & 啟動課業監聽
 async function checkStudentLogin() {
-    // 1. 先等待 Firebase Auth 狀態確認 (確保不是因為連線慢而誤判)
     let authWait = 0;
     while (!auth.currentUser && authWait < 10) {
         await new Promise(r => setTimeout(r, 200));
@@ -21484,24 +21482,42 @@ async function checkStudentLogin() {
     const currentUser = auth.currentUser;
     let s = JSON.parse(localStorage.getItem('studentProfile'));
 
-    // ★ 防偽造核心邏輯 ★
-    // 如果本地有資料，但 Firebase 沒登入，或是兩者的 UID 不吻合 (被人竄改)
+    // ==========================================
+    // ★★★ [第二層防護] 防偽造與防 LocalStorage 竄改 ★★★
+    // ==========================================
     if (s) {
+        // 1. 檢查 UID 是否被竄改
         if (!currentUser || s.uid !== currentUser.uid) {
             console.warn("🚨 偵測到無效或偽造的本地登入資料，已強制清除！");
             localStorage.removeItem('studentProfile');
-            s = null; // 清空變數，強制系統進入未登入狀態
+            s = null;
+        } 
+        // 2. 檢查是否企圖偽裝成老師 (System) 或特許用家 (Special)
+        else if (s.grade === 'System' || s.grade === 'Special') {
+            const safeEmailKey = s.email.replace(/\./g, ',');
             
-            // 選擇性：如果 currentUser 存在，可以嘗試從雲端幫他抓回真實資料
-            if (currentUser && currentUser.email) {
-                s = await findProfileByEmail(currentUser.email);
-                if(s) localStorage.setItem('studentProfile', JSON.stringify(s));
+            // 去伺服器名單核對他是不是真的是老師或特許用家
+            const [isTeacher, isSpecial] = await Promise.all([
+                database.ref(`teachers/${safeEmailKey}`).once('value').then(snap => snap.val() === true),
+                database.ref(`special_users/${safeEmailKey}`).once('value').then(snap => snap.val() === true)
+            ]);
+
+            const isRootAdmin = s.email === 'kenchan20141@gmail.com'; // 最高管理員特例
+
+            if (!isTeacher && !isSpecial && !isRootAdmin) {
+                console.warn("🚨 嚴重警告：偵測到本地 localStorage 遭惡意篡改為特權身份！");
+                localStorage.removeItem('studentProfile');
+                s = null;
+                alert("⛔ 系統警告：偵測到非法篡改身分權限！系統已強制將您登出。");
+                await auth.signOut();
+                window.location.reload();
+                return;
             }
         }
     }
+    // ==========================================
 
     if (!s || !currentUser) {
-        // 確實未登入，顯示登入表單
         document.getElementById('studentIdentityForm').style.display = 'block';
         document.getElementById('studentCloudPanel').style.display = 'none';
         return;
@@ -30094,10 +30110,21 @@ async function confirmEditProfile(btnElement) {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // 取得使用者選擇的值 (三個獨立欄位)
     const newGrade = document.getElementById('editGradeSelect').value;
     const newClass = document.getElementById('editClassSelect').value;
     const newNumber = document.getElementById('editNumberSelect').value;
+
+    // ==========================================
+    // ★★★ [第一層防護] 攔截 F12 竄改 HTML 元素 ★★★
+    // ==========================================
+    const validGrades = ['1', '2', '3', '4', '5', '6'];
+    const validClasses = ['A', 'B', 'C', 'D'];
+    if (!validGrades.includes(newGrade) || !validClasses.includes(newClass)) {
+        alert("⛔ 嚴重違規！檢測到非法的年級或班別設定，您的行為已被系統攔截記錄。");
+        document.getElementById('editProfileModal').style.display = 'none';
+        return; // 立即終止，絕對不允許寫入資料庫
+    }
+    // ==========================================
 
     // 如果什麼都沒改，直接關閉
     if (s.grade === newGrade && s.class === newClass && s.number == newNumber) {
