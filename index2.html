@@ -8297,6 +8297,50 @@ button, .btn, .anime-card, .side-menu-item {
 }
 
 
+	/* === 新增：修改資料按鈕樣式 (莫蘭迪霧霾藍) === */
+.edit-profile-icon-btn {
+    background-color: #94a7b5; /* 莫蘭迪霧霾藍 */
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 10px;
+    font-size: 14px;
+    vertical-align: middle;
+}
+
+.edit-profile-icon-btn:hover {
+    background-color: #7d909e; /* 懸停變深 */
+    transform: scale(1.15) rotate(-15deg); /* 往左旋轉帶來俏皮感 */
+    box-shadow: 0 4px 8px rgba(148, 167, 181, 0.3);
+}
+
+/* 確保 Select 元素在莫蘭迪視窗中好看 */
+.morandi-select {
+    width: 100%;
+    padding: 10px 15px;
+    border-radius: 8px;
+    border: 1px solid #e0ddd7;
+    font-size: 1rem;
+    margin-top: 5px;
+    background-color: #fdfcf8;
+    color: #4a4a4a;
+    font-family: 'Noto Serif TC', serif;
+    outline: none;
+    transition: border-color 0.3s;
+}
+.morandi-select:focus {
+    border-color: #94a7b5;
+    box-shadow: 0 0 5px rgba(148, 167, 181, 0.2);
+}
+
 	
 
 	
@@ -21670,14 +21714,15 @@ async function findStudentNewLocation(studentName) {
 
 	
 // 1. 初始化班號選項 (請放在 initDSECalendar 或 DOMContentLoaded 內執行，或是直接放在 script 最後)
+// 尋找這段代碼並將 32 改為 33
 function initClassNumbers() {
     const select = document.getElementById('studentNumber');
     if (!select) return;
     select.innerHTML = '';
-    for (let i = 1; i <= 32; i++) {
+    for (let i = 1; i <= 33; i++) { // <-- 這裡改為 33
         const opt = document.createElement('option');
         opt.value = i;
-        opt.innerText = i; // 顯示數字
+        opt.innerText = i;
         select.appendChild(opt);
     }
 }
@@ -23133,11 +23178,16 @@ ${promptData}
        <!-- 登入後顯示區域 -->
 <div id="studentCloudPanel" style="display:none; margin-top:15px;">
     
-    <!-- 修改處：將歡迎文字與登出按鈕放在同一個容器內 -->
+  <!-- 修改處：將歡迎文字、修改按鈕與登出按鈕放在同一個容器內 -->
     <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
         <p id="welcomeText" style="font-weight:bold; color:#555; font-size:1.1em; margin: 0;"></p>
         
-        <!-- 新增：圖案設計的登出鍵 -->
+        <!-- 新增：修改個人資料鍵 -->
+        <button class="edit-profile-icon-btn" onclick="openEditProfileModal()" title="修改班級及班號">
+            <i class="fas fa-user-edit"></i>
+        </button>
+
+        <!-- 登出鍵 -->
         <button class="logout-icon-btn" onclick="handleStudentLogout()" title="登出帳號">
             <i class="fas fa-sign-out-alt"></i>
         </button>
@@ -29991,6 +30041,111 @@ function selectLitPassageMode(mode, el) {
     }
 }
 
+
+
+
+
+// ==========================================
+// === 學生自行修改班級及班號邏輯 ===
+// ==========================================
+
+// ==========================================
+// === 學生自行修改班級及班號邏輯 (與註冊表單一致版) ===
+// ==========================================
+
+function openEditProfileModal() {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return alert("無法讀取資料，請重新登入");
+
+    // 系統防呆：不允許老師或特許帳號在這裡亂改班級
+    if (s.grade === 'System' || s.grade === 'Special') {
+        return alert("特殊帳號無法於此處修改班級。");
+    }
+
+    // 1. 動態生成「班號」下拉選單 (1 到 33)
+    const numSelect = document.getElementById('editNumberSelect');
+    numSelect.innerHTML = '';
+    for (let i = 1; i <= 33; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = i;
+        numSelect.appendChild(opt);
+    }
+
+    // 2. 預先填入學生目前的資料
+    document.getElementById('editGradeSelect').value = s.grade;
+    document.getElementById('editClassSelect').value = s.class;
+    document.getElementById('editNumberSelect').value = s.number;
+
+    // 顯示視窗
+    document.getElementById('editProfileModal').style.display = 'flex';
+}
+
+async function confirmEditProfile(btnElement) {
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return;
+
+    // 取得使用者選擇的值 (三個獨立欄位)
+    const newGrade = document.getElementById('editGradeSelect').value;
+    const newClass = document.getElementById('editClassSelect').value;
+    const newNumber = document.getElementById('editNumberSelect').value;
+
+    // 如果什麼都沒改，直接關閉
+    if (s.grade === newGrade && s.class === newClass && s.number == newNumber) {
+        document.getElementById('editProfileModal').style.display = 'none';
+        return;
+    }
+
+    // UI 鎖定
+    const originalText = btnElement.innerHTML;
+    btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 儲存中...';
+    btnElement.disabled = true;
+
+    try {
+        const updates = {};
+        const newProfile = { ...s, grade: newGrade, class: newClass, number: newNumber };
+        
+        // 1. 更新 Email 映射表 (登入索引)
+        const emailKey = btoa(s.email);
+        updates[`email_mapping/${emailKey}`] = newProfile;
+
+        // 2. 判斷是否需要「搬家」(更改了年級或班別)
+        if (s.grade !== newGrade || s.class !== newClass) {
+            const oldPath = `students/${s.grade}/${s.class}/${s.name}/profile`;
+            const newPath = `students/${newGrade}/${newClass}/${s.name}/profile`;
+            
+            updates[oldPath] = null; // 刪除舊位置的 Profile
+            updates[newPath] = newProfile; // 在新位置建立 Profile
+            
+        } else {
+            // 如果只改了班號，路徑不變
+            const currentPath = `students/${s.grade}/${s.class}/${s.name}/profile`;
+            updates[currentPath] = newProfile;
+        }
+
+        // 3. 執行 Firebase 同步更新
+        await database.ref().update(updates);
+
+        // 4. 更新本地 localStorage
+        localStorage.setItem('studentProfile', JSON.stringify(newProfile));
+
+        // 5. 更新 UI 顯示 (歡迎文字、重新載入新班級的課業)
+        updateWelcomeMessage(newProfile);
+        loadAssignments(newGrade, newClass);
+
+        alert("✅ 資料已成功更新！");
+        document.getElementById('editProfileModal').style.display = 'none';
+
+    } catch (error) {
+        console.error("更新失敗:", error);
+        alert("更新失敗，請檢查網絡連線或權限。");
+    } finally {
+        btnElement.innerHTML = originalText;
+        btnElement.disabled = false;
+    }
+}
+	
+
 // === 載入文學分步點評的「指定範文」選單 ===
 document.addEventListener('DOMContentLoaded', function() {
     const litPassageSelect = document.getElementById('litPassageTemplateSelect');
@@ -30718,6 +30873,49 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
+
+<!-- === 修改班別/班號視窗 (莫蘭迪風格 - 與註冊一致版) === -->
+<div id="editProfileModal" class="morandi-modal-overlay" style="z-index: 200000; display: none;">
+    <div class="morandi-modal-card" style="width: 85%; max-width: 350px; padding: 30px 25px;">
+        
+        <div style="margin-bottom: 20px; text-align: center;">
+            <i class="fas fa-id-card-alt" style="font-size: 2.5rem; color: #94a7b5; margin-bottom: 10px;"></i>
+            <h3 style="color: #5e5e5e; margin: 0; font-size: 1.3rem; font-weight: bold;">更新個人資料</h3>
+            <p style="color: #888; font-size: 0.85rem; margin-top: 5px;">請選擇您正確的年級、班別與班號。</p>
+        </div>
+        
+        <!-- 年級與班別並排 (與註冊表單一致) -->
+        <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+            <div style="flex: 1; text-align: left;">
+                <label style="font-size: 0.9rem; color: #5e7067; font-weight: bold;">年級</label>
+                <select id="editGradeSelect" class="morandi-select">
+                    <option value="1">中一</option><option value="2">中二</option><option value="3">中三</option>
+                    <option value="4">中四</option><option value="5">中五</option><option value="6">中六</option>
+                </select>
+            </div>
+            <div style="flex: 1; text-align: left;">
+                <label style="font-size: 0.9rem; color: #5e7067; font-weight: bold;">班別</label>
+                <select id="editClassSelect" class="morandi-select">
+                    <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- 班號獨立一行 -->
+        <div style="text-align: left; margin-bottom: 25px;">
+            <label style="font-size: 0.9rem; color: #5e7067; font-weight: bold;">班號</label>
+            <select id="editNumberSelect" class="morandi-select">
+                <!-- JS 動態生成 1 到 33 -->
+            </select>
+        </div>
+
+        <!-- 按鈕群組 -->
+        <div class="morandi-btn-group" style="gap: 10px;">
+            <button onclick="document.getElementById('editProfileModal').style.display='none'" class="morandi-btn btn-gray" style="flex: 1; padding: 10px; border-radius: 50px;">取消</button>
+            <button onclick="confirmEditProfile(this)" class="morandi-btn" style="flex: 1; padding: 10px; background-color: #94a7b5; color: white; box-shadow: 0 4px 10px rgba(148, 167, 181, 0.4); border-radius: 50px;">儲存更新</button>
+        </div>
+    </div>
+</div>
 	
 
 </body>
