@@ -96,6 +96,84 @@
       .modal-overlay { justify-content: center; align-items: center; padding: 20px; }
       .modal-content { width: 90%; max-width: 500px; height: auto; max-height: 85vh; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
     }
+
+
+
+/* Checkbox 與完成狀態樣式 */
+/* =================================================
+       日式手帳風 To-Do List (Checkbox) 樣式
+       ================================================= */
+    .task-line { 
+      display: flex; 
+      align-items: flex-start; 
+      gap: 10px; 
+      margin-bottom: 8px; 
+      cursor: pointer; 
+      padding: 4px 6px;
+      border-radius: 4px;
+      transition: background 0.2s ease;
+    }
+    
+    /* 懸停時給予極淡的紙張反白感，增加手感 */
+    .task-line:hover { 
+      background-color: rgba(255, 255, 255, 0.6); 
+    }
+
+    /* 隱藏原生 Checkbox，改為自訂的文青小方塊 */
+    .task-line input[type="checkbox"] { 
+      appearance: none; 
+      -webkit-appearance: none;
+      width: 16px; 
+      height: 16px; 
+      margin-top: 3px; 
+      border: 1.5px solid var(--accent-color); /* 邊框使用主題奶茶色 */
+      border-radius: 3px; /* 微圓角，減少生硬感 */
+      background-color: #faf9f6; /* 略帶溫度的紙張白 */
+      cursor: pointer;
+      position: relative;
+      flex-shrink: 0; /* 避免文字太多時把方塊擠壓變形 */
+      transition: all 0.2s ease;
+    }
+
+    /* 打勾時的狀態 (宛如蓋上日式小印章) */
+    .task-line input[type="checkbox"]:checked {
+      background-color: var(--accent-color);
+      border-color: var(--accent-color);
+    }
+
+    /* 畫出裡面的白色勾勾 */
+    .task-line input[type="checkbox"]:checked::after {
+      content: '';
+      position: absolute;
+      top: 1.5px;
+      left: 4.5px;
+      width: 4px;
+      height: 8px;
+      border: solid #fff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    /* 任務文字排版 */
+    .task-text { 
+      flex-grow: 1; 
+      line-height: 1.5; 
+      font-size: 14px;
+      color: var(--text-main);
+      transition: all 0.3s ease;
+    }
+
+    /* 完成後的文字狀態 (模擬原子筆劃掉的筆跡) */
+    .task-done { 
+      text-decoration: line-through; 
+      text-decoration-color: var(--accent-color); /* 刪除線也用主題色，像用色筆劃掉 */
+      text-decoration-thickness: 1.5px;
+      color: #b5b3ad; /* 字體變淡，類似鉛筆褪色 */
+      font-style: italic; /* 增加一點手寫的隨性動態感 */
+    }
+
+
+    
   </style>
 </head>
 <body>
@@ -378,7 +456,8 @@ if (!myDeviceId) {
           const colors = getFrontendSubjectColor(parsed.subject);
           
           const tr = document.createElement('tr');
-         tr.onclick = () => { checkAndOpenEditModal(dateStr); };
+          // 點擊整列（非 Checkbox 區域）時，檢查權限並進入編輯模式
+          tr.onclick = () => { checkAndOpenEditModal(dateStr); };
 
           const tdSubj = document.createElement('td');
           tdSubj.className = 'td-subject';
@@ -388,9 +467,49 @@ if (!myDeviceId) {
 
           const tdTask = document.createElement('td');
           tdTask.className = 'td-task';
-          tdTask.innerText = parsed.task;
+          
+          // 將課業內容按換行符號切割，產生獨立的 Checkbox
+          const lines = parsed.task.split('\n');
+          lines.forEach((line, index) => {
+            if (!line.trim()) return; // 略過空白行
+            
+            const label = document.createElement('label');
+            label.className = 'task-line';
+            // 阻止點擊 Checkbox 時觸發 tr 的 onclick (避免不小心進入編輯模式)
+            label.onclick = (e) => e.stopPropagation();
 
-          tr.appendChild(tdSubj); tr.appendChild(tdTask);
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            
+            // 設定唯一的 LocalStorage Key：EventID + 索引
+            const storageKey = `todo_${t.id}_${index}`;
+            const isDone = localStorage.getItem(storageKey) === 'true';
+            checkbox.checked = isDone;
+
+            const span = document.createElement('span');
+            span.className = 'task-text';
+            span.innerText = line;
+            // 如果之前已經打勾，補上刪除線 CSS class
+            if (isDone) span.classList.add('task-done');
+
+            // 狀態改變時更新 LocalStorage 與 UI
+            checkbox.onchange = (e) => {
+              const checked = e.target.checked;
+              localStorage.setItem(storageKey, checked);
+              if (checked) {
+                span.classList.add('task-done');
+              } else {
+                span.classList.remove('task-done');
+              }
+            };
+
+            label.appendChild(checkbox);
+            label.appendChild(span);
+            tdTask.appendChild(label);
+          });
+
+          tr.appendChild(tdSubj); 
+          tr.appendChild(tdTask);
           table.appendChild(tr);
         });
       }
