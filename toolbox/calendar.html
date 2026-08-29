@@ -173,6 +173,50 @@
     }
 
 
+    /* 讓任務文字區域變成 Flex，對齊文字與序號 */
+    .task-text { 
+      flex-grow: 1; 
+      line-height: 1.5; 
+      font-size: 14px;
+      color: var(--text-main);
+      transition: all 0.3s ease;
+      display: flex; 
+      align-items: flex-start;
+    }
+
+    /* 手帳風：圓形印章感序號 */
+    .task-num {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      width: 18px;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background-color: rgba(191, 164, 152, 0.2); /* 主題色的極淡版，像螢光筆點綴 */
+      color: var(--accent-color); /* 主題奶茶色 */
+      font-size: 11px;
+      font-weight: bold;
+      font-family: 'Courier New', Courier, monospace; /* 復古打字機字體 */
+      margin-right: 8px;
+      margin-top: 2px;
+      border: 1px solid rgba(191, 164, 152, 0.4);
+    }
+
+    /* 當任務打勾完成時，序號也跟著褪色 */
+    .task-done .task-num {
+      background-color: transparent;
+      border: 1px dashed #d4d1c9;
+      color: #ccc;
+    }
+
+    /* 真正的任務內容 */
+    .task-content {
+      flex-grow: 1;
+      word-break: break-word;
+    }
+
+
     
   </style>
 </head>
@@ -440,7 +484,7 @@ if (!myDeviceId) {
       }
     }
 
-    function openViewModal(dateStr) {
+   function openViewModal(dateStr) {
       editingDateStr = dateStr;
       document.getElementById('viewModalDateTitle').innerText = dateStr + " 課業清單";
       
@@ -456,7 +500,6 @@ if (!myDeviceId) {
           const colors = getFrontendSubjectColor(parsed.subject);
           
           const tr = document.createElement('tr');
-          // 點擊整列（非 Checkbox 區域）時，檢查權限並進入編輯模式
           tr.onclick = () => { checkAndOpenEditModal(dateStr); };
 
           const tdSubj = document.createElement('td');
@@ -468,31 +511,63 @@ if (!myDeviceId) {
           const tdTask = document.createElement('td');
           tdTask.className = 'td-task';
           
-          // 將課業內容按換行符號切割，產生獨立的 Checkbox
           const lines = parsed.task.split('\n');
           lines.forEach((line, index) => {
-            if (!line.trim()) return; // 略過空白行
+            if (!line.trim()) return; 
             
             const label = document.createElement('label');
             label.className = 'task-line';
-            // 阻止點擊 Checkbox 時觸發 tr 的 onclick (避免不小心進入編輯模式)
             label.onclick = (e) => e.stopPropagation();
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             
-            // 設定唯一的 LocalStorage Key：EventID + 索引
             const storageKey = `todo_${t.id}_${index}`;
             const isDone = localStorage.getItem(storageKey) === 'true';
             checkbox.checked = isDone;
 
             const span = document.createElement('span');
             span.className = 'task-text';
-            span.innerText = line;
-            // 如果之前已經打勾，補上刪除線 CSS class
             if (isDone) span.classList.add('task-done');
 
-            // 狀態改變時更新 LocalStorage 與 UI
+            // ==========================================
+            // 新增：智慧辨識日式手帳風序號
+            // ==========================================
+            let lineText = line.trim();
+            let numberNode = null;
+            let displayNum = null;
+
+            // 1. 偵測 AI 生成的圈圈數字 (如: ①, ②)
+            const circleMatch = lineText.match(/^([①-⑳])\s*(.*)/);
+            // 2. 偵測手打的數字 (如: 1. , (1) , 1) , 1 買筆) -> 必須要有空格隔開，防止把 10/6 日期切錯
+            const digitMatch = lineText.match(/^[\(（]?(\d{1,2})[\.\)）］\]]?\s+(.*)/);
+
+            if (circleMatch) {
+              const circleMap = {'①':'1','②':'2','③':'3','④':'4','⑤':'5','⑥':'6','⑦':'7','⑧':'8','⑨':'9','⑩':'10'};
+              displayNum = circleMap[circleMatch[1]] || circleMatch[1];
+              lineText = circleMatch[2]; // 剩下的文字
+            } else if (digitMatch) {
+              displayNum = digitMatch[1]; // 擷取純數字
+              lineText = digitMatch[2]; // 剩下的文字
+            }
+
+            // 如果有找到序號，建立小圓圈印章
+            if (displayNum) {
+              numberNode = document.createElement('span');
+              numberNode.className = 'task-num';
+              numberNode.innerText = displayNum;
+            }
+
+            // 任務文字本身
+            const contentNode = document.createElement('span');
+            contentNode.className = 'task-content';
+            contentNode.innerText = lineText;
+
+            // 將序號與文字放入 flex 容器中
+            if (numberNode) span.appendChild(numberNode);
+            span.appendChild(contentNode);
+            // ==========================================
+
             checkbox.onchange = (e) => {
               const checked = e.target.checked;
               localStorage.setItem(storageKey, checked);
@@ -515,7 +590,6 @@ if (!myDeviceId) {
       }
       document.getElementById('viewModal').style.display = 'flex';
     }
-
     function closeViewModal() { document.getElementById('viewModal').style.display = 'none'; }
 
     function openEditModal(dateStr) {
