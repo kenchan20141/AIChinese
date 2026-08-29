@@ -139,7 +139,7 @@
       <div class="modal-body">
         <table class="planner-table" id="viewTable"></table>
       </div>
-      <button class="btn-add-row" onclick="openEditModal(editingDateStr)">＋ 進入編輯模式</button>
+     <button class="btn-add-row" onclick="checkAndOpenEditModal(editingDateStr)">＋ 進入編輯模式</button>
     </div>
   </div>
 
@@ -174,6 +174,16 @@
   </datalist>
 
   <script>
+
+
+// 產生或讀取本機的裝置 ID
+let myDeviceId = localStorage.getItem('plannerDeviceId');
+if (!myDeviceId) {
+  myDeviceId = 'user_' + Math.random().toString(36).substring(2, 10);
+  localStorage.setItem('plannerDeviceId', myDeviceId);
+}
+
+    
     const API_URL = "https://script.google.com/macros/s/AKfycbwIk4BlFeAD88ZIMJDyfdjZOWfxrVbNLimsR20yino2QNwQmVBveHV8QGns7l-vQKPI/exec";
 
     async function callApi(action, data = {}) {
@@ -367,7 +377,7 @@
           const colors = getFrontendSubjectColor(parsed.subject);
           
           const tr = document.createElement('tr');
-          tr.onclick = () => { closeViewModal(); openEditModal(dateStr); };
+         tr.onclick = () => { checkAndOpenEditModal(dateStr); };
 
           const tdSubj = document.createElement('td');
           tdSubj.className = 'td-subject';
@@ -404,7 +414,11 @@
       document.getElementById('dayModal').style.display = 'flex';
     }
 
-    function closeEditModal() { document.getElementById('dayModal').style.display = 'none'; }
+  function closeEditModal() { 
+  document.getElementById('dayModal').style.display = 'none'; 
+  // 背景發送釋放鎖的請求（不用等它回應）
+  callApi('releaseLock', { dateStr: editingDateStr, userId: myDeviceId });
+}
 
     function addRowToModal(id, title) {
       const list = document.getElementById('modalTaskList');
@@ -479,7 +493,7 @@
       closeEditModal();
       
       try {
-        const res = await callApi('syncDayEvents', { dateStr: editingDateStr, changes: changes });
+      const res = await callApi('syncDayEvents', { dateStr: editingDateStr, changes: changes, userId: myDeviceId });
         if (res.success) { showStatus("儲存成功！", true); loadCalendarData(); } 
         else { showStatus("儲存失敗：" + res.error, true); }
       } catch(err) {
@@ -527,6 +541,27 @@
       };
       reader.readAsDataURL(file);
     });
+
+
+
+async function checkAndOpenEditModal(dateStr) {
+  showStatus("正在取得編輯權限...", false);
+  try {
+    const res = await callApi('requestLock', { dateStr: dateStr, userId: myDeviceId });
+    if (res.success) {
+      showStatus("已取得編輯權限", true);
+      openEditModal(dateStr); // 成功拿到鎖，打開編輯視窗
+    } else {
+      showStatus("", true); // 清除提示
+      alert("⚠️ 目前有其他同學正在編輯當日的課業！\n為避免資料覆蓋，請等候約 3 分鐘，或等對方儲存後再試。");
+    }
+  } catch (err) {
+    showStatus("檢查權限失敗，請檢查網路", true);
+  }
+}
+
+
+    
   </script>
 </body>
 </html>
