@@ -90,7 +90,7 @@
     .btn-danger { background: #fdf5f5; color: var(--danger); border: 1px solid rgba(224, 122, 95, 0.3); flex: 1; }
     .btn-save { background: var(--accent-color); color: #fff; flex: 2; }
 
-    #statusArea { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); font-size: 14px; background: rgba(58,58,58,0.9); color: white; padding: 10px 20px; border-radius: 20px; display: none; z-index: 200; }
+    #statusArea { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); font-size: 14px; background: rgba(58,58,58,0.9); color: white; padding: 10px 20px; border-radius: 20px; display: none; z-index: 200; white-space: nowrap;}
     @media (min-width: 600px) {
       .modal-overlay { justify-content: center; align-items: center; padding: 20px; }
       .modal-content { width: 90%; max-width: 500px; height: auto; max-height: 85vh; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
@@ -176,27 +176,25 @@
     // =========================================================
     // API 串接設定 (GitHub Pages 通訊核心)
     // =========================================================
+    
+    // 【請確保這裡填上你最新部署的 Google Apps Script 網址】
     const API_URL = "https://script.google.com/macros/s/AKfycbxMhIqH5nEs2CtKzsTYYKY3JqAWsLXV-L9HWjiiGn713_7gd0BmNI1m4hjdDbEdalPB/exec";
 
-   // 在你的 HTML 檔案中找到這段並修改
-async function callApi(action, data = {}) {
-  const payload = { action: action, ...data };
-  try {
-    // 使用 text/plain 避免觸發麻煩的 CORS Preflight (OPTIONS)
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      headers: { 
-        'Content-Type': 'text/plain;charset=utf-8' 
-      },
-      redirect: 'follow' // <--- 【重要】新增這一行，讓 fetch 自動跟隨 Google 的 302 轉址
-    });
-    return await response.json();
-  } catch (error) {
-    console.error("API Error:", error); // 加入這行方便你在 F12 開發者工具看詳細錯誤
-    throw new Error("網路連線失敗");
-  }
-}
+    async function callApi(action, data = {}) {
+      const payload = { action: action, ...data };
+      try {
+        // 加上 redirect: 'follow' 徹底解決 Google CORS 阻擋轉址的問題
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          redirect: 'follow' 
+        });
+        return await response.json();
+      } catch (error) {
+        throw new Error("網路連線失敗");
+      }
+    }
 
     let currentDate = new Date();
     let currentEvents = [];
@@ -266,9 +264,6 @@ async function callApi(action, data = {}) {
       return { bg: '#f0ebe4', tagText: '#8c8b87' };
     }
 
-    // =========================================================
-    // 改用 fetch 呼叫 API
-    // =========================================================
     async function loadCalendarData() {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
@@ -501,7 +496,7 @@ async function callApi(action, data = {}) {
     }
 
     // =========================================================
-    // 圖片壓縮與 AI 辨識 (改用 fetch)
+    // 圖片壓縮與 AI 辨識 (修復回傳數量判斷)
     // =========================================================
     document.getElementById('fileInput').addEventListener('change', function(e) {
       const file = e.target.files[0];
@@ -521,8 +516,16 @@ async function callApi(action, data = {}) {
           
           try {
             const res = await callApi('processHomeworkImage', { base64Image: canvas.toDataURL('image/jpeg', 0.8) });
-            if (res.success) { showStatus('歸類成功！', true); loadCalendarData(); }
-            else { showStatus('處理失敗：' + res.error, true); }
+            if (res.success) { 
+              if (res.count && res.count > 0) {
+                showStatus(`AI 辨識完畢，成功加入 ${res.count} 項課業！`, true); 
+              } else {
+                showStatus('歸類成功，但圖片中未偵測到任何課業', true); 
+              }
+              loadCalendarData(); 
+            } else { 
+              showStatus('處理失敗：' + res.error, true); 
+            }
           } catch(err) {
             showStatus('連線中斷', true);
           }
