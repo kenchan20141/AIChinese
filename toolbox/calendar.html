@@ -208,10 +208,11 @@
     .btn-action svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;}
     .btn-action.primary svg { width: 28px; height: 28px; }
 
-    /* 測驗確認視窗專屬下拉選單 */
-    .exam-input-row { display: flex; gap: 5px; margin-bottom: 10px; }
-    .exam-input-date { width: 35%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; background: #fff;}
-    .exam-input-task { flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;}
+    /* 掃描/測驗確認視窗專屬下拉選單 */
+    .scan-input-row { display: flex; gap: 5px; margin-bottom: 10px; align-items: center; }
+    .scan-input-date { width: 32%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; background: #fff;}
+    .scan-input-subject { width: 28%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; background: #fff;}
+    .scan-input-task { flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;}
 
     /* 備忘錄系統 */
     .memo-layout { display: flex; height: 100%; flex-direction: column; }
@@ -358,16 +359,17 @@
     </div>
   </div>
 
-  <div id="examConfirmModal" class="modal-overlay">
+  <!-- 統一的掃描確認視窗 (功課 & 測驗共用) -->
+  <div id="scanConfirmModal" class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
-        <span>確認測驗日程</span>
-        <button class="icon-btn" onclick="document.getElementById('examConfirmModal').style.display='none'"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <span id="scanConfirmTitle">確認掃描結果</span>
+        <button class="icon-btn" onclick="document.getElementById('scanConfirmModal').style.display='none'"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
-      <div class="modal-body" id="examConfirmList"></div>
+      <div class="modal-body" id="scanConfirmList"></div>
       <div class="modal-footer">
-        <button class="btn-action primary" onclick="saveConfirmedExams()"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></button>
-        <button class="btn-action" onclick="addExamRowHTML('', '', '')"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button class="btn-action primary" onclick="saveConfirmedScans()"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></button>
+        <button class="btn-action" onclick="addScanRowHTML('', '其他', '')"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
       </div>
     </div>
   </div>
@@ -406,6 +408,7 @@
     let deletedEventIds = [];
     let hasPublicLock = false;
     let lockPollingInterval = null;
+    let currentScanType = ''; // 紀錄當前是掃描 'homework' 還是 'exam'
 
     const SUBJECT_OPTIONS = ["中文","英文","數學","公社","生活教育","中史","世史","科學","化學","生物","物理","地理","視藝","STREAM","家政","體育","電腦","普通話"];
 
@@ -732,7 +735,7 @@
       openEditModal(dateStr, true, 'private');
     }
 
-    // 統整開啟編輯 Modal 的邏輯（可根據 mode 切換顯示內容）
+    // 統整開啟編輯 Modal 的邏輯
     function openEditModal(dateStr, hasLock, mode = 'public') {
       hasPublicLock = hasLock; deletedEventIds = [];
       document.getElementById('dayModal').dataset.mode = mode;
@@ -883,13 +886,15 @@
       }
     }
 
-    /* 圖片處理與測驗確認視窗 */
+    /* 圖片處理與功課/測驗統一確認視窗 */
     document.getElementById('fileInput').addEventListener('change', e => processImage(e, 'processHomeworkImage'));
     document.getElementById('examFileInput').addEventListener('change', e => processImage(e, 'processExamImage'));
 
     function processImage(e, actionType) {
       const file = e.target.files[0]; if (!file) return;
-      showStatus(actionType === 'processExamImage' ? '分析測驗日程中...' : '分析功課中...');
+      currentScanType = actionType === 'processExamImage' ? 'exam' : 'homework';
+      showStatus(currentScanType === 'exam' ? '分析測驗日程中...' : '分析功課中...');
+      
       const reader = new FileReader();
       reader.onload = function(event) {
         const img = new Image();
@@ -901,11 +906,12 @@
           
           try {
             const reqData = { base64Image: canvas.toDataURL('image/jpeg', 0.8) };
-            if(actionType === 'processExamImage') reqData.currentYear = new Date().getFullYear();
+            if(currentScanType === 'exam') reqData.currentYear = new Date().getFullYear();
             const res = await callApi(actionType, reqData);
+            
             if (res.success) {
-              if (actionType === 'processExamImage') { showStatus("", true); showExamConfirmModal(res.data || []); } 
-              else { showStatus(`新增了 ${res.count} 項！`, true); loadCalendarData(false); }
+              showStatus("", true); 
+              showScanConfirmModal(res.data || []); 
             } else { showStatus('失敗：' + res.error, true); }
           } catch(err) { showStatus('連線中斷', true); }
           e.target.value = ''; 
@@ -915,44 +921,98 @@
       reader.readAsDataURL(file);
     }
 
-    function showExamConfirmModal(data) {
-      const list = document.getElementById('examConfirmList'); list.innerHTML = '';
-      if(data.length === 0) addExamRowHTML('', '', '');
-      else data.forEach(item => addExamRowHTML(item.date, item.subject, item.task));
-      document.getElementById('examConfirmModal').style.display = 'flex';
+    // 根據文字自動推測科目名稱 (可根據需求微調正則表達式)
+    function inferSubject(text) {
+      if (!text) return "其他";
+      const t = text.toLowerCase();
+      if (/中|語文|作文|閱讀|寫作|chi/i.test(t) && !/中史|歷史/i.test(t)) return "中文";
+      if (/eng|英|grammar|vocab|writing|dictation/i.test(t)) return "英文";
+      if (/數|math|計算/i.test(t)) return "數學";
+      if (/公社|公民|社會|cs/i.test(t)) return "公社";
+      if (/中史|中國歷史/i.test(t)) return "中史";
+      if (/世史|世界歷史|history/i.test(t)) return "世史";
+      if (/科|is|science/i.test(t) && !/公社/i.test(t)) return "科學";
+      if (/化|chem/i.test(t)) return "化學";
+      if (/生|bio/i.test(t)) return "生物";
+      if (/物|phy/i.test(t)) return "物理";
+      if (/地|geog/i.test(t)) return "地理";
+      if (/視藝|va|art|美術/i.test(t)) return "視藝";
+      if (/家政|he/i.test(t)) return "家政";
+      if (/體育|pe/i.test(t)) return "體育";
+      if (/電腦|ict|it|computer/i.test(t)) return "電腦";
+      if (/普|pth|普通話/i.test(t)) return "普通話";
+      if (/生活|教育/i.test(t)) return "生活教育";
+      if (/stream|stem/i.test(t)) return "STREAM";
+      return "其他";
+    }
+
+    function showScanConfirmModal(data) {
+      const title = document.getElementById('scanConfirmTitle');
+      title.innerText = currentScanType === 'exam' ? '確認測驗日程' : '確認掃描功課';
+      
+      const list = document.getElementById('scanConfirmList'); 
+      list.innerHTML = '';
+      
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      if(data.length === 0) {
+        addScanRowHTML(todayStr, '其他', '');
+      } else {
+        data.forEach(item => {
+          let date = item.date || todayStr; // 若無日期預設為今日 (功課常用)
+          let subj = item.subject || '其他';
+          let task = item.task || '';
+          
+          // 如果掃描功課且科目未定，前端自動推理
+          if (currentScanType === 'homework' && (subj === '其他' || !subj)) {
+            subj = inferSubject(task);
+          }
+          addScanRowHTML(date, subj, task);
+        });
+      }
+      document.getElementById('scanConfirmModal').style.display = 'flex';
     }
     
-    function addExamRowHTML(date, subj, task) {
-      const list = document.getElementById('examConfirmList');
-      const row = document.createElement('div'); row.className = 'exam-input-row';
+    function addScanRowHTML(date, subj, task) {
+      const list = document.getElementById('scanConfirmList');
+      const row = document.createElement('div'); row.className = 'scan-input-row';
       
-      let optionsHTML = `<select class="exam-input-subject"><option value="其他">-- 選擇 --</option>`;
+      let optionsHTML = `<select class="scan-input-subject"><option value="其他">-- 選擇 --</option>`;
       SUBJECT_OPTIONS.forEach(s => { optionsHTML += `<option value="${s}" ${s === subj ? 'selected' : ''}>${s}</option>`; });
       optionsHTML += `</select>`;
 
       row.innerHTML = `
-        <input type="date" class="exam-input-date" value="${date}">
+        <input type="date" class="scan-input-date" value="${date}">
         ${optionsHTML}
-        <input class="exam-input-task" placeholder="測驗內容" value="${task}">
+        <input class="scan-input-task" placeholder="內容" value="${task}">
         <button class="icon-btn" style="color:var(--danger)" onclick="this.parentElement.remove()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       `;
       list.appendChild(row);
     }
 
-    async function saveConfirmedExams() {
-      const rows = document.querySelectorAll('#examConfirmList .exam-input-row');
+    async function saveConfirmedScans() {
+      const rows = document.querySelectorAll('#scanConfirmList .scan-input-row');
       const eventsToAdd = [];
-      rows.forEach(row => {
-        const d = row.querySelector('.exam-input-date').value;
-        const s = row.querySelector('.exam-input-subject').value;
-        const t = row.querySelector('.exam-input-task').value.trim();
-        // 將測驗標籤 [測驗] 加入到標題中
-        if(d && t) eventsToAdd.push({ date: d, title: `[${s}] [測驗] ${t}` });
-      });
-      if(eventsToAdd.length === 0) { document.getElementById('examConfirmModal').style.display='none'; return; }
       
-      document.getElementById('examConfirmModal').style.display='none';
-      showStatus("寫入測驗日程中...");
+      rows.forEach(row => {
+        const d = row.querySelector('.scan-input-date').value;
+        const s = row.querySelector('.scan-input-subject').value;
+        const t = row.querySelector('.scan-input-task').value.trim();
+        
+        if(d && t) {
+          // 如果是測驗，自動在標題加上 [測驗] 標籤
+          let finalTitle = `[${s}] ${t}`;
+          if (currentScanType === 'exam') {
+            finalTitle = `[${s}] [測驗] ${t}`;
+          }
+          eventsToAdd.push({ date: d, title: finalTitle });
+        }
+      });
+      
+      if(eventsToAdd.length === 0) { document.getElementById('scanConfirmModal').style.display='none'; return; }
+      
+      document.getElementById('scanConfirmModal').style.display = 'none';
+      showStatus("寫入日程中...");
       await callApi('batchAddEvents', { events: eventsToAdd });
       showStatus("寫入成功！", true);
       loadCalendarData(false);
