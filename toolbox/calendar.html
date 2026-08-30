@@ -216,8 +216,8 @@
 
     /* 備忘錄系統 */
     .memo-layout { display: flex; height: 100%; flex-direction: column; }
-.memo-list { flex: 0 0 auto; align-items: center; overflow-x: auto; display: flex; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--cal-border); margin-bottom: 10px; }
-   .memo-tab { min-width: 80px; padding: 8px 12px; background: #faf9f6; border: 1px solid var(--grid-color); border-radius: 4px; text-align: center; cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .memo-list { flex: 0 0 auto; align-items: center; overflow-x: auto; display: flex; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--cal-border); margin-bottom: 10px; }
+    .memo-tab { min-width: 80px; padding: 8px 12px; background: #faf9f6; border: 1px solid var(--grid-color); border-radius: 4px; text-align: center; cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .memo-tab.active { background: #798c8c; color: #fff; border-color: #798c8c; }
     .memo-editor { flex: 1; position: relative; background: #faf9f6; border-radius: 4px; box-shadow: inset 0 0 5px rgba(0,0,0,0.02); overflow: hidden; display: flex; flex-direction: column;}
     .memo-title-input { width: 100%; padding: 10px; border: none; border-bottom: 2px solid #798c8c; background: transparent; font-size: 18px; font-weight: bold; outline: none; text-align: center; color: var(--text-main); font-family: inherit;}
@@ -264,6 +264,51 @@
     .choice-btn:active { transform: scale(0.9); }
     .choice-btn:hover { background: rgba(164, 158, 145, 0.1); }
     .choice-btn svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* 明日測驗提醒彈窗專屬 */
+    #testReminderModal {
+      z-index: 10000;
+      align-items: center; justify-content: center;
+    }
+    .reminder-box {
+      background: #fdfcf9; padding: 40px 30px 25px; border-radius: 12px; width: 92%; max-width: 400px;
+      border: 1px solid var(--danger); box-shadow: 0 15px 35px rgba(200, 75, 75, 0.15), inset 0 0 0 4px #faf9f6, inset 0 0 0 5px #fff5f5;
+      text-align: center; position: relative;
+      animation: popInChoice 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .reminder-washi-tape {
+      position: absolute; top: -12px; left: 50%; transform: translateX(-50%) rotate(-2deg);
+      width: 140px; height: 32px; background-color: rgba(217, 156, 156, 0.8);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 2px;
+    }
+    .reminder-washi-tape::before {
+      content: ''; position: absolute; top: 0; left: -4px; width: 4px; height: 100%;
+      background: repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(217, 156, 156, 0.4) 2px, rgba(217, 156, 156, 0.4) 4px);
+    }
+    .reminder-title {
+      font-size: 20px; font-weight: bold; color: var(--danger); letter-spacing: 2px; margin-top: 5px; margin-bottom: 20px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .reminder-list {
+      display: flex; flex-direction: column; gap: 10px; margin-bottom: 25px; text-align: left; max-height: 50vh; overflow-y: auto;
+    }
+    .reminder-item {
+      background: #fff; border: 1.5px dashed var(--danger); border-radius: 8px; padding: 12px;
+      display: flex; flex-direction: column; gap: 6px; position: relative;
+    }
+    .reminder-item::before {
+      content: '📌'; position: absolute; top: -10px; left: -10px; font-size: 16px; transform: rotate(-15deg);
+    }
+    .reminder-subj {
+      font-weight: bold; color: #c84b4b; font-size: 15px; border-bottom: 1px dotted var(--danger); padding-bottom: 4px; display: inline-block;
+    }
+    .reminder-task {
+      font-size: 14px; color: var(--text-main); white-space: pre-wrap; line-height: 1.4;
+    }
+    .btn-reminder-ok {
+      background: var(--danger); color: white; border: none; padding: 10px 30px; border-radius: 20px; font-size: 15px; letter-spacing: 2px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 10px rgba(217, 156, 156, 0.4);
+    }
+    .btn-reminder-ok:hover { filter: brightness(0.95); transform: translateY(-2px); }
 
     @media (min-width: 600px) {
       .modal-overlay { justify-content: center; align-items: center; padding: 20px; }
@@ -442,6 +487,21 @@
     </div>
   </div>
 
+  <!-- 明日測驗提醒彈窗 -->
+  <div id="testReminderModal" class="modal-overlay" onclick="if(event.target===this) closeTestReminder()">
+    <div class="reminder-box">
+      <div class="reminder-washi-tape"></div>
+      <div class="reminder-title">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        明日測驗提醒
+      </div>
+      <div class="reminder-list" id="testReminderList">
+        <!-- JS 生成 -->
+      </div>
+      <button class="btn-reminder-ok" onclick="closeTestReminder()">知道了</button>
+    </div>
+  </div>
+
   <script>
     let myDeviceId = localStorage.getItem('plannerDeviceId');
     if (!myDeviceId) { myDeviceId = 'user_' + Math.random().toString(36).substring(2, 10); localStorage.setItem('plannerDeviceId', myDeviceId); }
@@ -457,6 +517,7 @@
     let hasPublicLock = false;
     let lockPollingInterval = null;
     let currentScanType = ''; // 紀錄當前是掃描 'homework' 還是 'exam'
+    let hasShownTestReminder = false; // 紀錄是否已經顯示過明日測驗提醒
 
     const SUBJECT_OPTIONS = ["中文","英文","數學","公社","生活教育","中史","世史","科學","化學","生物","物理","地理","視藝","STREAM","家政","體育","電腦","普通話"];
 
@@ -499,6 +560,7 @@
       document.getElementById('loginScreen').style.display = 'flex';
       document.getElementById('passwordArea').style.display = 'none';
       document.querySelectorAll('.class-btn').forEach(btn => btn.classList.remove('selected'));
+      hasShownTestReminder = false; // 登出後重置提醒標記
     }
 
     async function callApi(action, data = {}) {
@@ -607,45 +669,120 @@
       return { bg: '#f0ebe4', tagText: '#8c8b87' };
     }
 
-  async function loadCalendarData(forceRefresh = false) {
-  const year = currentDate.getFullYear(), month = currentDate.getMonth() + 1;
-  const cacheKey = `${year}-${month}`;
-  document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`;
-  
-  // 建立前端快取空間
-  window.monthlyEventsCache = window.monthlyEventsCache || {};
-
-  // 1. 如果有前端快取，瞬間先渲染畫面 (體感 0 秒)
-  if (window.monthlyEventsCache[cacheKey] && !forceRefresh) {
-    currentEvents = window.monthlyEventsCache[cacheKey];
-    renderCalendar();
-  } else {
-    // 如果沒有快取，顯示載入中
-    document.getElementById('currentMonthText').innerText = `載入中...`;
-    
-    // 💡【修正重點】：先清空當前事件，並強制畫出新月份的空日曆框架
-    currentEvents = []; 
-    renderCalendar(); 
-  }
-
-  // 2. 依然在背景向伺服器請求最新資料 (確保同步)
-  try {
-    const response = await callApi('getCalendarEvents', { year, month });
-    document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`; // 確保標題恢復
-    if (response.success) { 
-      // 比較新舊資料，如果有差異才重新渲染，避免畫面閃爍
-      const newDataString = JSON.stringify(response.data);
-      const oldDataString = JSON.stringify(window.monthlyEventsCache[cacheKey] || []);
+    async function loadCalendarData(forceRefresh = false) {
+      const year = currentDate.getFullYear(), month = currentDate.getMonth() + 1;
+      const cacheKey = `${year}-${month}`;
+      document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`;
       
-      if (newDataString !== oldDataString) {
-        window.monthlyEventsCache[cacheKey] = response.data;
-        currentEvents = response.data; 
+      // 建立前端快取空間
+      window.monthlyEventsCache = window.monthlyEventsCache || {};
+
+      // 1. 如果有前端快取，瞬間先渲染畫面 (體感 0 秒)
+      if (window.monthlyEventsCache[cacheKey] && !forceRefresh) {
+        currentEvents = window.monthlyEventsCache[cacheKey];
+        renderCalendar();
+        checkTomorrowTests();
+      } else {
+        // 如果沒有快取，顯示載入中
+        document.getElementById('currentMonthText').innerText = `載入中...`;
+        
+        // 💡【修正重點】：先清空當前事件，並強制畫出新月份的空日曆框架
+        currentEvents = []; 
         renderCalendar(); 
       }
-    } 
-    else if (response.error.includes("權限")) logout();
-  } catch (err) { showStatus('網路連線失敗', true); }
-}
+
+      // 2. 依然在背景向伺服器請求最新資料 (確保同步)
+      try {
+        const response = await callApi('getCalendarEvents', { year, month });
+        document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`; // 確保標題恢復
+        if (response.success) { 
+          // 比較新舊資料，如果有差異才重新渲染，避免畫面閃爍
+          const newDataString = JSON.stringify(response.data);
+          const oldDataString = JSON.stringify(window.monthlyEventsCache[cacheKey] || []);
+          
+          if (newDataString !== oldDataString) {
+            window.monthlyEventsCache[cacheKey] = response.data;
+            currentEvents = response.data; 
+            renderCalendar(); 
+          }
+          checkTomorrowTests();
+        } 
+        else if (response.error.includes("權限")) logout();
+      } catch (err) { showStatus('網路連線失敗', true); }
+    }
+
+    // 檢查明日是否有測驗的邏輯
+    async function checkTomorrowTests() {
+      if (hasShownTestReminder) return;
+      hasShownTestReminder = true; // 設定為已顯示，避免重複彈出
+
+      let tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      let y = tomorrow.getFullYear();
+      let m = tomorrow.getMonth() + 1;
+      let tomorrowStr = y + '-' + String(m).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0');
+
+      let eventsToCheck = currentEvents;
+
+      // 如果明天跟目前顯示的日曆是不同月份，嘗試從快取或伺服器獲取明天該月的資料
+      if (tomorrow.getMonth() !== currentDate.getMonth()) {
+        const cacheKey = `${y}-${m}`;
+        if (window.monthlyEventsCache && window.monthlyEventsCache[cacheKey]) {
+          eventsToCheck = window.monthlyEventsCache[cacheKey];
+        } else {
+          try {
+            const res = await callApi('getCalendarEvents', { year: y, month: m });
+            if (res.success) {
+              window.monthlyEventsCache[cacheKey] = res.data;
+              eventsToCheck = res.data;
+            }
+          } catch(err) {
+            // 若連線失敗，則忽略並盡力檢查已有資料
+          }
+        }
+      }
+
+      let tests = eventsToCheck.filter(e => {
+        if (e.date === tomorrowStr) {
+          return parseTaskTitle(e.title).isTest;
+        }
+        return false;
+      });
+
+      // 同時檢查私人課業中是否有明天的測驗
+      const pTasks = JSON.parse(localStorage.getItem('privateTasks_' + tomorrowStr) || '[]');
+      pTasks.forEach(pt => {
+         let pParsed = parseTaskTitle(`[${pt.subject}] ${pt.task}`);
+         if (pParsed.isTest) {
+            tests.push({ title: `[${pt.subject}] ${pt.task}`, isPrivate: true });
+         }
+      });
+
+      if (tests.length > 0) {
+        showTestReminder(tests, tomorrowStr);
+      }
+    }
+
+    function showTestReminder(tests, dateStr) {
+      const list = document.getElementById('testReminderList');
+      list.innerHTML = '';
+      tests.forEach(t => {
+        const parsed = parseTaskTitle(t.title);
+        const item = document.createElement('div');
+        item.className = 'reminder-item';
+        
+        const subjHTML = `<div class="reminder-subj">${parsed.subject || '其他'} ${t.isPrivate ? '(私)' : ''}</div>`;
+        const taskHTML = `<div class="reminder-task">${parsed.task.replace(/([①-⑳])/g, '\n$1').replace(/\n+/g, '\n').trim()}</div>`;
+        
+        item.innerHTML = subjHTML + taskHTML;
+        list.appendChild(item);
+      });
+      document.getElementById('testReminderModal').style.display = 'flex';
+    }
+
+    function closeTestReminder() {
+      document.getElementById('testReminderModal').style.display = 'none';
+    }
 
     function renderCalendar() {
       const year = currentDate.getFullYear(), month = currentDate.getMonth();
