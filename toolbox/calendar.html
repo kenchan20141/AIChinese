@@ -607,41 +607,45 @@
       return { bg: '#f0ebe4', tagText: '#8c8b87' };
     }
 
-   async function loadCalendarData(forceRefresh = false) {
-      const year = currentDate.getFullYear(), month = currentDate.getMonth() + 1;
-      const cacheKey = `${year}-${month}`;
-      document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`;
+  async function loadCalendarData(forceRefresh = false) {
+  const year = currentDate.getFullYear(), month = currentDate.getMonth() + 1;
+  const cacheKey = `${year}-${month}`;
+  document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`;
+  
+  // 建立前端快取空間
+  window.monthlyEventsCache = window.monthlyEventsCache || {};
+
+  // 1. 如果有前端快取，瞬間先渲染畫面 (體感 0 秒)
+  if (window.monthlyEventsCache[cacheKey] && !forceRefresh) {
+    currentEvents = window.monthlyEventsCache[cacheKey];
+    renderCalendar();
+  } else {
+    // 如果沒有快取，顯示載入中
+    document.getElementById('currentMonthText').innerText = `載入中...`;
+    
+    // 💡【修正重點】：先清空當前事件，並強制畫出新月份的空日曆框架
+    currentEvents = []; 
+    renderCalendar(); 
+  }
+
+  // 2. 依然在背景向伺服器請求最新資料 (確保同步)
+  try {
+    const response = await callApi('getCalendarEvents', { year, month });
+    document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`; // 確保標題恢復
+    if (response.success) { 
+      // 比較新舊資料，如果有差異才重新渲染，避免畫面閃爍
+      const newDataString = JSON.stringify(response.data);
+      const oldDataString = JSON.stringify(window.monthlyEventsCache[cacheKey] || []);
       
-      // 建立前端快取空間
-      window.monthlyEventsCache = window.monthlyEventsCache || {};
-
-      // 1. 如果有前端快取，瞬間先渲染畫面 (體感 0 秒)
-      if (window.monthlyEventsCache[cacheKey] && !forceRefresh) {
-        currentEvents = window.monthlyEventsCache[cacheKey];
-        renderCalendar();
-      } else {
-        // 如果沒有快取，顯示載入中
-        document.getElementById('currentMonthText').innerText = `載入中...`;
+      if (newDataString !== oldDataString) {
+        window.monthlyEventsCache[cacheKey] = response.data;
+        currentEvents = response.data; 
+        renderCalendar(); 
       }
-
-      // 2. 依然在背景向伺服器請求最新資料 (確保同步)
-      try {
-        const response = await callApi('getCalendarEvents', { year, month });
-        document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`; // 確保標題恢復
-        if (response.success) { 
-          // 比較新舊資料，如果有差異才重新渲染，避免畫面閃爍
-          const newDataString = JSON.stringify(response.data);
-          const oldDataString = JSON.stringify(window.monthlyEventsCache[cacheKey] || []);
-          
-          if (newDataString !== oldDataString) {
-            window.monthlyEventsCache[cacheKey] = response.data;
-            currentEvents = response.data; 
-            renderCalendar(); 
-          }
-        } 
-        else if (response.error.includes("權限")) logout();
-      } catch (err) { showStatus('網路連線失敗', true); }
-    }
+    } 
+    else if (response.error.includes("權限")) logout();
+  } catch (err) { showStatus('網路連線失敗', true); }
+}
 
     function renderCalendar() {
       const year = currentDate.getFullYear(), month = currentDate.getMonth();
