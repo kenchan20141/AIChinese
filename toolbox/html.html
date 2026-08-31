@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雅覧 - 全屏和風 HTML 閱覽器</title>
+    <!-- 引入日式明朝字體 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --washi-bg: #F9F8F6;       /* 宣紙白 */
+            --washi-dark: #EFECE5;     /* 稍微深一點的紙色 */
+            --sumi-text: #3B3B3B;      /* 墨灰 */
+            --sumi-light: #888888;     /* 淺墨 */
+            --matcha: #8A9A7A;         /* 抹茶綠 */
+            --matcha-light: #B4C0A8;   /* 淺抹茶 */
+            --sakura: #D08C8A;         /* 櫻花粉紅 (刪除) */
+            --border: #DEDAD1;         /* 淡雅邊框 */
+            
+            --transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Noto Serif TC', serif;
+            background-color: var(--washi-bg);
+            color: var(--sumi-text);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* 全螢幕預覽區 */
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background-color: #ffffff; /* 確保背景純淨 */
+        }
+
+        /* 懸浮工具列 (右上角) */
+        .floating-toolbar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(249, 248, 246, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            border-radius: 50px;
+            display: flex;
+            gap: 8px;
+            padding: 6px 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            z-index: 50;
+            transition: var(--transition);
+        }
+
+        .floating-toolbar:hover {
+            background: rgba(249, 248, 246, 0.98);
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.08);
+        }
+
+        /* 按鈕設計：無文字，純 SVG */
+        button.icon-btn, label.icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            color: var(--sumi-light);
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            outline: none;
+        }
+
+        button.icon-btn svg, label.icon-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 1.2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        button.icon-btn:hover, label.icon-btn:hover {
+            color: var(--matcha);
+            background-color: var(--washi-dark);
+            transform: scale(1.05);
+        }
+
+        /* 提示氣泡 (Tooltip) */
+        .tooltip { position: relative; }
+        .tooltip::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: -35px;
+            left: 50%;
+            transform: translateX(-50%) translateY(5px);
+            background: rgba(59, 59, 59, 0.9);
+            color: var(--washi-bg);
+            padding: 6px 10px;
+            font-size: 12px;
+            letter-spacing: 1px;
+            border-radius: 4px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+            font-family: 'Noto Serif TC', serif;
+        }
+        .tooltip:hover::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* 隱藏原生上傳按鈕 */
+        #file-upload { display: none; }
+
+        /* 通用覆蓋層 (背景虛化) */
+        .overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(59, 59, 59, 0.3);
+            backdrop-filter: blur(3px);
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+            z-index: 80;
+        }
+        .overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* 撰寫/貼上代碼 模態框 (Modal) */
+        .editor-modal {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -45%);
+            width: 80vw;
+            max-width: 800px;
+            height: 70vh;
+            background: var(--washi-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            z-index: 90;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+        }
+        .editor-modal.open {
+            transform: translate(-50%, -50%);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+        }
+        .modal-header h3 {
+            font-weight: 400;
+            font-size: 16px;
+            letter-spacing: 2px;
+            color: var(--sumi-text);
+        }
+        .modal-body {
+            flex: 1;
+            padding: 24px;
+            display: flex;
+        }
+        textarea {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: var(--sumi-text);
+            resize: none;
+            outline: none;
+            line-height: 1.6;
+        }
+
+        /* 滾動條美化 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--matcha-light); }
+
+        /* 抽屜式儲存清單 (藏卷閣) */
+        .drawer {
+            position: fixed;
+            top: 0; right: -400px;
+            width: 380px; max-width: 100vw;
+            height: 100vh;
+            background-color: var(--washi-bg);
+            border-left: 1px solid var(--border);
+            box-shadow: -5px 0 30px rgba(0,0,0,0.08);
+            transition: var(--transition);
+            z-index: 90;
+            display: flex;
+            flex-direction: column;
+        }
+        .drawer.open { right: 0; }
+
+        .history-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            list-style: none;
+        }
+
+        .history-item {
+            background-color: #ffffff;
+            border: 1px solid var(--border);
+            padding: 16px;
+            margin-bottom: 16px;
+            border-radius: 6px;
+            transition: var(--transition);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .history-item:hover {
+            border-color: var(--matcha-light);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        }
+
+        /* 標題與編輯區域 */
+        .item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .title-wrapper {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+        }
+        .history-title {
+            font-size: 15px;
+            color: var(--sumi-text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+        /* 標題輸入框 (修訂模式) */
+        .edit-title-input {
+            flex: 1;
+            font-family: 'Noto Serif TC', serif;
+            font-size: 15px;
+            color: var(--sumi-text);
+            background: var(--washi-bg);
+            border: 1px solid var(--matcha);
+            border-radius: 4px;
+            padding: 2px 6px;
+            outline: none;
+            width: 100%;
+        }
+
+        .history-time {
+            font-size: 12px;
+            color: var(--sumi-light);
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+            border-top: 1px dashed var(--border);
+            padding-top: 8px;
+        }
+        
+        .action-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--sumi-light);
+            transition: var(--transition);
+        }
+        .action-btn:hover { background: var(--washi-dark); color: var(--matcha); }
+        .action-btn.delete:hover { color: var(--sakura); }
+        .action-btn svg { width: 16px; height: 16px; margin-right: 6px; }
+        .action-btn span { font-size: 12px; }
+
+        /* 通知吐司 */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(138, 154, 122, 0.95); /* 抹茶綠 */
+            color: #fff;
+            padding: 10px 24px;
+            border-radius: 30px;
+            font-size: 14px;
+            letter-spacing: 1px;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+            z-index: 100;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .editor-modal { width: 95vw; height: 85vh; }
+            .drawer { width: 100vw; right: -100vw; }
+            .floating-toolbar { top: auto; bottom: 20px; right: 50%; transform: translateX(50%); padding: 8px 16px; }
+            .floating-toolbar:hover { transform: translateX(50%) scale(1.02); }
+            .tooltip::after { display: none; } /* 手機版隱藏 tooltip */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 全螢幕預覽 iframe -->
+    <iframe id="preview-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+
+    <!-- 懸浮工具列 -->
+    <div class="floating-toolbar">
+        <label for="file-upload" class="icon-btn tooltip" data-tip="上載文檔">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        </label>
+        <input type="file" id="file-upload" accept=".html,.htm,.txt">
+
+        <button id="open-editor-btn" class="icon-btn tooltip" data-tip="撰寫/貼上代碼">
+            <svg viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+        </button>
+
+        <button id="save-btn" class="icon-btn tooltip" data-tip="收錄至藏卷閣">
+            <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+
+        <button id="history-btn" class="icon-btn tooltip" data-tip="開啟藏卷閣">
+            <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+        </button>
+
+        <!-- 關閉預覽 SVG 按鈕 -->
+        <button id="close-preview-btn" class="icon-btn tooltip" data-tip="關閉預覽">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+    </div>
+
+    <!-- 通用背景覆蓋層 -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- 代碼編輯模態框 -->
+    <div class="editor-modal" id="editor-modal">
+        <div class="modal-header">
+            <h3>撰寫代碼</h3>
+            <button id="apply-code-btn" class="icon-btn tooltip" data-tip="應用並預覽" style="color:var(--matcha);">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <textarea id="html-input" placeholder="請於此處貼上 HTML 代碼..."></textarea>
+        </div>
+    </div>
+
+    <!-- 藏卷閣 (儲存清單) -->
+    <div class="drawer" id="drawer">
+        <div class="modal-header">
+            <h3>藏卷閣</h3>
+            <button id="close-drawer" class="icon-btn">
+                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <ul class="history-list" id="history-list">
+            <!-- 歷史紀錄渲染區 -->
+        </ul>
+    </div>
+
+    <div class="toast" id="toast">已更新</div>
+
+    <script>
+        const previewFrame = document.getElementById('preview-frame');
+        const fileUpload = document.getElementById('file-upload');
+        const htmlInput = document.getElementById('html-input');
+        
+        const overlay = document.getElementById('overlay');
+        const editorModal = document.getElementById('editor-modal');
+        const openEditorBtn = document.getElementById('open-editor-btn');
+        const applyCodeBtn = document.getElementById('apply-code-btn');
+        
+        const saveBtn = document.getElementById('save-btn');
+        const historyBtn = document.getElementById('history-btn');
+        const closePreviewBtn = document.getElementById('close-preview-btn');
+        const drawer = document.getElementById('drawer');
+        const closeDrawerBtn = document.getElementById('close-drawer');
+        const historyList = document.getElementById('history-list');
+        const toast = document.getElementById('toast');
+
+        // 初始和風歡迎畫面 (在 iframe 內顯示)
+        const defaultHTML = `
+            <div style="height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#888888;font-family:'Noto Serif TC',serif;background:#F9F8F6;margin:0;">
+                <svg style="width:40px;height:40px;margin-bottom:20px;opacity:0.5;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                <h2 style="font-weight:400;letter-spacing:4px;font-size:18px;">請由選單上載或貼上代碼。</h2>
+            </div>
+        `;
+        let currentHTML = '';
+        previewFrame.srcdoc = defaultHTML;
+
+        // 關閉預覽 (還原至空狀態)
+        closePreviewBtn.addEventListener('click', () => {
+            currentHTML = '';
+            htmlInput.value = '';
+            previewFrame.srcdoc = defaultHTML;
+            showToast('已關閉預覽');
+        });
+
+        // 1. 模態框與遮罩邏輯
+        function openEditor() {
+            htmlInput.value = currentHTML; // 載入目前預覽中的代碼
+            overlay.classList.add('active');
+            editorModal.classList.add('open');
+            drawer.classList.remove('open');
+        }
+        
+        function closeAllModals() {
+            overlay.classList.remove('active');
+            editorModal.classList.remove('open');
+            drawer.classList.remove('open');
+        }
+
+        openEditorBtn.addEventListener('click', openEditor);
+        overlay.addEventListener('click', closeAllModals);
+
+        // 2. 應用代碼並全螢幕預覽
+        applyCodeBtn.addEventListener('click', () => {
+            currentHTML = htmlInput.value;
+            previewFrame.srcdoc = currentHTML || defaultHTML;
+            closeAllModals();
+            showToast('已更新預覽');
+        });
+
+        // 3. 上載文件功能
+        fileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                currentHTML = event.target.result;
+                previewFrame.srcdoc = currentHTML;
+                showToast('文檔展卷成功');
+            };
+            reader.readAsText(file);
+        });
+
+        // 4. LocalStorage 儲存庫功能
+        const STORAGE_KEY = 'yaran_fullscreen_saves';
+
+        function getSaves() {
+            return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        }
+
+        saveBtn.addEventListener('click', () => {
+            if (!currentHTML.trim()) {
+                showToast('空白卷軸，無須收錄');
+                return;
+            }
+
+            const saves = getSaves();
+            // 嘗試自動讀取 <title> 作為預設名稱
+            const titleMatch = currentHTML.match(/<title[^>]*>([^<]+)<\/title>/);
+            let docTitle = titleMatch ? titleMatch[1] : `未命名卷軸 - ${new Date().getHours()}:${new Date().getMinutes()}`;
+
+            const newItem = {
+                id: Date.now(),
+                title: docTitle,
+                content: currentHTML,
+                date: new Date().toLocaleString('zh-HK')
+            };
+
+            saves.unshift(newItem);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(saves));
+            
+            showToast('已收錄至藏卷閣');
+        });
+
+        // 5. 渲染藏卷閣 (包含修訂標題邏輯)
+        function renderHistory() {
+            const saves = getSaves();
+            historyList.innerHTML = '';
+
+            if (saves.length === 0) {
+                historyList.innerHTML = '<li style="text-align:center; color:#888888; margin-top:40px; font-size:14px; letter-spacing:2px;">閣中尚無藏卷</li>';
+                return;
+            }
+
+            saves.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'history-item';
+                
+                li.innerHTML = `
+                    <div class="item-header">
+                        <div class="title-wrapper">
+                            <span class="history-title" id="title-text-${item.id}" title="點擊展卷">${item.title}</span>
+                            <button class="icon-btn edit-title-btn" data-id="${item.id}" title="修訂標題" style="padding:4px;">
+                                <svg viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="history-time">${item.date}</div>
+                    
+                    <div class="item-actions">
+                        <div class="action-btn load-btn" data-id="${item.id}">
+                            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>展卷預覽</span>
+                        </div>
+                        <div class="action-btn delete delete-btn" data-id="${item.id}">
+                            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            <span>銷毀</span>
+                        </div>
+                    </div>
+                `;
+                historyList.appendChild(li);
+
+                // 綁定載入預覽
+                li.querySelector('.load-btn').addEventListener('click', () => {
+                    currentHTML = item.content;
+                    previewFrame.srcdoc = currentHTML;
+                    closeAllModals();
+                    showToast('已為您展卷');
+                });
+
+                // 綁定刪除
+                li.querySelector('.delete-btn').addEventListener('click', () => {
+                    let freshSaves = getSaves().filter(s => s.id !== item.id);
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(freshSaves));
+                    renderHistory();
+                });
+
+                // 綁定修訂標題 (重點功能)
+                li.querySelector('.edit-title-btn').addEventListener('click', () => {
+                    const titleSpan = document.getElementById(`title-text-${item.id}`);
+                    const currentText = item.title;
+                    
+                    // 轉為 input 元素
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = currentText;
+                    input.className = 'edit-title-input';
+                    
+                    titleSpan.replaceWith(input);
+                    input.focus();
+                    
+                    // 隱藏鉛筆按鈕
+                    li.querySelector('.edit-title-btn').style.display = 'none';
+
+                    const saveNewTitle = () => {
+                        const newTitle = input.value.trim() || '未命名卷軸';
+                        let freshSaves = getSaves();
+                        const targetIndex = freshSaves.findIndex(s => s.id === item.id);
+                        if(targetIndex > -1) {
+                            freshSaves[targetIndex].title = newTitle;
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(freshSaves));
+                        }
+                        renderHistory(); // 重新渲染以恢復畫面
+                        showToast('標題已修訂');
+                    };
+
+                    input.addEventListener('blur', saveNewTitle);
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            input.blur(); // 觸發 blur 事件儲存
+                        }
+                    });
+                });
+            });
+        }
+
+        // 開關藏卷閣
+        historyBtn.addEventListener('click', () => {
+            renderHistory();
+            overlay.classList.add('active');
+            editorModal.classList.remove('open');
+            drawer.classList.add('open');
+        });
+        closeDrawerBtn.addEventListener('click', closeAllModals);
+
+        // 6. 提示 Toast
+        let toastTimeout;
+        function showToast(msg) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2500);
+        }
+
+    </script>
+</body>
+</html>
