@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>RTHK Radio 2 - 3D Retro Receiver</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: radial-gradient(circle at 50% 40%, #3e4348 0%, #202326 70%, #141618 100%);
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* Top Hint */
+        .hint-text {
+            position: absolute;
+            top: max(16px, env(safe-area-inset-top));
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(230, 200, 140, 0.7);
+            font-size: clamp(10px, 2.5vw, 12px);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: 600;
+            pointer-events: none;
+            z-index: 5;
+            text-align: center;
+            white-space: nowrap;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+        }
+
+        /* Responsive Bottom Control Dock */
+        .bottom-dock {
+            position: absolute;
+            bottom: max(20px, env(safe-area-inset-bottom));
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(28, 26, 24, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(220, 185, 90, 0.35);
+            border-radius: 40px;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.15);
+            max-width: 92vw;
+        }
+
+        .timer-label {
+            color: #e5c158;
+            font-size: clamp(10px, 2.8vw, 12px);
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            white-space: nowrap;
+        }
+
+        .timer-inputs {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .timer-inputs input {
+            width: clamp(38px, 10vw, 46px);
+            background: #141414;
+            color: #ffe6b0;
+            border: 1px solid #554422;
+            border-radius: 6px;
+            padding: 5px 2px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            text-align: center;
+            outline: none;
+            font-size: clamp(12px, 3.2vw, 14px);
+        }
+
+        .timer-inputs input::-webkit-outer-spin-button,
+        .timer-inputs input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .t-btn {
+            background: linear-gradient(to bottom, #444, #2a2a2a);
+            color: #ddd;
+            border: 1px solid #1a1a1a;
+            padding: 6px 12px;
+            font-size: clamp(10px, 2.8vw, 12px);
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+            white-space: nowrap;
+        }
+
+        .t-btn:active {
+            transform: scale(0.94);
+        }
+
+        .t-btn.active {
+            background: linear-gradient(to bottom, #c03030, #881818);
+            color: #fff;
+            border-color: #500;
+            box-shadow: 0 0 12px rgba(220, 50, 50, 0.7);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="hint-text">DRAG TO ROTATE &bull; TAP KNOB OR BODY TO POWER</div>
+    <div id="canvas-container"></div>
+
+    <div class="bottom-dock">
+        <span class="timer-label">TIMER (MIN):</span>
+        <div class="timer-inputs">
+            <input type="number" id="time-input" min="1" max="999" placeholder="Min">
+            <button id="btn-set" class="t-btn">SET</button>
+            <button id="btn-off" class="t-btn active">OFF</button>
+        </div>
+    </div>
+
+    <!-- Audio Element & Libraries -->
+    <audio id="radio-audio" preload="none"></audio>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- Audio Streams ---
+        const hqStreamUrl = 'https://rthkaudio2-lh.akamaihd.net/i/radio2_1@355865/master.m3u8';
+        const sdStreamUrl = 'https://stm.rthk.hk/radio2';
+        
+        const audio = document.getElementById('radio-audio');
+        const timeInput = document.getElementById('time-input');
+        const btnSet = document.getElementById('btn-set');
+        const btnOff = document.getElementById('btn-off');
+
+        let isPlaying = false;
+        let isShuttingDown = false;
+        let hls = null;
+        let targetSleepTime = null;
+        let lastUiUpdateTime = 0;
+        let reconnectTimeout = null;
+
+        // Display Strings (All English)
+        let statusString = "RTHK 2 [OFF]";
+        let timerString = "SLEEP: OFF";
+
+        // --- Three.js Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.05;
+        controls.minDistance = 3.0;
+        controls.maxDistance = 25.0;
+
+        // --- 最佳化手機與電腦相機縮放距離 ---
+        function updateResponsiveCamera() {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.aspect = aspect;
+            
+            let targetDistance;
+            if (aspect < 1.0) {
+                // 手機直向螢幕：依長寬比動態拉開相機，保持收音機約佔螢幕寬度的 70%
+                targetDistance = Math.max(6.5, 5.8 / aspect);
+            } else {
+                // 電腦/平板橫向螢幕：維持舒適視角
+                targetDistance = 6.6;
+            }
+            
+            // 微微俯視視角
+            camera.position.set(0, targetDistance * 0.12, targetDistance);
+            camera.lookAt(0, 0, 0);
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        updateResponsiveCamera();
+        window.addEventListener('resize', updateResponsiveCamera);
+
+        // --- Studio Lighting Setup ---
+        const ambientLight = new THREE.AmbientLight(0xfff5ea, 1.4);
+        scene.add(ambientLight);
+
+        // Key Light
+        const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+        keyLight.position.set(5, 8, 6);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.width = 2048;
+        keyLight.shadow.mapSize.height = 2048;
+        keyLight.shadow.bias = -0.0001;
+        scene.add(keyLight);
+
+        // Fill Light
+        const fillLight = new THREE.DirectionalLight(0xddeeff, 1.0);
+        fillLight.position.set(-6, 3, 4);
+        scene.add(fillLight);
+
+        // Warm Golden Rim/Back Light
+        const rimLight = new THREE.DirectionalLight(0xffd188, 2.2);
+        rimLight.position.set(0, 5, -5);
+        scene.add(rimLight);
+
+        // Red LED Dynamic Point Light
+        const ledPointLight = new THREE.PointLight(0xff2222, 0, 2.0);
+        ledPointLight.position.set(1.4, 0.7, 1.15);
+        scene.add(ledPointLight);
+
+        // Shadow Receiver Ground Plane
+        const shadowPlaneGeo = new THREE.PlaneGeometry(30, 30);
+        const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.25 });
+        const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+        shadowPlane.rotation.x = -Math.PI / 2;
+        shadowPlane.position.y = -1.35;
+        shadowPlane.receiveShadow = true;
+        scene.add(shadowPlane);
+
+        // --- Procedural Canvas Textures ---
+        
+        // 1. High Quality Warm Teak Wood Texture
+        function createWoodTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024; canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            
+            const grad = ctx.createLinearGradient(0, 0, 1024, 0);
+            grad.addColorStop(0, '#80451e');
+            grad.addColorStop(0.5, '#995426');
+            grad.addColorStop(1, '#7a3e18');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 1024, 1024);
+
+            for (let i = 0; i < 1200; i++) {
+                ctx.fillStyle = `rgba(${160 + Math.random()*60}, ${90 + Math.random()*40}, 30, ${0.04 + Math.random()*0.06})`;
+                const y = Math.random() * 1024;
+                const h = 1 + Math.random() * 3;
+                ctx.fillRect(0, y, 1024, h);
+            }
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // 2. Vintage Speaker Fabric Mesh Texture
+        function createGrillTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#22201d';
+            ctx.fillRect(0, 0, 256, 256);
+            
+            ctx.fillStyle = '#c8a664';
+            for (let x = 4; x < 256; x += 8) {
+                for (let y = 4; y < 256; y += 8) {
+                    ctx.fillRect(x, y, 3, 3);
+                }
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(4, 2);
+            return texture;
+        }
+
+        // 3. Brass Brand Plate Texture
+        function createBrandPlateTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, 0, 128);
+            grad.addColorStop(0, '#f3d677');
+            grad.addColorStop(0.5, '#d4af37');
+            grad.addColorStop(1, '#a67c1e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 512, 128);
+
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#6e4f0d';
+            ctx.strokeRect(6, 6, 500, 116);
+
+            ctx.font = '900 48px Arial, sans-serif';
+            ctx.fillStyle = '#2e2008';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.letterSpacing = '3px';
+            ctx.fillText('RTHK RADIO 2', 256, 66);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // 4. Dynamic Retro LCD Canvas Texture
+        const lcdCanvas = document.createElement('canvas');
+        lcdCanvas.width = 512; lcdCanvas.height = 256;
+        const lcdCtx = lcdCanvas.getContext('2d');
+        const lcdTexture = new THREE.CanvasTexture(lcdCanvas);
+
+        function updateLcdTexture() {
+            lcdCtx.fillStyle = isPlaying ? '#86c466' : '#454f3d';
+            lcdCtx.fillRect(0, 0, 512, 256);
+            
+            lcdCtx.fillStyle = isPlaying ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.18)';
+            for(let y=0; y<256; y+=4) {
+                lcdCtx.fillRect(0, y, 512, 1.5);
+            }
+
+            lcdCtx.font = 'bold 44px "Courier New", monospace';
+            lcdCtx.fillStyle = isPlaying ? '#102206' : '#232d1d';
+            lcdCtx.textAlign = 'center';
+            lcdCtx.textBaseline = 'middle';
+            
+            lcdCtx.fillText(statusString, 256, 95);
+            lcdCtx.font = 'bold 36px "Courier New", monospace';
+            lcdCtx.fillText(timerString, 256, 165);
+            
+            lcdTexture.needsUpdate = true;
+        }
+        updateLcdTexture();
+
+        // --- Build 3D Radio Model ---
+        const radioGroup = new THREE.Group();
+        scene.add(radioGroup);
+
+        // Main Wood Chassis
+        const woodMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            map: createWoodTexture(),
+            roughness: 0.25,
+            metalness: 0.05
+        });
+        const bodyGeo = new THREE.BoxGeometry(3.6, 2.4, 2.0);
+        const radioBody = new THREE.Mesh(bodyGeo, woodMat);
+        radioBody.castShadow = true;
+        radioBody.receiveShadow = true;
+        radioGroup.add(radioBody);
+
+        // Shiny Polished Brass Material
+        const brassMat = new THREE.MeshStandardMaterial({
+            color: 0xecd078,
+            roughness: 0.22,
+            metalness: 0.9
+        });
+
+        // Recessed Front Panel Frame
+        const faceFrameGeo = new THREE.BoxGeometry(3.2, 2.0, 0.05);
+        const faceFrameMat = new THREE.MeshStandardMaterial({ color: 0x221a14, roughness: 0.7 });
+        const faceFrame = new THREE.Mesh(faceFrameGeo, faceFrameMat);
+        faceFrame.position.set(0, 0, 1.01);
+        radioGroup.add(faceFrame);
+
+        // Brand Plate
+        const plateGeo = new THREE.PlaneGeometry(1.5, 0.35);
+        const plateMat = new THREE.MeshStandardMaterial({
+            map: createBrandPlateTexture(),
+            roughness: 0.3,
+            metalness: 0.6
+        });
+        const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+        plateMesh.position.set(0, 0.76, 1.04);
+        radioGroup.add(plateMesh);
+
+        // Speaker Grill
+        const grillGeo = new THREE.BoxGeometry(2.9, 0.75, 0.04);
+        const grillMat = new THREE.MeshStandardMaterial({
+            map: createGrillTexture(),
+            roughness: 0.7,
+            metalness: 0.3
+        });
+        const grillMesh = new THREE.Mesh(grillGeo, grillMat);
+        grillMesh.position.set(0, 0.15, 1.04);
+        radioGroup.add(grillMesh);
+
+        // LCD Display
+        const lcdFrameGeo = new THREE.BoxGeometry(1.45, 0.75, 0.06);
+        const lcdFrameMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 });
+        const lcdFrame = new THREE.Mesh(lcdFrameGeo, lcdFrameMat);
+        lcdFrame.position.set(-0.72, -0.55, 1.04);
+        radioGroup.add(lcdFrame);
+
+        const lcdScreenGeo = new THREE.PlaneGeometry(1.35, 0.65);
+        const lcdScreenMat = new THREE.MeshBasicMaterial({ map: lcdTexture });
+        const lcdScreen = new THREE.Mesh(lcdScreenGeo, lcdScreenMat);
+        lcdScreen.position.set(-0.72, -0.55, 1.08);
+        radioGroup.add(lcdScreen);
+
+        // LED Indicator
+        const ledGeo = new THREE.SphereGeometry(0.06, 16, 16);
+        const ledMat = new THREE.MeshStandardMaterial({
+            color: 0x330000,
+            roughness: 0.2,
+            metalness: 0.8,
+            emissive: 0x000000
+        });
+        const ledMesh = new THREE.Mesh(ledGeo, ledMat);
+        ledMesh.position.set(1.35, 0.76, 1.04);
+        radioGroup.add(ledMesh);
+
+        // Interactive Power Knob
+        const knobGroup = new THREE.Group();
+        knobGroup.position.set(0.82, -0.55, 1.03);
+        
+        const knobBaseGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.2, 32);
+        knobBaseGeo.rotateX(Math.PI / 2);
+        const knobMesh = new THREE.Mesh(knobBaseGeo, brassMat);
+        knobMesh.castShadow = true;
+        knobGroup.add(knobMesh);
+
+        const notchGeo = new THREE.BoxGeometry(0.05, 0.2, 0.22);
+        const notchMat = new THREE.MeshBasicMaterial({ color: 0xd92b2b });
+        const notchMesh = new THREE.Mesh(notchGeo, notchMat);
+        notchMesh.position.set(0, 0.15, 0);
+        knobGroup.add(notchMesh);
+
+        radioGroup.add(knobGroup);
+
+        // Metal Antenna
+        const antennaGeo = new THREE.CylinderGeometry(0.025, 0.035, 2.2, 16);
+        const antennaMesh = new THREE.Mesh(antennaGeo, brassMat);
+        antennaMesh.position.set(1.4, 1.9, -0.7);
+        antennaMesh.rotation.z = -0.15;
+        antennaMesh.castShadow = true;
+        radioGroup.add(antennaMesh);
+
+        // Brass Feet
+        for(let x of [-1.4, 1.4]) {
+            for(let z of [-0.7, 0.7]) {
+                const footGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.15, 16);
+                const footMesh = new THREE.Mesh(footGeo, brassMat);
+                footMesh.position.set(x, -1.25, z);
+                footMesh.castShadow = true;
+                radioGroup.add(footMesh);
+            }
+        }
+
+        // --- Click Detection (Knob / Radio Body) ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.bottom-dock')) return;
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            
+            const intersects = raycaster.intersectObjects([knobMesh, notchMesh, radioBody], true);
+            if (intersects.length > 0) {
+                if (isPlaying) {
+                    stopRadio();
+                } else {
+                    playRadio();
+                }
+            }
+        });
+
+        // Knob Rotation Animation
+        let targetKnobAngle = 0;
+        function updateKnobAnimation() {
+            targetKnobAngle = isPlaying ? -Math.PI / 2 : 0;
+            knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
+        }
+
+        // --- Sleep Timer Logic ---
+        const savedTime = localStorage.getItem('rthk_sleep_time');
+        timeInput.value = savedTime ? savedTime : '30';
+
+        timeInput.addEventListener('input', () => {
+            if(timeInput.value) localStorage.setItem('rthk_sleep_time', timeInput.value);
+        });
+
+        btnSet.addEventListener('click', () => {
+            let mins = parseInt(timeInput.value);
+            if (isNaN(mins) || mins <= 0) mins = 30;
+            timeInput.value = mins;
+            localStorage.setItem('rthk_sleep_time', mins);
+            targetSleepTime = Date.now() + (mins * 60 * 1000);
+            btnSet.classList.add('active');
+            btnOff.classList.remove('active');
+            updateTimerUI(Date.now());
+        });
+
+        btnOff.addEventListener('click', () => {
+            targetSleepTime = null;
+            timerString = 'SLEEP: OFF';
+            updateLcdTexture();
+            btnOff.classList.add('active');
+            btnSet.classList.remove('active');
+        });
+
+        setInterval(checkSleepTimer, 1000);
+        audio.addEventListener('timeupdate', checkSleepTimer);
+
+        function checkSleepTimer() {
+            if (!targetSleepTime) return;
+            let now = Date.now();
+            if (now >= targetSleepTime) {
+                targetSleepTime = null;
+                timerString = 'SLEEP: OFF';
+                btnOff.classList.add('active');
+                btnSet.classList.remove('active');
+                updateLcdTexture();
+                if (isPlaying && !isShuttingDown) playTTSAndStop();
+            } else {
+                if (now - lastUiUpdateTime >= 1000) {
+                    updateTimerUI(now);
+                    lastUiUpdateTime = now;
+                }
+            }
+        }
+
+        function updateTimerUI(now) {
+            let remainingSecs = Math.ceil((targetSleepTime - now) / 1000);
+            if(remainingSecs < 0) remainingSecs = 0;
+            const m = Math.floor(remainingSecs / 60);
+            const s = remainingSecs % 60;
+            timerString = `SLEEP: ${m}:${s.toString().padStart(2, '0')}`;
+            updateLcdTexture();
+        }
+
+        // --- Cantonese TTS (Audio Hijack 1.2x Speed) ---
+        function playTTSAndStop() {
+            isShuttingDown = true;
+            statusString = 'SHUTTING DOWN';
+            updateLcdTexture();
+            clearTimeout(reconnectTimeout);
+
+            if (hls) { hls.destroy(); hls = null; }
+
+            const ttsText = "夠鐘罅，而家會幫你刪機。";
+            const ttsMp3Url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=yue&client=tw-ob&q=${encodeURIComponent(ttsText)}`;
+            
+            audio.src = ttsMp3Url;
+            audio.loop = false;
+            audio.playbackRate = 1.2;
+            
+            audio.play().then(() => {
+                audio.onended = () => stopRadio();
+                setTimeout(() => { if (isShuttingDown) stopRadio(); }, 10000);
+            }).catch(() => {
+                if ('speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance(ttsText);
+                    utterance.lang = 'zh-HK';
+                    utterance.rate = 1.2;
+                    utterance.onend = stopRadio;
+                    utterance.onerror = stopRadio;
+                    try {
+                        speechSynthesis.speak(utterance);
+                        setTimeout(() => { if (isShuttingDown) stopRadio(); }, 5000);
+                    } catch(err) { stopRadio(); }
+                } else { stopRadio(); }
+            });
+        }
+
+        // --- Player Controls ---
+        function playRadio() {
+            clearTimeout(reconnectTimeout);
+            isShuttingDown = false;
+            isPlaying = true;
+            audio.playbackRate = 1.0;
+
+            statusString = 'TUNING...';
+            updateLcdTexture();
+            setLedState(true);
+
+            if (Hls.isSupported()) {
+                if (hls) hls.destroy();
+                hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+                hls.loadSource(hqStreamUrl);
+                hls.attachMedia(audio);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    audio.play().catch(handlePlayError);
+                });
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) fallbackToSDStream();
+                        else scheduleReconnect();
+                    }
+                });
+            } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+                audio.src = hqStreamUrl;
+                audio.play().catch(handlePlayError);
+            } else {
+                fallbackToSDStream();
+            }
+        }
+
+        function fallbackToSDStream() {
+            if (hls) { hls.destroy(); hls = null; }
+            audio.src = sdStreamUrl;
+            audio.play().catch(handlePlayError);
+        }
+
+        function stopRadio() {
+            clearTimeout(reconnectTimeout);
+            isShuttingDown = false;
+            isPlaying = false;
+            
+            if (hls) { hls.destroy(); hls = null; }
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+            audio.onended = null;
+            audio.playbackRate = 1.0;
+
+            statusString = 'RTHK 2 [OFF]';
+            updateLcdTexture();
+            setLedState(false);
+        }
+
+        function scheduleReconnect() {
+            if (!isPlaying || isShuttingDown) return;
+            statusString = 'RECONNECTING..';
+            updateLcdTexture();
+            setLedBlink(true);
+
+            if (hls) { hls.destroy(); hls = null; }
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = setTimeout(() => {
+                if (isPlaying && !isShuttingDown) playRadio();
+            }, 3000);
+        }
+
+        function handlePlayError(e) {
+            if (isPlaying && !isShuttingDown) scheduleReconnect();
+        }
+
+        audio.addEventListener('error', () => {
+            if (isPlaying && !isShuttingDown) scheduleReconnect();
+        });
+
+        audio.addEventListener('playing', () => {
+            if (isPlaying && !isShuttingDown) {
+                setLedBlink(false);
+                statusString = (hls || audio.src.includes('m3u8')) ? 'LIVE [HQ]' : 'LIVE [SD]';
+                updateLcdTexture();
+            }
+        });
+
+        audio.addEventListener('waiting', () => {
+            if (isPlaying && !isShuttingDown) {
+                statusString = 'BUFFERING...';
+                updateLcdTexture();
+            }
+        });
+
+        // 3D LED Control
+        let ledBlinking = false;
+        function setLedState(on) {
+            ledBlinking = false;
+            if (on) {
+                ledMat.color.setHex(0xff2222);
+                ledMat.emissive.setHex(0xff0000);
+                ledPointLight.intensity = 1.6;
+            } else {
+                ledMat.color.setHex(0x330000);
+                ledMat.emissive.setHex(0x000000);
+                ledPointLight.intensity = 0;
+            }
+        }
+
+        function setLedBlink(blink) {
+            ledBlinking = blink;
+        }
+
+        // --- Battery Saver (Pause Render Loop in Background) ---
+        let isRendering = true;
+        document.addEventListener('visibilitychange', () => {
+            isRendering = !document.hidden;
+            if (isRendering) {
+                requestAnimationFrame(animate);
+            }
+        });
+
+        // Render Loop
+        let clock = new THREE.Clock();
+        function animate() {
+            if (!isRendering) return;
+            requestAnimationFrame(animate);
+
+            let elapsedTime = clock.getElapsedTime();
+            controls.update();
+            updateKnobAnimation();
+
+            if (ledBlinking) {
+                let flash = Math.sin(elapsedTime * 10) > 0;
+                ledMat.emissive.setHex(flash ? 0xff0000 : 0x000000);
+                ledPointLight.intensity = flash ? 1.6 : 0;
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
