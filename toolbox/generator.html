@@ -4038,8 +4038,9 @@ async function generatePracticalQuestions() {
 
                 if (data.error) throw new Error(data.error);
                 
-                const generatedContent = removeThinkingTags(data.choices[0].message.content);
-                const parsed = parsePracticalResponse(generatedContent);
+               const generatedContent = removeThinkingTags(data.choices[0].message.content);
+console.log("【AI 實用文原始生成內容】:\n", generatedContent); // ★ 新增此行方便觀察
+const parsed = parsePracticalResponse(generatedContent);
                 parsed.type = practicalType;
                 allQuestions.push(parsed);
 
@@ -4250,88 +4251,75 @@ function logProviderInfo(dataOrResponse, apiName) {
             return parsed;
         }
 function parsePracticalResponse(response) {
-    const cleanResponse = removeThinkingTags(response);
+    let cleanResponse = removeThinkingTags(response);
+    
+    // 1. 清理開頭與結尾的 Markdown 程式碼標記（如 ```html ... ```）
+    cleanResponse = cleanResponse.replace(/^```[a-zA-Z]*\s*/gm, '').replace(/```$/gm, '').trim();
+ 
+    // 2. 智慧正規化標籤：相容 **題目：**、### 題目:、【題目】、半形冒號、多餘空格等
+    // 將所有變體統一替換為專屬定位標記
+    cleanResponse = cleanResponse
+        .replace(/(?:^|\n)[ \t*#>]*【?(?:題目|試題)】?[ \t*#]*[：:][ \t*]*/gi, '\n[SECTION_QUESTION]\n')
+        .replace(/(?:^|\n)[ \t*#>]*【?(?:資料一|材料一|資料 1|材料 1|資料（一）|資料\(1\))】?[ \t*#]*[：:][ \t*]*/gi, '\n[SECTION_MAT1]\n')
+        .replace(/(?:^|\n)[ \t*#>]*【?(?:資料二|材料二|資料 2|材料 2|資料（二）|資料\(2\))】?[ \t*#]*[：:][ \t*]*/gi, '\n[SECTION_MAT2]\n');
+ 
     let question = '未生成';
     let material1 = '未生成';
     let material2 = '未生成';
-    
-    // 處理題目
-    const questionMatch = cleanResponse.match(/題目：([\s\S]*?)(?=資料一：|$)/);
-    if (questionMatch && questionMatch[1]) {
-        question = questionMatch[1].trim();
-        // 只替換非HTML內容的換行
-        if (!/<[a-z][\s\S]*>/i.test(question)) {
-            question = question.replace(/\n/g, '<br>');
+ 
+    const qIdx = cleanResponse.indexOf('[SECTION_QUESTION]');
+    const m1Idx = cleanResponse.indexOf('[SECTION_MAT1]');
+    const m2Idx = cleanResponse.indexOf('[SECTION_MAT2]');
+ 
+    // 3. 精確截取三個區塊的內容
+    if (qIdx !== -1) {
+        const end = (m1Idx !== -1) ? m1Idx : (m2Idx !== -1 ? m2Idx : cleanResponse.length);
+        question = cleanResponse.substring(qIdx + '[SECTION_QUESTION]'.length, end).trim();
+    } else if (m1Idx > 0) {
+        // 容錯：如果 AI 漏寫「題目：」但開頭直接給了題目
+        question = cleanResponse.substring(0, m1Idx).trim();
+    }
+ 
+    if (m1Idx !== -1) {
+        const end = (m2Idx !== -1) ? m2Idx : cleanResponse.length;
+        material1 = cleanResponse.substring(m1Idx + '[SECTION_MAT1]'.length, end).trim();
+    }
+ 
+    if (m2Idx !== -1) {
+        material2 = cleanResponse.substring(m2Idx + '[SECTION_MAT2]'.length).trim();
+    }
+ 
+    // 4. 終極兜底（Fallback）：若依然解析失敗，強制按段落或關鍵字拆分
+    if (question === '未生成' || material1 === '未生成' || material2 === '未生成') {
+        const parts = cleanResponse.split(/\n\s*\n/);
+        if (parts.length >= 3) {
+            if (question === '未生成') question = parts[0].trim();
+            if (material1 === '未生成') material1 = parts[1].trim();
+            if (material2 === '未生成') material2 = parts.slice(2).join('\n\n').trim();
         }
     }
-    
-    // 處理資料一 - 重點修訂部分
-    const material1Match = cleanResponse.match(/資料一：([\s\S]*?)(?=資料二：|$)/);
-    if (material1Match && material1Match[1]) {
-        let rawMaterial1 = material1Match[1].trim();
-        // 判斷是否包含HTML標籤（特別是表格）
-        if (/<[a-z][\s\S]*>/i.test(rawMaterial1)) {
-            // 保留HTML格式，僅移除前後空白和多餘的空行
-            material1 = rawMaterial1.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
+ 
+    // 5. 格式化排版（非 HTML 的段落轉為 <br>，保留已有 HTML 代碼）
+    if (question !== '未生成' && !/<[a-z][\s\S]*>/i.test(question)) {
+        question = question.replace(/\n/g, '<br>');
+    }
+ 
+    if (material1 !== '未生成') {
+        if (/<[a-z][\s\S]*>/i.test(material1)) {
+            material1 = material1.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
         } else {
-            // 非HTML內容，正常替換換行
-            material1 = rawMaterial1.replace(/\n/g, '<br>');
+            material1 = material1.replace(/\n/g, '<br>');
         }
     }
-    
-    // 處理資料二
-    const material2Match = cleanResponse.match(/資料二：([\s\S]*)/);
-    if (material2Match && material2Match[1]) {
-        let rawMaterial2 = material2Match[1].trim();
-        // 處理HTML內容
-        if (/<[a-z][\s\S]*>/i.test(rawMaterial2)) {
-            material2 = rawMaterial2.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
+ 
+    if (material2 !== '未生成') {
+        if (/<[a-z][\s\S]*>/i.test(material2)) {
+            material2 = material2.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
         } else {
-            material2 = rawMaterial2.replace(/\n/g, '<br>');
+            material2 = material2.replace(/\n/g, '<br>');
         }
     }
-    
-    // 備用解析邏輯
-    if ((question === '未生成' || material1 === '未生成' || material2 === '未生成') && cleanResponse.includes('題目：')) {
-        const parts = cleanResponse.split('題目：');
-        if (parts.length > 1) {
-            const questionPart = parts[1];
-            const material1Index = questionPart.indexOf('資料一：');
-            const material2Index = questionPart.indexOf('資料二：');
-            
-            if (material1Index !== -1) {
-                question = questionPart.substring(0, material1Index).trim();
-                if (!/<[a-z][\s\S]*>/i.test(question)) {
-                    question = question.replace(/\n/g, '<br>');
-                }
-                
-                const material1Part = questionPart.substring(material1Index + 4);
-                if (material2Index !== -1 && material2Index > material1Index) {
-                    const rawMaterial1 = material1Part.substring(0, material2Index - material1Index - 4).trim();
-                    if (/<[a-z][\s\S]*>/i.test(rawMaterial1)) {
-                        material1 = rawMaterial1.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
-                    } else {
-                        material1 = rawMaterial1.replace(/\n/g, '<br>');
-                    }
-                    
-                    const rawMaterial2 = questionPart.substring(material2Index + 4).trim();
-                    if (/<[a-z][\s\S]*>/i.test(rawMaterial2)) {
-                        material2 = rawMaterial2.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
-                    } else {
-                        material2 = rawMaterial2.replace(/\n/g, '<br>');
-                    }
-                } else {
-                    const rawMaterial1 = material1Part.trim();
-                    if (/<[a-z][\s\S]*>/i.test(rawMaterial1)) {
-                        material1 = rawMaterial1.replace(/^\s+|\s+$/g, '').replace(/\n\s*\n\s*\n+/g, '\n\n');
-                    } else {
-                        material1 = rawMaterial1.replace(/\n/g, '<br>');
-                    }
-                }
-            }
-        }
-    }
-    
+ 
     return { question, material1, material2 };
 }
 
