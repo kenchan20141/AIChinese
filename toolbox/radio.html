@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>RTHK Radio 2 - 3D Retro Receiver</title>
     <style>
@@ -496,6 +497,30 @@
             knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
         }
 
+        // --- Background Web Worker Timer (Prevents Throttle on Locked Screen) ---
+        let bgWorker = null;
+        function initBackgroundWorker() {
+            if (bgWorker) return;
+            try {
+                const blob = new Blob([
+                    `let t = null;
+                    self.onmessage = function(e) {
+                        if (e.data === 'start') {
+                            if (!t) t = setInterval(function() { self.postMessage('tick'); }, 1000);
+                        } else if (e.data === 'stop') {
+                            if (t) { clearInterval(t); t = null; }
+                        }
+                    };`
+                ], { type: 'application/javascript' });
+                bgWorker = new Worker(URL.createObjectURL(blob));
+                bgWorker.onmessage = function() {
+                    checkSleepTimer();
+                };
+                bgWorker.postMessage('start');
+            } catch (e) {}
+        }
+        initBackgroundWorker();
+
         // --- Sleep Timer Logic ---
         const savedTime = localStorage.getItem('rthk_sleep_time');
         timeInput.value = savedTime ? savedTime : '30';
@@ -514,6 +539,7 @@
             btnOff.classList.remove('active');
             updateTimerUI(Date.now());
             preloadTTS();
+            if (bgWorker) bgWorker.postMessage('start');
         });
 
         btnOff.addEventListener('click', () => {
@@ -554,12 +580,12 @@
             updateLcdTexture();
         }
 
-        // --- Preload Cantonese TTS Audio ---
+        // --- Preload Cantonese TTS Audio Into Browser Cache ---
         function preloadTTS() {
             const ttsText = "夠鐘罅，而家會幫你刪機。";
             const preloadUrls = [
-                `https://fanyi.baidu.com/gettts?lan=cte&spd=6&text=${encodeURIComponent(ttsText)}`,
-                `https://translate.google.com/translate_tts?ie=UTF-8&tl=zh-HK&client=tw-ob&q=${encodeURIComponent(ttsText)}`
+                `https://fanyi.baidu.com/gettts?lan=cte&spd=5&text=${encodeURIComponent(ttsText)}`,
+                `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-TW&q=${encodeURIComponent(ttsText)}`
             ];
             preloadUrls.forEach(url => {
                 const a = new Audio();
@@ -579,7 +605,7 @@
 
             const ttsText = "夠鐘罅，而家會幫你刪機。";
 
-            let spokenWithSpeechSynthesis = false;
+            // If in foreground, try native speech synthesis
             if (!document.hidden && 'speechSynthesis' in window) {
                 try {
                     const utterance = new SpeechSynthesisUtterance(ttsText);
@@ -588,38 +614,23 @@
                     utterance.onend = () => stopRadio();
                     utterance.onerror = () => stopRadio();
                     speechSynthesis.speak(utterance);
-                    spokenWithSpeechSynthesis = true;
+                    if (hls) { hls.destroy(); hls = null; }
+                    audio.pause();
+                    setTimeout(() => { if (isShuttingDown) stopRadio(); }, 6000);
+                    return;
                 } catch (e) {}
             }
 
-            if (spokenWithSpeechSynthesis) {
-                if (hls) { hls.destroy(); hls = null; }
-                audio.pause();
-                setTimeout(() => { if (isShuttingDown) stopRadio(); }, 6000);
-                return;
-            }
-
+            // On mobile locked screen: Hand over directly within existing audio session
             const ttsUrls = [
-                `https://fanyi.baidu.com/gettts?lan=cte&spd=6&text=${encodeURIComponent(ttsText)}`,
-                `https://translate.google.com/translate_tts?ie=UTF-8&tl=zh-HK&client=tw-ob&q=${encodeURIComponent(ttsText)}`,
-                `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=zh-TW&q=${encodeURIComponent(ttsText)}`
+                `https://fanyi.baidu.com/gettts?lan=cte&spd=5&text=${encodeURIComponent(ttsText)}`,
+                `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-TW&q=${encodeURIComponent(ttsText)}`,
+                `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-CN&q=${encodeURIComponent(ttsText)}`
             ];
             let urlIndex = 0;
 
             function tryNextTTSUrl() {
                 if (urlIndex >= ttsUrls.length) {
-                    if ('speechSynthesis' in window) {
-                        try {
-                            const utterance = new SpeechSynthesisUtterance(ttsText);
-                            utterance.lang = 'zh-HK';
-                            utterance.rate = 1.2;
-                            utterance.onend = () => stopRadio();
-                            utterance.onerror = () => stopRadio();
-                            speechSynthesis.speak(utterance);
-                            setTimeout(() => { if (isShuttingDown) stopRadio(); }, 5000);
-                            return;
-                        } catch(err) {}
-                    }
                     stopRadio();
                     return;
                 }
@@ -627,12 +638,10 @@
                 const currentUrl = ttsUrls[urlIndex++];
 
                 if (hls) {
-                    hls.detachMedia();
-                    hls.destroy();
+                    try { hls.detachMedia(); hls.destroy(); } catch(e) {}
                     hls = null;
                 }
 
-                audio.removeAttribute('src');
                 audio.src = currentUrl;
                 audio.loop = false;
                 audio.playbackRate = 1.2;
@@ -652,13 +661,16 @@
                 audio.addEventListener('ended', onAudioEnded);
                 audio.addEventListener('error', onAudioError);
 
-                audio.play().then(() => {
-                    setTimeout(() => { if (isShuttingDown) stopRadio(); }, 10000);
-                }).catch(() => {
-                    audio.removeEventListener('ended', onAudioEnded);
-                    audio.removeEventListener('error', onAudioError);
-                    tryNextTTSUrl();
-                });
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        setTimeout(() => { if (isShuttingDown) stopRadio(); }, 8000);
+                    }).catch(() => {
+                        audio.removeEventListener('ended', onAudioEnded);
+                        audio.removeEventListener('error', onAudioError);
+                        tryNextTTSUrl();
+                    });
+                }
             }
 
             tryNextTTSUrl();
