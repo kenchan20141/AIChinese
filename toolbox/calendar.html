@@ -385,6 +385,18 @@
       .memo-layout { flex-direction: row; }
       .memo-list { flex-direction: column; flex: 0 0 150px; overflow-y: auto; overflow-x: hidden; border-bottom: none; border-right: 1px solid var(--cal-border); padding-right: 10px; margin-bottom: 0; margin-right: 10px; }
     }
+
+
+/* 課業縮圖已完成 (劃上刪除線與淡化) */
+    .task-item.is-done {
+      opacity: 0.4; /* 整體透明度淡化 */
+      filter: grayscale(0.6); /* 稍微降低色彩飽和度 */
+    }
+    .task-item.is-done .subject-tag {
+      text-decoration: line-through 1.5px !important; /* 劃上刪除線 */
+      text-decoration-color: #666 !important;
+    }
+    
   </style>
 </head>
 <body>
@@ -883,7 +895,7 @@ async function loadCalendarData(forceRefresh = false) {
       document.getElementById('testReminderModal').style.display = 'none';
     }
 
-    function renderCalendar() {
+  function renderCalendar() {
       const year = currentDate.getFullYear(), month = currentDate.getMonth();
       const firstDay = new Date(year, month, 1).getDay(), daysInMonth = new Date(year, month + 1, 0).getDate();
       const todayStr = (new Date()).toISOString().split('T')[0];
@@ -917,9 +929,19 @@ async function loadCalendarData(forceRefresh = false) {
           const parsed = parseTaskTitle(t.title);
           if (parsed.isTest) hasTest = true;
           
+          // 💡 檢查這項課業的內容是否已經全部打勾完成
+          const recordId = t.id || ('priv_' + (parsed.subject || 'none') + '_' + index);
+          let formattedTask = parsed.task.replace(/([①-⑳])/g, '\n$1').replace(/\n+/g, '\n').trim();
+          const lines = formattedTask.split('\n').filter(l => l.trim() !== "");
+          const isTaskDone = lines.length > 0 && lines.every((_, subIndex) => {
+            return localStorage.getItem(`todo_${dateStr}_${recordId}_${subIndex}`) === 'true';
+          });
+
           if (index < 4) { 
             const colors = getFrontendSubjectColor(parsed.subject);
-            const taskDiv = document.createElement('div'); taskDiv.className = 'task-item'; 
+            const taskDiv = document.createElement('div'); 
+            // 若完成，自動賦予 'is-done' 類別
+            taskDiv.className = isTaskDone ? 'task-item is-done' : 'task-item'; 
             taskDiv.style.backgroundColor = t.isPrivate ? '#fdfaf3' : colors.bg;
             if(t.isPrivate) taskDiv.style.border = "1px dashed #d4b572";
 
@@ -943,7 +965,6 @@ async function loadCalendarData(forceRefresh = false) {
         grid.appendChild(cell);
       }
     }
-
     function openViewModal(dateStr) {
       editingDateStr = dateStr; document.getElementById('viewModalDateTitle').innerText = dateStr;
       const tasks = currentEvents.filter(e => e.date === dateStr);
@@ -993,9 +1014,14 @@ async function loadCalendarData(forceRefresh = false) {
             const contentNode = document.createElement('span'); contentNode.className = 'task-content'; contentNode.innerText = lineText;
 
             if (numberNode) span.appendChild(numberNode); span.appendChild(contentNode);
-            checkbox.onchange = (e) => {
-              const checked = e.target.checked; localStorage.setItem(storageKey, checked);
-              if (checked) span.classList.add('task-done'); else span.classList.remove('task-done');
+           checkbox.onchange = (e) => {
+              const checked = e.target.checked; 
+              localStorage.setItem(storageKey, checked);
+              if (checked) span.classList.add('task-done'); 
+              else span.classList.remove('task-done');
+              
+              // 💡 關鍵：打勾的瞬間，立即通知主頁日曆重新渲染縮圖上的刪除線！
+              renderCalendar(); 
             };
             label.appendChild(checkbox); label.appendChild(span); tdTask.appendChild(label);
           });
