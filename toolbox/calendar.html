@@ -631,11 +631,37 @@
       hasShownTestReminder = false; // 登出後重置提醒標記
     }
 
-    async function callApi(action, data = {}) {
-      const payload = { action: action, pwd: currentPwd, ...data };
-      const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'text/plain;charset=utf-8' }});
-      return await response.json();
+   async function callApi(action, data = {}) {
+  // 設置 12 秒逾時控制器，避免請求無止境等待
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+  try {
+    const payload = { action: action, pwd: currentPwd, ...data };
+    const response = await fetch(API_URL, { 
+      method: 'POST', 
+      body: JSON.stringify(payload), 
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    // 先讀取純文字，防止 Google 回傳錯誤 HTML 網頁導致 JSON 解析崩潰
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error("伺服器回傳了非 JSON 內容：", text);
+      return { success: false, error: "伺服器未回傳有效資料（可能後端權限或日曆設定有誤）" };
     }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      return { success: false, error: "連線逾時，Google 伺服器反應過慢" };
+    }
+    return { success: false, error: err.message || "網路連線失敗" };
+  }
+}
 
     window.onload = () => {
       if (currentPwd) {
@@ -737,47 +763,52 @@
       return { bg: '#f0ebe4', tagText: '#8c8b87' };
     }
 
-    async function loadCalendarData(forceRefresh = false) {
-      const year = currentDate.getFullYear(), month = currentDate.getMonth() + 1;
-      const cacheKey = `${year}-${month}`;
-      document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`;
-      
-      // 建立前端快取空間
-      window.monthlyEventsCache = window.monthlyEventsCache || {};
+async function loadCalendarData(forceRefresh = false) {
+  const year = currentDate.getFullYear(), month = currentDate.getMonth() + 1;
+  const cacheKey = `${year}-${month}`;
+  const monthTextEl = document.getElementById('currentMonthText');
+  const normalTitle = `${year} 年 ${month} 月`;
+  
+  window.monthlyEventsCache = window.monthlyEventsCache || {};
 
-      // 1. 如果有前端快取，瞬間先渲染畫面 (體感 0 秒)
-      if (window.monthlyEventsCache[cacheKey] && !forceRefresh) {
-        currentEvents = window.monthlyEventsCache[cacheKey];
-        renderCalendar();
-        checkTomorrowTests();
-      } else {
-        // 如果沒有快取，顯示載入中
-        document.getElementById('currentMonthText').innerText = `載入中...`;
-        
-        // 💡【修正重點】：先清空當前事件，並強制畫出新月份的空日曆框架
-        currentEvents = []; 
-        renderCalendar(); 
+  // 1. 如果已有快取，先立即繪製
+  if (window.monthlyEventsCache[cacheKey] && !forceRefresh) {
+    currentEvents = window.monthlyEventsCache[cacheKey];
+    renderCalendar();
+    checkTomorrowTests();
+  } else {
+    monthTextEl.innerText = `載入中...`;
+    currentEvents = []; 
+    renderCalendar(); // 先畫出空格子，不讓畫面整片空白
+  }
+
+  // 2. 向 Google Apps Script 獲取日曆資料
+  try {
+    const response = await callApi('getCalendarEvents', { year, month });
+    
+    if (response && response.success) { 
+      window.monthlyEventsCache[cacheKey] = response.data;
+      currentEvents = response.data; 
+      renderCalendar(); 
+      checkTomorrowTests();
+    } else {
+      const errorMsg = response ? response.error : '未收到回應';
+      console.error("載入失敗詳細原因:", errorMsg);
+      showStatus(`載入失敗：${errorMsg}`, true);
+
+      // 如果是密碼或權限問題，引導登出
+      if (errorMsg.includes("權限") || errorMsg.includes("密碼")) {
+        setTimeout(logout, 2000);
       }
-
-      // 2. 依然在背景向伺服器請求最新資料 (確保同步)
-      try {
-        const response = await callApi('getCalendarEvents', { year, month });
-        document.getElementById('currentMonthText').innerText = `${year} 年 ${month} 月`; // 確保標題恢復
-        if (response.success) { 
-          // 比較新舊資料，如果有差異才重新渲染，避免畫面閃爍
-          const newDataString = JSON.stringify(response.data);
-          const oldDataString = JSON.stringify(window.monthlyEventsCache[cacheKey] || []);
-          
-          if (newDataString !== oldDataString) {
-            window.monthlyEventsCache[cacheKey] = response.data;
-            currentEvents = response.data; 
-            renderCalendar(); 
-          }
-          checkTomorrowTests();
-        } 
-        else if (response.error.includes("權限")) logout();
-      } catch (err) { showStatus('網路連線失敗', true); }
     }
+  } catch (err) { 
+    console.error("前端執行錯誤:", err);
+    showStatus(`連線失敗: ${err.message}`, true); 
+  } finally {
+    // 💡【關鍵修訂】：無論成功、失敗或連線逾時，必定把「載入中...」恢復為真實年月！
+    monthTextEl.innerText = normalTitle;
+  }
+}
 
     // 檢查明日是否有測驗的邏輯
     async function checkTomorrowTests() {
