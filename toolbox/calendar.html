@@ -925,46 +925,72 @@ async function loadCalendarData(forceRefresh = false) {
         const pTasks = JSON.parse(localStorage.getItem('privateTasks_' + dateStr) || '[]');
         const allTasks = [...dayTasks, ...pTasks.map(pt => ({title: `[${pt.subject}] ${pt.task}`, isPrivate: true}))];
 
-        allTasks.forEach((t, index) => {
+        // 1. 預先計算每一項課業的「完成狀態」，並保留原始索引以保證私人課業打勾正確
+        const taskItems = allTasks.map((t, originalIndex) => {
           const parsed = parseTaskTitle(t.title);
           if (parsed.isTest) hasTest = true;
-          
-          // 💡 檢查這項課業的內容是否已經全部打勾完成
-          const recordId = t.id || ('priv_' + (parsed.subject || 'none') + '_' + index);
+
+          const recordId = t.id || ('priv_' + (parsed.subject || 'none') + '_' + originalIndex);
           let formattedTask = parsed.task.replace(/([①-⑳])/g, '\n$1').replace(/\n+/g, '\n').trim();
           const lines = formattedTask.split('\n').filter(l => l.trim() !== "");
-          const isTaskDone = lines.length > 0 && lines.every((_, subIndex) => {
+          
+          const isDone = lines.length > 0 && lines.every((_, subIndex) => {
             return localStorage.getItem(`todo_${dateStr}_${recordId}_${subIndex}`) === 'true';
           });
 
-          if (index < 4) { 
-            const colors = getFrontendSubjectColor(parsed.subject);
-            const taskDiv = document.createElement('div'); 
-            // 若完成，自動賦予 'is-done' 類別
-            taskDiv.className = isTaskDone ? 'task-item is-done' : 'task-item'; 
-            taskDiv.style.backgroundColor = t.isPrivate ? '#fdfaf3' : colors.bg;
-            if(t.isPrivate) taskDiv.style.border = "1px dashed #d4b572";
+          return {
+            taskData: t,
+            parsed: parsed,
+            isDone: isDone,
+            originalIndex: originalIndex
+          };
+        });
 
-            if (parsed.subject) {
+        // 2. 💡【關鍵排序】：未完成 (isDone === false) 置頂，已完成 (isDone === true) 置底
+        taskItems.sort((a, b) => {
+          if (a.isDone !== b.isDone) {
+            return a.isDone ? 1 : -1; // 未完成排在前面，已完成沉到底部
+          }
+          return a.originalIndex - b.originalIndex; // 同狀態時保持原先的先後順序
+        });
+
+        // 3. 渲染縮圖
+        taskItems.forEach((item, index) => {
+          if (index < 4) { 
+            const colors = getFrontendSubjectColor(item.parsed.subject);
+            const taskDiv = document.createElement('div'); 
+            taskDiv.className = item.isDone ? 'task-item is-done' : 'task-item'; 
+            taskDiv.style.backgroundColor = item.taskData.isPrivate ? '#fdfaf3' : colors.bg;
+            if(item.taskData.isPrivate) taskDiv.style.border = "1px dashed #d4b572";
+
+            if (item.parsed.subject) {
               const span = document.createElement('span');
               span.className = 'subject-tag';
-              if (parsed.isTest) {
+              if (item.parsed.isTest) {
                 span.style.color = '#c84b4b'; span.style.border = '1px solid #c84b4b'; taskDiv.style.backgroundColor = '#fff5f5'; 
-              } else { span.style.color = colors.tagText; }
-              span.innerText = parsed.subject; taskDiv.appendChild(span);
+              } else { 
+                span.style.color = colors.tagText; 
+              }
+              span.innerText = item.parsed.subject; 
+              taskDiv.appendChild(span);
             }
             cell.appendChild(taskDiv);
           } else if (index === 4) {
-             const moreDiv = document.createElement('div'); 
-             moreDiv.style.fontSize="10px"; moreDiv.style.color="var(--text-light)"; 
-             moreDiv.style.textAlign="center"; moreDiv.innerText = `+${allTasks.length - 4}`; cell.appendChild(moreDiv);
+            const moreDiv = document.createElement('div'); 
+            moreDiv.style.fontSize = "10px"; 
+            moreDiv.style.color = "var(--text-light)"; 
+            moreDiv.style.textAlign = "center"; 
+            moreDiv.innerText = `+${taskItems.length - 4}`; 
+            cell.appendChild(moreDiv);
           }
         });
         
-        if(hasTest) dayNum.classList.add('test-day-stamp');
+        if (hasTest) dayNum.classList.add('test-day-stamp');
         grid.appendChild(cell);
       }
     }
+
+    
     function openViewModal(dateStr) {
       editingDateStr = dateStr; document.getElementById('viewModalDateTitle').innerText = dateStr;
       const tasks = currentEvents.filter(e => e.date === dateStr);
