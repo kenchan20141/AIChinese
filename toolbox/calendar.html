@@ -675,14 +675,36 @@
   }
 }
 
-    window.onload = () => {
-      if (currentPwd) {
-        document.getElementById('loginScreen').style.display = 'none';
-        const cName = localStorage.getItem('plannerClassName');
-        if (cName) { document.getElementById('classBadge').innerText = cName; document.getElementById('classBadge').style.display = 'inline-flex'; }
-        loadCalendarData();
-      }
-    };
+   window.onload = () => {
+  // ★ 新增：檢查 URL 是否帶有 ?class=XX&pwd=XXX 參數(供 QR Code 自動登入)
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlClass = urlParams.get('class');
+  const urlPwd = urlParams.get('pwd');
+  
+  if (urlClass && urlPwd) {
+    // 由 QR Code 進入,自動填入班別和密碼並登入
+    selectedLoginClass = urlClass.toUpperCase();
+    // 模擬點選班別按鈕的視覺效果(可選)
+    document.querySelectorAll('.class-btn').forEach(btn => {
+      if (btn.innerText === selectedLoginClass) btn.classList.add('selected');
+    });
+    // 將密碼填入輸入框,然後呼叫 checkPwd() 驗證
+    document.getElementById('pwdInput').value = urlPwd.toUpperCase();
+    checkPwd();
+    // 清除 URL 參數,避免密碼一直留在網址列(可選,較安全)
+    history.replaceState({}, document.title, window.location.pathname);
+    return;
+  }
+  
+  // 原有邏輯:如果 localStorage 已有密碼,直接進入
+  if (currentPwd) {
+    document.getElementById('loginScreen').style.display = 'none';
+    const cName = localStorage.getItem('plannerClassName');
+    if (cName) { document.getElementById('classBadge').innerText = cName; document.getElementById('classBadge').style.display = 'inline-flex'; }
+    loadCalendarData();
+  }
+};
+
 
     function showStatus(msg, autoHide = false) {
       const el = document.getElementById('statusArea');
