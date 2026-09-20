@@ -19733,14 +19733,18 @@ async function checkAndApplyHistoryReset() {
             const mappingSnap = await database.ref(`email_mapping/${emailKey}`).once('value');
             const updatedProfile = mappingSnap.val();
 
-            if (!updatedProfile) {
-                // 中六畢業生資料已被管理員完全刪除
-                alert("🎓 您的帳號已隨中六畢業歸檔。\n感謝您使用神思，祝前程錦繡！");
-                if (typeof handleStudentLogout === 'function') {
-                    await handleStudentLogout();
-                }
-                return;
-            }
+         // === index.html: checkAndApplyHistoryReset() 內部 ===
+if (!updatedProfile) {
+    // 中六畢業生資料已被管理員完全刪除
+    alert("🎓 您已中六畢業。\n感謝您使用神思，祝前程錦繡！");
+    
+    // ★ 修正：強制清除本地帳號並登出，跳過 handleStudentLogout 的 confirm 詢問
+    localStorage.removeItem('studentProfile');
+    localStorage.removeItem('sansi_read_notifications');
+    if (auth) await auth.signOut();
+    window.location.reload();
+    return;
+}
 
             // D. 更新本地 Profile（如 3A ➔ 4A，班號完整保留）
             localStorage.setItem('studentProfile', JSON.stringify(updatedProfile));
@@ -20028,12 +20032,16 @@ function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
 
-    // ★★★ 加入這段：即時監聽管理員重置指令 ★★★
-    database.ref('config/historyResetTime').on('value', (snapshot) => {
+    // ★★★ 修正：先移除舊監聽，防止重複綁定 ★★★
+    if (window._historyResetListenerRef) {
+        database.ref('config/historyResetTime').off('value', window._historyResetListenerRef);
+    }
+    window._historyResetListenerRef = (snapshot) => {
         if (snapshot.exists()) {
             checkAndApplyHistoryReset();
         }
-    });
+    };
+    database.ref('config/historyResetTime').on('value', window._historyResetListenerRef);
 
     // --- 部分 A：歷史紀錄同步監聽 ---
     if (autoSyncListenerRef) {
@@ -21566,6 +21574,13 @@ async function checkStudentLogin() {
     }
 
     const currentUser = auth.currentUser;
+
+    // ★★★ 關鍵修正：必須在讀取 s 之前，優先執行升班與重置檢查！ ★★★
+    if (currentUser) {
+        await checkAndApplyHistoryReset();
+    }
+
+    // 此時讀取的 s 就已經是升班後的最新年級（例如 4A，班號完整保留）
     let s = JSON.parse(localStorage.getItem('studentProfile'));
 
     // ==========================================
