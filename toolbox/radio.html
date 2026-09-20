@@ -144,8 +144,8 @@
         </div>
     </div>
 
-    <!-- Audio Element & Libraries -->
-    <audio id="radio-audio" preload="none"></audio>
+    <!-- Audio Element 設置 playsinline 防止全螢幕並優化背景播放 -->
+    <audio id="radio-audio" preload="none" playsinline webkit-playsinline></audio>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -166,11 +166,13 @@
         let targetSleepTime = null;
         let lastUiUpdateTime = 0;
         let reconnectTimeout = null;
-        let autoResumeInterval = null;
 
-        // Display Strings (All English)
+        // Display Strings
         let statusString = "RTHK 2 [OFF]";
         let timerString = "SLEEP: OFF";
+
+        // 判斷是否為 Apple 設備（iOS / iPadOS），iOS 必須強制使用原生 HLS 播放
+        const isAppleDevice = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent) && (navigator.maxTouchPoints > 0 || 'ontouchend' in document);
 
         // --- Three.js Setup ---
         const container = document.getElementById('canvas-container');
@@ -194,21 +196,10 @@
         controls.minDistance = 3.0;
         controls.maxDistance = 25.0;
 
-        // --- 最佳化手機與電腦相機縮放距離 ---
         function updateResponsiveCamera() {
             const aspect = window.innerWidth / window.innerHeight;
             camera.aspect = aspect;
-            
-            let targetDistance;
-            if (aspect < 1.0) {
-                // 手機直向螢幕：依長寬比動態拉開相機，保持收音機約佔螢幕寬度的 70%
-                targetDistance = Math.max(6.5, 5.8 / aspect);
-            } else {
-                // 電腦/平板橫向螢幕：維持舒適視角
-                targetDistance = 6.6;
-            }
-            
-            // 微微俯視視角
+            let targetDistance = aspect < 1.0 ? Math.max(6.5, 5.8 / aspect) : 6.6;
             camera.position.set(0, targetDistance * 0.12, targetDistance);
             camera.lookAt(0, 0, 0);
             camera.updateProjectionMatrix();
@@ -217,11 +208,10 @@
         updateResponsiveCamera();
         window.addEventListener('resize', updateResponsiveCamera);
 
-        // --- Studio Lighting Setup ---
+        // --- Lighting ---
         const ambientLight = new THREE.AmbientLight(0xfff5ea, 1.4);
         scene.add(ambientLight);
 
-        // Key Light
         const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
         keyLight.position.set(5, 8, 6);
         keyLight.castShadow = true;
@@ -230,63 +220,49 @@
         keyLight.shadow.bias = -0.0001;
         scene.add(keyLight);
 
-        // Fill Light
         const fillLight = new THREE.DirectionalLight(0xddeeff, 1.0);
         fillLight.position.set(-6, 3, 4);
         scene.add(fillLight);
 
-        // Warm Golden Rim/Back Light
         const rimLight = new THREE.DirectionalLight(0xffd188, 2.2);
         rimLight.position.set(0, 5, -5);
         scene.add(rimLight);
 
-        // Red LED Dynamic Point Light
         const ledPointLight = new THREE.PointLight(0xff2222, 0, 2.0);
         ledPointLight.position.set(1.4, 0.7, 1.15);
         scene.add(ledPointLight);
 
-        // Shadow Receiver Ground Plane
-        const shadowPlaneGeo = new THREE.PlaneGeometry(30, 30);
-        const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.25 });
-        const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+        const shadowPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(30, 30),
+            new THREE.ShadowMaterial({ opacity: 0.25 })
+        );
         shadowPlane.rotation.x = -Math.PI / 2;
         shadowPlane.position.y = -1.35;
         shadowPlane.receiveShadow = true;
         scene.add(shadowPlane);
 
-        // --- Procedural Canvas Textures ---
-        
-        // 1. High Quality Warm Teak Wood Texture
+        // --- Textures ---
         function createWoodTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 1024; canvas.height = 1024;
             const ctx = canvas.getContext('2d');
-            
             const grad = ctx.createLinearGradient(0, 0, 1024, 0);
-            grad.addColorStop(0, '#80451e');
-            grad.addColorStop(0.5, '#995426');
-            grad.addColorStop(1, '#7a3e18');
+            grad.addColorStop(0, '#80451e'); grad.addColorStop(0.5, '#995426'); grad.addColorStop(1, '#7a3e18');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, 1024, 1024);
-
             for (let i = 0; i < 1200; i++) {
                 ctx.fillStyle = `rgba(${160 + Math.random()*60}, ${90 + Math.random()*40}, 30, ${0.04 + Math.random()*0.06})`;
-                const y = Math.random() * 1024;
-                const h = 1 + Math.random() * 3;
-                ctx.fillRect(0, y, 1024, h);
+                ctx.fillRect(0, Math.random() * 1024, 1024, 1 + Math.random() * 3);
             }
             return new THREE.CanvasTexture(canvas);
         }
 
-        // 2. Vintage Speaker Fabric Mesh Texture
         function createGrillTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 256;
             const ctx = canvas.getContext('2d');
-            
             ctx.fillStyle = '#22201d';
             ctx.fillRect(0, 0, 256, 256);
-            
             ctx.fillStyle = '#c8a664';
             for (let x = 4; x < 256; x += 8) {
                 for (let y = 4; y < 256; y += 8) {
@@ -300,177 +276,111 @@
             return texture;
         }
 
-        // 3. Brass Brand Plate Texture
         function createBrandPlateTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 512; canvas.height = 128;
             const ctx = canvas.getContext('2d');
-
             const grad = ctx.createLinearGradient(0, 0, 0, 128);
-            grad.addColorStop(0, '#f3d677');
-            grad.addColorStop(0.5, '#d4af37');
-            grad.addColorStop(1, '#a67c1e');
+            grad.addColorStop(0, '#f3d677'); grad.addColorStop(0.5, '#d4af37'); grad.addColorStop(1, '#a67c1e');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, 512, 128);
-
-            ctx.lineWidth = 6;
-            ctx.strokeStyle = '#6e4f0d';
+            ctx.lineWidth = 6; ctx.strokeStyle = '#6e4f0d';
             ctx.strokeRect(6, 6, 500, 116);
-
             ctx.font = '900 48px Arial, sans-serif';
-            ctx.fillStyle = '#2e2008';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.letterSpacing = '3px';
+            ctx.fillStyle = '#2e2008'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('RTHK RADIO 2', 256, 66);
-
             return new THREE.CanvasTexture(canvas);
         }
 
-        // 4. Dynamic Retro LCD Canvas Texture
         const lcdCanvas = document.createElement('canvas');
         lcdCanvas.width = 512; lcdCanvas.height = 256;
         const lcdCtx = lcdCanvas.getContext('2d');
         const lcdTexture = new THREE.CanvasTexture(lcdCanvas);
 
         function updateLcdTexture() {
+            // 背景鎖屏時跳過 Canvas 渲染，防止手機因後台 GPU 佔用殺掉瀏覽器
+            if (document.hidden) return;
+
             lcdCtx.fillStyle = isPlaying ? '#86c466' : '#454f3d';
             lcdCtx.fillRect(0, 0, 512, 256);
-            
             lcdCtx.fillStyle = isPlaying ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.18)';
-            for(let y=0; y<256; y+=4) {
-                lcdCtx.fillRect(0, y, 512, 1.5);
-            }
+            for(let y=0; y<256; y+=4) lcdCtx.fillRect(0, y, 512, 1.5);
 
             lcdCtx.font = 'bold 44px "Courier New", monospace';
             lcdCtx.fillStyle = isPlaying ? '#102206' : '#232d1d';
-            lcdCtx.textAlign = 'center';
-            lcdCtx.textBaseline = 'middle';
-            
+            lcdCtx.textAlign = 'center'; lcdCtx.textBaseline = 'middle';
             lcdCtx.fillText(statusString, 256, 95);
             lcdCtx.font = 'bold 36px "Courier New", monospace';
             lcdCtx.fillText(timerString, 256, 165);
-            
             lcdTexture.needsUpdate = true;
         }
         updateLcdTexture();
 
-        // --- Build 3D Radio Model ---
+        // --- Radio 3D Model ---
         const radioGroup = new THREE.Group();
         scene.add(radioGroup);
 
-        // Main Wood Chassis
-        const woodMat = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            map: createWoodTexture(),
-            roughness: 0.25,
-            metalness: 0.05
-        });
-        const bodyGeo = new THREE.BoxGeometry(3.6, 2.4, 2.0);
-        const radioBody = new THREE.Mesh(bodyGeo, woodMat);
-        radioBody.castShadow = true;
-        radioBody.receiveShadow = true;
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: createWoodTexture(), roughness: 0.25, metalness: 0.05 });
+        const radioBody = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.4, 2.0), woodMat);
+        radioBody.castShadow = true; radioBody.receiveShadow = true;
         radioGroup.add(radioBody);
 
-        // Shiny Polished Brass Material
-        const brassMat = new THREE.MeshStandardMaterial({
-            color: 0xecd078,
-            roughness: 0.22,
-            metalness: 0.9
-        });
+        const brassMat = new THREE.MeshStandardMaterial({ color: 0xecd078, roughness: 0.22, metalness: 0.9 });
 
-        // Recessed Front Panel Frame
-        const faceFrameGeo = new THREE.BoxGeometry(3.2, 2.0, 0.05);
-        const faceFrameMat = new THREE.MeshStandardMaterial({ color: 0x221a14, roughness: 0.7 });
-        const faceFrame = new THREE.Mesh(faceFrameGeo, faceFrameMat);
+        const faceFrame = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.0, 0.05), new THREE.MeshStandardMaterial({ color: 0x221a14, roughness: 0.7 }));
         faceFrame.position.set(0, 0, 1.01);
         radioGroup.add(faceFrame);
 
-        // Brand Plate
-        const plateGeo = new THREE.PlaneGeometry(1.5, 0.35);
-        const plateMat = new THREE.MeshStandardMaterial({
-            map: createBrandPlateTexture(),
-            roughness: 0.3,
-            metalness: 0.6
-        });
-        const plateMesh = new THREE.Mesh(plateGeo, plateMat);
+        const plateMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.35), new THREE.MeshStandardMaterial({ map: createBrandPlateTexture(), roughness: 0.3, metalness: 0.6 }));
         plateMesh.position.set(0, 0.76, 1.04);
         radioGroup.add(plateMesh);
 
-        // Speaker Grill
-        const grillGeo = new THREE.BoxGeometry(2.9, 0.75, 0.04);
-        const grillMat = new THREE.MeshStandardMaterial({
-            map: createGrillTexture(),
-            roughness: 0.7,
-            metalness: 0.3
-        });
-        const grillMesh = new THREE.Mesh(grillGeo, grillMat);
+        const grillMesh = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.75, 0.04), new THREE.MeshStandardMaterial({ map: createGrillTexture(), roughness: 0.7, metalness: 0.3 }));
         grillMesh.position.set(0, 0.15, 1.04);
         radioGroup.add(grillMesh);
 
-        // LCD Display
-        const lcdFrameGeo = new THREE.BoxGeometry(1.45, 0.75, 0.06);
-        const lcdFrameMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 });
-        const lcdFrame = new THREE.Mesh(lcdFrameGeo, lcdFrameMat);
+        const lcdFrame = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.75, 0.06), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 }));
         lcdFrame.position.set(-0.72, -0.55, 1.04);
         radioGroup.add(lcdFrame);
 
-        const lcdScreenGeo = new THREE.PlaneGeometry(1.35, 0.65);
-        const lcdScreenMat = new THREE.MeshBasicMaterial({ map: lcdTexture });
-        const lcdScreen = new THREE.Mesh(lcdScreenGeo, lcdScreenMat);
+        const lcdScreen = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.65), new THREE.MeshBasicMaterial({ map: lcdTexture }));
         lcdScreen.position.set(-0.72, -0.55, 1.08);
         radioGroup.add(lcdScreen);
 
-        // LED Indicator
-        const ledGeo = new THREE.SphereGeometry(0.06, 16, 16);
-        const ledMat = new THREE.MeshStandardMaterial({
-            color: 0x330000,
-            roughness: 0.2,
-            metalness: 0.8,
-            emissive: 0x000000
-        });
-        const ledMesh = new THREE.Mesh(ledGeo, ledMat);
+        const ledMat = new THREE.MeshStandardMaterial({ color: 0x330000, roughness: 0.2, metalness: 0.8, emissive: 0x000000 });
+        const ledMesh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 16), ledMat);
         ledMesh.position.set(1.35, 0.76, 1.04);
         radioGroup.add(ledMesh);
 
-        // Interactive Power Knob
         const knobGroup = new THREE.Group();
         knobGroup.position.set(0.82, -0.55, 1.03);
-        
         const knobBaseGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.2, 32);
         knobBaseGeo.rotateX(Math.PI / 2);
         const knobMesh = new THREE.Mesh(knobBaseGeo, brassMat);
         knobMesh.castShadow = true;
         knobGroup.add(knobMesh);
 
-        const notchGeo = new THREE.BoxGeometry(0.05, 0.2, 0.22);
-        const notchMat = new THREE.MeshBasicMaterial({ color: 0xd92b2b });
-        const notchMesh = new THREE.Mesh(notchGeo, notchMat);
+        const notchMesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.22), new THREE.MeshBasicMaterial({ color: 0xd92b2b }));
         notchMesh.position.set(0, 0.15, 0);
         knobGroup.add(notchMesh);
-
         radioGroup.add(knobGroup);
 
-        // Metal Antenna
-        const antennaGeo = new THREE.CylinderGeometry(0.025, 0.035, 2.2, 16);
-        const antennaMesh = new THREE.Mesh(antennaGeo, brassMat);
+        const antennaMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 2.2, 16), brassMat);
         antennaMesh.position.set(1.4, 1.9, -0.7);
         antennaMesh.rotation.z = -0.15;
         antennaMesh.castShadow = true;
         radioGroup.add(antennaMesh);
 
-        // Brass Feet
         for(let x of [-1.4, 1.4]) {
             for(let z of [-0.7, 0.7]) {
-                const footGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.15, 16);
-                const footMesh = new THREE.Mesh(footGeo, brassMat);
+                const footMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.15, 16), brassMat);
                 footMesh.position.set(x, -1.25, z);
                 footMesh.castShadow = true;
                 radioGroup.add(footMesh);
             }
         }
 
-        // --- Click Detection (Knob / Radio Body) ---
+        // --- Interaction ---
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
@@ -479,25 +389,19 @@
             mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
-            
             const intersects = raycaster.intersectObjects([knobMesh, notchMesh, radioBody], true);
             if (intersects.length > 0) {
-                if (isPlaying) {
-                    stopRadio();
-                } else {
-                    playRadio();
-                }
+                if (isPlaying) stopRadio();
+                else playRadio();
             }
         });
 
-        // Knob Rotation Animation
-        let targetKnobAngle = 0;
         function updateKnobAnimation() {
-            targetKnobAngle = isPlaying ? -Math.PI / 2 : 0;
+            const targetKnobAngle = isPlaying ? -Math.PI / 2 : 0;
             knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
         }
 
-        // --- Background Web Worker Timer (Prevents Throttle on Locked Screen) ---
+        // --- Background Web Worker Timer ---
         let bgWorker = null;
         function initBackgroundWorker() {
             if (bgWorker) return;
@@ -577,10 +481,11 @@
             const m = Math.floor(remainingSecs / 60);
             const s = remainingSecs % 60;
             timerString = `SLEEP: ${m}:${s.toString().padStart(2, '0')}`;
-            updateLcdTexture();
+            if (!document.hidden) {
+                updateLcdTexture();
+            }
         }
 
-        // --- Preload Cantonese TTS Audio Into Browser Cache ---
         function preloadTTS() {
             const ttsText = "夠鐘罅，而家會幫你刪機。";
             const preloadUrls = [
@@ -591,21 +496,17 @@
                 const a = new Audio();
                 a.preload = 'auto';
                 a.src = url;
-                a.load();
             });
         }
 
-        // --- Cantonese TTS (Audio Hijack 1.2x Speed) ---
         function playTTSAndStop() {
             isShuttingDown = true;
             statusString = 'SHUTTING DOWN';
             updateLcdTexture();
             clearTimeout(reconnectTimeout);
-            if (autoResumeInterval) { clearInterval(autoResumeInterval); autoResumeInterval = null; }
 
             const ttsText = "夠鐘罅，而家會幫你刪機。";
 
-            // If in foreground, try native speech synthesis
             if (!document.hidden && 'speechSynthesis' in window) {
                 try {
                     const utterance = new SpeechSynthesisUtterance(ttsText);
@@ -616,16 +517,15 @@
                     speechSynthesis.speak(utterance);
                     if (hls) { hls.destroy(); hls = null; }
                     audio.pause();
-                    setTimeout(() => { if (isShuttingDown) stopRadio(); }, 6000);
+                    setTimeout(() => { if (isShuttingDown) stopRadio(); }, 5000);
                     return;
                 } catch (e) {}
             }
 
-            // On mobile locked screen: Hand over directly within existing audio session
+            // 鎖屏狀態下在原有 audio 標籤內平滑過渡播放語音
             const ttsUrls = [
                 `https://fanyi.baidu.com/gettts?lan=cte&spd=5&text=${encodeURIComponent(ttsText)}`,
-                `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-TW&q=${encodeURIComponent(ttsText)}`,
-                `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-CN&q=${encodeURIComponent(ttsText)}`
+                `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-TW&q=${encodeURIComponent(ttsText)}`
             ];
             let urlIndex = 0;
 
@@ -636,9 +536,8 @@
                 }
 
                 const currentUrl = ttsUrls[urlIndex++];
-
                 if (hls) {
-                    try { hls.detachMedia(); hls.destroy(); } catch(e) {}
+                    try { hls.destroy(); } catch(e) {}
                     hls = null;
                 }
 
@@ -651,7 +550,6 @@
                     audio.removeEventListener('error', onAudioError);
                     stopRadio();
                 };
-
                 const onAudioError = () => {
                     audio.removeEventListener('ended', onAudioEnded);
                     audio.removeEventListener('error', onAudioError);
@@ -664,10 +562,8 @@
                 const playPromise = audio.play();
                 if (playPromise !== undefined) {
                     playPromise.then(() => {
-                        setTimeout(() => { if (isShuttingDown) stopRadio(); }, 8000);
+                        setTimeout(() => { if (isShuttingDown) stopRadio(); }, 7000);
                     }).catch(() => {
-                        audio.removeEventListener('ended', onAudioEnded);
-                        audio.removeEventListener('error', onAudioError);
                         tryNextTTSUrl();
                     });
                 }
@@ -676,26 +572,9 @@
             tryNextTTSUrl();
         }
 
-        // --- Auto-Resume After Interruption (Other Videos Finished) ---
-        function triggerAutoResume() {
-            if (!isPlaying || isShuttingDown || !audio.paused) return;
-            audio.play().then(() => {
-                if (autoResumeInterval) {
-                    clearInterval(autoResumeInterval);
-                    autoResumeInterval = null;
-                }
-                if (hls && hls.liveSyncPosition && Math.abs(audio.currentTime - hls.liveSyncPosition) > 10) {
-                    audio.currentTime = hls.liveSyncPosition;
-                }
-            }).catch(() => {
-                // Interruption still active
-            });
-        }
-
-        // --- Player Controls ---
+        // --- 核心播放邏輯 (強化背景持續播放與自動恢復) ---
         function playRadio() {
             clearTimeout(reconnectTimeout);
-            if (autoResumeInterval) { clearInterval(autoResumeInterval); autoResumeInterval = null; }
             isShuttingDown = false;
             isPlaying = true;
             audio.playbackRate = 1.0;
@@ -705,23 +584,54 @@
             updateLcdTexture();
             setLedState(true);
 
-            if (Hls.isSupported()) {
+            // 1. iOS / Safari 設備優先走原生 HLS (依靠系統底層 AVPlayer，鎖屏 100% 不斷流)
+            if (isAppleDevice && audio.canPlayType('application/vnd.apple.mpegurl')) {
+                if (hls) { hls.destroy(); hls = null; }
+                audio.src = hqStreamUrl;
+                audio.play().catch(handlePlayError);
+            } 
+            // 2. Android Chrome 等支援 MSE 的環境使用 Hls.js，加載超大緩衝與熱恢復配置
+            else if (Hls.isSupported()) {
                 if (hls) hls.destroy();
-                hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: false,           // 關閉低延遲，避免鎖屏時因邊界延遲斷流
+                    backBufferLength: 30,
+                    maxBufferLength: 60,            // 拉大後台音訊快取至 60 秒
+                    maxMaxBufferLength: 120,        // 最大緩衝達 120 秒，防禦 Doze 睡眠
+                    maxBufferSize: 30 * 1024 * 1024,
+                    maxBufferHole: 0.5,
+                    manifestLoadingTimeOut: 15000,
+                    fragLoadingTimeOut: 20000
+                });
+
                 hls.loadSource(hqStreamUrl);
                 hls.attachMedia(audio);
+
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     audio.play().catch(handlePlayError);
                 });
+
+                // 錯誤自動熱修復，避免直接銷毀播放器導致踩中 Autoplay 限制
                 hls.on(Hls.Events.ERROR, (event, data) => {
                     if (data.fatal) {
-                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) fallbackToSDStream();
-                        else scheduleReconnect();
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.warn("HLS Network Error, recovering...");
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.warn("HLS Media Error, recovering...");
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                if (!document.hidden) {
+                                    scheduleReconnect();
+                                }
+                                break;
+                        }
                     }
                 });
-            } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
-                audio.src = hqStreamUrl;
-                audio.play().catch(handlePlayError);
             } else {
                 fallbackToSDStream();
             }
@@ -735,7 +645,6 @@
 
         function stopRadio() {
             clearTimeout(reconnectTimeout);
-            if (autoResumeInterval) { clearInterval(autoResumeInterval); autoResumeInterval = null; }
             isShuttingDown = false;
             isPlaying = false;
             
@@ -743,16 +652,18 @@
             audio.pause();
             audio.removeAttribute('src');
             audio.load();
-            audio.onended = null;
             audio.playbackRate = 1.0;
 
             statusString = 'RTHK 2 [OFF]';
             updateLcdTexture();
             setLedState(false);
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'none';
+            }
         }
 
         function scheduleReconnect() {
-            if (!isPlaying || isShuttingDown) return;
+            if (!isPlaying || isShuttingDown || document.hidden) return;
             statusString = 'RECONNECTING..';
             updateLcdTexture();
             setLedBlink(true);
@@ -765,31 +676,26 @@
         }
 
         function handlePlayError(e) {
-            if (isPlaying && !isShuttingDown) scheduleReconnect();
+            console.warn("Audio play rejected:", e);
+            // 鎖屏下不能主動調用 playRadio() 重啟，否則會陷入死循環
+            if (isPlaying && !isShuttingDown && !document.hidden) {
+                scheduleReconnect();
+            }
         }
 
         audio.addEventListener('error', () => {
-            if (isPlaying && !isShuttingDown) scheduleReconnect();
+            if (isPlaying && !isShuttingDown && !document.hidden) {
+                scheduleReconnect();
+            }
         });
 
         audio.addEventListener('playing', () => {
-            if (autoResumeInterval) {
-                clearInterval(autoResumeInterval);
-                autoResumeInterval = null;
-            }
             if (isPlaying && !isShuttingDown) {
                 setLedBlink(false);
                 statusString = (hls || audio.src.includes('m3u8')) ? 'LIVE [HQ]' : 'LIVE [SD]';
                 updateLcdTexture();
-            }
-        });
-
-        audio.addEventListener('pause', () => {
-            if (isPlaying && !isShuttingDown) {
-                statusString = 'INTERRUPTED';
-                updateLcdTexture();
-                if (!autoResumeInterval) {
-                    autoResumeInterval = setInterval(triggerAutoResume, 1000);
+                if ('mediaSession' in navigator) {
+                    navigator.mediaSession.playbackState = 'playing';
                 }
             }
         });
@@ -820,37 +726,37 @@
             ledBlinking = blink;
         }
 
-        // --- Battery Saver (Pause Render Loop in Background) & Audio Interruption Recovery ---
+        // --- 背景節電與螢幕點亮恢復機制 ---
         let isRendering = true;
         document.addEventListener('visibilitychange', () => {
             isRendering = !document.hidden;
             if (isRendering) {
+                // 點亮螢幕時，立即補全介面倒數計時與動畫幀
                 requestAnimationFrame(animate);
+                if (targetSleepTime) updateTimerUI(Date.now());
+                else updateLcdTexture();
+
+                // 如果解鎖後發現意外被系統靜音，且是在播放狀態下，則安全喚醒
                 if (isPlaying && !isShuttingDown && audio.paused) {
-                    triggerAutoResume();
+                    audio.play().catch(() => {});
                 }
             }
         });
 
-        window.addEventListener('focus', () => {
-            if (isPlaying && !isShuttingDown && audio.paused) triggerAutoResume();
-        });
-
         window.addEventListener('pageshow', () => {
-            if (isPlaying && !isShuttingDown && audio.paused) triggerAutoResume();
+            if (isPlaying && !isShuttingDown && audio.paused) {
+                audio.play().catch(() => {});
+            }
         });
 
+        // 註冊系統級 AudioSession
         if ('audioSession' in navigator) {
             try {
                 navigator.audioSession.type = 'playback';
-                navigator.audioSession.addEventListener('statechange', () => {
-                    if ((navigator.audioSession.state === 'active' || navigator.audioSession.state === 'running') && isPlaying && !isShuttingDown && audio.paused) {
-                        triggerAutoResume();
-                    }
-                });
             } catch (e) {}
         }
 
+        // MediaSession API（通知列與鎖屏媒體面板整合）
         if ('mediaSession' in navigator) {
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -858,12 +764,19 @@
                     artist: '香港電台第二台',
                     album: '3D Retro Receiver'
                 });
+
+                // 控制按鈕不再粗暴銷毀，保持音訊管道激活
                 navigator.mediaSession.setActionHandler('play', () => {
-                    if (!isPlaying) playRadio();
-                    else triggerAutoResume();
+                    audio.play().then(() => {
+                        isPlaying = true;
+                        setLedState(true);
+                        navigator.mediaSession.playbackState = 'playing';
+                    }).catch(() => {});
                 });
+
                 navigator.mediaSession.setActionHandler('pause', () => {
-                    stopRadio();
+                    audio.pause();
+                    navigator.mediaSession.playbackState = 'paused';
                 });
             } catch (e) {}
         }
@@ -871,7 +784,7 @@
         // Render Loop
         let clock = new THREE.Clock();
         function animate() {
-            if (!isRendering) return;
+            if (!isRendering) return; // 鎖屏時完全停掉渲染循環，極大延長電池壽命
             requestAnimationFrame(animate);
 
             let elapsedTime = clock.getElapsedTime();
