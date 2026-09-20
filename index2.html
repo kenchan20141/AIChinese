@@ -19696,15 +19696,93 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
 // ==========================================
 // === 2. 省流同步系統 (Smart Sync V4 - ID 合併修復版) ===
 // ==========================================
- 
+
+
+// === [核心] 檢測全校重置標記並自動清除本地 IndexedDB ===
+async function checkAndApplyHistoryReset() {
+    const currentUser = auth ? auth.currentUser : null;
+    if (!currentUser || !database) return;
+
+    try {
+        // 1. 讀取雲端重置時間戳
+        const snap = await database.ref('config/historyResetTime').once('value');
+        const resetTime = snap.val();
+        if (!resetTime) return;
+
+        const localResetTime = parseInt(localStorage.getItem('sansi_last_history_reset') || '0');
+
+        // 2. 若雲端時間戳較新，代表管理員執行了重置
+        if (resetTime > localResetTime) {
+            console.log("🧹 [系統] 檢測到學年升班及歷史重置，正在清理本地舊歷史及同步新年級...");
+
+            // A. 徹底清空本地 IndexedDB 歷史紀錄
+            const db = await openHistoryDB();
+            const tx = db.transaction([STORE_NAME], 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            await new Promise((resolve) => {
+                const req = store.clear();
+                req.onsuccess = resolve;
+                req.onerror = resolve;
+            });
+
+            // B. 標記本地已處理過此時間戳，防止重複清空
+            localStorage.setItem('sansi_last_history_reset', resetTime.toString());
+
+            // C. 重新從雲端取得已升班的最新 Profile
+            const emailKey = btoa(currentUser.email);
+            const mappingSnap = await database.ref(`email_mapping/${emailKey}`).once('value');
+            const updatedProfile = mappingSnap.val();
+
+            if (!updatedProfile) {
+                // 中六畢業生資料已被管理員完全刪除
+                alert("🎓 您的帳號已隨中六畢業歸檔。\n感謝您使用神思，祝前程錦繡！");
+                if (typeof handleStudentLogout === 'function') {
+                    await handleStudentLogout();
+                }
+                return;
+            }
+
+            // D. 更新本地 Profile（如 3A ➔ 4A，班號完整保留）
+            localStorage.setItem('studentProfile', JSON.stringify(updatedProfile));
+            if (typeof updateWelcomeMessage === 'function') {
+                updateWelcomeMessage(updatedProfile);
+            }
+
+            // E. 更新 OneSignal 推播標籤
+            if (window.OneSignalDeferred) {
+                window.OneSignalDeferred.push(function(OneSignal) {
+                    OneSignal.User.addTags({
+                        grade: String(updatedProfile.grade),
+                        class: String(updatedProfile.class)
+                    });
+                });
+            }
+
+            // F. 重置全局時間戳標記
+            if (typeof lastGeneratedTimestamp !== 'undefined') {
+                lastGeneratedTimestamp = null;
+            }
+
+            console.log(`✅ [系統] 學生已升班至 ${updatedProfile.grade}${updatedProfile.class}，本地歷史已歸零。`);
+        }
+    } catch (err) {
+        console.warn("檢查學年重置標記失敗:", err);
+    }
+}
+
+
+	
 async function smartSyncHistory() {
-    const s = JSON.parse(localStorage.getItem('studentProfile'));
     const user = firebase.auth().currentUser;
-    
-    if (!s || !user) return;
- 
-    // console.log("🚀 [Smart Sync] 開始同步檢查...");
- 
+    if (!user) return;
+
+    // ★★★ 核心加入：在任何同步比對開始前，先確認是否需要重置 ★★★
+    await checkAndApplyHistoryReset();
+
+    // ★ 重新讀取可能已經升班的最新 Profile（例如從 3A 變成 4A）
+    const s = JSON.parse(localStorage.getItem('studentProfile'));
+    if (!s) return; // 若為中六已畢業登出，直接中止
+
     try {
         const db = await openHistoryDB();
         const token = await user.getIdToken();
@@ -19949,6 +20027,14 @@ let isSyncingLock = false;
 function startAutoSyncListener() {
     const s = JSON.parse(localStorage.getItem('studentProfile'));
     if (!s) return;
+
+    // ★★★ 加入這段：即時監聽管理員重置指令 ★★★
+    database.ref('config/historyResetTime').on('value', (snapshot) => {
+        if (snapshot.exists()) {
+            checkAndApplyHistoryReset();
+        }
+    });
+
     // --- 部分 A：歷史紀錄同步監聽 ---
     if (autoSyncListenerRef) {
         autoSyncListenerRef.off();
