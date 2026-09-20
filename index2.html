@@ -19698,82 +19698,95 @@ function mergeHistoryRecords(localRecords, cloudRecords) {
 // ==========================================
 
 
-// === [核心] 檢測全校重置標記並自動清除本地 IndexedDB ===
+// === [終極防護版] 檢測全校重置標記、自動清理本地歷史並即時刷新新年級功課 ===
+let isResettingHistoryLock = false; // 防止同時重複觸發
+
 async function checkAndApplyHistoryReset() {
     const currentUser = auth ? auth.currentUser : null;
-    if (!currentUser || !database) return;
+    if (!currentUser || !database || isResettingHistoryLock) return;
 
     try {
-        // 1. 讀取雲端重置時間戳
-        const snap = await database.ref('config/historyResetTime').once('value');
+        isResettingHistoryLock = true;
+
+        // 1. 設定 3 秒超時保護，網絡慢時絕不拖累任何後續操作
+        const fetchWithTimeout = Promise.race([
+            database.ref('config/historyResetTime').once('value'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+        ]);
+
+        const snap = await fetchWithTimeout;
         const resetTime = snap.val();
-        if (!resetTime) return;
+        if (!resetTime) {
+            isResettingHistoryLock = false;
+            return;
+        }
 
         const localResetTime = parseInt(localStorage.getItem('sansi_last_history_reset') || '0');
 
-        // 2. 若雲端時間戳較新，代表管理員執行了重置
+        // 2. 只有在雲端發布了更新的重置時間戳時才執行
         if (resetTime > localResetTime) {
-            console.log("🧹 [系統] 檢測到學年升班及歷史重置，正在清理本地舊歷史及同步新年級...");
+            console.log("🧹 [系統] 檢測到新學年升班與歷史重置標記，開始處理...");
 
-            // A. 徹底清空本地 IndexedDB 歷史紀錄
-            const db = await openHistoryDB();
-            const tx = db.transaction([STORE_NAME], 'readwrite');
-            const store = tx.objectStore(STORE_NAME);
-            await new Promise((resolve) => {
-                const req = store.clear();
-                req.onsuccess = resolve;
-                req.onerror = resolve;
-            });
+            // A. 只清空 history 歷史點評（完全保留 assets 圖片快取與 SansiLive2DCache 貓咪資料）
+            try {
+                const db = await openHistoryDB();
+                const tx = db.transaction([STORE_NAME], 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                await new Promise((resolve) => {
+                    const req = store.clear();
+                    req.onsuccess = resolve;
+                    req.onerror = resolve;
+                });
+            } catch (dbErr) {
+                console.warn("本地 IndexedDB history 清理略過:", dbErr);
+            }
 
-            // B. 標記本地已處理過此時間戳，防止重複清空
+            // B. 立即記錄時間戳，保證每位學生的瀏覽器「只跑這一次」
             localStorage.setItem('sansi_last_history_reset', resetTime.toString());
 
-            // C. 重新從雲端取得已升班的最新 Profile
+            // C. 重新取得升班後的最新 Profile
             const emailKey = btoa(currentUser.email);
             const mappingSnap = await database.ref(`email_mapping/${emailKey}`).once('value');
             const updatedProfile = mappingSnap.val();
+            const oldProfile = JSON.parse(localStorage.getItem('studentProfile') || '{}');
 
-         // === index.html: checkAndApplyHistoryReset() 內部 ===
-if (!updatedProfile) {
-    // 中六畢業生資料已被管理員完全刪除
-    alert("🎓 您已中六畢業。\n感謝您使用神思，祝前程錦繡！");
-    
-    // ★ 修正：強制清除本地帳號並登出，跳過 handleStudentLogout 的 confirm 詢問
-    localStorage.removeItem('studentProfile');
-    localStorage.removeItem('sansi_read_notifications');
-    if (auth) await auth.signOut();
-    window.location.reload();
-    return;
-}
+            // 防誤踢機制：只有原本是中六且資料庫已刪除索引的學生，才判定畢業
+            if (!updatedProfile) {
+                if (String(oldProfile.grade) === '6') {
+                    alert("🎓 您已中六畢業。\n感謝您使用神思，祝前程錦繡！");
+                    localStorage.removeItem('studentProfile');
+                    localStorage.removeItem('sansi_read_notifications');
+                    if (auth) await auth.signOut();
+                    window.location.reload();
+                } else {
+                    console.warn("⚠️ 暫時未能獲取新年級映射資料，維持現有本地身份。");
+                }
+                isResettingHistoryLock = false;
+                return;
+            }
 
-            // D. 更新本地 Profile（如 3A ➔ 4A，班號完整保留）
+            // D. 更新本地新年級資料（班號完整保留）
             localStorage.setItem('studentProfile', JSON.stringify(updatedProfile));
             if (typeof updateWelcomeMessage === 'function') {
                 updateWelcomeMessage(updatedProfile);
             }
 
-            // E. 更新 OneSignal 推播標籤
-            if (window.OneSignalDeferred) {
-                window.OneSignalDeferred.push(function(OneSignal) {
-                    OneSignal.User.addTags({
-                        grade: String(updatedProfile.grade),
-                        class: String(updatedProfile.class)
-                    });
-                });
+            // E. ★關鍵修補：如果年級或班別有變動，即時無縫切換載入新班別的課業！
+            if (oldProfile.grade !== updatedProfile.grade || oldProfile.class !== updatedProfile.class) {
+                if (typeof loadAssignments === 'function') {
+                    console.log(`📚 自動刷新新年級課業列表: ${updatedProfile.grade}${updatedProfile.class}`);
+                    loadAssignments(updatedProfile.grade, updatedProfile.class);
+                }
             }
 
-            // F. 重置全局時間戳標記
-            if (typeof lastGeneratedTimestamp !== 'undefined') {
-                lastGeneratedTimestamp = null;
-            }
-
-            console.log(`✅ [系統] 學生已升班至 ${updatedProfile.grade}${updatedProfile.class}，本地歷史已歸零。`);
+            console.log(`✅ [系統] 學生已順利升上班級 ${updatedProfile.grade}${updatedProfile.class}，本地歷史已順利歸零。`);
         }
     } catch (err) {
-        console.warn("檢查學年重置標記失敗:", err);
+        console.warn("檢查學年重置標記延後執行:", err.message);
+    } finally {
+        isResettingHistoryLock = false;
     }
 }
-
 
 	
 async function smartSyncHistory() {
@@ -21575,12 +21588,11 @@ async function checkStudentLogin() {
 
     const currentUser = auth.currentUser;
 
-    // ★★★ 關鍵修正：必須在讀取 s 之前，優先執行升班與重置檢查！ ★★★
+    // 優化：在背景執行升班與歷史重置，不卡住頁面渲染
     if (currentUser) {
-        await checkAndApplyHistoryReset();
+        checkAndApplyHistoryReset().catch(e => console.warn("背景升班重置稍後重試:", e));
     }
 
-    // 此時讀取的 s 就已經是升班後的最新年級（例如 4A，班號完整保留）
     let s = JSON.parse(localStorage.getItem('studentProfile'));
 
     // ==========================================
