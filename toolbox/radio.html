@@ -166,7 +166,11 @@
         let targetSleepTime = null;
         let lastUiUpdateTime = 0;
         let reconnectTimeout = null;
-        let autoResumeInterval = null;
+
+        // 健康狀態與中斷恢復監控變數
+        let pauseStartTime = 0;
+        let lastAudioCurrentTime = -1;
+        let lastTimeProgressStamp = Date.now();
 
         // Display Strings (All English)
         let statusString = "RTHK 2 [OFF]";
@@ -201,14 +205,11 @@
             
             let targetDistance;
             if (aspect < 1.0) {
-                // 手機直向螢幕：依長寬比動態拉開相機，保持收音機約佔螢幕寬度的 70%
                 targetDistance = Math.max(6.5, 5.8 / aspect);
             } else {
-                // 電腦/平板橫向螢幕：維持舒適視角
                 targetDistance = 6.6;
             }
             
-            // 微微俯視視角
             camera.position.set(0, targetDistance * 0.12, targetDistance);
             camera.lookAt(0, 0, 0);
             camera.updateProjectionMatrix();
@@ -255,8 +256,6 @@
         scene.add(shadowPlane);
 
         // --- Procedural Canvas Textures ---
-        
-        // 1. High Quality Warm Teak Wood Texture
         function createWoodTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 1024; canvas.height = 1024;
@@ -278,7 +277,6 @@
             return new THREE.CanvasTexture(canvas);
         }
 
-        // 2. Vintage Speaker Fabric Mesh Texture
         function createGrillTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 256;
@@ -300,7 +298,6 @@
             return texture;
         }
 
-        // 3. Brass Brand Plate Texture
         function createBrandPlateTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 512; canvas.height = 128;
@@ -327,7 +324,6 @@
             return new THREE.CanvasTexture(canvas);
         }
 
-        // 4. Dynamic Retro LCD Canvas Texture
         const lcdCanvas = document.createElement('canvas');
         lcdCanvas.width = 512; lcdCanvas.height = 256;
         const lcdCtx = lcdCanvas.getContext('2d');
@@ -359,7 +355,6 @@
         const radioGroup = new THREE.Group();
         scene.add(radioGroup);
 
-        // Main Wood Chassis
         const woodMat = new THREE.MeshStandardMaterial({
             color: 0xffffff,
             map: createWoodTexture(),
@@ -372,21 +367,18 @@
         radioBody.receiveShadow = true;
         radioGroup.add(radioBody);
 
-        // Shiny Polished Brass Material
         const brassMat = new THREE.MeshStandardMaterial({
             color: 0xecd078,
             roughness: 0.22,
             metalness: 0.9
         });
 
-        // Recessed Front Panel Frame
         const faceFrameGeo = new THREE.BoxGeometry(3.2, 2.0, 0.05);
         const faceFrameMat = new THREE.MeshStandardMaterial({ color: 0x221a14, roughness: 0.7 });
         const faceFrame = new THREE.Mesh(faceFrameGeo, faceFrameMat);
         faceFrame.position.set(0, 0, 1.01);
         radioGroup.add(faceFrame);
 
-        // Brand Plate
         const plateGeo = new THREE.PlaneGeometry(1.5, 0.35);
         const plateMat = new THREE.MeshStandardMaterial({
             map: createBrandPlateTexture(),
@@ -397,7 +389,6 @@
         plateMesh.position.set(0, 0.76, 1.04);
         radioGroup.add(plateMesh);
 
-        // Speaker Grill
         const grillGeo = new THREE.BoxGeometry(2.9, 0.75, 0.04);
         const grillMat = new THREE.MeshStandardMaterial({
             map: createGrillTexture(),
@@ -408,7 +399,6 @@
         grillMesh.position.set(0, 0.15, 1.04);
         radioGroup.add(grillMesh);
 
-        // LCD Display
         const lcdFrameGeo = new THREE.BoxGeometry(1.45, 0.75, 0.06);
         const lcdFrameMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 });
         const lcdFrame = new THREE.Mesh(lcdFrameGeo, lcdFrameMat);
@@ -421,7 +411,6 @@
         lcdScreen.position.set(-0.72, -0.55, 1.08);
         radioGroup.add(lcdScreen);
 
-        // LED Indicator
         const ledGeo = new THREE.SphereGeometry(0.06, 16, 16);
         const ledMat = new THREE.MeshStandardMaterial({
             color: 0x330000,
@@ -433,7 +422,6 @@
         ledMesh.position.set(1.35, 0.76, 1.04);
         radioGroup.add(ledMesh);
 
-        // Interactive Power Knob
         const knobGroup = new THREE.Group();
         knobGroup.position.set(0.82, -0.55, 1.03);
         
@@ -451,7 +439,6 @@
 
         radioGroup.add(knobGroup);
 
-        // Metal Antenna
         const antennaGeo = new THREE.CylinderGeometry(0.025, 0.035, 2.2, 16);
         const antennaMesh = new THREE.Mesh(antennaGeo, brassMat);
         antennaMesh.position.set(1.4, 1.9, -0.7);
@@ -459,7 +446,6 @@
         antennaMesh.castShadow = true;
         radioGroup.add(antennaMesh);
 
-        // Brass Feet
         for(let x of [-1.4, 1.4]) {
             for(let z of [-0.7, 0.7]) {
                 const footGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.15, 16);
@@ -490,14 +476,14 @@
             }
         });
 
-        // Knob Rotation Animation
         let targetKnobAngle = 0;
         function updateKnobAnimation() {
             targetKnobAngle = isPlaying ? -Math.PI / 2 : 0;
             knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
         }
 
-        // --- Background Web Worker Timer (Prevents Throttle on Locked Screen) ---
+        // --- 強固核心：背景 Web Worker 心跳引擎 ---
+        // 確保在安卓鎖屏、換 App、播其他視頻時，Worker 依然每秒高頻喚醒以執行倒計時與自動續播
         let bgWorker = null;
         function initBackgroundWorker() {
             if (bgWorker) return;
@@ -514,7 +500,18 @@
                 ], { type: 'application/javascript' });
                 bgWorker = new Worker(URL.createObjectURL(blob));
                 bgWorker.onmessage = function() {
+                    // 1. 檢查倒數計時器
                     checkSleepTimer();
+                    
+                    // 2. 核心：如果處於播放狀態但在背景被其他音訊暫停，持續嘗試自動續播
+                    if (isPlaying && !isShuttingDown) {
+                        if (audio.paused) {
+                            triggerAutoResume();
+                        } else {
+                            // 3. 核心：檢測直播流是否在背景卡死無聲（緩衝停滯）
+                            checkStreamHealth();
+                        }
+                    }
                 };
                 bgWorker.postMessage('start');
             } catch (e) {}
@@ -550,9 +547,6 @@
             btnSet.classList.remove('active');
         });
 
-        setInterval(checkSleepTimer, 1000);
-        audio.addEventListener('timeupdate', checkSleepTimer);
-
         function checkSleepTimer() {
             if (!targetSleepTime) return;
             let now = Date.now();
@@ -580,7 +574,7 @@
             updateLcdTexture();
         }
 
-        // --- Preload Cantonese TTS Audio Into Browser Cache ---
+        // --- Preload Cantonese TTS Audio ---
         function preloadTTS() {
             const ttsText = "夠鐘罅，而家會幫你刪機。";
             const preloadUrls = [
@@ -601,11 +595,9 @@
             statusString = 'SHUTTING DOWN';
             updateLcdTexture();
             clearTimeout(reconnectTimeout);
-            if (autoResumeInterval) { clearInterval(autoResumeInterval); autoResumeInterval = null; }
 
             const ttsText = "夠鐘罅，而家會幫你刪機。";
 
-            // If in foreground, try native speech synthesis
             if (!document.hidden && 'speechSynthesis' in window) {
                 try {
                     const utterance = new SpeechSynthesisUtterance(ttsText);
@@ -621,7 +613,6 @@
                 } catch (e) {}
             }
 
-            // On mobile locked screen: Hand over directly within existing audio session
             const ttsUrls = [
                 `https://fanyi.baidu.com/gettts?lan=cte&spd=5&text=${encodeURIComponent(ttsText)}`,
                 `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=zh-TW&q=${encodeURIComponent(ttsText)}`,
@@ -676,26 +667,61 @@
             tryNextTTSUrl();
         }
 
-        // --- Auto-Resume After Interruption (Other Videos Finished) ---
+        // --- 核心突破：直播流健康監測（防止在背景無聲卡死） ---
+        function checkStreamHealth() {
+            if (!isPlaying || isShuttingDown || audio.paused) return;
+            const now = Date.now();
+            if (audio.currentTime !== lastAudioCurrentTime) {
+                lastAudioCurrentTime = audio.currentTime;
+                lastTimeProgressStamp = now;
+            } else {
+                // 如果處於播放中但時間超過 8 秒毫無進展（卡在緩衝或流斷開）
+                if (now - lastTimeProgressStamp > 8000) {
+                    lastTimeProgressStamp = now;
+                    if (hls) {
+                        try {
+                            hls.recoverMediaError();
+                            hls.startLoad();
+                            if (hls.liveSyncPosition) audio.currentTime = hls.liveSyncPosition;
+                        } catch(e) {
+                            fallbackToSDStream();
+                        }
+                    } else {
+                        audio.load();
+                        audio.play().catch(() => {});
+                    }
+                }
+            }
+        }
+
+        // --- 核心突破：被其他影片/錄音中斷後的高強自動續播 ---
         function triggerAutoResume() {
             if (!isPlaying || isShuttingDown || !audio.paused) return;
+
+            // 如果被中斷超過 4 秒，直播伺服器的舊分片可能已過期，主動追焦到最新的 Live Edge
+            if (hls) {
+                try {
+                    hls.startLoad();
+                    if (hls.liveSyncPosition && Math.abs(audio.currentTime - hls.liveSyncPosition) > 4) {
+                        audio.currentTime = hls.liveSyncPosition;
+                    }
+                } catch(e) {}
+            }
+
             audio.play().then(() => {
-                if (autoResumeInterval) {
-                    clearInterval(autoResumeInterval);
-                    autoResumeInterval = null;
-                }
-                if (hls && hls.liveSyncPosition && Math.abs(audio.currentTime - hls.liveSyncPosition) > 10) {
-                    audio.currentTime = hls.liveSyncPosition;
-                }
+                // 成功搶回音訊焦點，續播成功！
+                statusString = (hls || audio.src.includes('m3u8')) ? 'LIVE [HQ]' : 'LIVE [SD]';
+                updateLcdTexture();
+                setLedBlink(false);
+                lastTimeProgressStamp = Date.now();
             }).catch(() => {
-                // Interruption still active
+                // 其他應用的影片/語音尚未結束，音訊焦點仍被佔用，Worker 將在下一秒自動繼續探測
             });
         }
 
         // --- Player Controls ---
         function playRadio() {
             clearTimeout(reconnectTimeout);
-            if (autoResumeInterval) { clearInterval(autoResumeInterval); autoResumeInterval = null; }
             isShuttingDown = false;
             isPlaying = true;
             audio.playbackRate = 1.0;
@@ -707,7 +733,12 @@
 
             if (Hls.isSupported()) {
                 if (hls) hls.destroy();
-                hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+                hls = new Hls({ 
+                    enableWorker: true, 
+                    lowLatencyMode: true,
+                    backBufferLength: 30,
+                    liveDurationInfinity: true
+                });
                 hls.loadSource(hqStreamUrl);
                 hls.attachMedia(audio);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -715,8 +746,17 @@
                 });
                 hls.on(Hls.Events.ERROR, (event, data) => {
                     if (data.fatal) {
-                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) fallbackToSDStream();
-                        else scheduleReconnect();
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                try { hls.startLoad(); } catch(e) { fallbackToSDStream(); }
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                try { hls.recoverMediaError(); } catch(e) { scheduleReconnect(); }
+                                break;
+                            default:
+                                scheduleReconnect();
+                                break;
+                        }
                     }
                 });
             } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
@@ -735,7 +775,6 @@
 
         function stopRadio() {
             clearTimeout(reconnectTimeout);
-            if (autoResumeInterval) { clearInterval(autoResumeInterval); autoResumeInterval = null; }
             isShuttingDown = false;
             isPlaying = false;
             
@@ -757,10 +796,17 @@
             updateLcdTexture();
             setLedBlink(true);
 
-            if (hls) { hls.destroy(); hls = null; }
             clearTimeout(reconnectTimeout);
             reconnectTimeout = setTimeout(() => {
-                if (isPlaying && !isShuttingDown) playRadio();
+                if (isPlaying && !isShuttingDown) {
+                    if (hls) {
+                        hls.loadSource(hqStreamUrl);
+                        hls.startLoad();
+                        audio.play().catch(() => {});
+                    } else {
+                        playRadio();
+                    }
+                }
             }, 3000);
         }
 
@@ -773,24 +819,22 @@
         });
 
         audio.addEventListener('playing', () => {
-            if (autoResumeInterval) {
-                clearInterval(autoResumeInterval);
-                autoResumeInterval = null;
-            }
             if (isPlaying && !isShuttingDown) {
                 setLedBlink(false);
                 statusString = (hls || audio.src.includes('m3u8')) ? 'LIVE [HQ]' : 'LIVE [SD]';
                 updateLcdTexture();
+                lastTimeProgressStamp = Date.now();
             }
         });
 
         audio.addEventListener('pause', () => {
+            // 當安卓系統播放其他影片或 WhatsApp 語音時觸發
             if (isPlaying && !isShuttingDown) {
+                pauseStartTime = Date.now();
                 statusString = 'INTERRUPTED';
                 updateLcdTexture();
-                if (!autoResumeInterval) {
-                    autoResumeInterval = setInterval(triggerAutoResume, 1000);
-                }
+                // 立即嘗試一次續播，若焦點仍被佔，Web Worker 會每秒持續重試
+                triggerAutoResume();
             }
         });
 
@@ -820,7 +864,7 @@
             ledBlinking = blink;
         }
 
-        // --- Battery Saver (Pause Render Loop in Background) & Audio Interruption Recovery ---
+        // --- 全方位音訊焦點與切換事件監聽（確保安卓任何時刻切回都自動續播） ---
         let isRendering = true;
         document.addEventListener('visibilitychange', () => {
             isRendering = !document.hidden;
@@ -851,6 +895,7 @@
             } catch (e) {}
         }
 
+        // 修正 MediaSession：絕不讓 pause 指令誤關機！
         if ('mediaSession' in navigator) {
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -863,7 +908,8 @@
                     else triggerAutoResume();
                 });
                 navigator.mediaSession.setActionHandler('pause', () => {
-                    stopRadio();
+                    // 僅暫停 audio，絕不執行 stopRadio()，保持 isPlaying 為 true，以便隨時自動續播
+                    audio.pause();
                 });
             } catch (e) {}
         }
