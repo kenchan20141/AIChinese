@@ -73,7 +73,17 @@
         }
 
         .capsule-icon {
-            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+        }
+
+        .capsule-icon svg {
+            width: 100%;
+            height: 100%;
+            stroke: #d4af37;
             filter: drop-shadow(0 0 2px rgba(212, 175, 55, 0.5));
         }
 
@@ -301,9 +311,17 @@
     <div class="hint-text">DRAG TO ROTATE &bull; TAP KNOB OR BODY TO POWER</div>
     <div id="canvas-container"></div>
 
-    <!-- 復古高級時間膠囊按鍵 -->
+    <!-- 復古高級時間膠囊按鍵 (極簡黃銅 SVG 圖標) -->
     <div class="timer-capsule-btn" id="capsule-btn">
-        <span class="capsule-icon">⏱</span>
+        <span class="capsule-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="13" r="8"></circle>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="13" x2="14.5" y2="14.5"></line>
+                <path d="M10 2h4"></path>
+                <line x1="12" y1="2" x2="12" y2="5"></line>
+            </svg>
+        </span>
         <span class="capsule-label" id="capsule-label">SLEEP: OFF (∞)</span>
         <div class="capsule-led" id="capsule-led"></div>
     </div>
@@ -344,8 +362,10 @@
         </div>
     </div>
 
-    <!-- Audio Element & Libraries -->
+    <!-- 主收音機音頻與後台防休眠音頻 -->
     <audio id="radio-audio" preload="none" playsinline webkit-playsinline></audio>
+    <audio id="silence-audio" loop preload="none" playsinline webkit-playsinline></audio>
+
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -356,6 +376,10 @@
         const sdStreamUrl = 'https://stm.rthk.hk/radio2';
         
         const audio = document.getElementById('radio-audio');
+        const silenceAudio = document.getElementById('silence-audio');
+        // 極小長度的無聲音訊 Data URI（做為背景防休眠錨點）
+        silenceAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
         const capsuleBtn = document.getElementById('capsule-btn');
         const capsuleLabel = document.getElementById('capsule-label');
         const capsuleLed = document.getElementById('capsule-led');
@@ -370,6 +394,7 @@
         const btnStartTimer = document.getElementById('btn-start-timer');
 
         let isPlaying = false;
+        let isUserPaused = false; // 修訂關鍵：區分用戶在通知欄主動暫停與系統異常中斷
         let isShuttingDown = false;
         let hls = null;
         let targetSleepTime = null; // null 即代表無限制無限播放
@@ -386,6 +411,54 @@
         // 顯示字串
         let statusString = "RTHK 2 [OFF]";
         let timerString = "SLEEP: OFF";
+
+        // 判斷是否為 iOS / iPadOS 環境 (原生 HLS 背景存活率極高)
+        const isAppleDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        // --- 全域影片靜音搶佔防禦 (點擊其他影片時，收音機繼續播，影片靜音) ---
+        function suppressOtherMedia(mediaEl) {
+            if (!mediaEl || mediaEl === audio || mediaEl === silenceAudio) return;
+            mediaEl.muted = true;
+            mediaEl.volume = 0;
+            mediaEl.setAttribute('muted', '');
+        }
+
+        // 捕捉式監聽所有 play 事件
+        document.addEventListener('play', (e) => {
+            const el = e.target;
+            if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') && el !== audio && el !== silenceAudio) {
+                suppressOtherMedia(el);
+                // 確保若收音機正在工作且非用戶暫停，立刻拉起收音機
+                if (isPlaying && !isUserPaused && audio.paused) {
+                    audio.play().catch(() => {});
+                }
+            }
+        }, true);
+
+        // 防止影片中途被取消靜音
+        document.addEventListener('volumechange', (e) => {
+            const el = e.target;
+            if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') && el !== audio && el !== silenceAudio) {
+                if (!el.muted || el.volume > 0) {
+                    suppressOtherMedia(el);
+                }
+            }
+        }, true);
+
+        // 監視動態插入的 video 標籤
+        const mediaObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.tagName === 'VIDEO' || node.tagName === 'AUDIO') {
+                        suppressOtherMedia(node);
+                    } else if (node.querySelectorAll) {
+                        node.querySelectorAll('video, audio').forEach(suppressOtherMedia);
+                    }
+                });
+            });
+        });
+        mediaObserver.observe(document.documentElement, { childList: true, subtree: true });
 
         // --- Three.js 視圖初始化 ---
         const container = document.getElementById('canvas-container');
@@ -536,7 +609,6 @@
         const lcdTexture = new THREE.CanvasTexture(lcdCanvas);
 
         function updateLcdTexture(force = false) {
-            // 省電要點：背景隱藏時不執行 GPU 紋理重刷
             if (!isPageVisible && !force) return;
 
             lcdCtx.fillStyle = isPlaying ? '#86c466' : '#454f3d';
@@ -677,6 +749,7 @@
             
             const intersects = raycaster.intersectObjects([knobMesh, notchMesh, radioBody], true);
             if (intersects.length > 0) {
+                isUserPaused = false;
                 if (isPlaying) stopRadio();
                 else playRadio();
             }
@@ -684,7 +757,7 @@
 
         let targetKnobAngle = 0;
         function updateKnobAnimation() {
-            targetKnobAngle = isPlaying ? -Math.PI / 2 : 0;
+            targetKnobAngle = (isPlaying && !isUserPaused) ? -Math.PI / 2 : 0;
             knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
         }
 
@@ -706,7 +779,8 @@
                 bgWorker = new Worker(URL.createObjectURL(blob));
                 bgWorker.onmessage = function() {
                     checkSleepTimer();
-                    if (isPlaying && !isShuttingDown) {
+                    // 只有在非用戶手動暫停時，才執行背景防休眠恢復
+                    if (isPlaying && !isShuttingDown && !isUserPaused) {
                         if (audio.paused) {
                             triggerAutoResume();
                         } else {
@@ -773,7 +847,7 @@
 
         // 取消定時，設定為「無限運作」
         btnCancelTimer.addEventListener('click', () => {
-            targetSleepTime = null; // 無限運行
+            targetSleepTime = null; // 無限運行，永不自動關機
             timerString = 'SLEEP: OFF';
             capsuleLabel.textContent = 'SLEEP: OFF (∞)';
             capsuleLed.classList.remove('active');
@@ -890,13 +964,13 @@
 
         // --- 核心防休眠機制：直播流健康監測 ---
         function checkStreamHealth() {
-            if (!isPlaying || isShuttingDown || audio.paused) return;
+            if (!isPlaying || isShuttingDown || isUserPaused || audio.paused) return;
             const now = Date.now();
             if (audio.currentTime !== lastAudioCurrentTime) {
                 lastAudioCurrentTime = audio.currentTime;
                 lastTimeProgressStamp = now;
             } else {
-                // 背景逾時 10 秒未前進（代表系統休眠中斷了網路或緩衝死鎖）
+                // 背景逾時 10 秒未前進（代表緩衝區遇到斷流或凍結）
                 if (now - lastTimeProgressStamp > 10000) {
                     lastTimeProgressStamp = now;
                     if (hls) {
@@ -916,7 +990,7 @@
         }
 
         function triggerAutoResume() {
-            if (!isPlaying || isShuttingDown || !audio.paused) return;
+            if (!isPlaying || isShuttingDown || isUserPaused || !audio.paused) return;
             if (hls) {
                 try {
                     hls.startLoad();
@@ -930,32 +1004,41 @@
                 updateLcdTexture(true);
                 setLedBlink(false);
                 lastTimeProgressStamp = Date.now();
+                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
             }).catch(() => {});
         }
 
-        // --- 播放器控制 (全面加固緩衝防凍結) ---
+        // --- 播放器控制 (原生/HLS 雙軌極限穩定) ---
         function playRadio() {
             clearTimeout(reconnectTimeout);
             isShuttingDown = false;
             isPlaying = true;
+            isUserPaused = false;
             audio.playbackRate = 1.0;
             preloadTTS();
+
+            // 啟動無聲保活錨點，向行動裝置作業系統註冊長效 AudioSession
+            silenceAudio.play().catch(() => {});
 
             statusString = 'TUNING...';
             updateLcdTexture(true);
             setLedState(true);
 
-            if (Hls.isSupported()) {
+            // iOS / Safari 優先原生播放（原生享有最高系統後台背景守護權限）
+            if (isAppleDevice && audio.canPlayType('application/vnd.apple.mpegurl')) {
+                if (hls) { hls.destroy(); hls = null; }
+                audio.src = hqStreamUrl;
+                audio.play().catch(handlePlayError);
+            } else if (Hls.isSupported()) {
                 if (hls) hls.destroy();
-                // 關鍵改動：加大緩衝、關閉低延遲，避免手機背景被 OS 判為閒置斷流
                 hls = new Hls({ 
                     enableWorker: true, 
                     lowLatencyMode: false,
                     maxBufferLength: 60,
                     maxMaxBufferLength: 120,
                     backBufferLength: 30,
-                    liveSyncDurationCount: 4,
-                    liveMaxLatencyDurationCount: 10
+                    liveSyncDurationCount: 5,
+                    liveMaxLatencyDurationCount: 12
                 });
                 hls.loadSource(hqStreamUrl);
                 hls.attachMedia(audio);
@@ -995,6 +1078,7 @@
             clearTimeout(reconnectTimeout);
             isShuttingDown = false;
             isPlaying = false;
+            isUserPaused = false;
             
             if (hls) { hls.destroy(); hls = null; }
             audio.pause();
@@ -1002,21 +1086,23 @@
             audio.load();
             audio.onended = null;
             audio.playbackRate = 1.0;
+            silenceAudio.pause();
 
             statusString = 'RTHK 2 [OFF]';
             updateLcdTexture(true);
             setLedState(false);
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
         }
 
         function scheduleReconnect() {
-            if (!isPlaying || isShuttingDown) return;
+            if (!isPlaying || isShuttingDown || isUserPaused) return;
             statusString = 'RECONNECTING..';
             updateLcdTexture(true);
             setLedBlink(true);
 
             clearTimeout(reconnectTimeout);
             reconnectTimeout = setTimeout(() => {
-                if (isPlaying && !isShuttingDown) {
+                if (isPlaying && !isShuttingDown && !isUserPaused) {
                     if (hls) {
                         hls.loadSource(hqStreamUrl);
                         hls.startLoad();
@@ -1029,32 +1115,43 @@
         }
 
         function handlePlayError() {
-            if (isPlaying && !isShuttingDown) scheduleReconnect();
+            if (isPlaying && !isShuttingDown && !isUserPaused) scheduleReconnect();
         }
 
         audio.addEventListener('error', () => {
-            if (isPlaying && !isShuttingDown) scheduleReconnect();
+            if (isPlaying && !isShuttingDown && !isUserPaused) scheduleReconnect();
         });
 
         audio.addEventListener('playing', () => {
             if (isPlaying && !isShuttingDown) {
+                isUserPaused = false;
                 setLedBlink(false);
                 statusString = (hls || audio.src.includes('m3u8')) ? 'LIVE [HQ]' : 'LIVE [SD]';
                 updateLcdTexture(true);
                 lastTimeProgressStamp = Date.now();
+                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
             }
         });
 
+        // 監聽暫停：如果是由使用者手動暫停，嚴格禁止自動喚醒！
         audio.addEventListener('pause', () => {
             if (isPlaying && !isShuttingDown) {
-                statusString = 'INTERRUPTED';
-                updateLcdTexture(true);
-                triggerAutoResume();
+                if (isUserPaused) {
+                    statusString = 'PAUSED';
+                    updateLcdTexture(true);
+                    setLedBlink(true);
+                    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+                } else {
+                    // 非人為暫停（例如短暫受電話打斷、網路抖動）
+                    statusString = 'INTERRUPTED';
+                    updateLcdTexture(true);
+                    triggerAutoResume();
+                }
             }
         });
 
         audio.addEventListener('waiting', () => {
-            if (isPlaying && !isShuttingDown) {
+            if (isPlaying && !isShuttingDown && !isUserPaused) {
                 statusString = 'BUFFERING...';
                 updateLcdTexture(true);
             }
@@ -1083,32 +1180,28 @@
         document.addEventListener('visibilitychange', () => {
             isPageVisible = !document.hidden;
             if (isPageVisible) {
-                // 回到前台：恢復 3D 渲染，同步一次 LCD 狀態
                 clock.getDelta();
                 updateLcdTexture(true);
                 requestAnimationFrame(animate);
                 
-                // 檢查是否需要續播
-                if (isPlaying && !isShuttingDown && audio.paused) {
+                if (isPlaying && !isShuttingDown && !isUserPaused && audio.paused) {
                     triggerAutoResume();
                 }
-            } else {
-                // 進入背景：3D 渲染迴圈自動中斷，GPU 進入深層睡眠省電！
             }
         });
 
         window.addEventListener('online', () => {
-            if (isPlaying && !isShuttingDown) {
+            if (isPlaying && !isShuttingDown && !isUserPaused) {
                 triggerAutoResume();
             }
         });
 
         window.addEventListener('focus', () => {
-            if (isPlaying && !isShuttingDown && audio.paused) triggerAutoResume();
+            if (isPlaying && !isShuttingDown && !isUserPaused && audio.paused) triggerAutoResume();
         });
 
         window.addEventListener('pageshow', () => {
-            if (isPlaying && !isShuttingDown && audio.paused) triggerAutoResume();
+            if (isPlaying && !isShuttingDown && !isUserPaused && audio.paused) triggerAutoResume();
         });
 
         if ('audioSession' in navigator) {
@@ -1117,6 +1210,7 @@
             } catch (e) {}
         }
 
+        // MediaSession 通知欄完整控制（徹底修復通知欄暫停自動恢復的 BUG）
         if ('mediaSession' in navigator) {
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -1124,12 +1218,25 @@
                     artist: '香港電台第二台',
                     album: '3D Retro Receiver'
                 });
+
+                // 通知欄點擊「播放」
                 navigator.mediaSession.setActionHandler('play', () => {
-                    if (!isPlaying) playRadio();
-                    else triggerAutoResume();
+                    isUserPaused = false;
+                    if (!isPlaying) {
+                        playRadio();
+                    } else {
+                        audio.play().catch(() => {});
+                    }
                 });
+
+                // 通知欄點擊「暫停」
                 navigator.mediaSession.setActionHandler('pause', () => {
+                    isUserPaused = true;
                     audio.pause();
+                });
+
+                navigator.mediaSession.setActionHandler('stop', () => {
+                    stopRadio();
                 });
             } catch (e) {}
         }
@@ -1137,7 +1244,6 @@
         // --- 3D 渲染主迴圈 (帶可視性檢查，背景自動休眠) ---
         let clock = new THREE.Clock();
         function animate() {
-            // 如果頁面處於背景，徹底停止渲染調度，絕不多耗費一度電
             if (!isPageVisible) return;
             requestAnimationFrame(animate);
 
