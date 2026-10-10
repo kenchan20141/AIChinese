@@ -49,7 +49,7 @@
             text-shadow: 0 2px 4px rgba(0,0,0,0.6);
         }
 
-        /* 復古黃銅底座定時按鈕 (Vintage Floating Capsule) */
+        /* 復古黃銅定時按鈕 (純簡約 SVG 圖案圓形按鈕) */
         .timer-capsule-btn {
             position: absolute;
             bottom: max(24px, env(safe-area-inset-bottom));
@@ -58,47 +58,36 @@
             z-index: 10;
             background: linear-gradient(180deg, #2c251d 0%, #1a1612 100%);
             border: 1.5px solid #d4af37;
-            border-radius: 30px;
-            padding: 10px 24px;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            justify-content: center;
             cursor: pointer;
             box-shadow: 0 8px 25px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255,220,130,0.3);
             transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
 
         .timer-capsule-btn:active {
-            transform: translateX(-50%) scale(0.95);
+            transform: translateX(-50%) scale(0.92);
         }
 
-        .capsule-icon {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 18px;
-            height: 18px;
-        }
-
-        .capsule-icon svg {
-            width: 100%;
-            height: 100%;
+        .capsule-svg {
+            width: 24px;
+            height: 24px;
             stroke: #d4af37;
             filter: drop-shadow(0 0 2px rgba(212, 175, 55, 0.5));
+            transition: stroke 0.3s, filter 0.3s;
         }
 
-        .capsule-label {
-            color: #ecd078;
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 2px;
-            font-family: 'Courier New', Courier, monospace;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-        }
-
+        /* 定時啟用時右上方微型黃銅指示光點 */
         .capsule-led {
-            width: 8px;
-            height: 8px;
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: #443322;
             transition: background 0.3s, box-shadow 0.3s;
@@ -311,19 +300,17 @@
     <div class="hint-text">DRAG TO ROTATE &bull; TAP KNOB OR BODY TO POWER</div>
     <div id="canvas-container"></div>
 
-    <!-- 復古高級時間膠囊按鍵 (極簡黃銅 SVG 圖標) -->
-    <div class="timer-capsule-btn" id="capsule-btn">
-        <span class="capsule-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="13" r="8"></circle>
-                <line x1="12" y1="9" x2="12" y2="13"></line>
-                <line x1="12" y1="13" x2="14.5" y2="14.5"></line>
-                <path d="M10 2h4"></path>
-                <line x1="12" y1="2" x2="12" y2="5"></line>
-            </svg>
-        </span>
-        <span class="capsule-label" id="capsule-label">SLEEP: OFF (∞)</span>
+    <!-- 復古高級定時按鍵 (純簡約 SVG 圖案) -->
+    <div class="timer-capsule-btn" id="capsule-btn" title="定時關機 / Sleep Timer">
+        <svg class="capsule-svg" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="13" r="8"></circle>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="13" x2="14.5" y2="14.5"></line>
+            <path d="M10 2h4"></path>
+            <line x1="12" y1="2" x2="12" y2="5"></line>
+        </svg>
         <div class="capsule-led" id="capsule-led"></div>
+        <span id="capsule-label" style="display: none;"></span>
     </div>
 
     <!-- 極簡定時設定彈窗 -->
@@ -394,7 +381,7 @@
         const btnStartTimer = document.getElementById('btn-start-timer');
 
         let isPlaying = false;
-        let isUserPaused = false; // 修訂關鍵：區分用戶在通知欄主動暫停與系統異常中斷
+        let isUserPaused = false;
         let isShuttingDown = false;
         let hls = null;
         let targetSleepTime = null; // null 即代表無限制無限播放
@@ -424,19 +411,16 @@
             mediaEl.setAttribute('muted', '');
         }
 
-        // 捕捉式監聽所有 play 事件
         document.addEventListener('play', (e) => {
             const el = e.target;
             if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') && el !== audio && el !== silenceAudio) {
                 suppressOtherMedia(el);
-                // 確保若收音機正在工作且非用戶暫停，立刻拉起收音機
                 if (isPlaying && !isUserPaused && audio.paused) {
                     audio.play().catch(() => {});
                 }
             }
         }, true);
 
-        // 防止影片中途被取消靜音
         document.addEventListener('volumechange', (e) => {
             const el = e.target;
             if (el && (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') && el !== audio && el !== silenceAudio) {
@@ -446,7 +430,6 @@
             }
         }, true);
 
-        // 監視動態插入的 video 標籤
         const mediaObserver = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
@@ -779,7 +762,6 @@
                 bgWorker = new Worker(URL.createObjectURL(blob));
                 bgWorker.onmessage = function() {
                     checkSleepTimer();
-                    // 只有在非用戶手動暫停時，才執行背景防休眠恢復
                     if (isPlaying && !isShuttingDown && !isUserPaused) {
                         if (audio.paused) {
                             triggerAutoResume();
@@ -847,23 +829,22 @@
 
         // 取消定時，設定為「無限運作」
         btnCancelTimer.addEventListener('click', () => {
-            targetSleepTime = null; // 無限運行，永不自動關機
+            targetSleepTime = null; // 無限運行，永不自動關閉
             timerString = 'SLEEP: OFF';
-            capsuleLabel.textContent = 'SLEEP: OFF (∞)';
+            if (capsuleLabel) capsuleLabel.textContent = 'SLEEP: OFF (∞)';
             capsuleLed.classList.remove('active');
             updateLcdTexture(true);
             closeTimerModal();
         });
 
         function checkSleepTimer() {
-            // 沒有設置時間，代表無限運作，絕對不關閉！
             if (!targetSleepTime) return;
 
             let now = Date.now();
             if (now >= targetSleepTime) {
                 targetSleepTime = null;
                 timerString = 'SLEEP: OFF';
-                capsuleLabel.textContent = 'SLEEP: OFF (∞)';
+                if (capsuleLabel) capsuleLabel.textContent = 'SLEEP: OFF (∞)';
                 capsuleLed.classList.remove('active');
                 updateLcdTexture(true);
                 if (isPlaying && !isShuttingDown) playTTSAndStop();
@@ -882,7 +863,7 @@
             const s = remainingSecs % 60;
             const timeStr = `${m}:${s.toString().padStart(2, '0')}`;
             timerString = `SLEEP: ${timeStr}`;
-            capsuleLabel.textContent = `SLEEP: ${timeStr}`;
+            if (capsuleLabel) capsuleLabel.textContent = `SLEEP: ${timeStr}`;
             updateLcdTexture();
         }
 
@@ -970,7 +951,6 @@
                 lastAudioCurrentTime = audio.currentTime;
                 lastTimeProgressStamp = now;
             } else {
-                // 背景逾時 10 秒未前進（代表緩衝區遇到斷流或凍結）
                 if (now - lastTimeProgressStamp > 10000) {
                     lastTimeProgressStamp = now;
                     if (hls) {
@@ -1017,14 +997,12 @@
             audio.playbackRate = 1.0;
             preloadTTS();
 
-            // 啟動無聲保活錨點，向行動裝置作業系統註冊長效 AudioSession
             silenceAudio.play().catch(() => {});
 
             statusString = 'TUNING...';
             updateLcdTexture(true);
             setLedState(true);
 
-            // iOS / Safari 優先原生播放（原生享有最高系統後台背景守護權限）
             if (isAppleDevice && audio.canPlayType('application/vnd.apple.mpegurl')) {
                 if (hls) { hls.destroy(); hls = null; }
                 audio.src = hqStreamUrl;
@@ -1133,7 +1111,6 @@
             }
         });
 
-        // 監聽暫停：如果是由使用者手動暫停，嚴格禁止自動喚醒！
         audio.addEventListener('pause', () => {
             if (isPlaying && !isShuttingDown) {
                 if (isUserPaused) {
@@ -1142,7 +1119,6 @@
                     setLedBlink(true);
                     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
                 } else {
-                    // 非人為暫停（例如短暫受電話打斷、網路抖動）
                     statusString = 'INTERRUPTED';
                     updateLcdTexture(true);
                     triggerAutoResume();
@@ -1176,7 +1152,7 @@
             ledBlinking = blink;
         }
 
-        // --- 核心突破：省電與背景狀態管理 ---
+        // --- 省電與背景狀態管理 ---
         document.addEventListener('visibilitychange', () => {
             isPageVisible = !document.hidden;
             if (isPageVisible) {
@@ -1210,7 +1186,7 @@
             } catch (e) {}
         }
 
-        // MediaSession 通知欄完整控制（徹底修復通知欄暫停自動恢復的 BUG）
+        // MediaSession 通知欄控制
         if ('mediaSession' in navigator) {
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -1219,7 +1195,6 @@
                     album: '3D Retro Receiver'
                 });
 
-                // 通知欄點擊「播放」
                 navigator.mediaSession.setActionHandler('play', () => {
                     isUserPaused = false;
                     if (!isPlaying) {
@@ -1229,7 +1204,6 @@
                     }
                 });
 
-                // 通知欄點擊「暫停」
                 navigator.mediaSession.setActionHandler('pause', () => {
                     isUserPaused = true;
                     audio.pause();
@@ -1241,7 +1215,7 @@
             } catch (e) {}
         }
 
-        // --- 3D 渲染主迴圈 (帶可視性檢查，背景自動休眠) ---
+        // --- 3D 渲染主迴圈 ---
         let clock = new THREE.Clock();
         function animate() {
             if (!isPageVisible) return;
