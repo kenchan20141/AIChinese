@@ -364,8 +364,63 @@
         
         const audio = document.getElementById('radio-audio');
         const silenceAudio = document.getElementById('silence-audio');
-        // 極小長度的無聲音訊 Data URI（做為背景防休眠錨點）
-        silenceAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+        // 生成真實 5 秒長度、8000Hz 16bit 單聲道 PCM 靜音 Blob URL（確保安卓後台持久保留 AudioService WakeLock）
+        function createSilentWavBlobUrl() {
+            const sampleRate = 8000;
+            const durationSec = 5;
+            const numSamples = sampleRate * durationSec;
+            const buffer = new ArrayBuffer(44 + numSamples * 2);
+            const view = new DataView(buffer);
+            const writeStr = (offset, str) => {
+                for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+            };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, 36 + numSamples * 2, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM
+            view.setUint16(22, 1, true); // Mono
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeStr(36, 'data');
+            view.setUint32(40, numSamples * 2, true);
+            return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+        }
+
+        silenceAudio.src = createSilentWavBlobUrl();
+        silenceAudio.volume = 0.05; // 非 0 音量但 PCM 樣本全為 0，確保 Android OS 音效混音器識別為活動音軌而不休眠
+
+        // Web Audio API 內核級保活錨點
+        let audioCtx = null;
+        let silentSourceNode = null;
+        function initAudioContextAnchor() {
+            try {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!audioCtx && AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
+                if (audioCtx) {
+                    if (audioCtx.state === 'suspended') {
+                        audioCtx.resume();
+                    }
+                    if (!silentSourceNode) {
+                        const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+                        silentSourceNode = audioCtx.createBufferSource();
+                        silentSourceNode.buffer = buffer;
+                        silentSourceNode.loop = true;
+                        const gainNode = audioCtx.createGain();
+                        gainNode.gain.value = 0.001; // 完全無聲
+                        silentSourceNode.connect(gainNode);
+                        gainNode.connect(audioCtx.destination);
+                        silentSourceNode.start();
+                    }
+                }
+            } catch (e) {}
+        }
 
         const capsuleBtn = document.getElementById('capsule-btn');
         const capsuleLabel = document.getElementById('capsule-label');
@@ -594,16 +649,17 @@
         function updateLcdTexture(force = false) {
             if (!isPageVisible && !force) return;
 
-            lcdCtx.fillStyle = isPlaying ? '#86c466' : '#454f3d';
+            const isScreenLit = isPlaying && !isUserPaused && !audio.paused;
+            lcdCtx.fillStyle = isScreenLit ? '#86c466' : '#454f3d';
             lcdCtx.fillRect(0, 0, 512, 256);
             
-            lcdCtx.fillStyle = isPlaying ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.18)';
+            lcdCtx.fillStyle = isScreenLit ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.18)';
             for(let y=0; y<256; y+=4) {
                 lcdCtx.fillRect(0, y, 512, 1.5);
             }
 
             lcdCtx.font = 'bold 44px "Courier New", monospace';
-            lcdCtx.fillStyle = isPlaying ? '#102206' : '#232d1d';
+            lcdCtx.fillStyle = isScreenLit ? '#102206' : '#232d1d';
             lcdCtx.textAlign = 'center';
             lcdCtx.textBaseline = 'middle';
             
@@ -732,15 +788,18 @@
             
             const intersects = raycaster.intersectObjects([knobMesh, notchMesh, radioBody], true);
             if (intersects.length > 0) {
-                isUserPaused = false;
-                if (isPlaying) stopRadio();
-                else playRadio();
+                if (isPlaying && !isUserPaused && !audio.paused) {
+                    pauseRadio();
+                } else {
+                    isUserPaused = false;
+                    playRadio();
+                }
             }
         });
 
         let targetKnobAngle = 0;
         function updateKnobAnimation() {
-            targetKnobAngle = (isPlaying && !isUserPaused) ? -Math.PI / 2 : 0;
+            targetKnobAngle = (isPlaying && !isUserPaused && !audio.paused) ? -Math.PI / 2 : 0;
             knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
         }
 
@@ -895,12 +954,12 @@
                     const utterance = new SpeechSynthesisUtterance(ttsText);
                     utterance.lang = 'zh-HK';
                     utterance.rate = 1.2;
-                    utterance.onend = () => stopRadio();
-                    utterance.onerror = () => stopRadio();
+                    utterance.onend = () => stopRadio(true);
+                    utterance.onerror = () => stopRadio(true);
                     speechSynthesis.speak(utterance);
                     if (hls) { hls.destroy(); hls = null; }
                     audio.pause();
-                    setTimeout(() => { if (isShuttingDown) stopRadio(); }, 6000);
+                    setTimeout(() => { if (isShuttingDown) stopRadio(true); }, 6000);
                     return;
                 } catch (e) {}
             }
@@ -913,7 +972,7 @@
 
             function tryNextTTSUrl() {
                 if (urlIndex >= ttsUrls.length) {
-                    stopRadio();
+                    stopRadio(true);
                     return;
                 }
                 const currentUrl = ttsUrls[urlIndex++];
@@ -928,7 +987,7 @@
                 const onAudioEnded = () => {
                     audio.removeEventListener('ended', onAudioEnded);
                     audio.removeEventListener('error', onAudioError);
-                    stopRadio();
+                    stopRadio(true);
                 };
                 const onAudioError = () => {
                     audio.removeEventListener('ended', onAudioEnded);
@@ -951,13 +1010,16 @@
                 lastAudioCurrentTime = audio.currentTime;
                 lastTimeProgressStamp = now;
             } else {
-                if (now - lastTimeProgressStamp > 10000) {
+                if (now - lastTimeProgressStamp > 8000) {
                     lastTimeProgressStamp = now;
                     if (hls) {
                         try {
                             hls.recoverMediaError();
-                            hls.startLoad();
-                            if (hls.liveSyncPosition) audio.currentTime = hls.liveSyncPosition;
+                            hls.startLoad(-1);
+                            if (hls.liveSyncPosition && Number.isFinite(hls.liveSyncPosition)) {
+                                audio.currentTime = hls.liveSyncPosition;
+                            }
+                            audio.play().catch(() => {});
                         } catch(e) {
                             fallbackToSDStream();
                         }
@@ -973,7 +1035,7 @@
             if (!isPlaying || isShuttingDown || isUserPaused || !audio.paused) return;
             if (hls) {
                 try {
-                    hls.startLoad();
+                    hls.startLoad(-1);
                     if (hls.liveSyncPosition && Math.abs(audio.currentTime - hls.liveSyncPosition) > 5) {
                         audio.currentTime = hls.liveSyncPosition;
                     }
@@ -984,8 +1046,21 @@
                 updateLcdTexture(true);
                 setLedBlink(false);
                 lastTimeProgressStamp = Date.now();
-                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+                updateMediaSession('playing');
             }).catch(() => {});
+        }
+
+        // --- MediaSession 狀態更新器 ---
+        function updateMediaSession(state) {
+            if (!('mediaSession' in navigator)) return;
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: 'RTHK Radio 2',
+                    artist: state === 'playing' ? '香港電台第二台 (直播中)' : '香港電台第二台 (已暫停)',
+                    album: '3D Retro Receiver'
+                });
+                navigator.mediaSession.playbackState = state;
+            } catch (e) {}
         }
 
         // --- 播放器控制 (原生/HLS 雙軌極限穩定) ---
@@ -997,18 +1072,35 @@
             audio.playbackRate = 1.0;
             preloadTTS();
 
+            initAudioContextAnchor();
             silenceAudio.play().catch(() => {});
 
             statusString = 'TUNING...';
             updateLcdTexture(true);
             setLedState(true);
 
+            // 若管線已載入且未銷毀，直接恢復載入與播放
+            if (hls && hls.media === audio) {
+                try {
+                    hls.startLoad(-1);
+                    if (hls.liveSyncPosition && Number.isFinite(hls.liveSyncPosition)) {
+                        audio.currentTime = hls.liveSyncPosition;
+                    }
+                } catch(e) {}
+                audio.play().catch(handlePlayError);
+                updateMediaSession('playing');
+                return;
+            }
+
             if (isAppleDevice && audio.canPlayType('application/vnd.apple.mpegurl')) {
                 if (hls) { hls.destroy(); hls = null; }
                 audio.src = hqStreamUrl;
                 audio.play().catch(handlePlayError);
             } else if (Hls.isSupported()) {
-                if (hls) hls.destroy();
+                if (hls) {
+                    try { hls.destroy(); } catch(e) {}
+                    hls = null;
+                }
                 hls = new Hls({ 
                     enableWorker: true, 
                     lowLatencyMode: false,
@@ -1016,7 +1108,14 @@
                     maxMaxBufferLength: 120,
                     backBufferLength: 30,
                     liveSyncDurationCount: 5,
-                    liveMaxLatencyDurationCount: 12
+                    liveMaxLatencyDurationCount: 15,
+                    liveDurationInfinity: true,
+                    manifestLoadingTimeOut: 15000,
+                    manifestLoadingMaxRetry: 10,
+                    levelLoadingTimeOut: 15000,
+                    levelLoadingMaxRetry: 10,
+                    fragLoadingTimeOut: 20000,
+                    fragLoadingMaxRetry: 10
                 });
                 hls.loadSource(hqStreamUrl);
                 hls.attachMedia(audio);
@@ -1044,32 +1143,55 @@
             } else {
                 fallbackToSDStream();
             }
+            updateMediaSession('playing');
         }
 
         function fallbackToSDStream() {
             if (hls) { hls.destroy(); hls = null; }
             audio.src = sdStreamUrl;
             audio.play().catch(handlePlayError);
+            updateMediaSession('playing');
         }
 
-        function stopRadio() {
+        // 溫和暫停（不破壞管線，保證通知欄、耳機鍵隨時可立即點擊繼續運行）
+        function pauseRadio() {
+            clearTimeout(reconnectTimeout);
+            isUserPaused = true;
+            isPlaying = true;
+
+            if (hls) {
+                try { hls.stopLoad(); } catch(e) {}
+            }
+            audio.pause();
+            silenceAudio.pause();
+
+            statusString = 'PAUSED';
+            updateLcdTexture(true);
+            setLedBlink(true);
+            updateMediaSession('paused');
+        }
+
+        // 完全關機（僅在定時關機結束或徹底關閉時使用）
+        function stopRadio(fullShutDown = false) {
             clearTimeout(reconnectTimeout);
             isShuttingDown = false;
             isPlaying = false;
-            isUserPaused = false;
+            isUserPaused = fullShutDown ? false : true;
             
-            if (hls) { hls.destroy(); hls = null; }
-            audio.pause();
-            audio.removeAttribute('src');
-            audio.load();
-            audio.onended = null;
-            audio.playbackRate = 1.0;
-            silenceAudio.pause();
+            if (fullShutDown) {
+                if (hls) { hls.destroy(); hls = null; }
+                audio.pause();
+                audio.removeAttribute('src');
+                audio.load();
+                silenceAudio.pause();
+                updateMediaSession('none');
+            } else {
+                pauseRadio();
+            }
 
             statusString = 'RTHK 2 [OFF]';
             updateLcdTexture(true);
             setLedState(false);
-            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
         }
 
         function scheduleReconnect() {
@@ -1083,7 +1205,7 @@
                 if (isPlaying && !isShuttingDown && !isUserPaused) {
                     if (hls) {
                         hls.loadSource(hqStreamUrl);
-                        hls.startLoad();
+                        hls.startLoad(-1);
                         audio.play().catch(() => {});
                     } else {
                         playRadio();
@@ -1107,7 +1229,7 @@
                 statusString = (hls || audio.src.includes('m3u8')) ? 'LIVE [HQ]' : 'LIVE [SD]';
                 updateLcdTexture(true);
                 lastTimeProgressStamp = Date.now();
-                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+                updateMediaSession('playing');
             }
         });
 
@@ -1117,7 +1239,7 @@
                     statusString = 'PAUSED';
                     updateLcdTexture(true);
                     setLedBlink(true);
-                    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+                    updateMediaSession('paused');
                 } else {
                     statusString = 'INTERRUPTED';
                     updateLcdTexture(true);
@@ -1186,31 +1308,49 @@
             } catch (e) {}
         }
 
-        // MediaSession 通知欄控制
+        // --- MediaSession 通知欄與鎖屏完整控制（核心修復） ---
         if ('mediaSession' in navigator) {
             try {
-                navigator.mediaSession.metadata = new MediaMetadata({
-                    title: 'RTHK Radio 2',
-                    artist: '香港電台第二台',
-                    album: '3D Retro Receiver'
-                });
+                updateMediaSession('none');
 
                 navigator.mediaSession.setActionHandler('play', () => {
                     isUserPaused = false;
-                    if (!isPlaying) {
-                        playRadio();
+                    // 在使用者觸發的第一時間同步呼叫，確保取得瀏覽器許可權
+                    initAudioContextAnchor();
+                    silenceAudio.play().catch(() => {});
+
+                    if (hls && hls.media === audio) {
+                        try {
+                            hls.startLoad(-1);
+                            if (hls.liveSyncPosition && Number.isFinite(hls.liveSyncPosition)) {
+                                audio.currentTime = hls.liveSyncPosition;
+                            }
+                        } catch (e) {}
+                        audio.play().catch(() => playRadio());
+                        isPlaying = true;
+                        statusString = 'TUNING...';
+                        updateLcdTexture(true);
+                        setLedState(true);
+                        updateMediaSession('playing');
+                    } else if (audio.src) {
+                        audio.play().catch(() => playRadio());
+                        isPlaying = true;
+                        statusString = 'TUNING...';
+                        updateLcdTexture(true);
+                        setLedState(true);
+                        updateMediaSession('playing');
                     } else {
-                        audio.play().catch(() => {});
+                        playRadio();
                     }
                 });
 
                 navigator.mediaSession.setActionHandler('pause', () => {
-                    isUserPaused = true;
-                    audio.pause();
+                    pauseRadio();
                 });
 
                 navigator.mediaSession.setActionHandler('stop', () => {
-                    stopRadio();
+                    // 通知欄點擊停止時，執行溫和掛起並保持 paused 狀態，通知卡片不銷毀，隨時可按播放繼續
+                    pauseRadio();
                 });
             } catch (e) {}
         }
