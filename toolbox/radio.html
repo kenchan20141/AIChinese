@@ -358,23 +358,26 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        // --- 核心音訊流 (保持原始純淨 URL，杜絕 Akamai 403 異常) ---
+        // --- 核心音訊流 ---
         const hqStreamUrl = 'https://rthkaudio2-lh.akamaihd.net/i/radio2_1@355865/master.m3u8';
         const sdStreamUrl = 'https://stm.rthk.hk/radio2';
         
         const audio = document.getElementById('radio-audio');
         const silenceAudio = document.getElementById('silence-audio');
 
-        // 生成真實 5 秒長度、8000Hz 16bit 單聲道 PCM 靜音 Blob URL（確保 Android 後台 AudioTrack 保持喚醒）
-        function createSilentWavBlobUrl() {
+        // --- 防休眠第一重：生成符合 Chromium 活性檢測之次聲波（20Hz 極微振幅）PCM WAV ---
+        // 揚聲器物理無法發出 20Hz 聲音，但 Chromium AudioSilenceDetector 能測得微能量，保證不被判定為閒置凍結
+        function createAudibleKeepAliveWav() {
             const sampleRate = 8000;
-            const durationSec = 5;
-            const numSamples = sampleRate * durationSec;
+            const duration = 10;
+            const numSamples = sampleRate * duration;
             const buffer = new ArrayBuffer(44 + numSamples * 2);
             const view = new DataView(buffer);
+
             const writeStr = (offset, str) => {
                 for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
             };
+
             writeStr(0, 'RIFF');
             view.setUint32(4, 36 + numSamples * 2, true);
             writeStr(8, 'WAVE');
@@ -388,15 +391,23 @@
             view.setUint16(34, 16, true);
             writeStr(36, 'data');
             view.setUint32(40, numSamples * 2, true);
+
+            const freq = 20; // 20Hz 次聲波
+            const amplitude = 50; // 微能量振幅（人耳不可聞）
+            for (let i = 0; i < numSamples; i++) {
+                const sample = Math.sin(2 * Math.PI * freq * (i / sampleRate)) * amplitude;
+                view.setInt16(44 + i * 2, sample, true);
+            }
             return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
         }
 
-        silenceAudio.src = createSilentWavBlobUrl();
-        silenceAudio.volume = 0.05;
+        silenceAudio.src = createAudibleKeepAliveWav();
+        silenceAudio.volume = 0.5;
 
-        // Web Audio API 常駐靜音節點
+        // --- 防休眠第二重：Web Audio API 內核級常駐震盪節點 ---
         let audioCtx = null;
-        let silentSourceNode = null;
+        let keepAliveOsc = null;
+        let keepAliveGain = null;
         function initAudioContextAnchor() {
             try {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -407,19 +418,57 @@
                     if (audioCtx.state === 'suspended') {
                         audioCtx.resume();
                     }
-                    if (!silentSourceNode) {
-                        const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
-                        silentSourceNode = audioCtx.createBufferSource();
-                        silentSourceNode.buffer = buffer;
-                        silentSourceNode.loop = true;
-                        const gainNode = audioCtx.createGain();
-                        gainNode.gain.value = 0.001;
-                        silentSourceNode.connect(gainNode);
-                        gainNode.connect(audioCtx.destination);
-                        silentSourceNode.start();
+                    if (!keepAliveOsc) {
+                        keepAliveOsc = audioCtx.createOscillator();
+                        keepAliveOsc.type = 'sine';
+                        keepAliveOsc.frequency.value = 20;
+                        keepAliveGain = audioCtx.createGain();
+                        keepAliveGain.gain.value = 0.001; // 完全不可聞
+                        keepAliveOsc.connect(keepAliveGain);
+                        keepAliveGain.connect(audioCtx.destination);
+                        keepAliveOsc.start();
                     }
                 }
             } catch (e) {}
+        }
+
+        // --- 防休眠第三重：Web Locks API 持有分頁執行權，阻斷內存凍結 ---
+        let lockRelease = null;
+        function acquireWebLock() {
+            if ('locks' in navigator && !lockRelease) {
+                navigator.locks.request('rthk_playback_continuous_lock', { mode: 'shared' }, () => {
+                    return new Promise((resolve) => {
+                        lockRelease = resolve;
+                    });
+                }).catch(() => {});
+            }
+        }
+
+        function releaseWebLock() {
+            if (lockRelease) {
+                lockRelease();
+                lockRelease = null;
+            }
+        }
+
+        // --- 防休眠第四重：Screen Wake Lock API 螢幕喚醒支援 ---
+        let wakeLockObj = null;
+        async function requestScreenWakeLock() {
+            if ('wakeLock' in navigator && !wakeLockObj && isPlaying && !isUserPaused && !document.hidden) {
+                try {
+                    wakeLockObj = await navigator.wakeLock.request('screen');
+                    wakeLockObj.addEventListener('release', () => {
+                        wakeLockObj = null;
+                    });
+                } catch (e) {}
+            }
+        }
+
+        function releaseScreenWakeLock() {
+            if (wakeLockObj) {
+                wakeLockObj.release().catch(() => {});
+                wakeLockObj = null;
+            }
         }
 
         const capsuleBtn = document.getElementById('capsule-btn');
@@ -775,7 +824,7 @@
             }
         }
 
-        // --- 點擊本體或旋鈕開關機 (回歸第 1 版最純粹邏輯) ---
+        // --- 點擊本體或旋鈕開關機 ---
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
@@ -799,7 +848,7 @@
             knobGroup.rotation.z += (targetKnobAngle - knobGroup.rotation.z) * 0.15;
         }
 
-        // --- 背景高精度 Worker 心跳引擎 ---
+        // --- 防休眠第五重：背景高精度 Web Worker 心跳引擎 ---
         let bgWorker = null;
         function initBackgroundWorker() {
             if (bgWorker) return;
@@ -882,7 +931,7 @@
             closeTimerModal();
         });
 
-        // 取消定時，設定為「無限運作」
+        // 取消定時，設定為「無限運作（永不休眠）」
         btnCancelTimer.addEventListener('click', () => {
             targetSleepTime = null; // 無限運行，永不自動關閉
             timerString = 'SLEEP: OFF';
@@ -893,7 +942,7 @@
         });
 
         function checkSleepTimer() {
-            if (!targetSleepTime) return;
+            if (!targetSleepTime) return; // 未設定時間則絕對不休眠
 
             let now = Date.now();
             if (now >= targetSleepTime) {
@@ -1043,7 +1092,7 @@
             }).catch(() => {});
         }
 
-        // --- 播放器控制 (與第 1 版一致乾淨，重啟即實時，絕無舊音訊快取殘留) ---
+        // --- 播放器控制 (維持第 1 版純淨 URL 與自然即時直播連線) ---
         function playRadio() {
             clearTimeout(reconnectTimeout);
             isShuttingDown = false;
@@ -1052,7 +1101,10 @@
             audio.playbackRate = 1.0;
             preloadTTS();
 
+            // 啟動多維度防休眠錨點
             initAudioContextAnchor();
+            acquireWebLock();
+            requestScreenWakeLock();
             silenceAudio.play().catch(() => {});
 
             statusString = 'TUNING...';
@@ -1115,7 +1167,7 @@
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
         }
 
-        // 停止/關閉收音機（核心修復：在通知欄保留 paused 狀態，點擊播放即可重啟；定時關閉則徹底關閉）
+        // 停止/關閉收音機（定時關閉則徹底釋放防休眠鎖讓設備休眠；一般關閉則保留通知欄可重啟）
         function stopRadio(fullShutDown = false) {
             clearTimeout(reconnectTimeout);
             isShuttingDown = false;
@@ -1137,9 +1189,14 @@
             updateLcdTexture(true);
             setLedState(false);
 
-            if ('mediaSession' in navigator) {
-                // 若為定時關閉則徹底移除通知卡片，平常手動關閉/通知視窗停止則保留 paused 狀態，使播放鍵隨時可用
-                navigator.mediaSession.playbackState = fullShutDown ? 'none' : 'paused';
+            if (fullShutDown) {
+                // 定時時間到，釋放所有防休眠鎖定，允許設備進入省電休眠
+                releaseWebLock();
+                releaseScreenWakeLock();
+                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
+            } else {
+                // 平常手動關機或通知視窗停止，保持 paused 狀態，使播放按鈕可再次隨時啟動
+                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
             }
         }
 
@@ -1230,6 +1287,7 @@
                 clock.getDelta();
                 updateLcdTexture(true);
                 requestAnimationFrame(animate);
+                requestScreenWakeLock(); // 回到前台時補全螢幕喚醒鎖
                 
                 if (isPlaying && !isShuttingDown && !isUserPaused && audio.paused) {
                     triggerAutoResume();
@@ -1257,7 +1315,7 @@
             } catch (e) {}
         }
 
-        // --- MediaSession 通知欄與鎖屏控制 (修訂：停止後可再度在通知欄點擊播放) ---
+        // --- MediaSession 通知欄與鎖屏控制 (支援通知視窗暫停與無縫重啟) ---
         if ('mediaSession' in navigator) {
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -1268,18 +1326,17 @@
 
                 navigator.mediaSession.setActionHandler('play', () => {
                     isUserPaused = false;
-                    // 同步喚醒音訊許可權，隨後執行全新直播初始化
                     initAudioContextAnchor();
                     silenceAudio.play().catch(() => {});
                     playRadio();
                 });
 
                 navigator.mediaSession.setActionHandler('pause', () => {
-                    stopRadio();
+                    stopRadio(false);
                 });
 
                 navigator.mediaSession.setActionHandler('stop', () => {
-                    stopRadio();
+                    stopRadio(false);
                 });
             } catch (e) {}
         }
