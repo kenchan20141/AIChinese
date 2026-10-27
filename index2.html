@@ -27119,24 +27119,39 @@ let joystickAnimFrame = null;
  
 function startJoystickUI() {
     return new Promise(resolve => {
-        // ★ 檢查用戶身份，若是老師 (System)，直接豁免搖桿
         try {
             const s = JSON.parse(localStorage.getItem('studentProfile'));
-            if (s && s.grade === 'System') {
-                console.log("老師帳號，豁免搖桿等待。");
+            
+            // ★【鎖定名單】只有 3C 和 6A 需要轉圈圈
+            const requiredClasses = ['3C', '6A'];
+            
+            // 取得學生的班別（自動轉大寫，組合為 "3C" 或 "6A"）
+            const studentClass = (s && s.grade && s.class) 
+                ? `${s.grade}${s.class}`.toUpperCase() 
+                : null;
+
+            // 如果「不是」3C 或 6A，一律直接跳過搖桿！
+            if (!requiredClasses.includes(studentClass)) {
+                console.log(`非指定班級（${studentClass || '未登入/其他'}），免轉圈直接獲取結果。`);
                 resolve();
                 return;
             }
+
+            console.log(`目標班級 ${studentClass}，啟動搖桿。`);
+
         } catch (e) {
             console.error("讀取用戶資料失敗", e);
+            resolve();
+            return;
         }
+
         const overlay = document.getElementById('joystickOverlay');
         const counterText = document.getElementById('joystickCounter');
         
         // 確保外框是透明的
         const container = document.querySelector('#joystickOverlay > div');
         if (container) container.style.border = 'none';
- 
+
         if(overlay) overlay.style.display = 'flex';
         if(counterText) counterText.innerText = '0 / 50';
         
@@ -27149,6 +27164,7 @@ function startJoystickUI() {
         }
     });
 }
+	
 // ★★★ 強制等待 2 秒的邏輯 ★★★
 function resolveJoystick() {
     const overlay = document.getElementById('joystickOverlay');
