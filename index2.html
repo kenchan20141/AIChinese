@@ -11764,6 +11764,8 @@ refreshBtn.addEventListener('click', fetchHitokoto);
         <optgroup label="── 神思 Gemini ──" style="color: #d69a92; background-color: #fdf5f4; font-weight: 900;">
             <option value="stepComment" style="color: #455a64; background-color: #fff; font-weight: bold;">分步點評【中文】</option>
             <option value="stepCommentLit" style="color: #455a64; background-color: #fff; font-weight: bold;">分步點評【文學】</option>
+			 <!-- ★★★ 新增這一行 ★★★ -->
+    <option value="litAnswerGen" style="color: #455a64; background-color: #fff; font-weight: bold;">長題目答案生成【文學】</option>
         </optgroup>
     </select>
 </div>
@@ -13712,6 +13714,14 @@ function toggleReadingFunction() {
         document.getElementById("readingFunction").value = ""; 
         document.getElementById("readingInputArea").style.display = "none";
         return; 
+    }
+
+	    // ★★★ 加入以下這段 ★★★
+    if (readingFunction === "litAnswerGen") {
+        document.getElementById("litAnswerGenModal").style.display = "flex";
+        document.getElementById("readingFunction").value = "";
+        document.getElementById("readingInputArea").style.display = "none";
+        return;
     }
     // ==================================================
 
@@ -29457,6 +29467,279 @@ Step 1: 智能分析與嚴格評分
 
 
 
+
+
+// =======================================================
+// === [新增] 長題目答案生成【文學】視窗互動與跳轉邏輯 ===
+// =======================================================
+ 
+// 1. 閱讀篇章提供模式切換
+function selectLitGenPassageMode(mode, el) {
+    document.getElementById('litGenPassageMode').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+    
+    const inputSection = document.getElementById('litGenPassageInputSection');
+    const passageInput = document.getElementById('litGenPassageInput');
+    const templateSelect = document.getElementById('litGenPassageTemplateSelect');
+    
+    if (mode === 'template') {
+        inputSection.style.display = 'block';
+    } else {
+        inputSection.style.display = 'none';
+        passageInput.value = "";
+        templateSelect.value = "";
+    }
+}
+ 
+// 2. 輸出格式卡片切換
+function selectLitGenOutputMode(mode, el) {
+    document.getElementById('litGenOutputModeVal').value = mode;
+    const cards = el.parentElement.querySelectorAll('.gemini-ui-card');
+    cards.forEach(card => card.classList.remove('active'));
+    el.classList.add('active');
+}
+ 
+// 3. 篇章 OCR 呼叫
+function triggerLitGenPassageOCR() {
+    sessionStorage.setItem('sansi_current_editing_id', 'litGenPassageInput');
+    const ocrWindow = window.open('toolbox/ocr2.html?mode=text', 'OCRWindow', 'width=900,height=850,scrollbars=yes,resizable=yes');
+    if (ocrWindow) ocrWindow.focus();
+}
+ 
+// 4. 動態新增題目（上限 3 題）
+function addLitGenQuestion() {
+    const container = document.getElementById('litGenQuestionsContainer');
+    const rows = container.querySelectorAll('.lit-gen-q-row');
+    if (rows.length >= 3) {
+        alert("題目數量上限為 3 題！");
+        return;
+    }
+ 
+    const newIndex = rows.length + 1;
+    const row = document.createElement('div');
+    row.className = 'lit-gen-q-row';
+    row.setAttribute('data-q-index', newIndex);
+    row.style.cssText = "display: flex; gap: 8px; align-items: flex-start;";
+    row.innerHTML = `
+        <span style="font-size: 0.9rem; font-weight: bold; color: #8fa398; margin-top: 8px; width: 22px; flex-shrink: 0;">${newIndex}.</span>
+        <textarea class="no-modal-editor lit-gen-q-input" rows="3" placeholder="請在此輸入文學長題目..." style="flex: 1; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+        <button type="button" class="lit-gen-remove-btn" onclick="removeLitGenQuestion(this)" title="刪除此題" style="display: flex; background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; width: 32px; height: 32px; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer; margin-top: 5px; flex-shrink: 0; padding: 0;">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+    `;
+    container.appendChild(row);
+    updateLitGenQuestionsUI();
+}
+ 
+// 5. 刪除題目
+function removeLitGenQuestion(btn) {
+    const row = btn.closest('.lit-gen-q-row');
+    if (row) row.remove();
+    updateLitGenQuestionsUI();
+}
+ 
+// 6. 更新題目序號與刪除鍵狀態
+function updateLitGenQuestionsUI() {
+    const container = document.getElementById('litGenQuestionsContainer');
+    const rows = container.querySelectorAll('.lit-gen-q-row');
+    const countDisplay = document.getElementById('litGenQuestionCount');
+    const addBtn = document.getElementById('litGenAddQuestionBtn');
+ 
+    countDisplay.textContent = `(${rows.length}/3)`;
+    addBtn.style.opacity = rows.length >= 3 ? "0.4" : "1";
+    addBtn.style.pointerEvents = rows.length >= 3 ? "none" : "auto";
+ 
+    rows.forEach((r, idx) => {
+        r.querySelector('span').textContent = `${idx + 1}.`;
+        const removeBtn = r.querySelector('.lit-gen-remove-btn');
+        // 只有 1 題時隱藏刪除鍵，超過 1 題時顯示
+        if (removeBtn) {
+            removeBtn.style.display = rows.length > 1 ? "flex" : "none";
+        }
+    });
+}
+ 
+// 7. 初始化文學範文庫下拉清單
+document.addEventListener('DOMContentLoaded', function() {
+    const litGenPassageSelect = document.getElementById('litGenPassageTemplateSelect');
+    if (litGenPassageSelect && typeof literatureLibrary !== 'undefined') {
+        literatureLibrary.forEach(text => {
+            const option = document.createElement('option');
+            option.value = text.content;
+            option.textContent = text.title;
+            litGenPassageSelect.appendChild(option);
+        });
+    }
+});
+ 
+// 8. 核心：組裝潤飾後的專業 Prompt 並跳轉 Gemini
+function submitToLitAnswerGen() {
+    const passageInput = document.getElementById('litGenPassageInput').value.trim();
+    const outputMode = document.getElementById('litGenOutputModeVal').value;
+    const qInputs = document.querySelectorAll('.lit-gen-q-input');
+    
+    // 收集所有有效題目
+    const questions = [];
+    qInputs.forEach((input, i) => {
+        const text = input.value.trim();
+        if (text) questions.push({ index: i + 1, text: text });
+    });
+ 
+    if (questions.length === 0) {
+        alert("請至少輸入一道題目！");
+        return;
+    }
+ 
+    let questionsBlock = questions.map(q => `【題目 ${q.index}】\n${q.text}`).join('\n\n');
+ 
+    // ★★★ 經過深思與權威潤飾的 DSE 文學星級示範答案 Prompt ★★★
+    let finalPrompt = `
+# Role and Objective
+你是一位香港中學文憑試（DSE）中國文學科資深閱卷員及星級名師。
+你的任務是針對學生提供的「長題目」，嚴格依據 DSE 文學科 5** 滿分典範標準，撰寫結構嚴整、推論縝密、文筆雅贍的高分示範答案。答案旨在為高中學生提供深度溫習與答題框架的範例。
+ 
+---
+ 
+# Core Architectural & Pedagogical Rules (答題架構核心鐵律)
+ 
+### 1. 經典論證四部曲（核心內在邏輯閉環）
+答案中的每一個核心論點段落，其內在邏輯必須嚴格貫徹「四步演繹」：
+1. **主題句（核心立論）**：一針見血概括本段的審美論點、手法特點或情感指向，提綱挈領。
+2. **原文引錄**：準確徵引篇章文言原文或關鍵詩句作為不容置疑的文本依據。
+3. **語譯與字詞拆解**：以流暢自然的現代書面語（**必須採用第三人稱客觀轉述**，如「作者」、「詩人」、「詞人」，切忌自稱「我」）將原文涵義具體意譯，闡明字底意蘊。
+4. **深刻具體闡釋**：深度剖析手法之精妙、情感之昇華、景物與情志的交融或歷史興亡的寄託。闡釋必須具體透徹，字字扣緊該段主題句，達成毫無破綻的論證閉環。
+ 
+### 2. 【嚴禁標籤化與小標題】（寫成純正文學段落）
+- **絕對禁止**在答案中出現任何形式的標籤小標題，嚴禁寫出：「【主題句】」、「主題句：」、「原文：」、「語譯：」、「闡釋：」、「分析：」等生硬字眼！
+- 所有的主題句、原文、語譯與闡釋，必須渾然一體地融合在**連貫、流暢、一氣呵成的典雅散文段落**之中。
+ 
+### 3. 分值與段落/論點嚴格對應機制（因分設段）
+若題目中已標明分值，或依據 DSE 文學科評分慣例，必須嚴格按照以下標準安排篇幅與分段：
+- **【3 分題】**：標準為 **2 段** 論述；或撰寫成 **1 個極為飽滿詳盡之長段**（包含兩組緊密相扣的原文、語譯及層層深入之闡釋）。
+- **【4 分題】**：**強制分為 2 個獨立段落**，分別代表 2 個層次分明、角度互異的核心論點（例如：遠景與近景對比、今昔對比；或兩個不同角度的情感感慨）。
+- **【6 分題】**：**強制分為 3 個獨立段落**（代表 3 個獨立面向的深層剖析）。
+  - *若為立場題或比較題（如：你較欣賞何者手法？）*：
+    - **第一、二段**：堅定確立所選立場，分從兩個不同維度/層次進行深度論證與文本賞析。
+    - **第三段（比較駁論/反襯段）**：必須深入分析另一作品或另一手法，具體指出其何以相對平直、受限或不及所選作品之精妙，形成客觀嚴密的雙向對照與反襯，使立論堅不可摧。
+ 
+### 4. 格式純淨度規範
+- 答案應採用「**題目 ➔ 答案段落**」清晰列出。不需印出「問題：」或「答案：」之標籤。
+- 標點符號必須合乎中文語法標準（嚴格使用中文上下引號「」）。
+- 嚴禁在文字中出現無意義的系統指令註釋。
+`;
+ 
+    // --- 根據輸出格式注入模板 ---
+    if (outputMode === 'html') {
+        finalPrompt += `
+# HTML Output Generation
+**你必須使用 Python 輸出單一 HTML 實體檔案代碼。**
+ 
+### HTML 檔案內容模板 (原稿紙美學排版)：
+請在 Python 代碼中宣告包含以下結構的字串，將生成的問答內容填入，並保存為 HTML 檔案供下載：
+ 
+\`\`\`html
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>DSE 中國文學長題目典範答案</title>
+   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+   <style>
+       body { font-family: 'Noto Serif TC', serif; background-color: #f5f5f3; color: #333; padding: 25px; max-width: 900px; margin: 0 auto; line-height: 1.8; }
+       .title-text { font-size: 2.2rem; color: #2A9689; text-align: center; margin-bottom: 30px; font-weight: bold; border-bottom: 2px dashed #a8dad5; padding-bottom: 15px; }
+       .box { background: rgba(255, 255, 255, 0.96); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 35px; margin-bottom: 30px; }
+       .question-badge { display: inline-block; background-color: #e8f5e9; color: #2e7d32; font-weight: bold; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; margin-bottom: 12px; }
+       .question-title { font-size: 1.25rem; font-weight: bold; color: #2c3e50; line-height: 1.5; margin-bottom: 20px; border-left: 4px solid #2A9689; padding-left: 12px; }
+       .answer-container { background-color: #fffcf6; border: 1px solid #8baea8; border-radius: 8px; padding: 25px; line-height: 40px; font-size: 18px; color: #2c3e50; background-image: linear-gradient(transparent 39px, rgba(42, 150, 137, 0.15) 39px, rgba(42, 150, 137, 0.15) 40px, transparent 40px); background-size: 100% 40px; text-align: justify; }
+       .answer-container p { margin-bottom: 40px; margin-top: 0; text-indent: 2em; }
+       .answer-container p:last-child { margin-bottom: 0; }
+       @media (max-width: 600px) {
+           body { padding: 15px; }
+           .box { padding: 20px; }
+           .answer-container { font-size: 16px; line-height: 32px; background-size: 100% 32px; padding: 15px; background-image: linear-gradient(transparent 31px, rgba(42, 150, 137, 0.15) 31px, rgba(42, 150, 137, 0.15) 32px, transparent 32px); }
+           .answer-container p { margin-bottom: 32px; }
+       }
+   </style>
+</head>
+<body>
+   <div class="title-text">DSE 中國文學長題目典範答案</div>
+   
+   <!-- 針對每道題目生成一個 .box 區塊 -->
+   <div class="box">
+       <span class="question-badge">題目 1</span>
+       <div class="question-title">[題目完整字句]</div>
+       <div class="answer-container">
+           <!-- 依據題目分值生成嚴整段落（無標籤、純典範文字） -->
+           <p>[典範段落一：主題句 + 原文 + 語譯 + 深入闡釋]</p>
+           <p>[典範段落二：主題句 + 原文 + 語譯 + 深入闡釋]</p>
+       </div>
+   </div>
+</body>
+</html>
+\`\`\`
+`;
+    } else if (outputMode === 'text') {
+        finalPrompt += `
+# 文字輸出指令
+**請直接在對話框中以純文字 / Markdown 格式輸出所有問答內容，不需要生成實體檔案。**
+ 
+### 格式模板：
+**【DSE 中國文學長題目典範答案】**
+ 
+#### 📌 題目一：[題目文字]
+[典範段落一：緊扣「主題句+原文+語譯+闡釋」，無標籤小標題]
+ 
+[典範段落二：緊扣「主題句+原文+語譯+闡釋」，無標籤小標題]
+ 
+---
+`;
+    } else {
+        // DOCX Output
+        finalPrompt += `
+# Python DOCX Output Generation (生成實體檔案最高指令)
+**你必須使用 Code Interpreter 在後台執行 python-docx 生成 /mnt/data/literature_answers.docx 並提供下載連結。**
+1. 每一道大題以粗體大字（14pt）標明題號與題目文字，並設定段後間距 12pt。
+2. 答案正文使用 12pt 字體，每段首行縮排 2 字符（首行縮排 24pt），段落行距 1.5 倍，段後留空 10pt。
+3. 嚴格禁止輸出任何「【主題句】」、「原文：」等標籤字眼，純粹輸出自然流暢的高分段落。
+`;
+    }
+ 
+    // --- 注入篇章與題目 ---
+    finalPrompt += `\n\n=== 📚 閱讀篇章來源 ===\n`;
+    if (passageInput !== "") {
+        finalPrompt += `${passageInput}\n\n`;
+    } else {
+        finalPrompt += `(篇章請見隨後上傳之附件圖片 / PDF / 文件，或為 DSE 必考文學指定篇章，請從文學知識庫精確調用)\n\n`;
+    }
+ 
+    finalPrompt += `=== 📝 待解答文學長題目 ===\n${questionsBlock}\n\n`;
+ 
+    if (outputMode === 'html') {
+        finalPrompt += "不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。";
+    } else if (outputMode === 'docx') {
+        finalPrompt += "不要輸出「.py」的檔案，必須直接輸出.DOCX檔\n不要輸出「.py」的檔案，必須直接輸出.DOCX檔";
+    }
+ 
+    // 複製到剪貼簿並跳轉 Gemini
+    navigator.clipboard.writeText(finalPrompt).then(() => {
+        const isAppleDevice = /Macintosh|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (isAppleDevice) {
+            window.location.href = "https://gemini.google.com/app";
+        } else {
+            safeOpenGem("https://gemini.google.com/app");
+        }
+    }).catch(err => {
+        alert("複製指令失敗，請手動複製。");
+        console.error(err);
+    });
+}
+
+	
+
+
 // ==================================================
 // === [新增] 分步點評【中文】視窗處理邏輯 ===
 // ==================================================
@@ -31120,6 +31403,96 @@ document.addEventListener('DOMContentLoaded', function() {
             <button onclick="document.getElementById('editProfileModal').style.display='none'" class="morandi-btn btn-gray" style="flex: 1; padding: 10px; border-radius: 50px;">取消</button>
             <button onclick="confirmEditProfile(this)" class="morandi-btn" style="flex: 1; padding: 10px; background-color: #94a7b5; color: white; box-shadow: 0 4px 10px rgba(148, 167, 181, 0.4); border-radius: 50px;">儲存更新</button>
         </div>
+    </div>
+</div>
+
+
+	<!-- === [新增] 長題目答案生成【文學】專用視窗 (Gemini) === -->
+<div id="litAnswerGenModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
+    
+    <div class="morandi-modal-card" style="width: 90%; max-width: 520px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
+        
+        <!-- 標題列 (含 HTML 閱覽器按鈕及關閉鍵) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed #a8dad5; padding-bottom: 10px;">
+            <span style="color: #2A9689; font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">長題目答案生成【文學】</span>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button onclick="window.open('toolbox/html.html', '_blank')" title="開啟 HTML 閱覽器" style="background: transparent; border: none; color: #8fa398; cursor: pointer; padding: 0; display: flex; align-items: center; transition: color 0.3s;" onmouseover="this.style.color='#2A9689'" onmouseout="this.style.color='#8fa398'">
+                    <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                </button>
+                <button onclick="document.getElementById('litAnswerGenModal').style.display='none'" style="background: transparent; border: none; font-size: 1.5rem; color: #888; cursor: pointer; padding: 0;">&times;</button>
+            </div>
+        </div>
+ 
+        <!-- ★ 1. 閱讀篇章來源 (預設選中「選擇指定範文」) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">閱讀篇章</label>
+        <div class="gemini-ui-grid grid-2" style="margin-top: 5px; margin-bottom: 15px;">
+            <div class="gemini-ui-card active" onclick="selectLitGenPassageMode('template', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                <span style="font-size: 0.85rem;">選擇指定範文</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectLitGenPassageMode('attach', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span style="font-size: 0.85rem;">稍後上傳附件</span>
+            </div>
+        </div>
+        <input type="hidden" id="litGenPassageMode" value="template">
+ 
+        <!-- 篇章下拉選單與文字框 (預設顯示) -->
+        <div id="litGenPassageInputSection" style="display: block; margin-bottom: 25px;">
+            <select id="litGenPassageTemplateSelect" class="no-modal-editor" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; font-size: 0.95rem; outline: none; background-color: #fcfdfd; cursor: pointer;" onchange="if(this.value) document.getElementById('litGenPassageInput').value = this.value;">
+                <option value="">選擇範文（或自訂輸入）</option>
+            </select>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 5px;">
+                <textarea id="litGenPassageInput" class="no-modal-editor" rows="4" placeholder="請選擇上方範文，或在此貼上自訂篇章內容..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+                <button class="btn-action" style="background-color: #17a2b8; padding: 4px 12px; font-size: 0.8rem; margin: 0; border-radius: 4px;" onclick="triggerLitGenPassageOCR()">
+                    <i class="fas fa-camera"></i> OCR
+                </button>
+            </div>
+        </div>
+ 
+        <!-- ★ 2. 題目動態增減區 (上限 3 題，純文字輸入，SVG +/- 圖標) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">
+                輸入題目 <span id="litGenQuestionCount" style="font-size: 0.8rem; color: #8fa398; font-weight: normal;">(1/3)</span>
+            </label>
+            <button type="button" id="litGenAddQuestionBtn" onclick="addLitGenQuestion()" title="新增題目" style="background: #e8f5e9; border: 1px solid #c8e6c9; color: #2e7d32; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; padding: 0;">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+        </div>
+ 
+        <div id="litGenQuestionsContainer" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px;">
+            <!-- 預設第 1 題 -->
+            <div class="lit-gen-q-row" data-q-index="1" style="display: flex; gap: 8px; align-items: flex-start;">
+                <span style="font-size: 0.9rem; font-weight: bold; color: #8fa398; margin-top: 8px; width: 22px; flex-shrink: 0;">1.</span>
+                <textarea class="no-modal-editor lit-gen-q-input" rows="3" placeholder="請在此輸入文學長題目（建議包含題目分值，例如：...抒發了怎樣的感情？(3分)）" style="flex: 1; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
+                <button type="button" class="lit-gen-remove-btn" onclick="removeLitGenQuestion(this)" title="刪除此題" style="display: none; background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; width: 32px; height: 32px; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer; margin-top: 5px; flex-shrink: 0; padding: 0;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+            </div>
+        </div>
+ 
+        <!-- ★ 3. 輸出格式 (三選一卡片) -->
+        <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">輸出格式</label>
+        <div class="gemini-ui-grid grid-3" style="margin-top: 5px; margin-bottom: 25px;">
+            <div class="gemini-ui-card active" onclick="selectLitGenOutputMode('docx', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><text x="8" y="16" font-family="sans-serif" font-size="7" font-weight="bold" stroke="none" fill="currentColor">DOC</text></svg>
+                <span style="font-size: 0.8rem;">DOCX</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectLitGenOutputMode('html', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                <span style="font-size: 0.8rem;">HTML</span>
+            </div>
+            <div class="gemini-ui-card" onclick="selectLitGenOutputMode('text', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                <span style="font-size: 0.8rem;">純文字</span>
+            </div>
+        </div>
+        <input type="hidden" id="litGenOutputModeVal" value="docx">
+ 
+        <!-- 送出按鈕 -->
+        <button onclick="submitToLitAnswerGen()" class="btn-action" style="width: 100%; padding: 12px; background-color: #8fa398; font-size: 1.1rem; justify-content: center; box-shadow: 0 4px 10px rgba(143, 163, 152, 0.4);">
+            <i class="fas fa-magic" style="margin-right: 8px;"></i> 複製指令並跳轉
+        </button>
     </div>
 </div>
 	
