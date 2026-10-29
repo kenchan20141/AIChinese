@@ -29508,55 +29508,73 @@ function triggerLitGenPassageOCR() {
     if (ocrWindow) ocrWindow.focus();
 }
  
-// 4. 動態新增題目（上限 3 題）
+// =======================================================
+// === [修訂版] 長題目答案生成【文學】（支援獨立分數） ===
+// =======================================================
+ 
+// 1. 動態新增題目卡片（包含獨立分數選單）
 function addLitGenQuestion() {
     const container = document.getElementById('litGenQuestionsContainer');
-    const rows = container.querySelectorAll('.lit-gen-q-row');
-    if (rows.length >= 3) {
+    const cards = container.querySelectorAll('.lit-gen-q-card');
+    if (cards.length >= 3) {
         alert("題目數量上限為 3 題！");
         return;
     }
  
-    const newIndex = rows.length + 1;
-    const row = document.createElement('div');
-    row.className = 'lit-gen-q-row';
-    row.setAttribute('data-q-index', newIndex);
-    row.style.cssText = "display: flex; gap: 8px; align-items: flex-start;";
-    row.innerHTML = `
-        <span style="font-size: 0.9rem; font-weight: bold; color: #8fa398; margin-top: 8px; width: 22px; flex-shrink: 0;">${newIndex}.</span>
-        <textarea class="no-modal-editor lit-gen-q-input" rows="3" placeholder="請在此輸入文學長題目..." style="flex: 1; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
-        <button type="button" class="lit-gen-remove-btn" onclick="removeLitGenQuestion(this)" title="刪除此題" style="display: flex; background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; width: 32px; height: 32px; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer; margin-top: 5px; flex-shrink: 0; padding: 0;">
-            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        </button>
+    const newIndex = cards.length + 1;
+    const card = document.createElement('div');
+    card.className = 'lit-gen-q-card';
+    card.setAttribute('data-q-index', newIndex);
+    card.style.cssText = "background: #fff; border: 1px solid #e0ddd7; border-radius: 8px; padding: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);";
+    
+    card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span class="lit-gen-q-label" style="font-size: 0.95rem; font-weight: bold; color: #2A9689;">題目 ${newIndex}</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span style="font-size: 0.85rem; color: #777;">滿分：</span>
+                    <select class="no-modal-editor lit-gen-score-select" style="padding: 3px 8px; border: 1px solid #8fa398; border-radius: 6px; font-weight: bold; color: #2A9689; background: #f0fdfc; font-size: 0.85rem; outline: none; cursor: pointer;">
+                        <option value="2">2 分</option>
+                        <option value="3" selected>3 分</option>
+                        <option value="4">4 分</option>
+                        <option value="5">5 分</option>
+                        <option value="6">6 分</option>
+                    </select>
+                </div>
+                <button type="button" class="lit-gen-remove-btn" onclick="removeLitGenQuestion(this)" title="刪除此題" style="display: flex; background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer; padding: 0;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+            </div>
+        </div>
+        <textarea class="no-modal-editor lit-gen-q-input" rows="3" placeholder="請在此輸入文學長題目..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
     `;
-    container.appendChild(row);
+    container.appendChild(card);
     updateLitGenQuestionsUI();
 }
  
-// 5. 刪除題目
+// 2. 刪除題目卡片
 function removeLitGenQuestion(btn) {
-    const row = btn.closest('.lit-gen-q-row');
-    if (row) row.remove();
+    const card = btn.closest('.lit-gen-q-card');
+    if (card) card.remove();
     updateLitGenQuestionsUI();
 }
  
-// 6. 更新題目序號與刪除鍵狀態
+// 3. 更新題目編號、刪除按鈕及計數
 function updateLitGenQuestionsUI() {
     const container = document.getElementById('litGenQuestionsContainer');
-    const rows = container.querySelectorAll('.lit-gen-q-row');
+    const cards = container.querySelectorAll('.lit-gen-q-card');
     const countDisplay = document.getElementById('litGenQuestionCount');
     const addBtn = document.getElementById('litGenAddQuestionBtn');
  
-    countDisplay.textContent = `(${rows.length}/3)`;
-    addBtn.style.opacity = rows.length >= 3 ? "0.4" : "1";
-    addBtn.style.pointerEvents = rows.length >= 3 ? "none" : "auto";
+    countDisplay.textContent = `(${cards.length}/3)`;
+    addBtn.style.opacity = cards.length >= 3 ? "0.4" : "1";
+    addBtn.style.pointerEvents = cards.length >= 3 ? "none" : "auto";
  
-    rows.forEach((r, idx) => {
-        r.querySelector('span').textContent = `${idx + 1}.`;
-        const removeBtn = r.querySelector('.lit-gen-remove-btn');
-        // 只有 1 題時隱藏刪除鍵，超過 1 題時顯示
+    cards.forEach((c, idx) => {
+        c.querySelector('.lit-gen-q-label').textContent = `題目 ${idx + 1}`;
+        const removeBtn = c.querySelector('.lit-gen-remove-btn');
         if (removeBtn) {
-            removeBtn.style.display = rows.length > 1 ? "flex" : "none";
+            removeBtn.style.display = cards.length > 1 ? "flex" : "none";
         }
     });
 }
@@ -29574,17 +29592,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
  
-// 8. 核心：組裝潤飾後的專業 Prompt 並跳轉 Gemini
+// 4. 提交與精準 Prompt 生成（已依據設定分數硬性綁定段落架構）
 function submitToLitAnswerGen() {
     const passageInput = document.getElementById('litGenPassageInput').value.trim();
     const outputMode = document.getElementById('litGenOutputModeVal').value;
-    const qInputs = document.querySelectorAll('.lit-gen-q-input');
+    const cards = document.querySelectorAll('.lit-gen-q-card');
     
-    // 收集所有有效題目
+    // 提取題目與其對應的分數
     const questions = [];
-    qInputs.forEach((input, i) => {
-        const text = input.value.trim();
-        if (text) questions.push({ index: i + 1, text: text });
+    cards.forEach((card, i) => {
+        const text = card.querySelector('.lit-gen-q-input').value.trim();
+        const score = card.querySelector('.lit-gen-score-select').value;
+        if (text) {
+            questions.push({ index: i + 1, text: text, score: score });
+        }
     });
  
     if (questions.length === 0) {
@@ -29592,45 +29613,57 @@ function submitToLitAnswerGen() {
         return;
     }
  
-    let questionsBlock = questions.map(q => `【題目 ${q.index}】\n${q.text}`).join('\n\n');
+    // 將每道題目的分值清晰標記至待回答清單
+    let questionsBlock = questions.map(q => `【題目 ${q.index}】（指定滿分：${q.score} 分）\n${q.text}`).join('\n\n');
  
-    // ★★★ 經過深思與權威潤飾的 DSE 文學星級示範答案 Prompt ★★★
     let finalPrompt = `
 # Role and Objective
 你是一位香港中學文憑試（DSE）中國文學科資深閱卷員及星級名師。
-你的任務是針對學生提供的「長題目」，嚴格依據 DSE 文學科 5** 滿分典範標準，撰寫結構嚴整、推論縝密、文筆雅贍的高分示範答案。答案旨在為高中學生提供深度溫習與答題框架的範例。
+你的任務是針對學生提供的「長題目」及其「指定分值」，嚴格依據 DSE 文學科 5** 滿分典範標準，撰寫結構嚴整、推論縝密、文筆雅贍的高分示範答案。
  
 ---
  
-# Core Architectural & Pedagogical Rules (答題架構核心鐵律)
- 
-### 1. 經典論證四部曲（核心內在邏輯閉環）
+# Core Pedagogical Rules (答題論證四部曲)
 答案中的每一個核心論點段落，其內在邏輯必須嚴格貫徹「四步演繹」：
 1. **主題句（核心立論）**：一針見血概括本段的審美論點、手法特點或情感指向，提綱挈領。
 2. **原文引錄**：準確徵引篇章文言原文或關鍵詩句作為不容置疑的文本依據。
 3. **語譯與字詞拆解**：以流暢自然的現代書面語（**必須採用第三人稱客觀轉述**，如「作者」、「詩人」、「詞人」，切忌自稱「我」）將原文涵義具體意譯，闡明字底意蘊。
 4. **深刻具體闡釋**：深度剖析手法之精妙、情感之昇華、景物與情志的交融或歷史興亡的寄託。闡釋必須具體透徹，字字扣緊該段主題句，達成毫無破綻的論證閉環。
  
-### 2. 【嚴禁標籤化與小標題】（寫成純正文學段落）
+**【嚴禁標籤化與小標題】**：
 - **絕對禁止**在答案中出現任何形式的標籤小標題，嚴禁寫出：「【主題句】」、「主題句：」、「原文：」、「語譯：」、「闡釋：」、「分析：」等生硬字眼！
 - 所有的主題句、原文、語譯與闡釋，必須渾然一體地融合在**連貫、流暢、一氣呵成的典雅散文段落**之中。
  
-### 3. 分值與段落/論點嚴格對應機制（因分設段）
-若題目中已標明分值，或依據 DSE 文學科評分慣例，必須嚴格按照以下標準安排篇幅與分段：
-- **【3 分題】**：標準為 **2 段** 論述；或撰寫成 **1 個極為飽滿詳盡之長段**（包含兩組緊密相扣的原文、語譯及層層深入之闡釋）。
-- **【4 分題】**：**強制分為 2 個獨立段落**，分別代表 2 個層次分明、角度互異的核心論點（例如：遠景與近景對比、今昔對比；或兩個不同角度的情感感慨）。
-- **【6 分題】**：**強制分為 3 個獨立段落**（代表 3 個獨立面向的深層剖析）。
-  - *若為立場題或比較題（如：你較欣賞何者手法？）*：
+---
+ 
+# 分數與段落架構絕對對應表（必須嚴格按照題目設定的分數排定段落）
+ 
+每一道題目用家都已明確指定了分值（2分 至 6分），你必須依照以下精準規則決定該題答案的段落數與結構：
+ 
+- **【2 分題】**：
+  - **強制輸出 1 個精煉段落**。
+  - 結構為：單一清晰主題句 ➔ 精準引錄關鍵原文 ➔ 簡要客觀語譯 ➔ 具體闡釋。
+  
+- **【3 分題】**：
+  - **標準為 2 個段落**（分從兩個面向論述）；或 **1 個極為飽滿詳盡之長段**（包含兩組緊密相扣的原文、語譯及層層深入之闡釋）。
+  
+- **【4 分題】**：
+  - **強制分為 2 個獨立段落**（對應 2 大核心論點/角度，如：空間遠近對比、今昔對比；或兩種不同層次的情感）。
+  - 每段各自具備完整的主題句、原文引錄、語譯及深入闡釋。
+  
+- **【5 分題】**：
+  - **強制分為 2 至 3 個段落**。
+  - 通常為 2 個論點極為厚實的大段（深入分析手法及意境），或 3 個層次清晰的獨立論點段落。
+  
+- **【6 分題】**：
+  - **強制分為 3 個獨立段落**（代表 3 個獨立面向的深層剖析或 3 個完整論點）。
+  - **【若屬比較題 / 立場賞析題】**（例如「兩篇手法不同，你較欣賞何者？」）：
     - **第一、二段**：堅定確立所選立場，分從兩個不同維度/層次進行深度論證與文本賞析。
     - **第三段（比較駁論/反襯段）**：必須深入分析另一作品或另一手法，具體指出其何以相對平直、受限或不及所選作品之精妙，形成客觀嚴密的雙向對照與反襯，使立論堅不可摧。
  
-### 4. 格式純淨度規範
-- 答案應採用「**題目 ➔ 答案段落**」清晰列出。不需印出「問題：」或「答案：」之標籤。
-- 標點符號必須合乎中文語法標準（嚴格使用中文上下引號「」）。
-- 嚴禁在文字中出現無意義的系統指令註釋。
+---
 `;
  
-    // --- 根據輸出格式注入模板 ---
     if (outputMode === 'html') {
         finalPrompt += `
 # HTML Output Generation
@@ -29652,6 +29685,7 @@ function submitToLitAnswerGen() {
        .title-text { font-size: 2.2rem; color: #2A9689; text-align: center; margin-bottom: 30px; font-weight: bold; border-bottom: 2px dashed #a8dad5; padding-bottom: 15px; }
        .box { background: rgba(255, 255, 255, 0.96); border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); padding: 35px; margin-bottom: 30px; }
        .question-badge { display: inline-block; background-color: #e8f5e9; color: #2e7d32; font-weight: bold; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; margin-bottom: 12px; }
+       .question-score { display: inline-block; background-color: #f0fdfc; color: #2A9689; border: 1px solid #8baea8; font-weight: bold; padding: 3px 10px; border-radius: 6px; font-size: 0.85rem; margin-left: 8px; }
        .question-title { font-size: 1.25rem; font-weight: bold; color: #2c3e50; line-height: 1.5; margin-bottom: 20px; border-left: 4px solid #2A9689; padding-left: 12px; }
        .answer-container { background-color: #fffcf6; border: 1px solid #8baea8; border-radius: 8px; padding: 25px; line-height: 40px; font-size: 18px; color: #2c3e50; background-image: linear-gradient(transparent 39px, rgba(42, 150, 137, 0.15) 39px, rgba(42, 150, 137, 0.15) 40px, transparent 40px); background-size: 100% 40px; text-align: justify; }
        .answer-container p { margin-bottom: 40px; margin-top: 0; text-indent: 2em; }
@@ -29667,14 +29701,12 @@ function submitToLitAnswerGen() {
 <body>
    <div class="title-text">DSE 中國文學長題目典範答案</div>
    
-   <!-- 針對每道題目生成一個 .box 區塊 -->
    <div class="box">
        <span class="question-badge">題目 1</span>
-       <div class="question-title">[題目完整字句]</div>
+       <span class="question-score">[X 分]</span>
+       <div class="question-title">[題目文字]</div>
        <div class="answer-container">
-           <!-- 依據題目分值生成嚴整段落（無標籤、純典範文字） -->
-           <p>[典範段落一：主題句 + 原文 + 語譯 + 深入闡釋]</p>
-           <p>[典範段落二：主題句 + 原文 + 語譯 + 深入闡釋]</p>
+           <p>[依據分值嚴格輸出的段落，無標籤純文字]</p>
        </div>
    </div>
 </body>
@@ -29684,12 +29716,12 @@ function submitToLitAnswerGen() {
     } else if (outputMode === 'text') {
         finalPrompt += `
 # 文字輸出指令
-**請直接在對話框中以純文字 / Markdown 格式輸出所有問答內容，不需要生成實體檔案。**
+請直接在對話框中以純文字 / Markdown 格式輸出所有問答內容，不需要生成實體檔案。
  
 ### 格式模板：
 **【DSE 中國文學長題目典範答案】**
  
-#### 📌 題目一：[題目文字]
+#### 📌 題目一：（[X]分）[題目文字]
 [典範段落一：緊扣「主題句+原文+語譯+闡釋」，無標籤小標題]
  
 [典範段落二：緊扣「主題句+原文+語譯+闡釋」，無標籤小標題]
@@ -29697,17 +29729,15 @@ function submitToLitAnswerGen() {
 ---
 `;
     } else {
-        // DOCX Output
         finalPrompt += `
 # Python DOCX Output Generation (生成實體檔案最高指令)
 **你必須使用 Code Interpreter 在後台執行 python-docx 生成 /mnt/data/literature_answers.docx 並提供下載連結。**
-1. 每一道大題以粗體大字（14pt）標明題號與題目文字，並設定段後間距 12pt。
+1. 每一道大題以粗體大字（14pt）標明題號、分值與題目文字，並設定段後間距 12pt。
 2. 答案正文使用 12pt 字體，每段首行縮排 2 字符（首行縮排 24pt），段落行距 1.5 倍，段後留空 10pt。
 3. 嚴格禁止輸出任何「【主題句】」、「原文：」等標籤字眼，純粹輸出自然流暢的高分段落。
 `;
     }
  
-    // --- 注入篇章與題目 ---
     finalPrompt += `\n\n=== 📚 閱讀篇章來源 ===\n`;
     if (passageInput !== "") {
         finalPrompt += `${passageInput}\n\n`;
@@ -29715,7 +29745,7 @@ function submitToLitAnswerGen() {
         finalPrompt += `(篇章請見隨後上傳之附件圖片 / PDF / 文件，或為 DSE 必考文學指定篇章，請從文學知識庫精確調用)\n\n`;
     }
  
-    finalPrompt += `=== 📝 待解答文學長題目 ===\n${questionsBlock}\n\n`;
+    finalPrompt += `=== 📝 待解答文學長題目及分值 ===\n${questionsBlock}\n\n`;
  
     if (outputMode === 'html') {
         finalPrompt += "不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。\n不要輸出「.py」的檔案，必須輸出單一的「.html」的檔案。必須為HTML工具，並用code execution產出代碼。";
@@ -29723,7 +29753,6 @@ function submitToLitAnswerGen() {
         finalPrompt += "不要輸出「.py」的檔案，必須直接輸出.DOCX檔\n不要輸出「.py」的檔案，必須直接輸出.DOCX檔";
     }
  
-    // 複製到剪貼簿並跳轉 Gemini
     navigator.clipboard.writeText(finalPrompt).then(() => {
         const isAppleDevice = /Macintosh|iPhone|iPad|iPod/i.test(navigator.userAgent);
         if (isAppleDevice) {
@@ -31407,12 +31436,12 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 
-	<!-- === [新增] 長題目答案生成【文學】專用視窗 (Gemini) === -->
+	<!-- === [修訂版] 長題目答案生成【文學】專用視窗 (含分數設定) === -->
 <div id="litAnswerGenModal" class="morandi-modal-overlay" style="z-index: 100000; display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(253, 252, 248, 0.95); backdrop-filter: blur(5px); overflow-y: auto; align-items: flex-start; justify-content: center; padding: 5vh 0; box-sizing: border-box;">
     
-    <div class="morandi-modal-card" style="width: 90%; max-width: 520px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
+    <div class="morandi-modal-card" style="width: 90%; max-width: 540px; padding: 30px; text-align: left; margin: auto; box-sizing: border-box;">
         
-        <!-- 標題列 (含 HTML 閱覽器按鈕及關閉鍵) -->
+        <!-- 標題列 -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px dashed #a8dad5; padding-bottom: 10px;">
             <span style="color: #2A9689; font-size: 1.2rem; font-weight: bold; letter-spacing: 2px;">長題目答案生成【文學】</span>
             <div style="display: flex; align-items: center; gap: 15px;">
@@ -31423,7 +31452,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
  
-        <!-- ★ 1. 閱讀篇章來源 (預設選中「選擇指定範文」) -->
+        <!-- 1. 閱讀篇章來源 (預設選中「選擇指定範文」) -->
         <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">閱讀篇章</label>
         <div class="gemini-ui-grid grid-2" style="margin-top: 5px; margin-bottom: 15px;">
             <div class="gemini-ui-card active" onclick="selectLitGenPassageMode('template', this)">
@@ -31437,7 +31466,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
         <input type="hidden" id="litGenPassageMode" value="template">
  
-        <!-- 篇章下拉選單與文字框 (預設顯示) -->
+        <!-- 篇章下拉選單與文字框 -->
         <div id="litGenPassageInputSection" style="display: block; margin-bottom: 25px;">
             <select id="litGenPassageTemplateSelect" class="no-modal-editor" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; font-size: 0.95rem; outline: none; background-color: #fcfdfd; cursor: pointer;" onchange="if(this.value) document.getElementById('litGenPassageInput').value = this.value;">
                 <option value="">選擇範文（或自訂輸入）</option>
@@ -31450,28 +31479,44 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         </div>
  
-        <!-- ★ 2. 題目動態增減區 (上限 3 題，純文字輸入，SVG +/- 圖標) -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <!-- 2. 題目動態增減區 (含每題獨立分數欄位：預設 3 分，範圍 2-6 分) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">
-                輸入題目 <span id="litGenQuestionCount" style="font-size: 0.8rem; color: #8fa398; font-weight: normal;">(1/3)</span>
+                輸入題目及設定分數 <span id="litGenQuestionCount" style="font-size: 0.8rem; color: #8fa398; font-weight: normal;">(1/3)</span>
             </label>
             <button type="button" id="litGenAddQuestionBtn" onclick="addLitGenQuestion()" title="新增題目" style="background: #e8f5e9; border: 1px solid #c8e6c9; color: #2e7d32; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; padding: 0;">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             </button>
         </div>
  
-        <div id="litGenQuestionsContainer" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 25px;">
-            <!-- 預設第 1 題 -->
-            <div class="lit-gen-q-row" data-q-index="1" style="display: flex; gap: 8px; align-items: flex-start;">
-                <span style="font-size: 0.9rem; font-weight: bold; color: #8fa398; margin-top: 8px; width: 22px; flex-shrink: 0;">1.</span>
-                <textarea class="no-modal-editor lit-gen-q-input" rows="3" placeholder="請在此輸入文學長題目（建議包含題目分值，例如：...抒發了怎樣的感情？(3分)）" style="flex: 1; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
-                <button type="button" class="lit-gen-remove-btn" onclick="removeLitGenQuestion(this)" title="刪除此題" style="display: none; background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; width: 32px; height: 32px; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer; margin-top: 5px; flex-shrink: 0; padding: 0;">
-                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                </button>
+        <div id="litGenQuestionsContainer" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px;">
+            <!-- 預設第 1 題卡片 -->
+            <div class="lit-gen-q-card" data-q-index="1" style="background: #fff; border: 1px solid #e0ddd7; border-radius: 8px; padding: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span class="lit-gen-q-label" style="font-size: 0.95rem; font-weight: bold; color: #2A9689;">題目 1</span>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <!-- 獨立分數選擇欄 -->
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <span style="font-size: 0.85rem; color: #777;">滿分：</span>
+                            <select class="no-modal-editor lit-gen-score-select" style="padding: 3px 8px; border: 1px solid #8fa398; border-radius: 6px; font-weight: bold; color: #2A9689; background: #f0fdfc; font-size: 0.85rem; outline: none; cursor: pointer;">
+                                <option value="2">2 分</option>
+                                <option value="3" selected>3 分</option>
+                                <option value="4">4 分</option>
+                                <option value="5">5 分</option>
+                                <option value="6">6 分</option>
+                            </select>
+                        </div>
+                        <!-- 刪除按鈕 (SVG - 號) -->
+                        <button type="button" class="lit-gen-remove-btn" onclick="removeLitGenQuestion(this)" title="刪除此題" style="display: none; background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; cursor: pointer; padding: 0;">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        </button>
+                    </div>
+                </div>
+                <textarea class="no-modal-editor lit-gen-q-input" rows="3" placeholder="請在此輸入文學長題目..." style="width: 100%; padding: 10px; border: 1px solid #dcdfe6; border-radius: 6px; box-sizing: border-box; font-family: 'Noto Serif TC', serif; resize: vertical;"></textarea>
             </div>
         </div>
  
-        <!-- ★ 3. 輸出格式 (三選一卡片) -->
+        <!-- 3. 輸出格式 -->
         <label style="color: #5e7067; font-size: 0.9rem; font-weight: bold;">輸出格式</label>
         <div class="gemini-ui-grid grid-3" style="margin-top: 5px; margin-bottom: 25px;">
             <div class="gemini-ui-card active" onclick="selectLitGenOutputMode('docx', this)">
